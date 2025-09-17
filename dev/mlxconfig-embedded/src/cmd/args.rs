@@ -11,6 +11,7 @@
  */
 
 use clap::{Parser, Subcommand, ValueEnum};
+use mlxconfig_device::cmd::device::args::DeviceAction;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, ValueEnum, Default)]
@@ -117,6 +118,10 @@ pub enum Commands {
         // profile_command contains the profile subcommand to execute.
         #[command(subcommand)]
         profile_command: ProfileCommands,
+    },
+    Device {
+        #[command(subcommand)]
+        action: DeviceAction,
     },
 }
 

@@ -13,6 +13,7 @@ import "google/protobuf/timestamp.proto";
 import "health.proto";
 import "machine_discovery.proto";
 import "measured_boot.proto";
+import "mlx_device.proto";
 import "site_explorer.proto";
 
 service Forge {
@@ -540,6 +541,8 @@ service Forge {
   // Power Options
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
   rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
+
+  rpc PublishMlxDeviceReport(mlx_device.PublishMlxDeviceReportRequest) returns (google.protobuf.Empty);
 }
 
 message TpmCaAddedCaStatus{

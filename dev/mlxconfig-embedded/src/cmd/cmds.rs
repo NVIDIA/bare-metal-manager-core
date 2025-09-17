@@ -13,13 +13,14 @@
 use crate::cmd::args::{
     Cli, Commands, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
 };
+use mac_address::MacAddress;
+use mlxconfig_device::{
+    cmd::device::args::DeviceArgs, cmd::device::cmds::handle as handle_device, info::MlxDeviceInfo,
+};
 use mlxconfig_profile::MlxConfigProfile;
 use mlxconfig_registry::registries;
 use mlxconfig_runner::{ExecOptions, MlxConfigRunner, MlxRunnerError, QueryResult};
-use mlxconfig_variables::{
-    ConstraintValidationResult, DeviceInfo, MlxConfigVariable, MlxVariableRegistry,
-    MlxVariableSpec, RegistryTargetConstraints,
-};
+use mlxconfig_variables::{MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec};
 use prettytable::{Cell, Row, Table};
 use regex::Regex;
 use serde_json;
@@ -95,6 +96,10 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .with_confirm_destructive(confirm);
             run_profile_command(&device, profile_command, options)?;
         }
+        Some(Commands::Device { action }) => {
+            let device_args = DeviceArgs { action };
+            handle_device(device_args)?;
+        }
         None => {
             cmd_show_default_info();
         }
@@ -145,11 +150,6 @@ fn cmd_registry_validate(yaml_file: std::path::PathBuf) -> Result<(), Box<dyn st
             println!("YAML file is valid!");
             println!("Registry: '{}'", registry.name);
             println!("Variables: {}", registry.variables.len());
-            if registry.constraints.has_constraints() {
-                println!("Constraints: {}", registry.constraint_summary());
-            } else {
-                println!("No constraints (compatible with all hardware)");
-            }
         }
         Err(e) => {
             return Err(format!("Invalid YAML: {e}").into());
@@ -163,27 +163,12 @@ fn cmd_registry_list() {
     let mut table = Table::new();
 
     // Set up table headers
-    table.add_row(Row::new(vec![
-        Cell::new("Name"),
-        Cell::new("Variables"),
-        Cell::new("Constraints"),
-    ]));
+    table.add_row(Row::new(vec![Cell::new("Name"), Cell::new("Variables")]));
 
     for registry in registries::get_all() {
-        let constraints_display = if registry.constraints.has_constraints() {
-            // Format constraints as pretty JSON.
-            match serde_json::to_string_pretty(&registry.constraints) {
-                Ok(json) => json,
-                Err(_) => registry.constraint_summary(), // Fallback to human summary if JSON fails.
-            }
-        } else {
-            "none".to_string()
-        };
-
         table.add_row(Row::new(vec![
             Cell::new(&registry.name),
             Cell::new(&registry.variables.len().to_string()),
-            Cell::new(&constraints_display),
         ]));
     }
 
@@ -220,66 +205,28 @@ fn cmd_registry_check(
             "Registry '{registry_name}' not found. Use 'registry list' to see available registries.",
         )
     })?;
-
-    let mut device_info = DeviceInfo::new();
-    if let Some(dt) = device_type {
-        device_info = device_info.with_device_type(dt);
-    }
-    if let Some(pn) = part_number {
-        device_info = device_info.with_part_number(pn);
-    }
-    if let Some(fw) = fw_version {
-        device_info = device_info.with_fw_version(fw);
-    }
-
-    println!("Compatibility Check");
-    println!("Registry: '{}'", registry.name);
-    println!();
-    println!("Device Information:");
-    println!(
-        "  Device type: {}",
-        device_info
-            .device_type
-            .as_deref()
-            .unwrap_or("(not specified)")
-    );
-    println!(
-        "  Part number: {}",
-        device_info
-            .part_number
-            .as_deref()
-            .unwrap_or("(not specified)")
-    );
-    println!(
-        "  FW version: {}",
-        device_info
-            .fw_version
-            .as_deref()
-            .unwrap_or("(not specified)")
-    );
-    println!();
-    println!("Registry Constraints: {}", registry.constraint_summary());
-    println!();
-
-    let result = registry.validate_compatibility(&device_info);
-
-    match result {
-        ConstraintValidationResult::Valid => {
-            println!("This device is compatible with the registry!");
+    let device_info = MlxDeviceInfo {
+        pci_name: "00:00.0".to_string(),
+        device_type: device_type.unwrap_or_else(|| "Unknown".to_string()),
+        psid: "Unknown".to_string(),
+        device_description: "Test device".to_string(),
+        part_number: part_number.unwrap_or_else(|| "Unknown".to_string()),
+        fw_version_current: fw_version.unwrap_or_else(|| "0.0.0".to_string()),
+        pxe_version_current: "0.0.0".to_string(),
+        uefi_version_current: "0.0.0".to_string(),
+        uefi_version_virtio_blk_current: "0.0.0".to_string(),
+        uefi_version_virtio_net_current: "0.0.0".to_string(),
+        base_mac: MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+    };
+    if let Some(filter_set) = &registry.filters {
+        if filter_set.matches(&device_info) {
+            println!("Device info matches registry filters ({filter_set}!)");
+        } else {
+            println!("Device info doesn't match registry filters ({filter_set})!");
         }
-        ConstraintValidationResult::Unconstrained => {
-            println!("Registry has no constraints - compatible with any device");
-        }
-        ConstraintValidationResult::Invalid { reasons } => {
-            println!("This device is not compatible with the registry.");
-            println!();
-            println!("Reasons:");
-            for reason in reasons {
-                println!("  • {reason}");
-            }
-        }
+    } else {
+        println!("No filters configured on registry, device allowed.")
     }
-
     Ok(())
 }
 
@@ -366,9 +313,8 @@ pub fn parse_mlx_show_confs(content: &str) -> MlxVariableRegistry {
     MlxVariableRegistry {
         // TODO(chet): Make it so you can provide a name.
         name: "generated_registry".to_string(),
+        filters: None,
         variables,
-        // No constraints by default.
-        constraints: RegistryTargetConstraints::default(),
     }
 }
 
@@ -417,32 +363,6 @@ pub fn registry_to_yaml(registry: &MlxVariableRegistry) -> String {
         "name: \"{}\"\n",
         escape_yaml_string(&registry.name)
     ));
-
-    // Add constraints section if any exist.
-    if registry.constraints.has_constraints() {
-        yaml.push_str("constraints:\n");
-
-        if let Some(device_types) = &registry.constraints.device_types {
-            yaml.push_str("  device_types:\n");
-            for device_type in device_types {
-                yaml.push_str(&format!("    - \"{}\"\n", escape_yaml_string(device_type)));
-            }
-        }
-
-        if let Some(part_numbers) = &registry.constraints.part_numbers {
-            yaml.push_str("  part_numbers:\n");
-            for part_number in part_numbers {
-                yaml.push_str(&format!("    - \"{}\"\n", escape_yaml_string(part_number)));
-            }
-        }
-
-        if let Some(fw_versions) = &registry.constraints.fw_versions {
-            yaml.push_str("  fw_versions:\n");
-            for fw_version in fw_versions {
-                yaml.push_str(&format!("    - \"{}\"\n", escape_yaml_string(fw_version)));
-            }
-        }
-    }
 
     yaml.push_str("variables:\n");
 
@@ -579,25 +499,21 @@ fn show_registry_table(registry: &MlxVariableRegistry) {
         Cell::new(&registry.name).with_hspan(3),
     ]));
 
+    let device_filters = match &registry.filters {
+        Some(filters) => format!("{filters}"),
+        None => "None".to_string(),
+    };
+
+    table.add_row(Row::new(vec![
+        Cell::new("Device Filters"),
+        // And this one spans across 3 columns.
+        Cell::new(&device_filters).with_hspan(3),
+    ]));
+
     // Variables count row (spans all 4 columns).
     table.add_row(Row::new(vec![
         Cell::new("Variables"),
         Cell::new(&registry.variables.len().to_string()).with_hspan(3),
-    ]));
-
-    // Constraints row (spans all 4 columns).
-    let constraints_display = if registry.constraints.has_constraints() {
-        match serde_json::to_string_pretty(&registry.constraints) {
-            Ok(json) => json,
-            Err(_) => registry.constraint_summary(),
-        }
-    } else {
-        "none".to_string()
-    };
-
-    table.add_row(Row::new(vec![
-        Cell::new("Constraints"),
-        Cell::new(&constraints_display).with_hspan(3),
     ]));
 
     // Variables header row.
@@ -755,8 +671,8 @@ fn set_command(
     let runner = MlxConfigRunner::with_options(device.to_string(), registry, options);
 
     // Take the vec of key=val and make sure each key=val is a key=val.
-    let parsed_assignments = parse_assignments(assignments)
-        .map_err(|e| MlxRunnerError::ConstraintValidation { message: e })?;
+    let parsed_assignments =
+        parse_assignments(assignments).map_err(|e| MlxRunnerError::GenericError(e.to_string()))?;
 
     let total = parsed_assignments.len();
     println!("Setting {total} variables on device {device} using registry '{registry_name}':");
@@ -780,8 +696,8 @@ fn sync_command(
     let registry = get_registry(registry_name)?;
     let runner = MlxConfigRunner::with_options(device.to_string(), registry, options);
 
-    let parsed_assignments = parse_assignments(assignments)
-        .map_err(|e| MlxRunnerError::ConstraintValidation { message: e })?;
+    let parsed_assignments =
+        parse_assignments(assignments).map_err(|e| MlxRunnerError::GenericError(e.to_string()))?;
     let total = parsed_assignments.len();
 
     println!("Syncing {total} variables on device {device} using registry '{registry_name}':");
@@ -818,8 +734,8 @@ fn compare_command(
     let runner = MlxConfigRunner::with_options(device.to_string(), registry, options);
 
     // Parse assignments
-    let parsed_assignments = parse_assignments(assignments)
-        .map_err(|e| MlxRunnerError::ConstraintValidation { message: e })?;
+    let parsed_assignments =
+        parse_assignments(assignments).map_err(|e| MlxRunnerError::GenericError(e.to_string()))?;
     let total = parsed_assignments.len();
 
     println!("Comparing {total} variables on device {device} using registry '{registry_name}':");
@@ -916,12 +832,8 @@ fn display_query_results_json(result: &QueryResult) -> Result<(), MlxRunnerError
 
 // display_query_results_yaml prints query results as YAML.
 fn display_query_results_yaml(result: &QueryResult) -> Result<(), MlxRunnerError> {
-    let yaml_output = serde_yaml::to_string(&result.variables).map_err(|e| {
-        MlxRunnerError::ConstraintValidation {
-            message: format!("YAML serialization error: {e}"),
-        }
-    })?;
-
+    let yaml_output = serde_yaml::to_string(&result.variables)
+        .map_err(|e| MlxRunnerError::GenericError(format!("{e}")))?;
     println!("{yaml_output}");
     Ok(())
 }

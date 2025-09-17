@@ -1,4 +1,8 @@
 name: "mlx_generic"
+filters:
+  - field: device_type
+    values: [ "BlueField2", "BlueField3" ]
+    match_mode: exact
 variables:
   - name: "SRIOV_EN"
     description: "Enable Single-Root I/O Virtualization (SR-IOV)."

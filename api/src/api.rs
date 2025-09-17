@@ -32,11 +32,13 @@ use ::rpc::protos::forge::{
     MachineCredentialsUpdateResponse,
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
+use ::rpc::protos::mlx_device as mlx_device_pb;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use itertools::Itertools;
 use libredfish::{RoleId, SystemPowerControl};
 use mac_address::MacAddress;
+use mlxconfig_device::report::MlxDeviceReport;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 #[cfg(feature = "linux-build")]
@@ -5268,6 +5270,30 @@ impl Forge for Api {
         );
 
         Ok(Response::new(rpc::DeleteBmcUserResponse {}))
+    }
+
+    async fn publish_mlx_device_report(
+        &self,
+        request: tonic::Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        // TODO(chet): Integrate this once it's time. For now, just log
+        // that a report was received, that we can successfully convert
+        // it from an RPC message back to an MlxDeviceReport, and drop it.
+        log_request_data(&request);
+        let req = request.into_inner();
+        if let Some(report_pb) = req.report {
+            let report: MlxDeviceReport = report_pb
+                .try_into()
+                .map_err(|e: String| Status::internal(e))?;
+            tracing::info!(
+                "received MlxDeviceReport hostname={} device_count={}",
+                report.hostname,
+                report.devices.len(),
+            );
+        } else {
+            tracing::warn!("no embedded MlxDeviceReport published");
+        }
+        Ok(Response::new(()))
     }
 }
 

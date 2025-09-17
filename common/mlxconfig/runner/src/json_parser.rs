@@ -18,9 +18,9 @@
 use crate::{
     error::MlxRunnerError,
     exec_options::ExecOptions,
-    result_types::{QueriedVariable, QueryResult},
+    result_types::{QueriedDeviceInfo, QueriedVariable, QueryResult},
 };
-use mlxconfig_variables::{DeviceInfo, MlxConfigValue, MlxVariableRegistry, MlxVariableSpec};
+use mlxconfig_variables::{MlxConfigValue, MlxVariableRegistry, MlxVariableSpec};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path};
 
@@ -122,11 +122,6 @@ impl<'a> JsonResponseParser<'a> {
         let json_response: JsonResponse = serde_json::from_str(&content)
             .map_err(|e| MlxRunnerError::json_parsing(content.clone(), e))?;
 
-        // First, parse device information from the response.
-        let device_info = DeviceInfo::new()
-            .with_device_type(json_response.device.device_type)
-            .with_part_number(json_response.device.name);
-
         // And now verify the device from the response matches
         // what we [thought we] queried -- if it doesn't match,
         // something is wonky.
@@ -142,7 +137,15 @@ impl<'a> JsonResponseParser<'a> {
         // converted into properly typed values and such.
         let variables = self.parse_variables(&json_response.device.tlv_configuration)?;
 
-        Ok(QueryResult::new(device_info, variables))
+        Ok(QueryResult::new(
+            QueriedDeviceInfo {
+                device_id: Some(json_response.device.device),
+                device_type: Some(json_response.device.device_type),
+                part_number: Some(json_response.device.name),
+                description: Some(json_response.device.description),
+            },
+            variables,
+        ))
     }
 
     // parse_variables is the thing that actually parses all variables

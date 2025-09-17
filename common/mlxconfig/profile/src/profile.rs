@@ -16,7 +16,7 @@
 
 use crate::{error::MlxProfileError, serialization::SerializableProfile};
 use mlxconfig_runner::{ComparisonResult, ExecOptions, MlxConfigRunner, SyncResult};
-use mlxconfig_variables::{DeviceInfo, IntoMlxValue, MlxConfigValue, MlxVariableRegistry};
+use mlxconfig_variables::{IntoMlxValue, MlxConfigValue, MlxVariableRegistry};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
 
@@ -32,7 +32,7 @@ pub struct MlxConfigProfile {
     // name is the profile name.
     pub name: String,
     // registry is the target registry that defines the variables and
-    // constraints available to this profile.
+    // device filters available to this profile.
     pub registry: MlxVariableRegistry,
     // description is an optional description for this profile, which
     // will probably come in handy for site operators.
@@ -141,27 +141,6 @@ impl MlxConfigProfile {
         self.config_values.len()
     }
 
-    // validate_device_compatibility that this profile's registry constraints
-    // are compatible with the given device information.
-    // TODO(chet): This needs some love -- PoC had this being all backed
-    // by mlxfwmanager to parse XML + build device info. Need to integrate
-    // that again.
-    pub fn validate_device_compatibility(
-        &self,
-        device_info: &DeviceInfo,
-    ) -> Result<(), MlxProfileError> {
-        let validation_result = self.registry.validate_compatibility(device_info);
-
-        if !validation_result.is_valid() {
-            return Err(MlxProfileError::constraint_validation(
-                &self.registry.name,
-                validation_result,
-            ));
-        }
-
-        Ok(())
-    }
-
     // validate validates the entire profile for internal consistency,
     // including validation of each stored MlxConfigValue.
     pub fn validate(&self) -> Result<(), MlxProfileError> {
@@ -196,10 +175,6 @@ impl MlxConfigProfile {
             MlxConfigRunner::new(device.to_string(), self.registry.clone())
         };
 
-        // Then, query device info for constraint validation.
-        let query_result = runner.query_all()?;
-        self.validate_device_compatibility(&query_result.device_info)?;
-
         // And finally, perform the comparison!
         let comparison_result = runner.compare(&self.config_values)?;
         Ok(comparison_result)
@@ -221,10 +196,6 @@ impl MlxConfigProfile {
         } else {
             MlxConfigRunner::new(device.to_string(), self.registry.clone())
         };
-
-        // Then, query device info for constraint validation.
-        let query_result = runner.query_all()?;
-        self.validate_device_compatibility(&query_result.device_info)?;
 
         // And finally, perform the sync!
         let sync_result = runner.sync(&self.config_values)?;
@@ -284,122 +255,20 @@ impl MlxConfigProfile {
     // summary creates a summary string describing this profile,
     // mainly used for integrating with the CLI reference example.
     pub fn summary(&self) -> String {
-        let constraint_info = if self.registry.constraints.has_constraints() {
-            format!(" ({})", self.registry.constraint_summary())
-        } else {
-            " (no constraints)".to_string()
-        };
-
         match &self.description {
             Some(desc) => format!(
-                "Profile '{}': {} - {} variables for registry '{}'{}",
+                "Profile '{}': {} - {} variables for registry '{}'",
                 self.name,
                 desc,
                 self.config_values.len(),
                 self.registry.name,
-                constraint_info
             ),
             None => format!(
-                "Profile '{}': {} variables for registry '{}'{}",
+                "Profile '{}': {} variables for registry '{}'",
                 self.name,
                 self.config_values.len(),
                 self.registry.name,
-                constraint_info
             ),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use mlxconfig_variables::{MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec};
-
-    fn create_test_registry() -> MlxVariableRegistry {
-        MlxVariableRegistry::builder()
-            .name("test_registry".to_string())
-            .variables(vec![
-                MlxConfigVariable::builder()
-                    .name("BOOL_VAR".to_string())
-                    .description("A boolean variable".to_string())
-                    .read_only(false)
-                    .spec(MlxVariableSpec::Boolean)
-                    .build(),
-                MlxConfigVariable::builder()
-                    .name("INT_VAR".to_string())
-                    .description("An integer variable".to_string())
-                    .read_only(false)
-                    .spec(MlxVariableSpec::Integer)
-                    .build(),
-                MlxConfigVariable::builder()
-                    .name("ENUM_VAR".to_string())
-                    .description("An enum variable".to_string())
-                    .read_only(false)
-                    .spec(MlxVariableSpec::Enum {
-                        options: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
-                    })
-                    .build(),
-            ])
-            .build()
-    }
-
-    #[test]
-    fn test_profile_creation() {
-        let registry = create_test_registry();
-        let profile = MlxConfigProfile::new("test_profile", registry.clone())
-            .with_description("Test profile for unit tests")
-            .with("BOOL_VAR", true)
-            .expect("Should add boolean variable")
-            .with("INT_VAR", 42)
-            .expect("Should add integer variable")
-            .with("ENUM_VAR", "high")
-            .expect("Should add enum variable");
-
-        assert_eq!(profile.name, "test_profile");
-        assert_eq!(profile.registry.name, "test_registry");
-        assert_eq!(profile.variable_count(), 3);
-
-        let bool_var = profile
-            .get_variable("BOOL_VAR")
-            .expect("Should find boolean variable");
-        assert_eq!(bool_var.to_display_string(), "true");
-
-        let int_var = profile
-            .get_variable("INT_VAR")
-            .expect("Should find integer variable");
-        assert_eq!(int_var.to_display_string(), "42");
-
-        let enum_var = profile
-            .get_variable("ENUM_VAR")
-            .expect("Should find enum variable");
-        assert_eq!(enum_var.to_display_string(), "high");
-    }
-
-    #[test]
-    fn test_profile_validation() {
-        let registry = create_test_registry();
-
-        // Test valid profile
-        let valid_profile = MlxConfigProfile::new("valid", registry.clone())
-            .with("BOOL_VAR", true)
-            .expect("Should add variable");
-        assert!(valid_profile.validate().is_ok());
-
-        // Test empty profile
-        let empty_profile = MlxConfigProfile::new("empty", registry);
-        assert!(empty_profile.validate().is_err());
-    }
-
-    #[test]
-    fn test_profile_variable_errors() {
-        let registry = create_test_registry();
-
-        // Test unknown variable
-        let result = MlxConfigProfile::new("test", registry.clone()).with("UNKNOWN_VAR", true);
-        assert!(result.is_err());
-
-        // Test invalid value type
-        let result = MlxConfigProfile::new("test", registry).with("ENUM_VAR", "invalid_option");
-        assert!(result.is_err());
     }
 }

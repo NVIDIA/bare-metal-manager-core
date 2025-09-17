@@ -15,7 +15,9 @@ serde_yaml = "0.9"
 regex = "1.10"
 clap = { version = "4.0", features = ["derive"] }
 prettytable-rs = "^0.10"
+mlxconfig-device = { path = "../../common/mlxconfig/device" }
 mlxconfig-profile = { path = "../../common/mlxconfig/profile" }
 mlxconfig-registry = { path = "../../common/mlxconfig/registry" }
 mlxconfig-runner = { path = "../../common/mlxconfig/runner" }
 mlxconfig-variables = { path = "../../common/mlxconfig/variables" }
+mac_address = { version = "1.1", features = ["serde"] }

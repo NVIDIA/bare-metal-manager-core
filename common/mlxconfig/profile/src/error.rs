@@ -16,7 +16,7 @@
 // the other mlxconfig-* crates.
 
 use mlxconfig_runner::MlxRunnerError;
-use mlxconfig_variables::{ConstraintValidationResult, MlxValueError};
+use mlxconfig_variables::MlxValueError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -51,15 +51,6 @@ pub enum MlxProfileError {
     // really happen, but it's good to check just incase!
     #[error("Profile validation failed: {message}")]
     ProfileValidation { message: String },
-
-    // ConstraintValidation is returned when the target
-    // device fails the constraints of the registry backing
-    // the profile.
-    #[error("Device constraint validation failed for registry '{registry_name}': {reasons:?}")]
-    ConstraintValidation {
-        registry_name: String,
-        reasons: Vec<String>,
-    },
 
     // Serialization is returned when there is a serialization
     // error while attempting to serialize the profile out to
@@ -118,18 +109,6 @@ impl MlxProfileError {
     pub fn profile_validation<T: Into<String>>(message: T) -> Self {
         Self::ProfileValidation {
             message: message.into(),
-        }
-    }
-
-    // constraint_validation creates a constraint validation error
-    // from a ConstraintValidationResult.
-    pub fn constraint_validation<T: Into<String>>(
-        registry_name: T,
-        result: ConstraintValidationResult,
-    ) -> Self {
-        Self::ConstraintValidation {
-            registry_name: registry_name.into(),
-            reasons: result.reasons(),
         }
     }
 

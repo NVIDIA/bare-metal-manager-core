@@ -204,12 +204,6 @@ fn test_should_retry_error_classification() {
     );
 
     assert!(
-        !executor.should_retry_error(&MlxRunnerError::ConstraintValidation {
-            message: "test".to_string()
-        })
-    );
-
-    assert!(
         !executor.should_retry_error(&MlxRunnerError::ArraySizeMismatch {
             variable_name: "TEST".to_string(),
             expected: 4,
@@ -723,9 +717,6 @@ mod error_classification_tests {
             },
             MlxRunnerError::InvalidArrayIndex {
                 variable_name: "TEST[invalid]".to_string(),
-            },
-            MlxRunnerError::ConstraintValidation {
-                message: "test".to_string(),
             },
             MlxRunnerError::DeviceMismatch {
                 expected: "01:00.0".to_string(),

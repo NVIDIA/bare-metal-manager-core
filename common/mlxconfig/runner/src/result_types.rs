@@ -21,7 +21,7 @@
 // and any time we execute something that changes (sync or set), we
 // then return back a VariableChange for things that changed.
 
-use mlxconfig_variables::{DeviceInfo, MlxConfigValue, MlxConfigVariable};
+use mlxconfig_variables::{MlxConfigValue, MlxConfigVariable};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -105,15 +105,56 @@ impl QueriedVariable {
 pub struct QueryResult {
     // device_info contains the device information
     // parsed from the JSON response.
-    pub device_info: DeviceInfo,
+    pub device_info: QueriedDeviceInfo,
     // variables contains all queried variables with their
     // complete state as per the device.
     pub variables: Vec<QueriedVariable>,
 }
 
+// QueriedDeviceInfo is a struct containing the info
+// returned about the queried device.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QueriedDeviceInfo {
+    // id is the "device" field from the JSON.
+    pub device_id: Option<String>,
+    pub device_type: Option<String>,
+    // part_number is the "name" field from the returned
+    // JSON. I don't know why they just didn't call it
+    // part_number, but I'm fixing it here.
+    pub part_number: Option<String>,
+    pub description: Option<String>,
+}
+
+impl QueriedDeviceInfo {
+    // new initializes a new empty DeviceInfo instance.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_device_id<T: Into<String>>(mut self, device_id: T) -> Self {
+        self.device_id = Some(device_id.into());
+        self
+    }
+
+    pub fn with_device_type<T: Into<String>>(mut self, device_type: T) -> Self {
+        self.device_type = Some(device_type.into());
+        self
+    }
+
+    pub fn with_part_number<T: Into<String>>(mut self, part_number: T) -> Self {
+        self.part_number = Some(part_number.into());
+        self
+    }
+
+    pub fn with_description<T: Into<String>>(mut self, description: T) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+}
+
 impl QueryResult {
     // new creates a new QueryResult.
-    pub fn new(device_info: DeviceInfo, variables: Vec<QueriedVariable>) -> Self {
+    pub fn new(device_info: QueriedDeviceInfo, variables: Vec<QueriedVariable>) -> Self {
         Self {
             device_info,
             variables,
