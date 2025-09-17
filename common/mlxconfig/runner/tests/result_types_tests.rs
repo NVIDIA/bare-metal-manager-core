@@ -14,9 +14,10 @@
 // Tests for result types and their functionality
 
 use mlxconfig_runner::{
-    ComparisonResult, PlannedChange, QueriedVariable, QueryResult, SyncResult, VariableChange,
+    ComparisonResult, PlannedChange, QueriedDeviceInfo, QueriedVariable, QueryResult, SyncResult,
+    VariableChange,
 };
-use mlxconfig_variables::{DeviceInfo, MlxValueType};
+use mlxconfig_variables::MlxValueType;
 use std::time::Duration;
 
 mod common;
@@ -253,7 +254,7 @@ fn test_variable_change_description() {
 
 #[test]
 fn test_query_result_empty() {
-    let device_info = DeviceInfo::new();
+    let device_info = QueriedDeviceInfo::new();
     let query_result = QueryResult::new(device_info, vec![]);
 
     assert_eq!(query_result.variable_count(), 0);
@@ -381,24 +382,24 @@ fn test_preset_values_in_variable_changes() {
 
 #[test]
 fn test_device_info_in_query_result() {
-    let device_info = DeviceInfo::new()
-        .with_device_type("ConnectX-7")
-        .with_part_number("MCX713106AS-VDAT")
-        .with_fw_version("28.39.1002");
+    let device_info = QueriedDeviceInfo::new()
+        .with_device_id("01:00.0")
+        .with_device_type("BlueField3")
+        .with_part_number("MCX713106AS-VDAT");
 
     let query_result = QueryResult::new(device_info, vec![]);
 
     assert_eq!(
+        query_result.device_info.device_id,
+        Some("01:00.0".to_string())
+    );
+    assert_eq!(
         query_result.device_info.device_type,
-        Some("ConnectX-7".to_string())
+        Some("BlueField3".to_string())
     );
     assert_eq!(
         query_result.device_info.part_number,
         Some("MCX713106AS-VDAT".to_string())
-    );
-    assert_eq!(
-        query_result.device_info.fw_version,
-        Some("28.39.1002".to_string())
     );
 }
 

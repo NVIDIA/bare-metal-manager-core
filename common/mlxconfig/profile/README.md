@@ -44,7 +44,7 @@ config:
 - **YAML → Profile**: `IntoMlxValue for serde_yaml::Value` handles all conversion.
 - **Profile → YAML**: `MlxValueType::to_yaml_value()` extracts clean values.
 - **Registry Validation**: All variables validated against registry specs.
-- **Constraint Checking**: Device compatibility verified before operations.
+- **Filter Checking**: Device compatibility verified before operations.
 
 ### ✅ **No Custom Parsing**
 
@@ -222,22 +222,6 @@ println!("Applied {} changes in {:?}",
          sync_result.execution_time);
 ```
 
-### Constraint Validation
-
-```
-// Profiles automatically validate device compatibility.
-let device_info = DeviceInfo::new()
-    .with_device_type("BlueField3")
-    .with_part_number("900-9D3D4-00EN-HA0")
-    .with_fw_version("32.41.130");
-
-// This happens automatically during sync/compare.
-match profile.validate_device_compatibility(&device_info) {
-    Ok(_) => println!("Device compatible"),
-    Err(e) => println!("Constraint violation: {}", e),
-}
-```
-
 ## Error Handling
 
 ```
@@ -251,9 +235,6 @@ match profile.sync("01:00.0", None) {
     Err(MlxProfileError::VariableNotFound { variable_name, registry_name }) => {
         println!("Variable '{}' not in registry '{}'", variable_name, registry_name);
     }
-    Err(MlxProfileError::ConstraintValidation { registry_name, reasons }) => {
-        println!("Device incompatible with '{}': {:?}", registry_name, reasons);
-    }
     Err(e) => println!("Other error: {}", e),
 }
 ```
@@ -262,7 +243,7 @@ match profile.sync("01:00.0", None) {
 
 ### ✅ **Registry-Driven Validation**
 
-Profiles are backed by registries that define available variables, types, and device constraints. All validation happens
+Profiles are backed by registries that define available variables, types, and device filters. All validation happens
 through the type system.
 
 ### ✅ **Unified API**

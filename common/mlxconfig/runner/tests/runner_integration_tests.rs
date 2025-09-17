@@ -230,23 +230,6 @@ fn test_query_nonexistent_variable() {
 }
 
 #[test]
-fn test_destructive_variable_detection() {
-    let registry = common::create_constrained_test_registry();
-    let options = ExecOptions::new()
-        .with_confirm_destructive(true)
-        .with_dry_run(true);
-    let runner = MlxConfigRunner::with_options("01:00.0".to_string(), registry, options);
-
-    // OH_MY_DPU is defined as a destructive variable in exec_options.rs
-    // But we don't have it in our test registry, so let's test with a regular variable
-    let assignments = &[("BLUEFIELD_SPECIFIC", "true")];
-
-    // This should process without issues since BLUEFIELD_SPECIFIC isn't destructive
-    let result = runner.set(assignments);
-    assert!(result.is_err() || result.is_ok()); // May fail due to no mlxconfig, but shouldn't fail on destructive check
-}
-
-#[test]
 fn test_different_device_identifiers() {
     let registry = common::create_test_registry();
 
@@ -328,16 +311,6 @@ fn test_temp_file_prefix_setting() {
 #[cfg(test)]
 mod error_handling_tests {
     use super::*;
-
-    #[test]
-    fn test_constraint_validation_with_constrained_registry() {
-        let registry = common::create_constrained_test_registry(); // Has device constraints
-        let runner = MlxConfigRunner::new("01:00.0".to_string(), registry);
-
-        // Test basic operation with constrained registry
-        let result = runner.set([("BLUEFIELD_SPECIFIC", "true")]);
-        assert!(result.is_err() || result.is_ok());
-    }
 
     #[test]
     fn test_multiple_error_conditions() {

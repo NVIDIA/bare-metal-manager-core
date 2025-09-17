@@ -73,22 +73,6 @@ variables:
         size: 8
 ```
 
-### Device Constraints
-```yaml
-name: "bluefield3_registry"
-constraints:
-  device_types:
-    - "Bluefield3"
-  part_numbers:
-    - "900-9D3D4-00EN-HA0"
-    - "900-9D3D4-00EN-HA1"
-  fw_versions:
-    - "32.41.130"
-    - "32.41.131"
-variables:
-  # ... variable definitions
-```
-
 ## Generated Code Structure
 
 The build process generates `src/registries.rs` with:
@@ -130,29 +114,6 @@ let names = registries::list();
 println!("Available registries: {:?}", names);
 ```
 
-### Device Compatibility Checking
-```rust
-use mlxconfig_variables::{DeviceInfo, ConstraintValidationResult};
-
-let device = DeviceInfo::new()
-    .with_device_type("Bluefield3")
-    .with_part_number("900-9D3D4-00EN-HA0");
-
-if let Some(registry) = registries::get("bluefield3_registry") {
-    match registry.validate_compatibility(&device) {
-        ConstraintValidationResult::Valid => {
-            println!("Device is compatible with this registry");
-        },
-        ConstraintValidationResult::Invalid { reasons } => {
-            println!("Device incompatible: {:?}", reasons);
-        },
-        ConstraintValidationResult::Unconstrained => {
-            println!("Registry has no constraints");
-        }
-    }
-}
-```
-
 ## Build Process Details
 
 ### Build Script Workflow
@@ -176,7 +137,7 @@ warning: mlxconfig_registry@0.1.0: [INFO] Generated 2 registries with 10 total v
 - **Invalid YAML**: Build fails with precise error location
 - **Missing fields**: Serde validation catches incomplete definitions
 - **Type errors**: Rust compiler validates all generated code
-- **Constraint conflicts**: Logical validation during parsing
+- **Device filter conflicts**: Logical validation during parsing
 
 ## Key Benefits
 

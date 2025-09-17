@@ -10,415 +10,445 @@
  * its affiliates is strictly prohibited.
  */
 
-use mlxconfig_variables::{
-    ConstraintValidationResult, DeviceInfo, MlxConfigVariable, MlxVariableRegistry,
-    MlxVariableSpec, RegistryTargetConstraints,
-};
+use mac_address::MacAddress;
+use mlxconfig_device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
+use mlxconfig_device::info::MlxDeviceInfo;
+use mlxconfig_variables::{MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec};
 
-fn create_sample_variable(name: &str, description: &str, read_only: bool) -> MlxConfigVariable {
-    MlxConfigVariable::builder()
-        .name(name)
-        .description(description)
-        .read_only(read_only)
-        .spec(MlxVariableSpec::Integer)
-        .build()
-}
-
-fn create_sample_variables() -> Vec<MlxConfigVariable> {
+// create_test_variables creates a set of test variables for registry testing.
+fn create_test_variables() -> Vec<MlxConfigVariable> {
     vec![
-        create_sample_variable("cpu_frequency", "CPU frequency in MHz", false),
-        create_sample_variable("memory_size", "Memory size in GB", true),
-        create_sample_variable("cache_size", "Cache size in KB", false),
+        MlxConfigVariable::builder()
+            .name("BOOL_VAR".to_string())
+            .description("A boolean variable".to_string())
+            .read_only(false)
+            .spec(MlxVariableSpec::Boolean)
+            .build(),
+        MlxConfigVariable::builder()
+            .name("INT_VAR".to_string())
+            .description("An integer variable".to_string())
+            .read_only(false)
+            .spec(MlxVariableSpec::Integer)
+            .build(),
+        MlxConfigVariable::builder()
+            .name("ENUM_VAR".to_string())
+            .description("An enum variable".to_string())
+            .read_only(false)
+            .spec(MlxVariableSpec::Enum {
+                options: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
+            })
+            .build(),
+        MlxConfigVariable::builder()
+            .name("ARRAY_VAR".to_string())
+            .description("An integer array variable".to_string())
+            .read_only(false)
+            .spec(MlxVariableSpec::IntegerArray { size: 4 })
+            .build(),
     ]
 }
 
-#[test]
-fn test_mlx_variable_registry_builder_basic() {
-    let variables = create_sample_variables();
-
-    let registry = MlxVariableRegistry::builder()
-        .name("Test Registry")
-        .variables(variables.clone())
-        .build();
-
-    assert_eq!(registry.name, "Test Registry");
-    assert_eq!(registry.variables.len(), 3);
-    assert_eq!(registry.variables[0].name, "cpu_frequency");
-    assert_eq!(registry.variables[1].name, "memory_size");
-    assert_eq!(registry.variables[2].name, "cache_size");
-
-    // Default constraints should be empty
-    assert!(!registry.constraints.has_constraints());
+// create_test_device creates a test device for filter testing.
+fn create_test_device(device_type: &str, part_number: &str, fw_version: &str) -> MlxDeviceInfo {
+    MlxDeviceInfo {
+        pci_name: "01:00.0".to_string(),
+        device_type: device_type.to_string(),
+        psid: "MT_0000000001".to_string(),
+        device_description: "Test device".to_string(),
+        part_number: part_number.to_string(),
+        fw_version_current: fw_version.to_string(),
+        pxe_version_current: "3.6.0102".to_string(),
+        uefi_version_current: "14.25.1020".to_string(),
+        uefi_version_virtio_blk_current: "1.0.00".to_string(),
+        uefi_version_virtio_net_current: "1.0.00".to_string(),
+        base_mac: MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+    }
 }
 
 #[test]
-fn test_mlx_variable_registry_builder_with_constraints() {
-    let variables = create_sample_variables();
-    let constraints = RegistryTargetConstraints::new()
-        .with_device_types(vec!["Bluefield3".to_string()])
-        .with_part_numbers(vec!["900-9D3D4-00EN-HA0".to_string()]);
+fn test_registry_creation_basic() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("test_registry").variables(variables);
 
-    let registry = MlxVariableRegistry::builder()
-        .name("Constrained Registry")
+    assert_eq!(registry.name, "test_registry");
+    assert_eq!(registry.variables.len(), 4);
+    assert!(registry.filters.is_none());
+    assert!(!registry.has_filters());
+}
+
+#[test]
+fn test_registry_builder_pattern() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("builder_test")
         .variables(variables)
-        .constraints(constraints.clone())
-        .build();
+        .with_filter(DeviceFilter::new(
+            DeviceField::DeviceType,
+            vec!["BlueField3".to_string()],
+            MatchMode::Exact,
+        ));
 
-    assert_eq!(registry.name, "Constrained Registry");
-    assert_eq!(
-        registry.constraints.device_types,
-        Some(vec!["Bluefield3".to_string()])
-    );
-    assert_eq!(
-        registry.constraints.part_numbers,
-        Some(vec!["900-9D3D4-00EN-HA0".to_string()])
-    );
+    assert_eq!(registry.name, "builder_test");
+    assert_eq!(registry.variables.len(), 4);
+    assert!(registry.has_filters());
 }
 
 #[test]
-fn test_mlx_variable_registry_builder_with_constraint_shortcuts() {
-    let variables = create_sample_variables();
+fn test_registry_get_variable() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("lookup_test").variables(variables);
 
-    let registry = MlxVariableRegistry::builder()
-        .name("Shortcut Constraints Registry")
+    // Test finding existing variables
+    let bool_var = registry.get_variable("BOOL_VAR");
+    assert!(bool_var.is_some());
+    assert_eq!(bool_var.unwrap().name, "BOOL_VAR");
+    assert_eq!(bool_var.unwrap().description, "A boolean variable");
+    assert!(!bool_var.unwrap().read_only);
+
+    let enum_var = registry.get_variable("ENUM_VAR");
+    assert!(enum_var.is_some());
+    match &enum_var.unwrap().spec {
+        MlxVariableSpec::Enum { options } => {
+            assert_eq!(options, &vec!["low", "medium", "high"]);
+        }
+        _ => panic!("Expected Enum spec"),
+    }
+
+    // Test non-existent variable
+    let missing_var = registry.get_variable("NON_EXISTENT");
+    assert!(missing_var.is_none());
+}
+
+#[test]
+fn test_registry_variable_names() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("names_test").variables(variables);
+
+    let names = registry.variable_names();
+    assert_eq!(names.len(), 4);
+    assert!(names.contains(&"BOOL_VAR"));
+    assert!(names.contains(&"INT_VAR"));
+    assert!(names.contains(&"ENUM_VAR"));
+    assert!(names.contains(&"ARRAY_VAR"));
+}
+
+#[test]
+fn test_registry_with_single_filter() {
+    let variables = create_test_variables();
+    let filter = DeviceFilter::new(
+        DeviceField::DeviceType,
+        vec!["BlueField3".to_string()],
+        MatchMode::Exact,
+    );
+
+    let registry = MlxVariableRegistry::new("single_filter_test")
         .variables(variables)
-        .with_device_types(vec!["Bluefield3".to_string(), "ConnectX-7".to_string()])
-        .with_part_numbers(vec!["900-9D3D4-00EN-HA0".to_string()])
-        .with_fw_versions(vec!["32.41.130".to_string()])
-        .build();
+        .with_filter(filter);
 
-    assert_eq!(
-        registry.constraints.device_types,
-        Some(vec!["Bluefield3".to_string(), "ConnectX-7".to_string()])
-    );
-    assert_eq!(
-        registry.constraints.part_numbers,
-        Some(vec!["900-9D3D4-00EN-HA0".to_string()])
-    );
-    assert_eq!(
-        registry.constraints.fw_versions,
-        Some(vec!["32.41.130".to_string()])
-    );
+    assert!(registry.has_filters());
+    assert_eq!(registry.filters.as_ref().unwrap().filters.len(), 1);
+
+    let filter_summary = registry.filter_summary();
+    assert!(filter_summary.contains("device_type"));
+    assert!(filter_summary.contains("BlueField3"));
+    assert!(filter_summary.contains("exact"));
 }
 
 #[test]
-fn test_mlx_variable_registry_builder_add_variable() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Incremental Registry")
-        .add_variable(create_sample_variable("var1", "First variable", false))
-        .add_variable(create_sample_variable("var2", "Second variable", true))
-        .build();
+fn test_registry_with_multiple_filters() {
+    let variables = create_test_variables();
 
-    assert_eq!(registry.variables.len(), 2);
-    assert_eq!(registry.variables[0].name, "var1");
-    assert_eq!(registry.variables[1].name, "var2");
+    let registry = MlxVariableRegistry::new("multi_filter_test")
+        .variables(variables)
+        .with_filter(DeviceFilter::new(
+            DeviceField::DeviceType,
+            vec!["BlueField3".to_string(), "ConnectX-6".to_string()],
+            MatchMode::Exact,
+        ))
+        .with_filter(DeviceFilter::new(
+            DeviceField::PartNumber,
+            vec!["MCX.*".to_string()],
+            MatchMode::Regex,
+        ));
+
+    assert!(registry.has_filters());
+    assert_eq!(registry.filters.as_ref().unwrap().filters.len(), 2);
+
+    let filter_summary = registry.filter_summary();
+    assert!(filter_summary.contains("device_type"));
+    assert!(filter_summary.contains("part_number"));
 }
 
 #[test]
-#[should_panic(expected = "name is required")]
-fn test_mlx_variable_registry_builder_missing_name() {
-    MlxVariableRegistry::builder()
-        .variables(create_sample_variables())
-        .build();
+fn test_registry_with_filter_set() {
+    let variables = create_test_variables();
+
+    let mut filter_set = DeviceFilterSet::default();
+    filter_set.add_filter(DeviceFilter::new(
+        DeviceField::DeviceType,
+        vec!["BlueField3".to_string()],
+        MatchMode::Exact,
+    ));
+    filter_set.add_filter(DeviceFilter::new(
+        DeviceField::FirmwareVersion,
+        vec!["28.*.1010".to_string()],
+        MatchMode::Regex,
+    ));
+
+    let registry = MlxVariableRegistry::new("filter_set_test")
+        .variables(variables)
+        .with_filters(filter_set);
+
+    assert!(registry.has_filters());
+    assert_eq!(registry.filters.as_ref().unwrap().filters.len(), 2);
 }
 
 #[test]
-fn test_validate_compatibility_unconstrained() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Unconstrained Registry")
-        .variables(create_sample_variables())
-        .build();
+fn test_registry_device_matching_no_filters() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("no_filter_test").variables(variables);
 
-    let device = DeviceInfo::new()
-        .with_device_type("Bluefield3")
-        .with_part_number("900-9D3D4-00EN-HA0");
+    let device = create_test_device("BlueField3", "MCX623106AS-CDAT", "28.38.1010");
 
-    let result = registry.validate_compatibility(&device);
-    assert_eq!(result, ConstraintValidationResult::Unconstrained);
-    assert!(result.is_valid());
+    // Registry with no filters should match any device
+    assert!(registry.matches_device(&device));
 }
 
 #[test]
-fn test_validate_compatibility_valid() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Constrained Registry")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string()])
-        .with_part_numbers(vec!["900-9D3D4-00EN-HA0".to_string()])
-        .build();
+fn test_registry_device_matching_with_filters() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("device_match_test")
+        .variables(variables)
+        .with_filter(DeviceFilter::new(
+            DeviceField::DeviceType,
+            vec!["BlueField3".to_string()],
+            MatchMode::Exact,
+        ))
+        .with_filter(DeviceFilter::new(
+            DeviceField::PartNumber,
+            vec!["MCX.*".to_string()],
+            MatchMode::Regex,
+        ));
 
-    let device = DeviceInfo::new()
-        .with_device_type("Bluefield3")
-        .with_part_number("900-9D3D4-00EN-HA0");
+    // Device that matches both filters
+    let matching_device = create_test_device("BlueField3", "MCX623106AS-CDAT", "28.38.1010");
+    assert!(registry.matches_device(&matching_device));
 
-    let result = registry.validate_compatibility(&device);
-    assert_eq!(result, ConstraintValidationResult::Valid);
-    assert!(result.is_valid());
+    // Device that matches only first filter
+    let partial_match_device = create_test_device("BlueField3", "MT40354", "28.38.1010");
+    assert!(!registry.matches_device(&partial_match_device));
+
+    // Device that matches no filters
+    let non_matching_device = create_test_device("ConnectX-6", "MT40354", "28.38.1010");
+    assert!(!registry.matches_device(&non_matching_device));
 }
 
 #[test]
-fn test_validate_compatibility_invalid_device_type() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Device Type Constrained Registry")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string()])
-        .build();
+fn test_registry_filter_summary_empty() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("empty_filter_test").variables(variables);
 
-    let device = DeviceInfo::new().with_device_type("ConnectX-7");
-
-    let result = registry.validate_compatibility(&device);
-    assert!(!result.is_valid());
-    match result {
-        ConstraintValidationResult::Invalid { reasons } => {
-            assert_eq!(reasons.len(), 1);
-            assert!(reasons[0].contains("Device type 'ConnectX-7' not in allowed types"));
-            assert!(reasons[0].contains("Bluefield3"));
-        }
-        _ => panic!("Expected Invalid result"),
-    }
+    assert_eq!(registry.filter_summary(), "No filters");
 }
 
 #[test]
-fn test_validate_compatibility_missing_device_type() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Device Type Required Registry")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string()])
-        .build();
+fn test_registry_filter_summary_with_filters() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("summary_test")
+        .variables(variables)
+        .with_filter(DeviceFilter::new(
+            DeviceField::DeviceType,
+            vec!["BlueField3".to_string()],
+            MatchMode::Exact,
+        ));
 
-    let device = DeviceInfo::new(); // No device type set
-
-    let result = registry.validate_compatibility(&device);
-    assert!(!result.is_valid());
-    match result {
-        ConstraintValidationResult::Invalid { reasons } => {
-            assert_eq!(reasons.len(), 1);
-            assert!(reasons[0].contains("Device type required but not provided"));
-        }
-        _ => panic!("Expected Invalid result"),
-    }
+    let summary = registry.filter_summary();
+    assert!(summary.contains("device_type"));
+    assert!(summary.contains("BlueField3"));
+    assert!(summary.contains("exact"));
 }
 
 #[test]
-fn test_validate_compatibility_invalid_part_number() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Part Number Constrained Registry")
-        .variables(create_sample_variables())
-        .with_part_numbers(vec!["900-9D3D4-00EN-HA0".to_string()])
-        .build();
+fn test_registry_serde_serialization_no_filters() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("serde_test").variables(variables);
 
-    let device = DeviceInfo::new().with_part_number("900-WRONG-PART-NUM");
-
-    let result = registry.validate_compatibility(&device);
-    assert!(!result.is_valid());
-    match result {
-        ConstraintValidationResult::Invalid { reasons } => {
-            assert_eq!(reasons.len(), 1);
-            assert!(
-                reasons[0].contains("Part number '900-WRONG-PART-NUM' not in allowed part numbers")
-            );
-        }
-        _ => panic!("Expected Invalid result"),
-    }
-}
-
-#[test]
-fn test_validate_compatibility_invalid_fw_version() {
-    let registry = MlxVariableRegistry::builder()
-        .name("FW Version Constrained Registry")
-        .variables(create_sample_variables())
-        .with_fw_versions(vec!["32.41.130".to_string()])
-        .build();
-
-    let device = DeviceInfo::new().with_fw_version("32.40.100");
-
-    let result = registry.validate_compatibility(&device);
-    assert!(!result.is_valid());
-    match result {
-        ConstraintValidationResult::Invalid { reasons } => {
-            assert_eq!(reasons.len(), 1);
-            assert!(reasons[0].contains("Firmware version '32.40.100' not in allowed versions"));
-        }
-        _ => panic!("Expected Invalid result"),
-    }
-}
-
-#[test]
-fn test_validate_compatibility_multiple_constraints_all_invalid() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Multi Constrained Registry")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string()])
-        .with_part_numbers(vec!["900-9D3D4-00EN-HA0".to_string()])
-        .with_fw_versions(vec!["32.41.130".to_string()])
-        .build();
-
-    let device = DeviceInfo::new()
-        .with_device_type("ConnectX-7")
-        .with_part_number("900-WRONG-PART")
-        .with_fw_version("32.40.100");
-
-    let result = registry.validate_compatibility(&device);
-    assert!(!result.is_valid());
-    match result {
-        ConstraintValidationResult::Invalid { reasons } => {
-            assert_eq!(reasons.len(), 3);
-            // Should have all three failure reasons
-            assert!(reasons.iter().any(|r| r.contains("Device type")));
-            assert!(reasons.iter().any(|r| r.contains("Part number")));
-            assert!(reasons.iter().any(|r| r.contains("Firmware version")));
-        }
-        _ => panic!("Expected Invalid result"),
-    }
-}
-
-#[test]
-fn test_validate_compatibility_multiple_allowed_values() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Multiple Values Registry")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string(), "ConnectX-7".to_string()])
-        .with_fw_versions(vec!["32.41.130".to_string(), "32.42.100".to_string()])
-        .build();
-
-    // Test first valid combination
-    let device1 = DeviceInfo::new()
-        .with_device_type("Bluefield3")
-        .with_fw_version("32.41.130");
-
-    let result1 = registry.validate_compatibility(&device1);
-    assert_eq!(result1, ConstraintValidationResult::Valid);
-
-    // Test second valid combination
-    let device2 = DeviceInfo::new()
-        .with_device_type("ConnectX-7")
-        .with_fw_version("32.42.100");
-
-    let result2 = registry.validate_compatibility(&device2);
-    assert_eq!(result2, ConstraintValidationResult::Valid);
-
-    // Test invalid device type with valid fw version
-    let device3 = DeviceInfo::new()
-        .with_device_type("InvalidDevice")
-        .with_fw_version("32.41.130");
-
-    let result = registry.validate_compatibility(&device3);
-    assert!(!result.is_valid());
-    match result {
-        ConstraintValidationResult::Invalid { reasons } => {
-            assert_eq!(reasons.len(), 1);
-            assert!(reasons[0].contains("Device type 'InvalidDevice' not in allowed types"));
-        }
-        _ => panic!("Expected Invalid result"),
-    }
-}
-
-#[test]
-fn test_constraint_summary() {
-    // Empty constraints
-    let registry1 = MlxVariableRegistry::builder()
-        .name("No Constraints")
-        .variables(create_sample_variables())
-        .build();
-
-    assert_eq!(
-        registry1.constraint_summary(),
-        "No constraints (compatible with any device)"
-    );
-
-    // Single constraint
-    let registry2 = MlxVariableRegistry::builder()
-        .name("Device Type Only")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string()])
-        .build();
-
-    assert_eq!(registry2.constraint_summary(), "Device types: [Bluefield3]");
-
-    // Multiple constraints
-    let registry3 = MlxVariableRegistry::builder()
-        .name("Multiple Constraints")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string(), "ConnectX-7".to_string()])
-        .with_part_numbers(vec!["900-9D3D4-00EN-HA0".to_string()])
-        .with_fw_versions(vec!["32.41.130".to_string(), "32.42.100".to_string()])
-        .build();
-
-    let summary = registry3.constraint_summary();
-    assert!(summary.contains("Device types: [Bluefield3, ConnectX-7]"));
-    assert!(summary.contains("Part numbers: [900-9D3D4-00EN-HA0]"));
-    assert!(summary.contains("FW versions: [32.41.130, 32.42.100]"));
-    assert!(summary.contains(";")); // Should contain separators
-}
-
-#[test]
-fn test_mlx_variable_registry_serde_serialization() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Test Registry")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string()])
-        .build();
-
-    let json = serde_json::to_string(&registry).expect("Serialization failed");
+    // Test JSON serialization
+    let json = serde_json::to_string(&registry).expect("JSON serialization failed");
     let deserialized: MlxVariableRegistry =
-        serde_json::from_str(&json).expect("Deserialization failed");
+        serde_json::from_str(&json).expect("JSON deserialization failed");
 
     assert_eq!(registry.name, deserialized.name);
     assert_eq!(registry.variables.len(), deserialized.variables.len());
-    assert_eq!(
-        registry.constraints.device_types,
-        deserialized.constraints.device_types
-    );
-}
+    assert!(!deserialized.has_filters());
 
-#[test]
-fn test_mlx_variable_registry_yaml_serialization() {
-    let registry = MlxVariableRegistry::builder()
-        .name("YAML Test Registry")
-        .variables(vec![MlxConfigVariable::builder()
-            .name("test_var")
-            .description("Test variable")
-            .read_only(false)
-            .spec(MlxVariableSpec::Boolean)
-            .build()])
-        .build();
-
+    // Test YAML serialization
     let yaml = serde_yaml::to_string(&registry).expect("YAML serialization failed");
-    let deserialized: MlxVariableRegistry =
+    let yaml_deserialized: MlxVariableRegistry =
         serde_yaml::from_str(&yaml).expect("YAML deserialization failed");
 
+    assert_eq!(registry.name, yaml_deserialized.name);
+    assert_eq!(registry.variables.len(), yaml_deserialized.variables.len());
+    assert!(!yaml_deserialized.has_filters());
+}
+
+#[test]
+fn test_registry_serde_serialization_with_filters() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("serde_filter_test")
+        .variables(variables)
+        .with_filter(DeviceFilter::new(
+            DeviceField::DeviceType,
+            vec!["BlueField3".to_string()],
+            MatchMode::Exact,
+        ));
+
+    // Test JSON serialization with filters
+    let json = serde_json::to_string(&registry).expect("JSON serialization failed");
+    let deserialized: MlxVariableRegistry =
+        serde_json::from_str(&json).expect("JSON deserialization failed");
+
     assert_eq!(registry.name, deserialized.name);
     assert_eq!(registry.variables.len(), deserialized.variables.len());
-    assert_eq!(registry.variables[0].name, deserialized.variables[0].name);
+    assert!(deserialized.has_filters());
+    assert_eq!(deserialized.filters.as_ref().unwrap().filters.len(), 1);
+
+    // Test YAML serialization with filters
+    let yaml = serde_yaml::to_string(&registry).expect("YAML serialization failed");
+    let yaml_deserialized: MlxVariableRegistry =
+        serde_yaml::from_str(&yaml).expect("YAML deserialization failed");
+
+    assert_eq!(registry.name, yaml_deserialized.name);
+    assert_eq!(registry.variables.len(), yaml_deserialized.variables.len());
+    assert!(yaml_deserialized.has_filters());
+    assert_eq!(yaml_deserialized.filters.as_ref().unwrap().filters.len(), 1);
 }
 
 #[test]
-fn test_empty_variables_list() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Empty Registry")
-        .variables(vec![])
-        .build();
+fn test_registry_yaml_format_matches_expected() {
+    // Test that we can deserialize the expected YAML format
+    let yaml = r#"
+name: "test_registry"
+filters:
+  - field: device_type
+    values: ["BlueField3", "ConnectX-6"]
+    match_mode: exact
+  - field: part_number
+    values: ["MCX.*"]
+    match_mode: regex
+variables:
+  - name: "TEST_VAR"
+    description: "Test variable"
+    read_only: false
+    spec:
+      type: "boolean"
+"#;
+
+    let registry: MlxVariableRegistry =
+        serde_yaml::from_str(yaml).expect("Should deserialize expected YAML format");
+
+    assert_eq!(registry.name, "test_registry");
+    assert!(registry.has_filters());
+    assert_eq!(registry.filters.as_ref().unwrap().filters.len(), 2);
+    assert_eq!(registry.variables.len(), 1);
+    assert_eq!(registry.variables[0].name, "TEST_VAR");
+}
+
+#[test]
+fn test_registry_clone() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("clone_test")
+        .variables(variables)
+        .with_filter(DeviceFilter::new(
+            DeviceField::DeviceType,
+            vec!["BlueField3".to_string()],
+            MatchMode::Exact,
+        ));
+
+    let cloned = registry.clone();
+
+    assert_eq!(registry.name, cloned.name);
+    assert_eq!(registry.variables.len(), cloned.variables.len());
+    assert_eq!(registry.has_filters(), cloned.has_filters());
+    assert_eq!(
+        registry.filters.as_ref().unwrap().filters.len(),
+        cloned.filters.as_ref().unwrap().filters.len()
+    );
+}
+
+#[test]
+fn test_registry_debug_formatting() {
+    let variables = create_test_variables();
+    let registry = MlxVariableRegistry::new("debug_test")
+        .variables(variables)
+        .with_filter(DeviceFilter::new(
+            DeviceField::DeviceType,
+            vec!["BlueField3".to_string()],
+            MatchMode::Exact,
+        ));
+
+    let debug_str = format!("{registry:?}");
+
+    // Should contain all important fields
+    assert!(debug_str.contains("debug_test"));
+    assert!(debug_str.contains("variables"));
+    assert!(debug_str.contains("filters"));
+    assert!(debug_str.contains("BlueField3"));
+}
+
+#[test]
+fn test_registry_empty_variables() {
+    let registry = MlxVariableRegistry::new("empty_vars_test").variables(vec![]);
 
     assert_eq!(registry.variables.len(), 0);
-
-    let device = DeviceInfo::new();
-    let result = registry.validate_compatibility(&device);
-    assert_eq!(result, ConstraintValidationResult::Unconstrained);
+    assert!(registry.variable_names().is_empty());
+    assert!(registry.get_variable("ANY_VAR").is_none());
 }
 
 #[test]
-fn test_constraint_validation_result_reasons() {
-    let registry = MlxVariableRegistry::builder()
-        .name("Test Registry")
-        .variables(create_sample_variables())
-        .with_device_types(vec!["Bluefield3".to_string()])
+fn test_registry_add_variable_builder() {
+    let variable = MlxConfigVariable::builder()
+        .name("SINGLE_VAR".to_string())
+        .description("Single variable test".to_string())
+        .read_only(false)
+        .spec(MlxVariableSpec::Boolean)
         .build();
 
-    let device = DeviceInfo::new().with_device_type("WrongDevice");
+    let registry = MlxVariableRegistry::new("add_var_test").add_variable(variable);
 
-    let result = registry.validate_compatibility(&device);
-    let reasons = result.reasons();
+    assert_eq!(registry.variables.len(), 1);
+    assert_eq!(registry.variables[0].name, "SINGLE_VAR");
 
-    assert_eq!(reasons.len(), 1);
-    assert!(reasons[0].contains("Device type 'WrongDevice' not in allowed types"));
+    let found_var = registry.get_variable("SINGLE_VAR");
+    assert!(found_var.is_some());
+    assert_eq!(found_var.unwrap().description, "Single variable test");
+}
+
+#[test]
+fn test_registry_multiple_add_variable_calls() {
+    let var1 = MlxConfigVariable::builder()
+        .name("VAR1".to_string())
+        .description("First variable".to_string())
+        .read_only(false)
+        .spec(MlxVariableSpec::Boolean)
+        .build();
+
+    let var2 = MlxConfigVariable::builder()
+        .name("VAR2".to_string())
+        .description("Second variable".to_string())
+        .read_only(true)
+        .spec(MlxVariableSpec::Integer)
+        .build();
+
+    let registry = MlxVariableRegistry::new("multi_add_test")
+        .add_variable(var1)
+        .add_variable(var2);
+
+    assert_eq!(registry.variables.len(), 2);
+
+    let var1_found = registry.get_variable("VAR1");
+    assert!(var1_found.is_some());
+    assert!(!var1_found.unwrap().read_only);
+
+    let var2_found = registry.get_variable("VAR2");
+    assert!(var2_found.is_some());
+    assert!(var2_found.unwrap().read_only);
 }

@@ -28,8 +28,8 @@ use uuid::Uuid;
 use wait_timeout::ChildExt;
 
 // CommandExecutor handles the execution of mlxconfig commands with
-// retry logic, timeout support, and temporary file lifecycle management.
-// Uses the `wait-timeout` and `backon` crates for robust command execution.
+// retry logic, timeout support, and temporary file management.
+// Uses the `wait-timeout` and `backon` crates for command execution.
 pub struct CommandExecutor<'a> {
     // options contains the execution options controlling retry,
     // timeout, and interactive confirmation behavior.
@@ -44,8 +44,8 @@ impl<'a> CommandExecutor<'a> {
     }
 
     // Executes a command with retry logic, exponential backoff, and timeout
-    // handling using backon's clean retry API. Returns the command output on
-    // success, or an error if we had to give up after configured retries/timeouts.
+    // handling using backon. Returns the command output on success, or an error
+    // if we had to give up after configured retries/timeouts.
     pub fn execute_with_retry(&self, command_spec: &CommandSpec) -> Result<Output, MlxRunnerError> {
         if self.options.verbose {
             println!("[EXEC] Executing command with timeout and retry: {command_spec}",);
@@ -57,7 +57,7 @@ impl<'a> CommandExecutor<'a> {
             );
         }
 
-        // Create exponential backoff strategy using backon with our custom options
+        // Create exponential backoff strategy with our custom options.
         let backoff = ExponentialBuilder::default()
             .with_min_delay(self.options.retry_delay)
             .with_max_delay(self.options.max_retry_delay)
@@ -68,10 +68,10 @@ impl<'a> CommandExecutor<'a> {
             })
             .with_factor(self.options.retry_multiplier);
 
-        // Create a closure that captures the command spec for retrying
+        // Create a closure that captures the command
+        // spec for retrying with backon.
         let execute_fn = || self.execute_single_attempt(command_spec);
 
-        // Use backon's clean blocking retry API
         let result = execute_fn
             .retry(&backoff)
             .when(|err| self.should_retry_error(err))
@@ -218,7 +218,6 @@ impl<'a> CommandExecutor<'a> {
             MlxRunnerError::ArraySizeMismatch { .. } => false,
             MlxRunnerError::ValueConversion { .. } => false,
             MlxRunnerError::InvalidArrayIndex { .. } => false,
-            MlxRunnerError::ConstraintValidation { .. } => false,
             MlxRunnerError::DeviceMismatch { .. } => false,
             MlxRunnerError::NoDeviceFound => false,
             MlxRunnerError::ConfirmationDeclined { .. } => false,
@@ -229,6 +228,7 @@ impl<'a> CommandExecutor<'a> {
             MlxRunnerError::TempFileError { .. } => true,
             MlxRunnerError::Timeout { .. } => true,
             MlxRunnerError::Io(_) => true,
+            MlxRunnerError::GenericError(_) => true,
         }
     }
 

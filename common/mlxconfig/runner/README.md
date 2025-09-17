@@ -32,10 +32,10 @@ configuration management for Mellanox devices using mlxconfig-registry and mlxco
 - Automatic expansion for queries: `ARRAY[0..size]`.
 - Index syntax support: `"ARRAY_VAR[2]"` → sparse array.
 
-🔒 **Device Constraint Validation**
+🔒 **Device Filter Validation**
 
 - Registry compatibility checking (device type, part number, firmware version).
-- Compile-time constraint validation prevents incompatible configurations.
+- Compile-time device filter validation prevents incompatible configurations.
 - Detailed validation error reporting.
 
 ## Quick Start
@@ -81,25 +81,6 @@ let sync_result = runner.sync(&[
 println!("Changed {}/{} variables",
          sync_result.variables_changed,
          sync_result.variables_checked);
-```
-
-### Device Constraint Validation
-
-```rust
-use mlxconfig_variables::DeviceInfo;
-
-// Check if registry is compatible with your device
-let device_info = DeviceInfo::new()
-    .with_device_type("BlueField3")
-    .with_part_number("900-9D3D4-00EN-HA0");
-
-let validation = registry.validate_compatibility(&device_info);
-if !validation.is_valid() {
-    println!("Registry not compatible: {:?}", validation.reasons());
-    return;
-}
-
-println!("✅ Registry compatible with device");
 ```
 
 ### Advanced Configuration
@@ -187,7 +168,7 @@ The runner provides a clean, high-level interface to `mlxconfig` operations:
 │                     │    │                     │    │                     │
 │  • MlxConfigRunner  │◄───┤  • Static registries│◄───┤  • Core types       │
 │  • ExecOptions      │    │  • Build-time embed │    │  • Value conversion │
-│  • Query/Set/Sync   │    │  • Device constraint│    │  • Validation logic │
+│  • Query/Set/Sync   │    │  • Device filters   │    │  • Validation logic │
 │  • Array handling   │    │  • YAML → Rust      │    │  • Builder patterns │
 └─────────────────────┘    └─────────────────────┘    └─────────────────────┘
            │
@@ -246,9 +227,6 @@ match runner.set(&[("INVALID_VAR", 42)]) {
     Err(MlxRunnerError::Timeout { command, duration }) => {
         println!("Command timed out after {duration:?}: {command}");
     }
-    Err(MlxRunnerError::ConstraintValidation { message }) => {
-        println!("Registry constraint validation failed: {message}");
-    }
     Err(MlxRunnerError::ConfirmationDeclined { variables }) => {
         println!("User declined destructive operation for variables: {variables:?}");
     }
@@ -271,10 +249,7 @@ println!("Available registries: {:?}", registries::list());
 let registry = registries::get("mlx_generic")?;
 println!("Registry '{}' has {} variables", registry.name, registry.variables.len());
 
-// Check registry constraints
-println!("Registry constraints: {}", registry.constraint_summary());
-
-// Runner automatically knows variable types and constraints
+// Runner automatically knows variable types and device filters.
 let runner = MlxConfigRunner::new("01:00.0".to_string(), registry.clone());
 
 // Array variables are automatically detected and expanded
@@ -347,7 +322,7 @@ runner.set(&[("PCI_DOWNSTREAM_PORT_OWNER", vec!["HOST_0", "HOST_1", "EMBEDDED_CP
 - **Array bounds checking**: Automatic size validation for all array operations
 - **Enum validation**: All enum values checked against registry-defined options
 - **Destructive variable protection**: Optional confirmation prompts for dangerous operations
-- **Device constraint validation**: Registry compatibility checking prevents misconfigurations
+- **Device filter validation**: Registry compatibility checking prevents misconfigurations
 - **Comprehensive error handling**: Detailed context for all failure modes with retry logic
 - **Dry-run support**: Test operations without making changes
 - **Exponential backoff**: Intelligent retry behavior for transient failures
@@ -361,7 +336,7 @@ This crate is designed for production hardware management:
 - **Robust error handling**: Graceful degradation and detailed error reporting
 - **Extensive logging**: Comprehensive audit trail for compliance and debugging
 - **Configurable timeouts**: Prevents hanging operations in production environments
-- **Registry constraints**: Ensures configurations are only applied to compatible hardware
+- **Registry device filters**: Ensures configurations are only applied to compatible hardware
 
 Perfect for integration into:
 - Hardware provisioning systems

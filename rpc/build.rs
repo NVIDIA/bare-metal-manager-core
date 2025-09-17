@@ -59,6 +59,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(
+            ".mlx_device",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.AdminForceDeleteMachineRequest",
             "#[derive(serde::Serialize)]",
         )
@@ -608,6 +612,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/common.proto",
                 "proto/forge.proto",
                 "proto/machine_discovery.proto",
+                "proto/mlx_device.proto",
                 "proto/site_explorer.proto",
             ],
             &["proto"],

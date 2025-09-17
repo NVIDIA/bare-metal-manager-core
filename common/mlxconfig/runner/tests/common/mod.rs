@@ -13,9 +13,8 @@
 // tests/common/mod.rs
 // Shared test utilities for mlxconfig-runner tests.
 
-use mlxconfig_variables::{
-    MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec, RegistryTargetConstraints,
-};
+use mlxconfig_runner::QueriedDeviceInfo;
+use mlxconfig_variables::{MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec};
 use serde_json::json;
 
 /// Creates a test registry with common variable types for testing
@@ -121,10 +120,7 @@ pub fn create_test_registry() -> MlxVariableRegistry {
             .build(),
     ];
 
-    MlxVariableRegistry::builder()
-        .name("Test Registry".to_string())
-        .variables(variables)
-        .build()
+    MlxVariableRegistry::new("Test Registry").variables(variables)
 }
 
 /// Creates a simple registry with minimal variables for focused testing
@@ -145,31 +141,7 @@ pub fn create_minimal_test_registry() -> MlxVariableRegistry {
             .build(),
     ];
 
-    MlxVariableRegistry::builder()
-        .name("Minimal Test Registry".to_string())
-        .variables(variables)
-        .build()
-}
-
-/// Creates a test registry with device constraints
-#[allow(dead_code)]
-pub fn create_constrained_test_registry() -> MlxVariableRegistry {
-    let variables = vec![MlxConfigVariable::builder()
-        .name("BLUEFIELD_SPECIFIC")
-        .description("BlueField specific configuration")
-        .read_only(false)
-        .spec(MlxVariableSpec::builder().boolean().build())
-        .build()];
-
-    let constraints = RegistryTargetConstraints::new()
-        .with_device_types(vec!["BlueField3".to_string()])
-        .with_part_numbers(vec!["900-9D3D4-00EN-HA0".to_string()]);
-
-    MlxVariableRegistry::builder()
-        .name("BlueField3 Registry".to_string())
-        .variables(variables)
-        .constraints(constraints)
-        .build()
+    MlxVariableRegistry::new("Minimal Test Registry".to_string()).variables(variables)
 }
 
 /// Creates sample mlxconfig JSON response for testing
@@ -365,9 +337,10 @@ pub fn create_array_json_response(device: &str) -> serde_json::Value {
 
 /// Creates test device info
 #[allow(dead_code)]
-pub fn create_test_device_info() -> mlxconfig_variables::DeviceInfo {
-    mlxconfig_variables::DeviceInfo::new()
+pub fn create_test_device_info() -> QueriedDeviceInfo {
+    QueriedDeviceInfo::new()
+        .with_device_id("01:00.0")
         .with_device_type("BlueField3")
         .with_part_number("900-9D3D4-00EN-HA0")
-        .with_fw_version("32.41.130")
+        .with_description("Some device")
 }

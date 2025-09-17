@@ -22,10 +22,12 @@ use crate::{
     exec_options::{is_destructive_variable, ExecOptions},
     executor::CommandExecutor,
     json_parser::JsonResponseParser,
-    result_types::{ComparisonResult, PlannedChange, QueryResult, SyncResult, VariableChange},
+    result_types::{
+        ComparisonResult, PlannedChange, QueriedDeviceInfo, QueryResult, SyncResult, VariableChange,
+    },
     traits::{MlxConfigQueryable, MlxConfigSettable},
 };
-use mlxconfig_variables::{DeviceInfo, MlxConfigValue, MlxVariableRegistry};
+use mlxconfig_variables::{MlxConfigValue, MlxVariableRegistry};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Instant};
 
@@ -307,6 +309,7 @@ impl MlxConfigRunner {
         &self,
         variable_names: &[String],
     ) -> Result<QueryResult, MlxRunnerError> {
+        self.validate_device_matches_registry()?;
         let executor = CommandExecutor::new(&self.options);
         let temp_file = executor.create_temp_file(self.get_temp_file_prefix())?;
         let command_builder = CommandBuilder::new(&self.device, &self.options);
@@ -326,13 +329,15 @@ impl MlxConfigRunner {
             executor.execute_dry_run(&command_spec, "query");
             executor.cleanup_temp_file(&temp_file)?;
             // Return empty result for dry run
-            Ok(QueryResult::new(DeviceInfo::new(), Vec::new()))
+            Ok(QueryResult::new(QueriedDeviceInfo::default(), Vec::new()))
         }
     }
 
     // set_values_internal is the internal method to
     // set configuration values.
     fn set_values_internal(&self, config_values: &[MlxConfigValue]) -> Result<(), MlxRunnerError> {
+        self.validate_device_matches_registry()?;
+
         if config_values.is_empty() {
             return Ok(());
         }
@@ -394,5 +399,64 @@ impl MlxConfigRunner {
                 }
             })
             .collect()
+    }
+
+    // validate_device_matches_registry validates that the target device
+    // matches any filters configured in the registry. If the registry has
+    // no filters, all devices are allowed. If filters are configured,
+    // the device must match them to proceed with operations.
+    fn validate_device_matches_registry(&self) -> Result<(), MlxRunnerError> {
+        // If the registry has no filters configured, allow all devices.
+        if !self.registry.has_filters() {
+            if self.options.verbose {
+                println!(
+                    "[DEVICE] Registry '{}' has no device filters - allowing all devices",
+                    self.registry.name
+                );
+            }
+            return Ok(());
+        }
+
+        if self.options.verbose {
+            println!(
+                "[DEVICE] Validating device '{}' against registry '{}' filters",
+                self.device, self.registry.name
+            );
+        }
+
+        // Discover the device to get its info.
+        let device_info =
+            mlxconfig_device::discovery::discover_device(&self.device).map_err(|e| {
+                MlxRunnerError::GenericError(format!(
+                    "Failed to discover device '{}': {}",
+                    self.device, e
+                ))
+            })?;
+
+        // Check if the device matches the registry filters.
+        let matches = self.registry.matches_device(&device_info);
+
+        if self.options.verbose {
+            println!(
+                "[DEVICE] Device '{}' (type: {}, part: {}) {} registry filters",
+                device_info.pci_name,
+                device_info.device_type,
+                device_info.part_number,
+                if matches { "matches" } else { "does not match" }
+            );
+        }
+
+        if matches {
+            Ok(())
+        } else {
+            Err(MlxRunnerError::GenericError(format!(
+                "Device '{}' (type: {}, part: {}) does not match registry '{}' filters: {}",
+                device_info.pci_name,
+                device_info.device_type,
+                device_info.part_number,
+                self.registry.name,
+                self.registry.filter_summary()
+            )))
+        }
     }
 }

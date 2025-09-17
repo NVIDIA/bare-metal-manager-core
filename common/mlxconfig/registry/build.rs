@@ -23,9 +23,7 @@ use std::path::Path;
 // Of course, pull in the mlxconfig_variables crate
 // so we can deserialize the registry YAML files,
 // build variables, and generate corresponding .rs.
-use mlxconfig_variables::{
-    MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec, RegistryTargetConstraints,
-};
+use mlxconfig_variables::{MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec};
 
 fn main() {
     println!("cargo:rerun-if-changed=databases/");
@@ -101,20 +99,20 @@ fn load_registry_file(path: &Path, file_name: &str) -> MlxVariableRegistry {
         file_name
     );
 
-    // Show constraint info during build.
-    if registry.constraints.has_constraints() {
+    // Show filter info during build.
+    if registry.has_filters() {
         println!(
-            "cargo:warning=[INFO]   Constraints: {}",
-            registry.constraint_summary()
+            "cargo:warning=[INFO]   Filters: {}",
+            registry.filter_summary()
         );
     } else {
-        println!("cargo:warning=[INFO]   No constraints configured for this registry");
+        println!("cargo:warning=[INFO]   No device filters configured for this registry");
     }
 
     registry
 }
 
-// generate_registries_code enerates the complete registries.rs
+// generate_registries_code generates the complete registries.rs
 // Rust code file for all registries parsed from the databases/
 // directory.
 fn generate_registries_code(registries: &[MlxVariableRegistry]) -> String {
@@ -141,23 +139,23 @@ fn generate_registries_code(registries: &[MlxVariableRegistry]) -> String {
 
 // generate_registry_code generates code for a
 // single registry to put into registries.rs,
-// taking whitespace and such into consdieration
+// taking whitespace and such into consideration
 // so it looks pretty when you actually read the
 // code itself.
 fn generate_registry_code(registry: &MlxVariableRegistry) -> String {
     let mut code = String::new();
 
     code.push_str(&format!(
-        "    mlxconfig_variables::MlxVariableRegistry::builder()\n        .name({:?}.to_string())\n",
+        "        mlxconfig_variables::MlxVariableRegistry::new({:?})\n",
         registry.name
     ));
 
-    // Generate constraints if they exist.
-    if registry.constraints.has_constraints() {
-        code.push_str(&generate_constraints_code(&registry.constraints));
+    // Generate filters if they exist.
+    if registry.has_filters() {
+        code.push_str(&generate_filters_code(registry.filters.as_ref().unwrap()));
     }
 
-    code.push_str("        .variables(vec![\n");
+    code.push_str("            .variables(vec![\n");
 
     // And now generate all variables for the registry.
     for variable in &registry.variables {
@@ -165,53 +163,77 @@ fn generate_registry_code(registry: &MlxVariableRegistry) -> String {
         code.push('\n');
     }
 
-    code.push_str("        ])\n        .build(),\n");
+    code.push_str("            ]),\n");
     code
 }
 
-// generate_constraints_code generates code for
-// any configured registry constraints.
-fn generate_constraints_code(constraints: &RegistryTargetConstraints) -> String {
+// generate_filters_code generates code for
+// any configured registry device filters.
+fn generate_filters_code(filter_set: &mlxconfig_device::filters::DeviceFilterSet) -> String {
     let mut code = String::new();
-    code.push_str(
-        "        .constraints(\n            mlxconfig_variables::RegistryTargetConstraints::new()",
+
+    code.push_str("            .with_filters(\n");
+    code.push_str("                mlxconfig_device::filters::DeviceFilterSet::new()");
+
+    // Generate code for each filter in the set.
+    for filter in &filter_set.filters {
+        code.push_str("\n                    .with_filter(");
+        code.push_str(&generate_single_filter_code(filter));
+        code.push(')');
+    }
+
+    code.push_str("\n            )\n");
+    code
+}
+
+// generate_single_filter_code generates code for a single device filter.
+fn generate_single_filter_code(filter: &mlxconfig_device::filters::DeviceFilter) -> String {
+    let field_code = match filter.field {
+        mlxconfig_device::filters::DeviceField::DeviceType => {
+            "mlxconfig_device::filters::DeviceField::DeviceType"
+        }
+        mlxconfig_device::filters::DeviceField::PartNumber => {
+            "mlxconfig_device::filters::DeviceField::PartNumber"
+        }
+        mlxconfig_device::filters::DeviceField::FirmwareVersion => {
+            "mlxconfig_device::filters::DeviceField::FirmwareVersion"
+        }
+        mlxconfig_device::filters::DeviceField::MacAddress => {
+            "mlxconfig_device::filters::DeviceField::MacAddress"
+        }
+        mlxconfig_device::filters::DeviceField::Description => {
+            "mlxconfig_device::filters::DeviceField::Description"
+        }
+        mlxconfig_device::filters::DeviceField::PciName => {
+            "mlxconfig_device::filters::DeviceField::PciName"
+        }
+    };
+
+    let values_code = format!(
+        "vec![{}]",
+        filter
+            .values
+            .iter()
+            .map(|v| format!("{v:?}.to_string()"))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
 
-    if let Some(device_types) = &constraints.device_types {
-        code.push_str(&format!(
-            "\n                .with_device_types(vec![{}])",
-            device_types
-                .iter()
-                .map(|dt| format!("{dt:?}.to_string()"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
+    let match_mode_code = match filter.match_mode {
+        mlxconfig_device::filters::MatchMode::Regex => {
+            "mlxconfig_device::filters::MatchMode::Regex"
+        }
+        mlxconfig_device::filters::MatchMode::Exact => {
+            "mlxconfig_device::filters::MatchMode::Exact"
+        }
+        mlxconfig_device::filters::MatchMode::Prefix => {
+            "mlxconfig_device::filters::MatchMode::Prefix"
+        }
+    };
 
-    if let Some(part_numbers) = &constraints.part_numbers {
-        code.push_str(&format!(
-            "\n                .with_part_numbers(vec![{}])",
-            part_numbers
-                .iter()
-                .map(|pn| format!("{pn:?}.to_string()"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-
-    if let Some(fw_versions) = &constraints.fw_versions {
-        code.push_str(&format!(
-            "\n                .with_fw_versions(vec![{}])",
-            fw_versions
-                .iter()
-                .map(|fw| format!("{fw:?}.to_string()"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-
-    code.push_str("\n        )\n");
-    code
+    format!(
+        "mlxconfig_device::filters::DeviceFilter::new({field_code}, {values_code}, {match_mode_code})",
+    )
 }
 
 // generate_variable_code generates code for a single
@@ -219,12 +241,12 @@ fn generate_constraints_code(constraints: &RegistryTargetConstraints) -> String 
 // generation coming at the tail end.
 fn generate_variable_code(variable: &MlxConfigVariable) -> String {
     format!(
-        r#"            mlxconfig_variables::MlxConfigVariable::builder()
-                .name({:?}.to_string())
-                .description({:?}.to_string())
-                .read_only({})
-                .spec({})
-                .build(),"#,
+        r#"                mlxconfig_variables::MlxConfigVariable::builder()
+                    .name({:?}.to_string())
+                    .description({:?}.to_string())
+                    .read_only({})
+                    .spec({})
+                    .build(),"#,
         variable.name,
         variable.description,
         variable.read_only,
@@ -248,6 +270,17 @@ pub fn get(name: &str) -> Option<&'static mlxconfig_variables::MlxVariableRegist
 /// list will return a list of all registry names.
 pub fn list() -> Vec<&'static str> {
     REGISTRIES.iter().map(|r| r.name.as_str()).collect()
+}
+
+/// get_registries_for_device returns all registries that match the given device.
+/// If a registry has no filters configured, it matches all devices.
+pub fn get_registries_for_device(
+    device_info: &mlxconfig_device::info::MlxDeviceInfo,
+) -> Vec<&'static mlxconfig_variables::MlxVariableRegistry> {
+    REGISTRIES
+        .iter()
+        .filter(|r| r.matches_device(device_info))
+        .collect()
 }
 "#
     .to_string()

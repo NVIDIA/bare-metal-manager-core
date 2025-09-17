@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package mlx_device;
+
+import "google/protobuf/timestamp.proto";
+
+// MlxDeviceReport represents a complete device discovery report
+// with metadata and filtered device results.
+message MlxDeviceReport {
+  // hostname is the system hostname where the report was generated.
+  string hostname = 1;
+  // timestamp is when the report was generated.
+  google.protobuf.Timestamp timestamp = 2;
+  // devices contains the discovered devices matching any applied filters.
+  repeated MlxDeviceInfo devices = 3;
+  // filters contains the filter set used to generate this report.
+  optional DeviceFilterSet filters = 4;
+}
+
+// MlxDeviceInfo represents detailed information about a Mellanox network device.
+message MlxDeviceInfo {
+  // pci_name is the PCI address or MST device path for the device.
+  string pci_name = 1;
+  // device_type identifies the specific Mellanox device model.
+  string device_type = 2;
+  // psid (Parameter-Set IDentification) is a 16-ASCII character string embedded
+  // in the firmware image which provides a unique identification for the configuration.
+  string psid = 3;
+  // device_description provides a human-readable description of the device.
+  string device_description = 4;
+  // part_number is the manufacturer part number for the device.
+  string part_number = 5;
+  // fw_version_current is the currently installed firmware version.
+  string fw_version_current = 6;
+  // pxe_version_current is the currently installed PXE boot version.
+  string pxe_version_current = 7;
+  // uefi_version_current is the currently installed UEFI boot version.
+  string uefi_version_current = 8;
+  // uefi_version_virtio_blk_current is the currently installed UEFI VirtIO block driver version.
+  string uefi_version_virtio_blk_current = 9;
+  // uefi_version_virtio_net_current is the currently installed UEFI VirtIO network driver version.
+  string uefi_version_virtio_net_current = 10;
+  // base_mac is the base MAC address for the device as a string.
+  string base_mac = 11;
+}
+
+// DeviceFilterSet represents a collection of filters that must all match.
+message DeviceFilterSet {
+  // filters contains the list of individual filters to apply.
+  repeated DeviceFilter filters = 1;
+}
+
+// DeviceFilter represents a single filter criterion for device matching.
+message DeviceFilter {
+  // field specifies which device field to match against.
+  DeviceField field = 1;
+  // values contains the list of acceptable values for this field.
+  repeated string values = 2;
+  // match_mode defines how values should be matched against the device field.
+  MatchMode match_mode = 3;
+}
+
+// DeviceField represents the available device fields for filtering.
+enum DeviceField {
+  DEVICE_FIELD_UNSPECIFIED = 0;
+  DEVICE_FIELD_DEVICE_TYPE = 1;
+  DEVICE_FIELD_PART_NUMBER = 2;
+  DEVICE_FIELD_FIRMWARE_VERSION = 3;
+  DEVICE_FIELD_MAC_ADDRESS = 4;
+  DEVICE_FIELD_DESCRIPTION = 5;
+  DEVICE_FIELD_PCI_NAME = 6;
+}
+
+// MatchMode defines how filter values should be matched against device fields.
+enum MatchMode {
+  MATCH_MODE_UNSPECIFIED = 0;
+  MATCH_MODE_REGEX = 1;
+  MATCH_MODE_EXACT = 2;
+  MATCH_MODE_PREFIX = 3;
+}
+
+// ProfileTargetConstraints defines criteria for matching devices to configuration profiles.
+message ProfileTargetConstraints {
+  // device_types contains allowed device type prefixes for matching.
+  repeated string device_types = 1;
+  // part_numbers contains allowed part number prefixes for matching.
+  repeated string part_numbers = 2;
+  // fw_versions contains allowed firmware version prefixes for matching.
+  repeated string fw_versions = 3;
+}
+
+message PublishMlxDeviceReportRequest {
+  MlxDeviceReport report = 1;
+}

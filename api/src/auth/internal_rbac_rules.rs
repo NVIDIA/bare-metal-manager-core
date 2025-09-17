@@ -448,6 +448,10 @@ impl InternalRBACRules {
         x.perm("DeleteBmcUser", vec![ForgeAdminCLI]);
         x.perm("EnableInfiniteBoot", vec![ForgeAdminCLI]);
         x.perm("IsInfiniteBootEnabled", vec![ForgeAdminCLI]);
+        x.perm(
+            "PublishMlxDeviceReport",
+            vec![Agent, Scout, Machineatron, ForgeAdminCLI],
+        );
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

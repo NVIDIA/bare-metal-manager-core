@@ -6,7 +6,7 @@ Core type definitions and validation logic for Mellanox hardware configuration.
 
 The `mlxconfig_variables` crate provides the foundational types and validation logic used throughout our little
 `mlxconfig` configuration ecosystem. This crate defines the data structures for hardware configuration variables, device
-constraints, and registries, along with builder patterns for easy construction and a powerful value creation system for
+filters, and registries, along with builder patterns for easy construction and a powerful value creation system for
 working with actual configuration data.
 
 ## Key Components
@@ -18,7 +18,7 @@ Represents a single hardware configuration parameter with:
 - **Name**: Unique identifier for the variable
 - **Description**: Human-readable description
 - **Read-only flag**: Whether the variable can be modified
-- **Spec**: Type specification defining the variable's data type and constraints
+- **Spec**: Type specification defining the variable's data type and device filters
 
 ### Variable Specifications (`MlxVariableSpec`)
 
@@ -36,7 +36,7 @@ Typed values that pair configuration variables with their actual data:
 
 - **Variable**: The configuration variable definition
 - **Value**: Strongly-typed value that matches the variable's spec
-- **Validation**: Automatic type and constraint validation
+- **Validation**: Automatic type and device filter validation
 - **Display**: Built-in formatting for user interfaces
 
 ### Sparse Array Support
@@ -54,13 +54,13 @@ modified while leaving others unchanged.
 
 ### Hardware Registries (`MlxVariableRegistry`)
 
-Collections of related configuration variables with optional device constraints:
+Collections of related configuration variables with optional device filters:
 
 - **Name**: Registry identifier
 - **Variables**: List of configuration variables
-- **Constraints**: Optional device compatibility rules
+- **Filters**: Optional device compatibility rules
 
-### Device Constraints (`RegistryTargetConstraints`)
+### Device Filters (`DeviceFilter` & `DeviceFilterSet`)
 
 Define which hardware devices can use specific registries:
 
@@ -68,9 +68,9 @@ Define which hardware devices can use specific registries:
 - **Part numbers**: e.g., "900-9D3D4-00EN-HA0"
 - **Firmware versions**: e.g., "32.41.130"
 
-### Device Information (`DeviceInfo`)
+### Device Information (`MlxDeviceInfo`)
 
-Container for actual device details used in constraint validation.
+Container for actual device details used in filter validation.
 
 ## Value Creation System
 
@@ -284,41 +284,6 @@ MlxVariableSpec::builder()
 .build()
 )
 .build();
-
-// Build a registry with constraints
-let registry = MlxVariableRegistry::builder()
-.name("Bluefield3 Registry")
-.variables(vec![variable, power_mode, gpio_modes])
-.with_device_types(vec!["Bluefield3"])
-.with_part_numbers(vec!["900-9D3D4-00EN-HA0"])
-.build();
-```
-
-## Constraint Validation
-
-The crate provides runtime validation of device compatibility:
-
-```rust
-use mlxconfig_variables::*;
-
-let device = DeviceInfo::new()
-.with_device_type("Bluefield3")
-.with_part_number("900-9D3D4-00EN-HA0")
-.with_fw_version("32.41.130");
-
-let result = registry.validate_compatibility( & device);
-
-match result {
-ConstraintValidationResult::Valid => {
-println ! ("Device is compatible!");
-},
-ConstraintValidationResult::Invalid { reasons } => {
-println ! ("Incompatible: {:?}", reasons);
-},
-ConstraintValidationResult::Unconstrained => {
-println ! ("No constraints - universally compatible");
-}
-}
 ```
 
 ## YAML Serialization
@@ -327,11 +292,6 @@ All types support serde serialization for YAML configuration files:
 
 ```yaml
 name: "example_registry"
-constraints:
-  device_types:
-    - "Bluefield3"
-  part_numbers:
-    - "900-9D3D4-00EN-HA0"
 variables:
   - name: "cpu_frequency"
     description: "CPU frequency in MHz"
@@ -418,7 +378,7 @@ let values = process_mlx_response(json) ?;
 This crate is the foundation layer that provides:
 
 1. **Type safety** through Rust's type system and compile-time validation
-2. **Validation logic** for device constraints and value parsing
+2. **Validation logic** for device filters and value parsing
 3. **Builder patterns** for ergonomic construction
 4. **Serialization support** for persistence and interchange
 5. **Zero-cost abstractions** with compile-time guarantees

@@ -10,32 +10,33 @@
  * its affiliates is strictly prohibited.
  */
 
-//! Serialization support for MLX configuration profiles.
-//!
-//! Provides YAML and JSON serialization/deserialization for profiles,
-//! with proper validation and registry lookup during deserialization.
+// src/serialization.rs
+// Serialization support for MLX configuration profiles.
+//
+// Provides YAML and JSON serialization/deserialization for profiles,
+// with proper validation and registry lookup during deserialization.
 
 use crate::{error::MlxProfileError, profile::MlxConfigProfile};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Serializable representation of an MLX configuration profile.
-/// This is the format used for YAML/JSON serialization.
+// Serializable representation of an MLX configuration profile.
+// This is the format used for YAML/JSON serialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableProfile {
-    /// Profile name for identification and documentation
+    // Profile name for identification and documentation
     pub name: String,
-    /// Registry name that this profile targets
+    // Registry name that this profile targets
     pub registry_name: String,
-    /// Optional description of what this profile does
+    // Optional description of what this profile does
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Variable configurations as name -> YAML value mappings
+    // Variable configurations as name -> YAML value mappings
     pub config: HashMap<String, serde_yaml::Value>,
 }
 
 impl SerializableProfile {
-    /// Creates a new serializable profile.
+    // Creates a new serializable profile.
     pub fn new<N: Into<String>, R: Into<String>>(name: N, registry_name: R) -> Self {
         Self {
             name: name.into(),
@@ -45,13 +46,13 @@ impl SerializableProfile {
         }
     }
 
-    /// Sets the description for this profile.
+    // Sets the description for this profile.
     pub fn with_description<D: Into<String>>(mut self, description: D) -> Self {
         self.description = Some(description.into());
         self
     }
 
-    /// Adds a variable configuration to this profile.
+    // Adds a variable configuration to this profile.
     pub fn with_config<K: Into<String>, V: Into<serde_yaml::Value>>(
         mut self,
         variable_name: K,
@@ -61,8 +62,8 @@ impl SerializableProfile {
         self
     }
 
-    /// Converts this serializable profile to an MlxConfigProfile by resolving
-    /// the registry and validating all variable configurations.
+    // Converts this serializable profile to an MlxConfigProfile by resolving
+    // the registry and validating all variable configurations.
     pub fn into_profile(self) -> Result<MlxConfigProfile, MlxProfileError> {
         // Look up the registry
         let registry = mlxconfig_registry::registries::get(&self.registry_name)
@@ -84,7 +85,7 @@ impl SerializableProfile {
         Ok(profile)
     }
 
-    /// Creates a SerializableProfile from an MlxConfigProfile.
+    // Creates a SerializableProfile from an MlxConfigProfile.
     pub fn from_profile(profile: &MlxConfigProfile) -> Result<Self, MlxProfileError> {
         let mut serializable = Self::new(&profile.name, &profile.registry.name);
 
@@ -101,92 +102,30 @@ impl SerializableProfile {
         Ok(serializable)
     }
 
-    /// Loads a profile from a YAML string.
+    // Loads a profile from a YAML string.
     pub fn from_yaml(yaml: &str) -> Result<Self, MlxProfileError> {
         serde_yaml::from_str(yaml).map_err(MlxProfileError::from)
     }
 
-    /// Loads a profile from a JSON string.
+    // Loads a profile from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, MlxProfileError> {
         serde_json::from_str(json).map_err(MlxProfileError::from)
     }
 
-    /// Serializes this profile to a YAML string.
+    // Serializes this profile to a YAML string.
     pub fn to_yaml(&self) -> Result<String, MlxProfileError> {
         serde_yaml::to_string(self).map_err(MlxProfileError::from)
     }
 
-    /// Serializes this profile to a JSON string.
+    // Serializes this profile to a JSON string.
     pub fn to_json(&self) -> Result<String, MlxProfileError> {
         serde_json::to_string_pretty(self).map_err(MlxProfileError::from)
     }
 }
 
-/// Converts an MlxConfigValue back to a simple YAML value for serialization.
+// Converts an MlxConfigValue back to a simple YAML value for serialization.
 fn config_value_to_yaml_value(
     config_value: &mlxconfig_variables::MlxConfigValue,
 ) -> Result<serde_yaml::Value, MlxProfileError> {
     Ok(config_value.value.to_yaml_value())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_serializable_profile_creation() {
-        let profile = SerializableProfile::new("test_profile", "test_registry")
-            .with_description("Test profile for unit tests")
-            .with_config("BOOL_VAR", true)
-            .with_config("INT_VAR", 42);
-
-        assert_eq!(profile.name, "test_profile");
-        assert_eq!(profile.registry_name, "test_registry");
-        assert_eq!(
-            profile.description,
-            Some("Test profile for unit tests".to_string())
-        );
-        assert_eq!(profile.config.len(), 2);
-    }
-
-    #[test]
-    fn test_yaml_serialization() {
-        let profile = SerializableProfile::new("test_profile", "test_registry")
-            .with_description("Test profile")
-            .with_config("BOOL_VAR", true)
-            .with_config("INT_VAR", 123);
-
-        let yaml = profile.to_yaml().expect("Should serialize to YAML");
-        assert!(yaml.contains("name: test_profile"));
-        assert!(yaml.contains("registry_name: test_registry"));
-        assert!(yaml.contains("description: Test profile"));
-        assert!(yaml.contains("BOOL_VAR: true"));
-        assert!(yaml.contains("INT_VAR: 123"));
-
-        // Test round-trip
-        let deserialized =
-            SerializableProfile::from_yaml(&yaml).expect("Should deserialize from YAML");
-        assert_eq!(deserialized.name, profile.name);
-        assert_eq!(deserialized.registry_name, profile.registry_name);
-        assert_eq!(deserialized.description, profile.description);
-        assert_eq!(deserialized.config.len(), profile.config.len());
-    }
-
-    #[test]
-    fn test_json_serialization() {
-        let profile = SerializableProfile::new("test_profile", "test_registry")
-            .with_config("BOOL_VAR", false);
-
-        let json = profile.to_json().expect("Should serialize to JSON");
-        assert!(json.contains(r#""name": "test_profile""#));
-        assert!(json.contains(r#""registry_name": "test_registry""#));
-        assert!(json.contains(r#""BOOL_VAR": false"#));
-
-        // Test round-trip
-        let deserialized =
-            SerializableProfile::from_json(&json).expect("Should deserialize from JSON");
-        assert_eq!(deserialized.name, profile.name);
-        assert_eq!(deserialized.registry_name, profile.registry_name);
-        assert_eq!(deserialized.config.len(), profile.config.len());
-    }
 }

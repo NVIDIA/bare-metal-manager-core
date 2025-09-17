@@ -8,6 +8,8 @@ description = "Type definitions for Mellanox hardware configuration registry."
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 hex = "0.4.3"
+mlxconfig-device = { path = "../device" }
 
 [dev-dependencies]
 serde_json = "1.0"
+mac_address = { version = "1.1", features = ["serde"] }

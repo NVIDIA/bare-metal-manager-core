@@ -1333,6 +1333,7 @@ dependencies = [
  "machine-a-tron",
  "md5",
  "measured-boot",
+ "mlxconfig-device",
  "names",
  "num-bigint-dig",
  "num_cpus",
@@ -3631,6 +3632,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hostname"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c731c3e10504cc8ed35cfe2f1db4c9274c3d35fa486e3b31df46f068ef3e867"
+dependencies = [
+ "libc",
+ "match_cfg",
+ "winapi",
+]
+
+[[package]]
 name = "hostname-validator"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4264,7 +4276,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with",
- "thiserror 1.0.69",
+ "thiserror 2.0.14",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4553,6 +4565,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "match_cfg"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffbee8634e0d45d258acb448e7eaab3fce7a0a467395d4d9f228e3c1f01fb2e4"
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4766,10 +4784,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlxconfig-device"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "hostname",
+ "mac_address",
+ "prettytable-rs",
+ "prost-types 0.14.1",
+ "quick-xml",
+ "regex",
+ "rpc",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "mlxconfig-embedded"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "mac_address",
+ "mlxconfig-device",
  "mlxconfig-profile",
  "mlxconfig-registry",
  "mlxconfig-runner",
@@ -4799,6 +4843,7 @@ dependencies = [
 name = "mlxconfig-registry"
 version = "0.1.0"
 dependencies = [
+ "mlxconfig-device",
  "mlxconfig-variables",
  "once_cell",
  "serde",
@@ -4811,10 +4856,12 @@ version = "0.1.0"
 dependencies = [
  "backon",
  "hex",
+ "mlxconfig-device",
  "mlxconfig-variables",
  "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "thiserror 1.0.69",
  "uuid",
@@ -4826,6 +4873,8 @@ name = "mlxconfig-variables"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "mac_address",
+ "mlxconfig-device",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -6320,6 +6369,16 @@ dependencies = [
  "wasi 0.11.1+wasi-snapshot-preview1",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1004a344b30a54e2ee58d66a71b32d2db2feb0a31f9a2d302bf0536f15de2a33"
+dependencies = [
+ "memchr",
+ "serde",
 ]
 
 [[package]]

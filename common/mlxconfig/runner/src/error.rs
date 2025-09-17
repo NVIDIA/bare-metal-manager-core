@@ -85,12 +85,6 @@ pub enum MlxRunnerError {
     #[error("User declined confirmation for destructive variables: {variables:?}")]
     ConfirmationDeclined { variables: Vec<String> },
 
-    // ConstraintValidation is returned when a registry constraint
-    // has failed, as in, we cannot use this registry with the
-    // current device.
-    #[error("Registry constraint validation failed: {message}")]
-    ConstraintValidation { message: String },
-
     // InvalidArrayIndex is returned when the string "API" is
     // being used to configure a given variable array index,
     // and the format being used is invalid -- this is basically
@@ -111,6 +105,9 @@ pub enum MlxRunnerError {
     // Io is just a generic I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Generic runner error: {0}")]
+    GenericError(String),
 }
 
 impl MlxRunnerError {

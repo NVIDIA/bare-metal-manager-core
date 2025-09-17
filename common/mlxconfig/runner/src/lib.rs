@@ -29,4 +29,4 @@ pub use runner::MlxConfigRunner;
 pub use traits::{MlxConfigQueryable, MlxConfigSettable};
 
 // Re-export from dependencies for convenience
-pub use mlxconfig_variables::{DeviceInfo, MlxConfigValue, MlxConfigVariable, MlxVariableRegistry};
+pub use mlxconfig_variables::{MlxConfigValue, MlxConfigVariable, MlxVariableRegistry};
