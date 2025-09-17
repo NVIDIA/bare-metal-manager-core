@@ -1791,6 +1791,7 @@ pub enum LockdownState {
 #[serde(rename_all = "lowercase")] // No tag required - this will never be nested
 pub enum LockdownMode {
     Enable,
+    Disable,
 }
 
 /// Whether lockdown should be enabled or disabled in an operation

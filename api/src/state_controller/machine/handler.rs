@@ -1215,7 +1215,9 @@ impl MachineStateHandler {
                                 Some(*retry_count as u64);
                             // Anytime host discovery is successful, move to next state.
                             db::machine::clear_failure_details(machine_id, txn).await?;
-                            let next_state = handler_host_lockdown(txn, ctx, mh_snapshot).await?;
+                            let next_state =
+                                handler_host_lockdown(txn, ctx, mh_snapshot, LockdownMode::Enable)
+                                    .await?;
                             return Ok(transition!(next_state));
                         }
 
@@ -3935,15 +3937,16 @@ async fn handler_host_lockdown(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     state: &mut ManagedHostStateSnapshot,
+    mode: LockdownMode,
 ) -> Result<ManagedHostState, StateHandlerError> {
-    // Enable Bios/BMC lockdown now.
-    lockdown_host(txn, state, ctx.services).await?;
+    // Enable or Disable Bios/BMC lockdown now.
+    lockdown_host(txn, state, ctx.services, mode.clone()).await?;
 
     Ok(ManagedHostState::HostInit {
         machine_state: MachineState::WaitingForLockdown {
             lockdown_info: LockdownInfo {
                 state: LockdownState::TimeWaitForDPUDown,
-                mode: Enable,
+                mode,
             },
         },
     })
@@ -4284,9 +4287,11 @@ async fn handle_host_uefi_setup(
             }))
         }
         UefiSetupState::LockdownHost => Ok(transition!(
-            handler_host_lockdown(txn, ctx, state).await.map_err(|e| {
-                StateHandlerError::GenericError(eyre!("handle_host_lockdown failed: {}", e))
-            })?
+            handler_host_lockdown(txn, ctx, state, LockdownMode::Enable)
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!("handle_host_lockdown failed: {}", e))
+                })?
         )),
     }
 }
@@ -4379,6 +4384,27 @@ impl StateHandler for HostMachineStateHandler {
                         bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
                         _ => SystemPowerControl::ForceRestart,
                     };
+
+                    match redfish_client.lockdown_status().await {
+                        Err(e) => {
+                            tracing::warn!(
+                                "Error fetching lockdown status for {host_machine_id} during forge_setup check: {e}"
+                            );
+                            return Ok(wait!(format!("Failed to fetch lockdown status: {}", e)));
+                        }
+                        Ok(lockdown_status) if !lockdown_status.is_fully_disabled() => {
+                            tracing::info!(
+                                "Lockdown is enabled for {host_machine_id} during forge_setup, disabling now."
+                            );
+                            let next_state =
+                                handler_host_lockdown(txn, ctx, mh_snapshot, LockdownMode::Disable)
+                                    .await?;
+                            return Ok(transition!(next_state));
+                        }
+                        Ok(_) => {
+                            // Lockdown is disabled, so we can proceed with forge_setup
+                        }
+                    }
 
                     if let Err(e) = call_forge_setup_and_handle_no_dpu_error(
                         redfish_client.as_ref(),
@@ -4586,8 +4612,11 @@ impl StateHandler for HostMachineStateHandler {
                                     };
                                     Ok(transition!(next_state))
                                 } else {
-                                    // We have not implemented LockdownMode::Disabled. This is a kind of placeholder for it, but we never needed it.
-                                    Ok(do_nothing!())
+                                    let next_state = ManagedHostState::HostInit {
+                                        machine_state:
+                                            MachineState::WaitingForPlatformConfiguration,
+                                    };
+                                    Ok(transition!(next_state))
                                 }
                             } else {
                                 Ok(wait!("Waiting for DPU to report UP. This requires forge-dpu-agent to call the RecordDpuNetworkStatus API".to_string()))
@@ -7552,15 +7581,20 @@ async fn lockdown_host(
     txn: &mut PgConnection,
     state: &ManagedHostStateSnapshot,
     services: &StateHandlerServices,
+    mode: LockdownMode,
 ) -> Result<(), StateHandlerError> {
     let host_snapshot = &state.host_snapshot;
     let redfish_client = services
         .redfish_client_pool
         .create_client_from_machine(host_snapshot, txn)
         .await?;
+    let action = match mode {
+        LockdownMode::Enable => libredfish::EnabledDisabled::Enabled,
+        LockdownMode::Disable => libredfish::EnabledDisabled::Disabled,
+    };
 
     redfish_client
-        .lockdown(libredfish::EnabledDisabled::Enabled)
+        .lockdown(action)
         .await
         .map_err(|e| StateHandlerError::RedfishError {
             operation: "lockdown",
