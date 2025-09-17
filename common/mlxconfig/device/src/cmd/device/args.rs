@@ -9,9 +9,10 @@ pub struct DeviceArgs {
 }
 
 // DeviceAction defines the available device subcommands.
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 pub enum DeviceAction {
     // List all discovered Mellanox devices.
+    #[command(about = "List all discovered Mellanox devices on this machine.")]
     List {
         // format specifies the output format for device information.
         #[arg(long, default_value = "ascii-table")]
@@ -23,6 +24,7 @@ pub enum DeviceAction {
     },
 
     // Filter devices using advanced filter expressions.
+    #[command(about = "Filter devices based on DeviceFilter options.")]
     Filter {
         // format specifies the output format for device information.
         #[arg(long, default_value = "ascii-table")]
@@ -36,16 +38,13 @@ pub enum DeviceAction {
         #[arg(long)]
         filter: Vec<DeviceFilter>,
 
-        // preset loads filter preset from config file.
-        #[arg(long, value_name = "PRESET_NAME")]
-        preset: Option<String>,
-
         // detailed shows detailed device information.
         #[arg(long)]
         detailed: bool,
     },
 
     // Describe detailed information about a specific device.
+    #[command(about = "Show everything known about a device by its ID.")]
     Describe {
         // device specifies the PCI address or identifier of the target device.
         device: String,
@@ -55,6 +54,9 @@ pub enum DeviceAction {
     },
 
     // Generate a complete device discovery report.
+    #[command(
+        about = "Generate an MlxDeviceReport in a given --format and optional --filter args."
+    )]
     Report {
         // format specifies the output format for the report.
         #[arg(long, default_value = "ascii-table")]

@@ -11,6 +11,7 @@
  */
 use clap::{Parser, ValueEnum};
 use forge_tls::default as tls_default;
+use mlxconfig_device::cmd::device::args::DeviceAction;
 
 #[derive(ValueEnum, Clone, Debug, Copy, PartialEq)]
 pub(crate) enum Mode {
@@ -37,8 +38,12 @@ pub(crate) struct Options {
         default_value_t=Mode::Service)]
     pub mode: Mode,
 
-    #[clap(short, long, require_equals(true))]
-    pub machine_interface_id: uuid::Uuid,
+    #[clap(
+        short,
+        long,
+        help = "The machine interface ID to send to carbide-api. Most commands need this."
+    )]
+    pub machine_interface_id: Option<uuid::Uuid>,
 
     #[clap(
         short,
@@ -87,9 +92,6 @@ pub(crate) struct Options {
     )]
     pub discovery_retries_max: u32,
 
-    #[clap(subcommand)]
-    pub subcmd: Option<Command>,
-
     #[clap(
         long,
         help = "Full path of tpm char device",
@@ -98,6 +100,9 @@ pub(crate) struct Options {
         default_value_t = ("device:/dev/tpmrm0").to_string(),
     )]
     pub tpm_path: String,
+
+    #[clap(subcommand)]
+    pub subcmd: Option<Command>,
 }
 
 #[derive(Parser, Clone)]
@@ -114,6 +119,8 @@ pub(crate) enum Command {
     Reset(Reset),
     #[clap(about = "Machine Validation")]
     MachineValidation(MachineValidation),
+    #[clap(about = "Query local Mellanox device information.")]
+    MlxDevice(MlxDevice),
 }
 
 #[derive(Parser, Clone)]
@@ -139,6 +146,12 @@ pub struct MachineValidation {
     #[clap(short, long, require_equals(true))]
     pub validataion_id: uuid::Uuid,
     pub context: String,
+}
+
+#[derive(Parser, Clone)]
+pub struct MlxDevice {
+    #[command(subcommand)]
+    pub action: DeviceAction,
 }
 
 impl Options {
