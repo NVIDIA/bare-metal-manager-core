@@ -226,8 +226,6 @@ pub(crate) async fn handle_bom_validation_requested(
             return advance_to_updating_inventory(txn, mh_snapshot)
                 .await
                 .map(Some);
-        } else {
-            tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "Verify SKU not requested");
         }
     }
 

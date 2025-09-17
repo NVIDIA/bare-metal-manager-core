@@ -9,6 +9,7 @@
 ### Changed
 
 ### Fixed
+- [FORGE-6603](https://jirasw.nvidia.com/browse/FORGE-6603)[5402133](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/5402133) do not ingest DPUs if they are not reporting their oob_net0 interface properly.  uses existing dpu bmc remediation to attempt recovery
 
 ### Removed
 
