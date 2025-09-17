@@ -7298,6 +7298,7 @@ dependencies = [
  "futures-util",
  "lazy_static",
  "machine-validation",
+ "mlxconfig-device",
  "once_cell",
  "prost-types 0.14.1",
  "pwhash",

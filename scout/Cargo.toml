@@ -15,10 +15,11 @@ path = "src/main.rs"
 rpc = { path = "../rpc" }
 forge-host-support = { path = "../common/host-support" }
 forge-tls = { path = "../common/tls" }
+forge-uuid = { path = "../common/uuid" }
 forge-version = { path = "../common/version" }
 utils = { path = "../common/utils" }
 machine-validation = { path = "../common/machine-validation" }
-forge-uuid = { path = "../common/uuid" }
+mlxconfig-device = { path = "../common/mlxconfig/device" }
 
 chrono = "0.4.34"
 clap = { workspace = true }

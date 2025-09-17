@@ -21,8 +21,7 @@ pub fn handle(args: DeviceArgs) -> Result<(), Box<dyn std::error::Error>> {
             detailed,
             format,
             filter,
-            preset,
-        } => handle_filter(detailed, format, filter, preset),
+        } => handle_filter(detailed, format, filter),
         DeviceAction::Describe { device, format } => handle_describe(device, format),
         DeviceAction::Report {
             detailed: _detailed,
@@ -58,15 +57,8 @@ fn handle_filter(
     _detailed: bool,
     format: OutputFormat,
     filters: Vec<DeviceFilter>,
-    preset: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let filter_set = if let Some(preset_name) = preset {
-        // Load filter preset from config file.
-        // TODO: Implement config file loading.
-        return Err(format!("Filter preset '{preset_name}' not implemented yet").into());
-    } else {
-        build_filter_set(filters)
-    };
+    let filter_set = build_filter_set(filters);
 
     let all_devices = crate::discovery::discover_devices()?;
 

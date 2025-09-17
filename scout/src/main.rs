@@ -14,6 +14,9 @@ use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
 use forge_host_support::registration;
 use forge_uuid::machine::MachineId;
+use mlxconfig_device::{
+    cmd::device::args::DeviceArgs, cmd::device::cmds::handle as handle_mlx_device,
+};
 use once_cell::sync::Lazy;
 use rpc::forge::ForgeAgentControlResponse;
 use rpc::forge::forge_agent_control_response::Action;
@@ -84,7 +87,15 @@ async fn main() -> Result<(), eyre::Report> {
     Ok(())
 }
 
-async fn initial_setup(config: &Options) -> Result<MachineId, eyre::Report> {
+async fn initial_setup(config: &Options) -> Result<(uuid::Uuid, MachineId), eyre::Report> {
+    let machine_interface_id = if let Some(id) = config.machine_interface_id {
+        id
+    } else {
+        return Err(eyre::eyre!(
+            "--machine-interface-id=<uuid> is required for this subcommand."
+        ));
+    };
+
     // we use the same retry params for both: retrying the discover_machine
     // call, as well as retrying the whole attestation sequence: discover_machine + attest_quote
     let retry = registration::DiscoveryRetry {
@@ -97,7 +108,7 @@ async fn initial_setup(config: &Options) -> Result<MachineId, eyre::Report> {
         register::run(
             &config.api,
             config.root_ca.clone(),
-            config.machine_interface_id,
+            machine_interface_id,
             &retry,
             &config.tpm_path,
         )
@@ -119,7 +130,7 @@ async fn initial_setup(config: &Options) -> Result<MachineId, eyre::Report> {
     {
         Ok(machine_id) => machine_id,
         Err(e) => {
-            report_scout_error(config, None, config.machine_interface_id, &e).await?;
+            report_scout_error(config, None, machine_interface_id, &e).await?;
             return Err(e.into());
         }
     };
@@ -129,12 +140,12 @@ async fn initial_setup(config: &Options) -> Result<MachineId, eyre::Report> {
         let mut data_file = File::create(REBOOT_COMPLETED_PATH).expect("creation failed");
         data_file.write_all(format!("Reboot completed at {}", chrono::Utc::now()).as_bytes())?;
     }
-    Ok(machine_id)
+    Ok((machine_interface_id, machine_id))
 }
 
 async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
     // Implement the logic to run as a service here
-    let machine_id = initial_setup(config).await?;
+    let (machine_interface_id, machine_id) = initial_setup(config).await?;
 
     // set up a task to check once a day if certs are less than two days from expiry
     let client_cert = config.client_cert.clone();
@@ -153,7 +164,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
         let controller_response = match query_api_with_retries(config, &machine_id).await {
             Ok(action) => action,
             Err(e) => {
-                report_scout_error(config, None, config.machine_interface_id, &e).await?;
+                report_scout_error(config, None, machine_interface_id, &e).await?;
                 rpc_forge::ForgeAgentControlResponse {
                     action: Action::Noop as i32,
                     data: None,
@@ -165,7 +176,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
         match handle_action(
             controller_response,
             &machine_id,
-            config.machine_interface_id,
+            machine_interface_id,
             config,
         )
         .await
@@ -179,19 +190,35 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
 
 async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
     // Implement the logic for standalone mode here
-    let subcmd = match &config.subcmd {
+    let subcmd: &Command = match &config.subcmd {
         None => {
             Options::command().print_long_help()?;
             std::process::exit(1);
         }
-        Some(s) => s,
+        Some(s) => match s {
+            // The mlx-device subcommand doesn't need to be run with any
+            // sort of API integration; it's intended purely for interrogating
+            // the state of Mellanox devices on the machine, to see what
+            // Carbide will see re: reporting, troubleshooting, etc. Just
+            // run the command locally and exit.
+            Command::MlxDevice(mlx_device) => {
+                let device_args = DeviceArgs {
+                    action: mlx_device.action.clone(),
+                };
+                handle_mlx_device(device_args).map_err(|e| eyre::eyre!("{e}"))?;
+                return Ok(());
+            }
+            _ => s,
+        },
     };
-    let machine_id = initial_setup(config).await?;
+
+    let (machine_interface_id, machine_id) = initial_setup(config).await?;
+
     //TODO Could be better; this for backward compatibility. Refactor required
     let controller_response = match query_api_with_retries(config, &machine_id).await {
         Ok(controller_response) => controller_response,
         Err(e) => {
-            report_scout_error(config, None, config.machine_interface_id, &e).await?;
+            report_scout_error(config, None, machine_interface_id, &e).await?;
             ForgeAgentControlResponse {
                 action: Action::Noop as i32,
                 data: None,
@@ -236,9 +263,14 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
                 .to_vec(),
             }),
         },
+        // This will have already been caught above and
+        // handled, but we need to have it here to make
+        // sure we match everything. Maybe this could
+        // log something.
+        Command::MlxDevice(_) => return Ok(()),
     };
 
-    handle_action(action, &machine_id, config.machine_interface_id, config).await?;
+    handle_action(action, &machine_id, machine_interface_id, config).await?;
     Ok(())
 }
 
@@ -263,7 +295,7 @@ async fn handle_action(
             register::run(
                 &config.api,
                 config.root_ca.clone(),
-                config.machine_interface_id,
+                machine_interface_id,
                 &retry,
                 &config.tpm_path,
             )
