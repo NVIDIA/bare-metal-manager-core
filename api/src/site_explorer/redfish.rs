@@ -516,20 +516,32 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
     let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu)
         .await
         .map_err(map_redfish_error)?;
+    let mut base_mac = None;
+    let mut nic_mode = None;
 
-    // This part processes dpu case and do two things such as
-    // 1. update system serial_number in case it is empty using chassis serial_number
-    // 2. format serial_number data using the same rules as in fetch_chassis()
-    if is_dpu && system.serial_number.is_none() {
-        let chassis = client
-            .get_chassis("Card1")
-            .await
-            .map_err(map_redfish_error)?;
-        system.serial_number = chassis.serial_number;
-    }
+    if is_dpu {
+        if !ethernet_interfaces
+            .iter()
+            .any(|i| i.id == Some("oob_net0".to_owned()))
+        {
+            return Err(EndpointExplorationError::RedfishError {
+                details: "oob interface missing for dpu".to_string(),
+                response_body: None,
+                response_code: None,
+            });
+        }
+        // This part processes dpu case and do two things such as
+        // 1. update system serial_number in case it is empty using chassis serial_number
+        // 2. format serial_number data using the same rules as in fetch_chassis()
+        if system.serial_number.is_none() {
+            let chassis = client
+                .get_chassis("Card1")
+                .await
+                .map_err(map_redfish_error)?;
+            system.serial_number = chassis.serial_number;
+        }
 
-    let base_mac = if is_dpu {
-        match client.get_base_mac_address().await {
+        base_mac = match client.get_base_mac_address().await {
             Ok(base_mac) => base_mac,
             Err(error) => {
                 tracing::info!(
@@ -538,33 +550,19 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
                 );
                 None
             }
-        }
-    } else {
-        None
-    };
+        };
+
+        nic_mode = match client.get_nic_mode().await {
+            Ok(nic_mode) => nic_mode,
+            Err(e) => return Err(map_redfish_error(e)),
+        };
+    }
 
     system.serial_number = system.serial_number.map(|s| s.trim().to_string());
 
     let pcie_devices = fetch_pcie_devices(client)
         .await
         .map_err(map_redfish_error)?;
-
-    let nic_mode: Option<NicMode> = match client.get_nic_mode().await {
-        Ok(nic_mode) => nic_mode,
-        Err(e) => {
-            // this call should only ever return an error for DPUs--this check is just defensive
-            if is_dpu {
-                // return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                //     details: e.to_string(),
-                //     response_body: None,
-                //     response_code: None,
-                // });
-                None
-            } else {
-                return Err(map_redfish_error(e));
-            }
-        }
-    };
 
     let is_infinite_boot_enabled = client
         .is_infinite_boot_enabled()
