@@ -118,7 +118,7 @@ impl IbFabricMonitor {
         loop {
             let sleep_interval = match self.run_single_iteration().await {
                 Ok(num_changes) => {
-                    if num_changes > 1 {
+                    if num_changes > 0 {
                         // If any change has been applied to the IB fabric,
                         // the status that has been collected in the last iteration is already outdated
                         // Therefore run again as soon as possible.
