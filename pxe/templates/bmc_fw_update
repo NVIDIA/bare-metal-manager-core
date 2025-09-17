@@ -6,12 +6,27 @@ USER_ID=8
 
 pre_bmc_components_update() {
     set -exE
-    ipmitool user set name $USER_ID $BMC_USER
-    ipmitool user set password $USER_ID $BMC_PASSWORD
-    ipmitool user enable $USER_ID
-    ipmitool channel setaccess 1 $USER_ID ipmi=on
-    ipmitool user priv $USER_ID 0x4 1
+    run_with_timeout "ipmitool user set name $USER_ID $BMC_USER"
+    run_with_timeout "ipmitool user set password $USER_ID $BMC_PASSWORD" "ipmitool user set password $USER_ID REDACTED"
+    run_with_timeout "ipmitool user enable $USER_ID"
+    run_with_timeout "ipmitool channel setaccess 1 $USER_ID ipmi=on"
+    run_with_timeout "ipmitool user priv $USER_ID 0x4 1"
     set +exE
+}
+
+run_with_timeout() {
+  local cmd="$1"
+  local printcmd="$2"
+
+  for i in {1..10}; do
+    if [ -n "$printcmd" ]; then
+      ilog "Running with timeout: $printcmd"
+    else
+      ilog "Running with timeout: $cmd"
+    fi
+
+    timeout 30s $cmd && break || ilog "Attempt $i failed, retrying..."
+  done
 }
 
 post_bmc_components_update() {
@@ -27,6 +42,7 @@ DOF
     # https://github.com/Mellanox/bfb-build/blob/9e80eb358e7bb9e62328039745cc43d69eefc64a/common/install.env/bmc#L118
     create_vlan
     num_certs=$(curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD https://$BMC_IP/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates | jq -r ' .Members' | grep odata.id | wc -l)
+    ilog "Found the following number of certs in the certdb - $num_certs"
     if [ -z "${num_certs}" ] || [ "${num_certs}" -eq "0" ]; then
         # only run the call if there are no existing certs, otherwise it could cause subsequent installs of the DPU to fail
         # https://nvbugswb.nvidia.com/NvBugs5/SWBug.aspx?bugid=5334987
