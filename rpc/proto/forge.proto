@@ -542,7 +542,7 @@ service Forge {
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
   rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
 
-  rpc PublishMlxDeviceReport(mlx_device.PublishMlxDeviceReportRequest) returns (google.protobuf.Empty);
+  rpc PublishMlxDeviceReport(mlx_device.PublishMlxDeviceReportRequest) returns (mlx_device.PublishMlxDeviceReportResponse);
 }
 
 message TpmCaAddedCaStatus{

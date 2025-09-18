@@ -5278,7 +5278,7 @@ impl Forge for Api {
     async fn publish_mlx_device_report(
         &self,
         request: tonic::Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
-    ) -> Result<Response<()>, Status> {
+    ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
         // TODO(chet): Integrate this once it's time. For now, just log
         // that a report was received, that we can successfully convert
         // it from an RPC message back to an MlxDeviceReport, and drop it.
@@ -5296,7 +5296,9 @@ impl Forge for Api {
         } else {
             tracing::warn!("no embedded MlxDeviceReport published");
         }
-        Ok(Response::new(()))
+        Ok(Response::new(
+            mlx_device_pb::PublishMlxDeviceReportResponse {},
+        ))
     }
 }
 
