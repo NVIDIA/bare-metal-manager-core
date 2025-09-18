@@ -10,7 +10,7 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::SkuList;
 use prettytable::{Row, Table};
 use rpc::forge::SkuIdList;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::AsyncWriteExt;
 
 struct SkuWrapper {
     sku: ::rpc::forge::Sku,
@@ -409,30 +409,43 @@ pub async fn handle_sku_command(
             api_client.0.update_sku_metadata(update_request).await?;
         }
         Sku::BulkUpdateMetadata(BulkUpdatyeSkuMetadata { filename }) => {
-            let mut bulk_data_file = BufReader::new(
-                tokio::fs::OpenOptions::new()
-                    .read(true)
-                    .write(false)
-                    .open(&filename)
-                    .await?,
-            );
-            let mut line = String::new();
+            let mut rdr = csv::Reader::from_path(&filename)
+                .map_err(|e| CarbideCliError::IOError(e.into()))?;
 
-            while bulk_data_file.read_line(&mut line).await? > 0 {
-                let trimmed_line = line.trim();
-                if let Some((sku_id, device_type)) =
-                    trimmed_line.split_once(", ".chars().collect::<Vec<char>>().as_slice())
-                {
-                    api_client
-                        .0
-                        .update_sku_metadata(UpdateSkuMetadata {
-                            sku_id: sku_id.to_string(),
-                            description: None,
-                            device_type: Some(device_type.to_string()),
-                        })
-                        .await?;
+            // disable reading the first row as a header
+            rdr.set_headers(vec!["sku id", "device type"].into());
+
+            let mut current_line = 1;
+            for result in rdr.records() {
+                match result {
+                    Err(e) => {
+                        // log and ignore parsing errors on a single line.
+                        tracing::error!("Error reading file {filename} line {current_line}: {e}");
+                    }
+                    Ok(data) => {
+                        // Log missing SKUs, but don't stop processing
+                        let Some(sku_id) = data.get(0).map(str::to_owned) else {
+                            tracing::error!("No SKU ID at line {current_line}");
+                            continue;
+                        };
+                        let device_type = data.get(1).filter(|s| !s.is_empty()).map(str::to_owned);
+                        let description = data.get(2).filter(|s| !s.is_empty()).map(str::to_owned);
+
+                        // log errors but don't stop the processing
+                        if let Err(e) = api_client
+                            .0
+                            .update_sku_metadata(UpdateSkuMetadata {
+                                sku_id,
+                                description,
+                                device_type,
+                            })
+                            .await
+                        {
+                            tracing::error!("{e}");
+                        }
+                    }
                 }
-                line.truncate(0);
+                current_line += 1;
             }
         }
 
