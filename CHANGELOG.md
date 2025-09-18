@@ -63,7 +63,6 @@
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4541](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4541): refactor: database error handling unification in the Carbide API: tracking file / line using track_caller Rust feature.
 - [MR-4548](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4548): refactor: remove unnecessary explicit conversions to CarbideError.
 - [MR-4594](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4594): Added retry and timeout logic to ipmitool in an attempt to fix hanging installs of the bfb
-- [MR-4600](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4600): Moved ipmitool handling to earlier in the bfb install to rule out partial firmware updates causing ipmitool to hang
 
 - [FORGE-6905](https://jirasw.nvidia.com/browse/FORGE-6905), [MR-4539](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4539): chore: Add CODEOWNERS file.
 - [MR-4555](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4555): chore: Unify to a single MachineId type.
