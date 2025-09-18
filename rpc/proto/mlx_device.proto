@@ -95,3 +95,6 @@ message ProfileTargetConstraints {
 message PublishMlxDeviceReportRequest {
   MlxDeviceReport report = 1;
 }
+
+message PublishMlxDeviceReportResponse {
+}

@@ -16,7 +16,7 @@ use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::forge_tls_client::{ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
-use ::rpc::protos::mlx_device::PublishMlxDeviceReportRequest;
+use ::rpc::protos::mlx_device::{PublishMlxDeviceReportRequest, PublishMlxDeviceReportResponse};
 use ::rpc::{MachineDiscoveryInfo, forge as rpc};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
@@ -196,7 +196,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
     async fn publish_mlx_device_report(
         &self,
         req: PublishMlxDeviceReportRequest,
-    ) -> Result<(), RegistrationError> {
+    ) -> Result<PublishMlxDeviceReportResponse, RegistrationError> {
         // Create a new connection off of the ForgeTlsClient.
         let mut connection = self.connect("publish_mlx_device_report").await?;
 
@@ -205,7 +205,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         tracing::debug!("publish_mlx_device_report request {:?}", request);
 
         // And now attempt to send the request.
-        connection
+        Ok(connection
             .publish_mlx_device_report(request)
             .await
             .inspect_err(|err| {
@@ -214,8 +214,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
                     err.to_string()
                 )
             })?
-            .into_inner();
-        Ok(())
+            .into_inner())
     }
 }
 
