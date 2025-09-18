@@ -16,10 +16,14 @@
 
 ### Internal Changes
 
-## [Unreleased (v2025.09.10-rc2-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...v2025.09.10-rc2-0)
+## [v2025.09.12-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...v2025.09.12-rc2-0)
 
 ### Added
 
+- [MR-4354](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4354): Adds BMC actions to Carbide RPC interface, allowing for RBAC to be added later. Includes logging and running of commands
+- [MR-4568](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4568): Allow tenants to configure their own IB configuration, sends the instance out of ready and then back into ready
+- [MR-4575](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4575): Adds ability to configure instance's IB configuration via CLI
+- [MR-4574](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4574): Adds mlxconfig-runner crate, finishes infrastructure for being able to use mlxconfig in Carbide
 - [MR-4561](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4561): Added  support for an unused feature still in development. The `mqttea` client isn't in use anywhere yet, and the MR to actually integrate with it is still in development. And even though it's not in use yet, it's still backwards compatible just in case.
 - [FORGE-6424](https://jirasw.nvidia.com/browse/FORGE-6424), [MR-4546](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4546): Added the ability to monitor the amount of changes applied via UFM APIs via a new `forge_ib_monitor_machine_ufm_changes_applied_total` metric.
 - [MR-4415](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4415): Added the ability to supress external alerts by matching the new `forge_alerts_suppressed_count` metric with hosts with the SuppressAlerts classification.
@@ -28,8 +32,15 @@
 - [FORGE-6584](https://jirasw.nvidia.com/browse/FORGE-6584), [MR-4513](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4513): Added the ability to automatically trigger an AC power cycle on Lenovo machines when stuck.
 - [FORGE-6679](https://jirasw.nvidia.com/browse/FORGE-6679), [MR-4490](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4490): Added the ability for carbide to continously monitor the desired IB configuration at Carbide, the actually deployed IB configuration (GUID to pkey associations at UFM), and applies any fixes that are required to set the desired configuration.
 
+### Changed 
+
+- [MR-4558](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4558): Prevent instance configuration changes while an instance is terminating to avoid side effets
+- [MR-4462](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4462): Add TPM EK cert for cloud instances, needed for VMaaS
+
 ### Fixed
 
+- [MR-4578](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4578): Fix GetMachine permission set to allow for SSH console to get machine information
+- [MR-4571](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4571): Version bump of libredfish to track changed API
 - [5504750](https://nvbugspro.nvidia.com/bug/5504750), [MR-4559](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4559): Disables reboot in fw-check routine.
 - [5472630](https://nvbugspro.nvidia.com/bug/5472630), [MR-4549](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4549), [MR-4544](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4544): Ensured that site explorer, expected machines, and Nautobot align on the serial numbers assigned to GB200s, preventing `SerialNumberMismatch` health alerts. GB200 serial numbers can also be sourced from `/redfish/v1/Chassis/Chassis0/Assembly` now, and this MR now allows site explorer to recognize this. Previously, this chassis was ignored because it had no network adaptors.
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4538](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4538): Bump libredfish to 0.29.71 to pull in a fix to setting the boot order on Lenovo SR 675 V3s.
@@ -41,6 +52,9 @@
 
 ### Internal Changes
 
+- [MR-4572](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4572): Update measured_boot to use new UUID type
+- [MR-4581](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4581): Rerun IBFabricMonitor state more often if fabric changes were applied previously
+- [MR-4566](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4566): Update UUID wrapper type representation, continued refactoring
 - [MR-4535](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4535): Fix auto-deploy script so it pushes direct to forged/main.
 - [MR-4553](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4553): chore: Zero initialize forge_ib_monitor_ufm_changes_applied_total metric.
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4537](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4537): refactor: database error handling unification in the Carbide API: errors with transactions.
