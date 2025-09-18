@@ -86,9 +86,9 @@ BMCs with appropriate credentials.
 				</td>
 			{% else %}
 				{% if let Some(name) = current_user_name %}
-					{% if !(request.approvers|matches_name(name)) %}
+					{% if !(request.approvers|contains_name(name)) %}
 						<td><button onclick="post_handler(&quot;/approve&quot;, () => &quot;{{ request.request_id }}&quot;, event)">
-							Pending ({{ request.approvers.len() }}/{{ required_approvals }})
+							Approve ({{ request.approvers.len() }}/{{ required_approvals }})
 						</button></td>
 					{% else %}
 						<td><button disabled>Pending ({{ request.approvers.len() }}/{{ required_approvals }})</button></td>
@@ -98,7 +98,7 @@ BMCs with appropriate credentials.
 				{% endif %}
 			{% endif %}
 		{% endif %}
-		<td>{{ request.parameters }}</td>
+		<td><pre><code class="prettyjson">{{ request.parameters }}</code></pre></td>
 		<td>{{ request.machine_ips|join(", ") }}</td>
 		<td>{{ request.target }}</td>
 		<td style="text-wrap: nowrap;">{{ request.results|to_json|join("\n ")|linebreaksbr|safe }}</td>
