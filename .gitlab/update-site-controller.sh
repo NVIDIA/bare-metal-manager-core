@@ -11,13 +11,40 @@ set -euo pipefail
 
 
 #
-# Sync Argo CD and wait for health
+# Function to sync Argo CD and wait for health
 #
 function sync_argocd() {
+  # Refresh app state first
   argocd app get --refresh "argocd/site-controller"
-  argocd app sync "argocd/site-controller" --prune
-  argocd app wait "argocd/site-controller" --sync --timeout 600
-  argocd app wait "argocd/site-controller" --health --timeout 600
+  
+  # Sync Argo with retries if we get "operation in progress" error
+  local max_attempts=6
+  for ((i=1; i<=max_attempts; i++)); do
+    echo "Sync attempt ${i}/${max_attempts}..."
+    
+    # Attempt sync and capture output for error checking
+    if output=$(argocd app sync "argocd/site-controller" --prune 2>&1); then
+      echo "Sync initiated successfully, waiting for completion..."
+      argocd app wait "argocd/site-controller" --sync --timeout 600
+      argocd app wait "argocd/site-controller" --health --timeout 600
+      echo "Argo sync completed successfully!"
+      return 0
+    fi
+    
+    # Check if we got the "operation in progress" error
+    if echo "${output}" | grep -q "another operation is already in progress"; then
+      if [[ $i -lt $max_attempts ]]; then
+        echo "Another operation is in progress, waiting 10 seconds before retry..."
+        sleep 60
+      else
+        echo "All attempts failed: another operation is still in progress after 1 minute"
+        return 1
+      fi
+    else
+      echo -e "Argo sync failed with unforeseen error: \n${output}"
+      return 1
+    fi
+  done
 }
 
 # Get the latest build versions of the carbide artifacts and ssh-console
