@@ -751,13 +751,23 @@ impl Forge for Api {
             }
 
             let db_machine = if machine_discovery_info.create_machine {
-                db::machine::get_or_create(
+                let machine = db::machine::get_or_create(
                     &mut txn,
                     Some(&self.common_pools),
                     &stable_machine_id,
                     &interface,
                 )
-                .await?
+                .await?;
+
+                // Update the record only when create_machine is enabled.
+                // Site-explorer will update if machine is created by site-explorer.
+                db::machine_interface::associate_interface_with_dpu_machine(
+                    &interface.id,
+                    &stable_machine_id,
+                    &mut txn,
+                )
+                .await?;
+                machine
             } else {
                 db::machine::find_one(
                     &mut txn,
@@ -772,13 +782,6 @@ impl Forge for Api {
                     Status::invalid_argument(format!("Machine id {stable_machine_id} not found."))
                 })?
             };
-
-            db::machine_interface::associate_interface_with_dpu_machine(
-                &interface.id,
-                &stable_machine_id,
-                &mut txn,
-            )
-            .await?;
 
             let (network_config, _version) = db_machine.network_config.clone().take();
             if network_config.loopback_ip.is_none() {
