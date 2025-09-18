@@ -439,9 +439,9 @@ impl MlxConfigRunner {
         if self.options.verbose {
             println!(
                 "[DEVICE] Device '{}' (type: {}, part: {}) {} registry filters",
-                device_info.pci_name,
-                device_info.device_type,
-                device_info.part_number,
+                device_info.pci_name_pretty(),
+                device_info.device_type_pretty(),
+                device_info.part_number_pretty(),
                 if matches { "matches" } else { "does not match" }
             );
         }
@@ -451,9 +451,9 @@ impl MlxConfigRunner {
         } else {
             Err(MlxRunnerError::GenericError(format!(
                 "Device '{}' (type: {}, part: {}) does not match registry '{}' filters: {}",
-                device_info.pci_name,
-                device_info.device_type,
-                device_info.part_number,
+                device_info.pci_name_pretty(),
+                device_info.device_type_pretty(),
+                device_info.part_number_pretty(),
                 self.registry.name,
                 self.registry.filter_summary()
             )))

@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use cfg::{AutoDetect, Command, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;

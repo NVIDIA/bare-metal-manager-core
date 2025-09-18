@@ -207,6 +207,9 @@ fn generate_single_filter_code(filter: &mlxconfig_device::filters::DeviceFilter)
         mlxconfig_device::filters::DeviceField::PciName => {
             "mlxconfig_device::filters::DeviceField::PciName"
         }
+        mlxconfig_device::filters::DeviceField::Status => {
+            "mlxconfig_device::filters::DeviceField::Status"
+        }
     };
 
     let values_code = format!(

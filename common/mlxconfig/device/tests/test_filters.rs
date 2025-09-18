@@ -8,15 +8,34 @@ fn create_test_device() -> MlxDeviceInfo {
     MlxDeviceInfo {
         pci_name: "01:00.0".to_string(),
         device_type: "ConnectX-6 Dx".to_string(),
-        psid: "MT_00000055".to_string(),
-        device_description: "Mellanox ConnectX-6 Dx EN 100GbE dual port".to_string(),
-        part_number: "MCX623106AN-CDAT".to_string(),
-        fw_version_current: "22.32.1010".to_string(),
-        pxe_version_current: "3.6.0502".to_string(),
-        uefi_version_current: "14.25.1020".to_string(),
-        uefi_version_virtio_blk_current: "1.0.0".to_string(),
-        uefi_version_virtio_net_current: "1.0.0".to_string(),
-        base_mac: MacAddress::from_str("b8:3f:d2:12:34:56").unwrap(),
+        psid: Some("MT_00000055".to_string()),
+        device_description: Some("Mellanox ConnectX-6 Dx EN 100GbE dual port".to_string()),
+        part_number: Some("MCX623106AN-CDAT".to_string()),
+        fw_version_current: Some("22.32.1010".to_string()),
+        pxe_version_current: Some("3.6.0502".to_string()),
+        uefi_version_current: Some("14.25.1020".to_string()),
+        uefi_version_virtio_blk_current: Some("1.0.0".to_string()),
+        uefi_version_virtio_net_current: Some("1.0.0".to_string()),
+        base_mac: Some(MacAddress::from_str("b8:3f:d2:12:34:56").unwrap()),
+        status: None,
+    }
+}
+
+/// create_test_device_with_missing_data creates a device with partial data (like a DPU).
+fn create_test_device_with_missing_data() -> MlxDeviceInfo {
+    MlxDeviceInfo {
+        pci_name: "b4:00.0".to_string(),
+        device_type: "BlueField3".to_string(),
+        psid: None,
+        device_description: None,
+        part_number: None,
+        fw_version_current: None,
+        pxe_version_current: None,
+        uefi_version_current: None,
+        uefi_version_virtio_blk_current: None,
+        uefi_version_virtio_net_current: None,
+        base_mac: None,
+        status: Some("Failed to open device".to_string()),
     }
 }
 
@@ -102,6 +121,14 @@ fn test_device_filter_description_case_insensitive() {
 }
 
 #[test]
+fn test_device_filter_status_match() {
+    let device = create_test_device_with_missing_data();
+    let filter = DeviceFilter::status(vec!["Failed to open device".to_string()], MatchMode::Exact);
+
+    assert!(filter.matches(&device));
+}
+
+#[test]
 fn test_device_filter_set_multiple_criteria_all_match() {
     let device = create_test_device();
     let mut filter_set = DeviceFilterSet::new();
@@ -145,7 +172,7 @@ fn test_device_filter_set_summary_empty() {
     let filter_set = DeviceFilterSet::new();
     let summary = filter_set.to_string();
 
-    assert_eq!(summary, "No filters".to_string());
+    assert_eq!(summary, "No filters");
 }
 
 #[test]
@@ -161,15 +188,11 @@ fn test_device_filter_set_summary_with_filters() {
         MatchMode::Prefix,
     ));
 
-    let filters = filter_set.filters;
+    let summary_vec = filter_set.summary();
 
-    assert_eq!(filters.len(), 2);
-    assert!(filters
-        .iter()
-        .any(|s| s.to_string().contains("device_type")));
-    assert!(filters
-        .iter()
-        .any(|s| s.to_string().contains("part_number")));
+    assert_eq!(summary_vec.len(), 2);
+    assert!(summary_vec.iter().any(|s| s.contains("device_type")));
+    assert!(summary_vec.iter().any(|s| s.contains("part_number")));
 }
 
 #[test]
@@ -218,6 +241,23 @@ fn test_device_filter_multiple_values_or_logic() {
 }
 
 #[test]
+fn test_device_filter_with_missing_data() {
+    let device = create_test_device_with_missing_data();
+
+    // Filtering on missing data should not match
+    let part_filter = DeviceFilter::part_number(vec!["MCX".to_string()], MatchMode::Prefix);
+    assert!(!part_filter.matches(&device));
+
+    // But filtering on device type should still work
+    let type_filter = DeviceFilter::device_type(vec!["BlueField".to_string()], MatchMode::Prefix);
+    assert!(type_filter.matches(&device));
+
+    // Status filtering should work
+    let status_filter = DeviceFilter::status(vec!["Failed".to_string()], MatchMode::Prefix);
+    assert!(status_filter.matches(&device));
+}
+
+#[test]
 fn test_match_mode_from_str() {
     assert_eq!(MatchMode::from_str("regex").unwrap(), MatchMode::Regex);
     assert_eq!(MatchMode::from_str("exact").unwrap(), MatchMode::Exact);
@@ -252,5 +292,47 @@ fn test_device_field_from_str() {
         DeviceField::from_str("fw").unwrap(),
         DeviceField::FirmwareVersion
     );
+    assert_eq!(
+        DeviceField::from_str("status").unwrap(),
+        DeviceField::Status
+    );
     assert!(DeviceField::from_str("invalid").is_err());
+}
+
+#[test]
+fn test_empty_field_filtering() {
+    let device = create_test_device_with_missing_data();
+
+    // Test that empty fields don't match regular filters
+    let fw_filter = DeviceFilter::firmware_version(vec!["22.32".to_string()], MatchMode::Prefix);
+    assert!(!fw_filter.matches(&device));
+
+    let mac_filter = DeviceFilter::mac_address(vec!["b8:3f".to_string()], MatchMode::Prefix);
+    assert!(!mac_filter.matches(&device));
+
+    // But device type should still match since it's always present
+    let type_filter = DeviceFilter::device_type(vec!["BlueField".to_string()], MatchMode::Prefix);
+    assert!(type_filter.matches(&device));
+}
+
+#[test]
+fn test_mixed_device_filtering() {
+    let complete_device = create_test_device();
+    let partial_device = create_test_device_with_missing_data();
+
+    // Filter that should match only complete devices
+    let part_filter = DeviceFilter::part_number(vec!["MCX".to_string()], MatchMode::Prefix);
+    assert!(part_filter.matches(&complete_device));
+    assert!(!part_filter.matches(&partial_device));
+
+    // Filter that should match both
+    let type_filter = DeviceFilter::device_type(vec![".*".to_string()], MatchMode::Regex);
+    assert!(type_filter.matches(&complete_device)); // ConnectX-6 Dx
+    assert!(type_filter.matches(&partial_device)); // BlueField3 -> no match actually
+
+    // Actually fix the regex to match both
+    let broad_filter =
+        DeviceFilter::device_type(vec!["Connect.*|Blue.*".to_string()], MatchMode::Regex);
+    assert!(broad_filter.matches(&complete_device));
+    assert!(broad_filter.matches(&partial_device));
 }

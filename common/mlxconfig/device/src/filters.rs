@@ -124,7 +124,7 @@ impl Display for DeviceFilter {
     }
 }
 
-impl std::fmt::Display for DeviceFilterSet {
+impl Display for DeviceFilterSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.filters.is_empty() {
             write!(f, "No filters")
@@ -155,6 +155,8 @@ pub enum DeviceField {
     Description,
     // PciName filters on the PCI name/address.
     PciName,
+    // Status filters on the device status from mlxfwmanager.
+    Status,
 }
 
 impl FromStr for DeviceField {
@@ -169,8 +171,9 @@ impl FromStr for DeviceField {
             "mac_address" | "mac" => Ok(DeviceField::MacAddress),
             "description" | "desc" => Ok(DeviceField::Description),
             "pci_name" | "pci" => Ok(DeviceField::PciName),
+            "status" => Ok(DeviceField::Status),
             _ => Err(format!(
-                "Unknown field '{field_str}'. Valid fields: device_type, part_number, firmware_version, mac_address, description, pci_name"
+                "Unknown field '{field_str}'. Valid fields: device_type, part_number, firmware_version, mac_address, description, pci_name, status"
             )),
         }
     }
@@ -186,6 +189,7 @@ impl Display for DeviceField {
             DeviceField::MacAddress => "mac_address",
             DeviceField::Description => "description",
             DeviceField::PciName => "pci_name",
+            DeviceField::Status => "status",
         };
         write!(f, "{name}")
     }
@@ -239,6 +243,11 @@ impl DeviceFilter {
         Self::new(DeviceField::PciName, values, match_mode)
     }
 
+    // status creates a filter for device status matching.
+    pub fn status(values: Vec<String>, match_mode: MatchMode) -> Self {
+        Self::new(DeviceField::Status, values, match_mode)
+    }
+
     // matches checks if a device satisfies this filter.
     pub fn matches(&self, device: &MlxDeviceInfo) -> bool {
         let device_value = self.get_device_field_value(device);
@@ -248,15 +257,19 @@ impl DeviceFilter {
             .any(|filter_value| self.matches_value(&device_value, filter_value))
     }
 
-    // get_device_field_value extracts the specified field value from a device.
+    // get_device_field_value extracts the specified field value
+    // from a device as a formatted string. Used for display and
+    // filter matching purposes (since filter matching is all
+    // based on strings).
     fn get_device_field_value(&self, device: &MlxDeviceInfo) -> String {
         match self.field {
-            DeviceField::DeviceType => device.device_type.clone(),
-            DeviceField::PartNumber => device.part_number.clone(),
-            DeviceField::FirmwareVersion => device.fw_version_current.clone(),
-            DeviceField::MacAddress => device.base_mac.to_string(),
-            DeviceField::Description => device.device_description.clone(),
-            DeviceField::PciName => device.pci_name.clone(),
+            DeviceField::DeviceType => device.device_type_pretty(),
+            DeviceField::PartNumber => device.part_number_pretty(),
+            DeviceField::FirmwareVersion => device.fw_version_current_pretty(),
+            DeviceField::MacAddress => device.base_mac_pretty(),
+            DeviceField::Description => device.device_description_pretty(),
+            DeviceField::PciName => device.pci_name_pretty(),
+            DeviceField::Status => device.status_pretty(),
         }
     }
 
@@ -313,6 +326,7 @@ impl DeviceFilterSet {
         !self.filters.is_empty()
     }
 
+    // summary gets a vector of active filters for display purposes.
     pub fn summary(&self) -> Vec<String> {
         self.filters
             .iter()

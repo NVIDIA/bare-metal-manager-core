@@ -1,3 +1,15 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 use crate::cmd::device::args::{DeviceAction, DeviceArgs, OutputFormat};
 use crate::filters::{DeviceFilter, DeviceFilterSet};
 use crate::info::MlxDeviceInfo;
@@ -162,12 +174,12 @@ fn print_devices_table(devices: &[MlxDeviceInfo]) {
     // Add device rows.
     for device in devices {
         table.add_row(Row::new(vec![
-            Cell::new(&device.pci_name),
-            Cell::new(&device.base_mac.to_string()),
-            Cell::new(&device.psid),
-            Cell::new(&device.device_type),
-            Cell::new(&device.part_number),
-            Cell::new(&device.fw_version_current),
+            Cell::new(&device.pci_name_pretty()),
+            Cell::new(&device.base_mac_pretty()),
+            Cell::new(&device.psid_pretty()),
+            Cell::new(&device.device_type_pretty()),
+            Cell::new(&device.part_number_pretty()),
+            Cell::new(&device.fw_version_current_pretty()),
         ]));
     }
 

@@ -89,15 +89,20 @@ impl From<MlxDeviceInfo> for MlxDeviceInfoPb {
         MlxDeviceInfoPb {
             pci_name: info.pci_name,
             device_type: info.device_type,
-            psid: info.psid,
-            device_description: info.device_description,
-            part_number: info.part_number,
-            fw_version_current: info.fw_version_current,
-            pxe_version_current: info.pxe_version_current,
-            uefi_version_current: info.uefi_version_current,
-            uefi_version_virtio_blk_current: info.uefi_version_virtio_blk_current,
-            uefi_version_virtio_net_current: info.uefi_version_virtio_net_current,
-            base_mac: info.base_mac.to_string(),
+            psid: info.psid.unwrap_or_default(),
+            device_description: info.device_description.unwrap_or_default(),
+            part_number: info.part_number.unwrap_or_default(),
+            fw_version_current: info.fw_version_current.unwrap_or_default(),
+            pxe_version_current: info.pxe_version_current.unwrap_or_default(),
+            uefi_version_current: info.uefi_version_current.unwrap_or_default(),
+            uefi_version_virtio_blk_current: info
+                .uefi_version_virtio_blk_current
+                .unwrap_or_default(),
+            uefi_version_virtio_net_current: info
+                .uefi_version_virtio_net_current
+                .unwrap_or_default(),
+            base_mac: info.base_mac.map(|mac| mac.to_string()).unwrap_or_default(),
+            status: info.status.unwrap_or_default(),
         }
     }
 }
@@ -107,20 +112,35 @@ impl TryFrom<MlxDeviceInfoPb> for MlxDeviceInfo {
     type Error = String;
 
     fn try_from(proto: MlxDeviceInfoPb) -> Result<Self, Self::Error> {
-        let base_mac = MacAddress::from_str(&proto.base_mac)
-            .map_err(|e| format!("Invalid MAC address '{}': {}", proto.base_mac, e))?;
+        let base_mac = if proto.base_mac.is_empty() {
+            None
+        } else {
+            Some(
+                MacAddress::from_str(&proto.base_mac)
+                    .map_err(|e| format!("Invalid MAC address '{}': {}", proto.base_mac, e))?,
+            )
+        };
+
+        // Similar to parse_optional_xml_field, have a little helper
+        // for handling it with Rust <-> proto type conversion as well.
+        let parse_optional_field = |s: String| if s.is_empty() { None } else { Some(s) };
 
         Ok(MlxDeviceInfo {
             pci_name: proto.pci_name,
             device_type: proto.device_type,
-            psid: proto.psid,
-            device_description: proto.device_description,
-            part_number: proto.part_number,
-            fw_version_current: proto.fw_version_current,
-            pxe_version_current: proto.pxe_version_current,
-            uefi_version_current: proto.uefi_version_current,
-            uefi_version_virtio_blk_current: proto.uefi_version_virtio_blk_current,
-            uefi_version_virtio_net_current: proto.uefi_version_virtio_net_current,
+            psid: parse_optional_field(proto.psid),
+            device_description: parse_optional_field(proto.device_description),
+            part_number: parse_optional_field(proto.part_number),
+            fw_version_current: parse_optional_field(proto.fw_version_current),
+            pxe_version_current: parse_optional_field(proto.pxe_version_current),
+            uefi_version_current: parse_optional_field(proto.uefi_version_current),
+            uefi_version_virtio_blk_current: parse_optional_field(
+                proto.uefi_version_virtio_blk_current,
+            ),
+            uefi_version_virtio_net_current: parse_optional_field(
+                proto.uefi_version_virtio_net_current,
+            ),
+            status: parse_optional_field(proto.status),
             base_mac,
         })
     }
@@ -182,6 +202,7 @@ fn device_field_to_proto(field: DeviceField) -> DeviceFieldPb {
         DeviceField::MacAddress => DeviceFieldPb::MacAddress,
         DeviceField::Description => DeviceFieldPb::Description,
         DeviceField::PciName => DeviceFieldPb::PciName,
+        DeviceField::Status => DeviceFieldPb::Status,
     }
 }
 
@@ -194,6 +215,7 @@ fn proto_device_field_to_rust(field: i32) -> Result<DeviceField, String> {
         Ok(DeviceFieldPb::MacAddress) => Ok(DeviceField::MacAddress),
         Ok(DeviceFieldPb::Description) => Ok(DeviceField::Description),
         Ok(DeviceFieldPb::PciName) => Ok(DeviceField::PciName),
+        Ok(DeviceFieldPb::Status) => Ok(DeviceField::Status),
         Ok(DeviceFieldPb::Unspecified) => {
             Err("Unspecified device field is not allowed".to_string())
         }
@@ -234,15 +256,34 @@ mod tests {
         MlxDeviceInfo {
             pci_name: "01:00.0".to_string(),
             device_type: "ConnectX-6".to_string(),
-            psid: "MT_0000055".to_string(),
-            device_description: "Mellanox ConnectX-6 Dx EN 100GbE".to_string(),
-            part_number: "MCX623106AN-CDAT_A1".to_string(),
-            fw_version_current: "22.32.1010".to_string(),
-            pxe_version_current: "3.6.0502".to_string(),
-            uefi_version_current: "14.25.1020".to_string(),
-            uefi_version_virtio_blk_current: "1.0.0".to_string(),
-            uefi_version_virtio_net_current: "1.0.0".to_string(),
-            base_mac: "b8:3f:d2:12:34:56".parse().unwrap(),
+            psid: Some("MT_0000055".to_string()),
+            device_description: Some("Mellanox ConnectX-6 Dx EN 100GbE".to_string()),
+            part_number: Some("MCX623106AN-CDAT_A1".to_string()),
+            fw_version_current: Some("22.32.1010".to_string()),
+            pxe_version_current: Some("3.6.0502".to_string()),
+            uefi_version_current: Some("14.25.1020".to_string()),
+            uefi_version_virtio_blk_current: Some("1.0.0".to_string()),
+            uefi_version_virtio_net_current: Some("1.0.0".to_string()),
+            base_mac: Some("b8:3f:d2:12:34:56".parse().unwrap()),
+            status: None,
+        }
+    }
+
+    // create_test_device_with_missing_data creates a device with partial data (like a DPU).
+    fn create_test_device_with_missing_data() -> MlxDeviceInfo {
+        MlxDeviceInfo {
+            pci_name: "b4:00.0".to_string(),
+            device_type: "BlueField3".to_string(),
+            psid: None,
+            device_description: None,
+            part_number: None,
+            fw_version_current: None,
+            pxe_version_current: None,
+            uefi_version_current: None,
+            uefi_version_virtio_blk_current: None,
+            uefi_version_virtio_net_current: None,
+            base_mac: None,
+            status: Some("Failed to open device".to_string()),
         }
     }
 
@@ -251,8 +292,24 @@ mod tests {
         let original = create_test_device();
         let proto: MlxDeviceInfoPb = original.clone().into();
         let converted: MlxDeviceInfo = proto.try_into().unwrap();
-
         assert_eq!(original, converted);
+    }
+
+    #[test]
+    fn test_device_info_with_missing_data_conversion() {
+        let original = create_test_device_with_missing_data();
+        let proto: MlxDeviceInfoPb = original.clone().into();
+        let converted: MlxDeviceInfo = proto.try_into().unwrap();
+
+        // Required fields should be preserved
+        assert_eq!(original.pci_name, converted.pci_name);
+        assert_eq!(original.device_type, converted.device_type);
+
+        // Optional fields should become None
+        assert_eq!(converted.psid, None);
+        assert_eq!(converted.part_number, None);
+        assert_eq!(converted.base_mac, None);
+        assert_eq!(converted.status, Some("Failed to open device".to_string()));
     }
 
     #[test]
@@ -260,7 +317,7 @@ mod tests {
         let original = MlxDeviceReport {
             hostname: "test-host".to_string(),
             timestamp: Utc::now(),
-            devices: vec![create_test_device()],
+            devices: vec![create_test_device(), create_test_device_with_missing_data()],
             filters: None,
         };
 
@@ -296,6 +353,7 @@ mod tests {
             DeviceField::MacAddress,
             DeviceField::Description,
             DeviceField::PciName,
+            DeviceField::Status,
         ];
 
         for field in fields {
@@ -322,5 +380,31 @@ mod tests {
 
         assert_eq!(original_filter_set.filters.len(), converted.filters.len());
         assert_eq!(original_filter_set.summary(), converted.summary());
+    }
+
+    #[test]
+    fn test_empty_string_fields_become_none() {
+        let proto = MlxDeviceInfoPb {
+            pci_name: "01:00.0".to_string(),
+            device_type: "BlueField3".to_string(),
+            psid: "".to_string(), // Empty string should become None
+            device_description: "".to_string(),
+            part_number: "".to_string(),
+            fw_version_current: "".to_string(),
+            pxe_version_current: "".to_string(),
+            uefi_version_current: "".to_string(),
+            uefi_version_virtio_blk_current: "".to_string(),
+            uefi_version_virtio_net_current: "".to_string(),
+            base_mac: "".to_string(), // Empty MAC becomes None
+            status: "".to_string(),
+        };
+
+        let converted: MlxDeviceInfo = proto.try_into().unwrap();
+
+        assert_eq!(converted.psid, None);
+        assert_eq!(converted.part_number, None);
+        assert_eq!(converted.base_mac, None);
+        assert_eq!(converted.fw_version_current, None);
+        assert_eq!(converted.status, None);
     }
 }
