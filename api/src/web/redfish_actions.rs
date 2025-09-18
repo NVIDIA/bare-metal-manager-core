@@ -190,23 +190,20 @@ pub async fn cancel(AxumState(state): AxumState<Arc<Api>>, request_id: String) -
 }
 
 pub mod filters {
-    use chrono::DateTime;
     use itertools::Itertools;
     use rpc::forge::OptionalRedfishActionResult;
+    use utils::managed_host_display::to_time;
 
     pub fn date_fmt(value: &rpc::Timestamp) -> ::askama::Result<String> {
-        Ok(DateTime::from_timestamp(value.seconds, value.nanos as u32)
-            .ok_or(askama::Error::Fmt(std::fmt::Error))?
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string())
+        Ok(to_time::<String>(Some(*value), None).unwrap_or_default())
     }
 
-    pub fn matches_name(approvals: &[String], name: &str) -> ::askama::Result<bool> {
+    pub fn contains_name(approvals: &[String], name: &str) -> ::askama::Result<bool> {
         Ok(approvals.iter().any(|o| o == name))
     }
 
     pub fn to_json(values: &[OptionalRedfishActionResult]) -> ::askama::Result<Vec<String>> {
-        fn wrap_quotes(s: String) -> String {
+        fn escape_quotes(s: String) -> String {
             format!("\"{}\"", s.replace('"', r#"\""#))
         }
         values
@@ -219,12 +216,12 @@ pub mod filters {
                 headers.sort_by_key(|(h, _)| *h);
                 let headers = headers
                     .iter()
-                    .map(|(h, v)| wrap_quotes(format!("{h}: {v}")))
+                    .map(|(h, v)| escape_quotes(format!("{h}: {v}")))
                     .join(", ");
                 let out = format!(
                     "Status: {}. Body: {}. Completed at: {}. Headers: {headers}",
                     v.status,
-                    wrap_quotes(v.body.clone()),
+                    escape_quotes(v.body.clone()),
                     v.completed_at
                         .as_ref()
                         .map(date_fmt)
