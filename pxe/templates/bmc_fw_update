@@ -4,9 +4,8 @@ BMC_REBOOT="yes"
 CEC_REBOOT="yes"
 USER_ID=8
 
-bfb_custom_action1() {
+pre_bmc_components_update() {
     set -exE
-    ilog $(run_with_timeout "ipmitool lan print")
     run_with_timeout "ipmitool user set name $USER_ID $BMC_USER"
     run_with_timeout "ipmitool user set password $USER_ID $BMC_PASSWORD" "ipmitool user set password $USER_ID REDACTED"
     run_with_timeout "ipmitool user enable $USER_ID"
