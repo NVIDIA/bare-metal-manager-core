@@ -26,6 +26,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "color-eyre",
+ "csv",
  "eyre",
  "forge-network",
  "forge-ssh",

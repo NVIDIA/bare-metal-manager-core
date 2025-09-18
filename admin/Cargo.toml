@@ -42,6 +42,7 @@ uuid = "1.0"
 x509-parser = { version = "0.17.0", features = ["validate"] }
 toml = "0.8.8"
 ipnet = "2.10.1"
+csv = "1.3.1"
 
 [build-dependencies]
 clap = { workspace = true }
