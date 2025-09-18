@@ -29,10 +29,16 @@ use std::sync::Arc;
 #[derive(Template)]
 #[template(path = "redfish_actions.html")]
 struct RedfishBrowser {
-    action_requests: Vec<RedfishAction>,
-    required_approvals: usize,
-    current_user_name: Option<String>,
+    actions: RedfishActionsTable,
     error: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "redfish_actions_table.html")]
+pub struct RedfishActionsTable {
+    pub action_requests: Vec<RedfishAction>,
+    pub required_approvals: usize,
+    pub current_user_name: Option<String>,
 }
 
 /// Queries the redfish endpoint in the query parameter
@@ -46,12 +52,14 @@ pub async fn query(
         .map(|layer| PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key));
 
     let mut browser = RedfishBrowser {
-        action_requests: vec![],
-        required_approvals: NUM_REQUIRED_APPROVALS,
-        current_user_name: cookiejar.and_then(|jar| {
-            jar.get("unique_name")
-                .map(|cookie| cookie.value().to_string())
-        }),
+        actions: RedfishActionsTable {
+            action_requests: vec![],
+            current_user_name: cookiejar.and_then(|jar| {
+                jar.get("unique_name")
+                    .map(|cookie| cookie.value().to_string())
+            }),
+            required_approvals: NUM_REQUIRED_APPROVALS,
+        },
         error: None,
     };
 
@@ -68,7 +76,7 @@ pub async fn query(
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
-    browser.action_requests = requests;
+    browser.actions.action_requests = requests;
 
     (StatusCode::OK, Html(browser.render().unwrap())).into_response()
 }
@@ -81,7 +89,7 @@ pub struct ActionRequest {
     parameters: String,
 }
 
-pub async fn request(
+pub async fn create(
     AxumState(state): AxumState<Arc<Api>>,
     Extension(auth_context): Extension<AuthContext>,
     Json(payload): Json<ActionRequest>,

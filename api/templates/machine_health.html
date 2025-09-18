@@ -200,12 +200,6 @@ const templateReplaceAsHealthy = {
 	}
 };
 
-function create_el(type, attributes) {
-	const el = document.createElement(type);
-	Object.assign(el, attributes);
-	return el;
-}
-
 function add_click_listener([id, path, body]) {
 	document.getElementById(id).addEventListener("click", async e => {
 		e.preventDefault();

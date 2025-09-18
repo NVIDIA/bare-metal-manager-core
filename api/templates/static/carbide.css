@@ -1076,6 +1076,21 @@ details > *:not(summary) {
 .health-override-actions button {
   flex-shrink: 0;
 }
+
+.cancel-cell {
+  padding: 1rem;
+  button {
+    background-color: color-mix(in srgb, red, transparent 30%);
+    border: 1px solid red;
+    padding: 0.5rem;
+
+  }
+  button:hover {
+    background-color: red;
+    border: 1px solid red;
+  }
+}
+
 /* ------------------------------------------------------------------------
    Page-specific styles
    ------------------------------------------------------------------------ */

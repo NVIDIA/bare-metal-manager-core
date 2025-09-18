@@ -51,64 +51,7 @@ The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>
 <details open>
 	<summary>Past Actions</summary>
 	<div style="overflow: scroll;">
-	<table style="width: auto;">
-	<tbody>
-		<tr>
-			<th>Name</th>
-			<th>Approvers</th>
-			<th>Applied</th>
-			<th>Parameters</th>
-			<th>Machine IPs</th>
-			<th>Target</th>
-			<th>Results</th>
-		</tr>
-		{% for request in action_requests %}
-		<tr>
-			<td>{{ request.action }}</td>
-			<td>
-			<table style="margin: 0pt;">
-
-			{% for approver in request.approvers %}
-				<tr>
-					<td>{{ approver }}</td>
-					<td style="text-wrap: nowrap;">{{ request.approver_dates[loop.index0]|date_fmt }}</td>
-				</tr>
-			{% endfor %}
-			</table>
-			</td>
-			{% if let Some(applied_at) = request.applied_at %}
-				<td>{{ applied_at }}{% if let Some(applier) = request.applier %}, {{ applier }} {% endif %} </td>
-			{% else %}
-			  {% if request.approvers.len() >= required_approvals %}
-					<td>
-						<button onclick="post_handler(&quot;/apply&quot;, () => &quot;{{ request.request_id }}&quot;, event)">
-							Apply ({{ request.approvers.len() }}/{{ required_approvals }})
-						</button>
-					</td>
-				{% else %}
-					{% if let Some(name) = current_user_name %}
-						<!-- askama does support if let and && in the latest version but would require
-						     upgrading our rust version-->
-						{% if !(request.approvers|contains_name(name)) %}
-							<td><button onclick="post_handler(&quot;/approve&quot;, () => &quot;{{ request.request_id }}&quot;, event)">
-								Approve ({{ request.approvers.len() }}/{{ required_approvals }})
-							</button></td>
-						{% else %}
-							<td><button disabled>Pending ({{ request.approvers.len() }}/{{ required_approvals }})</button></td>
-						{% endif %}
-					{% else %}
-						<td><button disabled>Pending ({{ request.approvers.len() }}/{{ required_approvals }})</button></td>
-					{% endif %}
-				{% endif %}
-			{% endif %}
-			<td><pre><code class="prettyjson">{{ request.parameters }}</code></pre></td>
-			<td>{{ request.machine_ips|join(", ") }}</td>
-			<td>{{ request.target }}</td>
-			<td style="text-wrap: nowrap;"><div>{{ request.results|to_json|join("\n ")|linebreaksbr|safe }}</div></td>
-		</tr>
-		{% endfor %}
-	</tbody>
-	</table>
+	{{ actions }}
 	</div>
 </details>
 
@@ -148,17 +91,6 @@ The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>
 {% block script %}
 
 const baseBmcUrl = "{{ base_bmc_url }}";
-
-function create_el(type, attributes, htmlAttributes) {
-	const el = document.createElement(type);
-	Object.assign(el, attributes);
-	if (htmlAttributes && htmlAttributes != undefined) {
-		for (const [key, value] of Object.entries(htmlAttributes)) {
-			el.setAttribute(key, value);
-		}
-	}
-	return el;
-}
 
 function listActions(response) {
   const actions = response["Actions"];

@@ -13,6 +13,7 @@
 use super::Oauth2Layer;
 use crate::api::Api;
 use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
+use crate::web::redfish_actions::RedfishActionsTable;
 use askama::Template;
 use axum::Extension;
 use axum::extract::{Query as AxumQuery, State as AxumState};
@@ -21,7 +22,6 @@ use axum_extra::extract::PrivateCookieJar;
 use forge_uuid::machine::MachineId;
 use http::HeaderMap;
 use hyper::http::StatusCode;
-use rpc::forge::RedfishAction;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -38,9 +38,7 @@ struct RedfishBrowser {
     status_code: u16,
     status_string: String,
     response_headers: Vec<Header>,
-    action_requests: Vec<RedfishAction>,
-    required_approvals: usize,
-    current_user_name: Option<String>,
+    actions: RedfishActionsTable,
 }
 
 struct Header {
@@ -74,12 +72,14 @@ pub async fn query(
         error: "".to_string(),
         status_code: 0,
         status_string: "".to_string(),
-        action_requests: vec![],
-        required_approvals: NUM_REQUIRED_APPROVALS,
-        current_user_name: cookiejar.and_then(|jar| {
-            jar.get("unique_name")
-                .map(|cookie| cookie.value().to_string())
-        }),
+        actions: RedfishActionsTable {
+            action_requests: vec![],
+            required_approvals: NUM_REQUIRED_APPROVALS,
+            current_user_name: cookiejar.and_then(|jar| {
+                jar.get("unique_name")
+                    .map(|cookie| cookie.value().to_string())
+            }),
+        },
     };
 
     if browser.url.is_empty() {
@@ -170,7 +170,7 @@ pub async fn query(
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
-    browser.action_requests = match requests {
+    browser.actions.action_requests = match requests {
         Ok(ok) => ok,
         Err(err) => {
             tracing::error!(%err, bmc_ip = browser.bmc_ip, "fetch_action_requests");
@@ -217,5 +217,4 @@ async fn find_machine_id(
 
 pub mod filters {
     pub use super::super::filters::*;
-    pub use super::super::redfish_actions::filters::*;
 }

@@ -42,88 +42,8 @@ BMCs with appropriate credentials.
 </details>
 
 <div style="overflow: scroll;">
-<table style="width: auto;">
-<tbody>
-	<tr>
-		<th></th>
-		<th>Name</th>
-		<th>Approvers</th>
-		<th>Applied</th>
-		<th>Parameters</th>
-		<th>Machine IPs</th>
-		<th>Target</th>
-		<th>Results</th>
-	</tr>
-	{% for request in action_requests %}
-	<tr>
-		<td class="cancel-cell">
-			{% if request.applied_at == None %}
-				<button onclick="post_handler(&quot;/cancel&quot;, () => &quot;{{ request.request_id }}&quot;, event)" class="cancel">
-					X
-				</button>
-			{% endif %}
-		</td>
-		<td>{{ request.action }}</td>
-		<td>
-		<table style="margin: 0pt;">
-
-		{% for approver in request.approvers %}
-			<tr>
-				<td>{{ approver }}</td>
-				<td style="text-wrap: nowrap;">{{ request.approver_dates[loop.index0]|date_fmt }}</td>
-			</tr>
-		{% endfor %}
-		</table>
-		</td>
-		{% if let Some(applied_at) = request.applied_at %}
-			<td>{{ applied_at }}{% if let Some(applier) = request.applier %}, {{ applier }} {% endif %} </td>
-		{% else %}
-		  {% if request.approvers.len() >= required_approvals %}
-				<td>
-					<button onclick="post_handler(&quot;/apply&quot;, () => &quot;{{ request.request_id }}&quot;, event)">
-						Apply ({{ request.approvers.len() }}/{{ required_approvals }})
-					</button>
-				</td>
-			{% else %}
-				{% if let Some(name) = current_user_name %}
-					{% if !(request.approvers|contains_name(name)) %}
-						<td><button onclick="post_handler(&quot;/approve&quot;, () => &quot;{{ request.request_id }}&quot;, event)">
-							Approve ({{ request.approvers.len() }}/{{ required_approvals }})
-						</button></td>
-					{% else %}
-						<td><button disabled>Pending ({{ request.approvers.len() }}/{{ required_approvals }})</button></td>
-					{% endif %}
-				{% else %}
-					<td><button disabled>Pending ({{ request.approvers.len() }}/{{ required_approvals }})</button></td>
-				{% endif %}
-			{% endif %}
-		{% endif %}
-		<td><pre><code class="prettyjson">{{ request.parameters }}</code></pre></td>
-		<td>{{ request.machine_ips|join(", ") }}</td>
-		<td>{{ request.target }}</td>
-		<td style="text-wrap: nowrap;">{{ request.results|to_json|join("\n ")|linebreaksbr|safe }}</td>
-	</tr>
-	{% endfor %}
-</tbody>
-</table>
+{{ actions }}
 </div>
-
-
-<style>
-	.cancel-cell {
-		padding: 1rem;
-		button {
-			background-color: color-mix(in srgb, red, transparent 30%);
-			border: 1px solid red;
-			padding: 0.5rem;
-
-		}
-		button:hover {
-			background-color: red;
-			border: 1px solid red;
-		}
-	}
-</style>
 
 {% endblock %}
 
@@ -151,47 +71,6 @@ window.addEventListener("load", (event) => {
 	document.getElementById("parameter_input").value = JSON.stringify(parameters);
 });
 
-function create_el(type, attributes) {
-	const el = document.createElement(type);
-	Object.assign(el, attributes);
-	return el;
-}
-
-function get_base_url() {
-	// Strip out the query string.
-	let base = window.location.href.replace(location.search, "");
-	if (base.at(base.length - 1) == '/') {
-		base = base.substring(0, base.length - 1);
-	}
-	const url = base.split("/").slice(0, -1).join("/") + "/redfish-browser";
-	return url;
-}
-
-async function post_handler(route, body_callback, event) {
-	// Strip out the query string.
-	const response = await fetch(get_base_url() + route, {
-		method: "POST",
-		headers: {"Content-Type": "application/json"},
-		body: body_callback(),
-	});
-	if (response.ok) {
-		location.reload();
-		return;
-	}
-	const text = await response.text();
-	event.target.after(
-		create_el("p", {
-			innerText: `Failed to execute POST, status: ${response.status}, text: ${text}.`
-		})
-	);
-}
-
-function create_el(type, attributes) {
-	const el = document.createElement(type);
-	Object.assign(el, attributes);
-	return el;
-}
-
 document.addEventListener("DOMContentLoaded", () => {
 	document.getElementById("redfish_requester").addEventListener("submit", async (event) => {
 		event.preventDefault();
@@ -203,7 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			target: data.get("target"),
 			parameters: data.get("parameters")
 		 });
-		const response = await fetch(get_base_url() + "/request", {
+		const response = await fetch("/admin/redfish-actions/create", {
 			method: "POST",
 			headers: {"Content-Type": "application/json"},
 			body,
