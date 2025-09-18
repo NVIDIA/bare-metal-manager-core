@@ -52,15 +52,16 @@ fn create_test_device(device_type: &str, part_number: &str, fw_version: &str) ->
     MlxDeviceInfo {
         pci_name: "01:00.0".to_string(),
         device_type: device_type.to_string(),
-        psid: "MT_0000000001".to_string(),
-        device_description: "Test device".to_string(),
-        part_number: part_number.to_string(),
-        fw_version_current: fw_version.to_string(),
-        pxe_version_current: "3.6.0102".to_string(),
-        uefi_version_current: "14.25.1020".to_string(),
-        uefi_version_virtio_blk_current: "1.0.00".to_string(),
-        uefi_version_virtio_net_current: "1.0.00".to_string(),
-        base_mac: MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+        psid: Some("MT_0000000001".to_string()),
+        device_description: Some("Test device".to_string()),
+        part_number: Some(part_number.to_string()),
+        fw_version_current: Some(fw_version.to_string()),
+        pxe_version_current: Some("3.6.0102".to_string()),
+        uefi_version_current: Some("14.25.1020".to_string()),
+        uefi_version_virtio_blk_current: Some("1.0.00".to_string()),
+        uefi_version_virtio_net_current: Some("1.0.00".to_string()),
+        base_mac: Some(MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])),
+        status: None,
     }
 }
 

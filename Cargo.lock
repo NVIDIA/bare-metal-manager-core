@@ -4813,7 +4813,6 @@ name = "mlxconfig-embedded"
 version = "0.1.0"
 dependencies = [
  "clap",
- "mac_address",
  "mlxconfig-device",
  "mlxconfig-profile",
  "mlxconfig-registry",

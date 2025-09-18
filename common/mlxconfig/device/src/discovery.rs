@@ -1,3 +1,15 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 use crate::filters::DeviceFilter;
 use crate::info::MlxDeviceInfo;
 use mac_address::MacAddress;
@@ -33,22 +45,24 @@ struct DeviceXml {
     macs: MacsXml,
     #[serde(rename = "Description")]
     description: String,
+    #[serde(rename = "Status", default)]
+    status: String,
 }
 
 // VersionsXml represents the version information section
 // from mlxfwmanager XML.
 #[derive(Debug, Deserialize)]
 struct VersionsXml {
-    #[serde(rename = "FW")]
-    fw: VersionXml,
-    #[serde(rename = "PXE")]
-    pxe: VersionXml,
-    #[serde(rename = "UEFI")]
-    uefi: VersionXml,
-    #[serde(rename = "UEFI_Virtio_blk")]
-    uefi_virtio_blk: VersionXml,
-    #[serde(rename = "UEFI_Virtio_net")]
-    uefi_virtio_net: VersionXml,
+    #[serde(rename = "FW", default)]
+    fw: Option<VersionXml>,
+    #[serde(rename = "PXE", default)]
+    pxe: Option<VersionXml>,
+    #[serde(rename = "UEFI", default)]
+    uefi: Option<VersionXml>,
+    #[serde(rename = "UEFI_Virtio_blk", default)]
+    uefi_virtio_blk: Option<VersionXml>,
+    #[serde(rename = "UEFI_Virtio_net", default)]
+    uefi_virtio_net: Option<VersionXml>,
 }
 
 // VersionXml represents current and available version
@@ -79,9 +93,19 @@ pub fn discover_devices() -> Result<Vec<MlxDeviceInfo>, String> {
         .output()
         .map_err(|e| format!("failed to build cmd: {e}"))?;
 
-    if !output.status.success() {
+    // In cases where DPUs are returned, it looks like DPUs that are
+    // currently in lockdown won't return data to mlxfwmanager. The
+    // XML is still generated, just with some empty fields, and all
+    // of the SuperNIC XML data is unaffected. The problem, though,
+    // is that even though the full set of XML is returned, the
+    // command itself returns exit code 1, so we need to allow that
+    // here, and then just deal with issues as part of attempting
+    // to parse the XML output.
+    if !matches!(output.status.code(), Some(0) | Some(1)) {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("mlxfwmanager failed: {stderr}"));
+        return Err(format!(
+            "mlxfwmanager failed with unexpected exit code: {stderr}"
+        ));
     }
 
     let xml_content = String::from_utf8_lossy(&output.stdout);
@@ -101,9 +125,19 @@ pub fn discover_device(device: &str) -> Result<MlxDeviceInfo, String> {
         .output()
         .map_err(|e| format!("failed to build cmd: {e}"))?;
 
-    if !output.status.success() {
+    // In cases where DPUs are returned, it looks like DPUs that are
+    // currently in lockdown won't return data to mlxfwmanager. The
+    // XML is still generated, just with some empty fields, and all
+    // of the SuperNIC XML data is unaffected. The problem, though,
+    // is that even though the full set of XML is returned, the
+    // command itself returns exit code 1, so we need to allow that
+    // here, and then just deal with issues as part of attempting
+    // to parse the XML output.
+    if !matches!(output.status.code(), Some(0) | Some(1)) {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("mlxfwmanager failed: {stderr}"));
+        return Err(format!(
+            "mlxfwmanager failed with unexpected exit code: {stderr}"
+        ));
     }
 
     let xml_content = String::from_utf8_lossy(&output.stdout);
@@ -132,10 +166,10 @@ pub fn discover_devices_with_filters(filter: DeviceFilter) -> Result<Vec<MlxDevi
             let matches = filter.matches(device);
             debug!(
                 "Device {} (type: {}, part: {}, fw: {}) matches filter: {}",
-                device.pci_name,
-                device.device_type,
-                device.part_number,
-                device.fw_version_current,
+                device.pci_name_pretty(),
+                device.device_type_pretty(),
+                device.part_number_pretty(),
+                device.fw_version_current_pretty(),
                 matches
             );
             matches
@@ -152,7 +186,7 @@ pub fn discover_devices_with_filters(filter: DeviceFilter) -> Result<Vec<MlxDevi
 
 // parse_mlxfwmanager_xml converts XML output from mlxfwmanager
 // into device info structs.
-fn parse_mlxfwmanager_xml(xml_content: &str) -> Result<Vec<MlxDeviceInfo>, String> {
+pub fn parse_mlxfwmanager_xml(xml_content: &str) -> Result<Vec<MlxDeviceInfo>, String> {
     let devices_xml: DevicesXml =
         from_str(xml_content).map_err(|e| format!("Failed to parse mlxfwmanager XML: {e}"))?;
 
@@ -160,19 +194,43 @@ fn parse_mlxfwmanager_xml(xml_content: &str) -> Result<Vec<MlxDeviceInfo>, Strin
 
     for device_xml in devices_xml.devices {
         let pci_name = convert_pci_name_to_address(&device_xml.pci_name)?;
-        let base_mac = MacAddress::from_str(&device_xml.macs.base_mac)
-            .map_err(|e| format!("Invalid MAC address '{}': {}", device_xml.macs.base_mac, e))?;
+
+        // If the MAC fails to parse, just return None.
+        let base_mac = MacAddress::from_str(&device_xml.macs.base_mac).ok();
+        // ...and if any of the "optional" fields look to have been
+        // excluded by mlxfwmanager, parse it into None.
         let device_info = MlxDeviceInfo {
             pci_name,
             device_type: device_xml.device_type,
-            psid: device_xml.psid,
-            device_description: device_xml.description,
-            part_number: device_xml.part_number,
-            fw_version_current: device_xml.versions.fw.current,
-            pxe_version_current: device_xml.versions.pxe.current,
-            uefi_version_current: device_xml.versions.uefi.current,
-            uefi_version_virtio_blk_current: device_xml.versions.uefi_virtio_blk.current,
-            uefi_version_virtio_net_current: device_xml.versions.uefi_virtio_net.current,
+            psid: parse_optional_xml_field(&device_xml.psid),
+            device_description: parse_optional_xml_field(&device_xml.description),
+            part_number: parse_optional_xml_field(&device_xml.part_number),
+            status: parse_optional_xml_field(&device_xml.status),
+            fw_version_current: device_xml
+                .versions
+                .fw
+                .as_ref()
+                .and_then(|fw| parse_optional_xml_field(&fw.current)),
+            pxe_version_current: device_xml
+                .versions
+                .pxe
+                .as_ref()
+                .and_then(|pxe| parse_optional_xml_field(&pxe.current)),
+            uefi_version_current: device_xml
+                .versions
+                .uefi
+                .as_ref()
+                .and_then(|uefi| parse_optional_xml_field(&uefi.current)),
+            uefi_version_virtio_blk_current: device_xml
+                .versions
+                .uefi_virtio_blk
+                .as_ref()
+                .and_then(|virtio_blk| parse_optional_xml_field(&virtio_blk.current)),
+            uefi_version_virtio_net_current: device_xml
+                .versions
+                .uefi_virtio_net
+                .as_ref()
+                .and_then(|virtio_net| parse_optional_xml_field(&virtio_net.current)),
             base_mac,
         };
         devices.push(device_info);
@@ -180,6 +238,16 @@ fn parse_mlxfwmanager_xml(xml_content: &str) -> Result<Vec<MlxDeviceInfo>, Strin
 
     debug!("Discovered {} MLX devices", devices.len());
     Ok(devices)
+}
+
+// parse_optional_xml_field converts common "missing" indicators to None
+// for optional fields.
+fn parse_optional_xml_field(value: &str) -> Option<String> {
+    if value.is_empty() || value == "--" || value == "N/A" {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 // convert_pci_name_to_address converts PCI device name from

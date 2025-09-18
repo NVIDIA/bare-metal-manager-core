@@ -42,6 +42,8 @@ message MlxDeviceInfo {
   string uefi_version_virtio_net_current = 10;
   // base_mac is the base MAC address for the device as a string.
   string base_mac = 11;
+  // status is the status string returned by mlxfwmanager.
+  string status = 12;
 }
 
 // DeviceFilterSet represents a collection of filters that must all match.
@@ -69,6 +71,7 @@ enum DeviceField {
   DEVICE_FIELD_MAC_ADDRESS = 4;
   DEVICE_FIELD_DESCRIPTION = 5;
   DEVICE_FIELD_PCI_NAME = 6;
+  DEVICE_FIELD_STATUS = 7;
 }
 
 // MatchMode defines how filter values should be matched against device fields.

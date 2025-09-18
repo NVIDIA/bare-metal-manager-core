@@ -1,3 +1,15 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 use crate::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
 use clap::{Args, Subcommand, ValueEnum};
 
@@ -135,8 +147,9 @@ fn parse_device_field(field_str: &str) -> Result<DeviceField, String> {
         "mac_address" | "mac" => Ok(DeviceField::MacAddress),
         "description" | "desc" => Ok(DeviceField::Description),
         "pci_name" | "pci" => Ok(DeviceField::PciName),
+        "status" => Ok(DeviceField::Status),
         _ => Err(format!(
-            "Unknown field '{field_str}'. Valid fields: device_type, part_number, firmware_version, mac_address, description, pci_name"
+            "Unknown field '{field_str}'. Valid fields: device_type, part_number, firmware_version, mac_address, description, pci_name, status"
         )),
     }
 }

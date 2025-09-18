@@ -13,7 +13,6 @@
 use crate::cmd::args::{
     Cli, Commands, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
 };
-use mac_address::MacAddress;
 use mlxconfig_device::{
     cmd::device::args::DeviceArgs, cmd::device::cmds::handle as handle_device, info::MlxDeviceInfo,
 };
@@ -198,7 +197,7 @@ fn cmd_registry_check(
     registry_name: &str,
     device_type: Option<String>,
     part_number: Option<String>,
-    fw_version: Option<String>,
+    fw_version_current: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let registry = registries::get(registry_name).ok_or_else(|| {
         format!(
@@ -208,15 +207,16 @@ fn cmd_registry_check(
     let device_info = MlxDeviceInfo {
         pci_name: "00:00.0".to_string(),
         device_type: device_type.unwrap_or_else(|| "Unknown".to_string()),
-        psid: "Unknown".to_string(),
-        device_description: "Test device".to_string(),
-        part_number: part_number.unwrap_or_else(|| "Unknown".to_string()),
-        fw_version_current: fw_version.unwrap_or_else(|| "0.0.0".to_string()),
-        pxe_version_current: "0.0.0".to_string(),
-        uefi_version_current: "0.0.0".to_string(),
-        uefi_version_virtio_blk_current: "0.0.0".to_string(),
-        uefi_version_virtio_net_current: "0.0.0".to_string(),
-        base_mac: MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+        psid: Some("Unknown".to_string()),
+        device_description: Some("Test device".to_string()),
+        pxe_version_current: None,
+        uefi_version_current: None,
+        uefi_version_virtio_blk_current: None,
+        uefi_version_virtio_net_current: None,
+        base_mac: None,
+        status: None,
+        part_number,
+        fw_version_current,
     };
     if let Some(filter_set) = &registry.filters {
         if filter_set.matches(&device_info) {
