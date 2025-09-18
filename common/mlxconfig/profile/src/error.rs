@@ -68,6 +68,9 @@ pub enum MlxProfileError {
     #[error("JSON parsing error: {error}")]
     JsonParsing { error: serde_json::Error },
 
+    #[error("TOML parsing error: {error}")]
+    TomlParsing { error: toml::de::Error },
+
     // Runner is returned when the underlying mlxconfig-runner
     // returns an error while trying to sync or compare.
     #[error("MLX runner error: {error}")]
@@ -76,6 +79,12 @@ pub enum MlxProfileError {
     // Io is returned for a general I/O error.
     #[error("I/O error: {error}")]
     Io { error: std::io::Error },
+}
+
+impl From<toml::de::Error> for MlxProfileError {
+    fn from(error: toml::de::Error) -> Self {
+        Self::TomlParsing { error }
+    }
 }
 
 impl MlxProfileError {

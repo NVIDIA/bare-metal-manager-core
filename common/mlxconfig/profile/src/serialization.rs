@@ -17,6 +17,8 @@
 // with proper validation and registry lookup during deserialization.
 
 use crate::{error::MlxProfileError, profile::MlxConfigProfile};
+use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -102,24 +104,146 @@ impl SerializableProfile {
         Ok(serializable)
     }
 
-    // Loads a profile from a YAML string.
+    // from_yaml loads a profile from a YAML string.
     pub fn from_yaml(yaml: &str) -> Result<Self, MlxProfileError> {
         serde_yaml::from_str(yaml).map_err(MlxProfileError::from)
     }
 
-    // Loads a profile from a JSON string.
+    // from_json loads a profile from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, MlxProfileError> {
         serde_json::from_str(json).map_err(MlxProfileError::from)
     }
 
-    // Serializes this profile to a YAML string.
+    // from_toml loads a profile from a TOML string.
+    pub fn from_toml(toml_str: &str) -> Result<Self, MlxProfileError> {
+        toml::from_str(toml_str).map_err(|e| MlxProfileError::serialization(e.to_string()))
+    }
+
+    // to_yaml serializes this profile to a YAML string.
     pub fn to_yaml(&self) -> Result<String, MlxProfileError> {
         serde_yaml::to_string(self).map_err(MlxProfileError::from)
     }
 
-    // Serializes this profile to a JSON string.
+    // to_json serializes this profile to a JSON string.
     pub fn to_json(&self) -> Result<String, MlxProfileError> {
         serde_json::to_string_pretty(self).map_err(MlxProfileError::from)
+    }
+
+    // to_toml serializes this profile to a TOML string.
+    pub fn to_toml(&self) -> Result<String, MlxProfileError> {
+        toml::to_string_pretty(self).map_err(|e| MlxProfileError::serialization(e.to_string()))
+    }
+
+    // from_yaml_file loads a SerializableProfile from a YAML file,
+    // leveraging our from_yaml constructor to make it happen.
+    pub fn from_yaml_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, MlxProfileError> {
+        let content = std::fs::read_to_string(path)?;
+        Self::from_yaml(&content)
+    }
+
+    // from_json_file loads a SerializableProfile from a JSON file,
+    // leveraging our from_json constructor to make it happen.
+    pub fn from_json_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, MlxProfileError> {
+        let content = std::fs::read_to_string(path)?;
+        Self::from_json(&content)
+    }
+
+    // from_toml_file loads a SerializableProfile from a TOML file,
+    // leveraging our from_toml constructor to make it happen.
+    pub fn from_toml_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, MlxProfileError> {
+        let content = std::fs::read_to_string(path)?;
+        Self::from_toml(&content)
+    }
+
+    // to_yaml_file serializes a SerializableProfile to a YAML file,
+    // leveraging our to_yaml method to make it happen.
+    pub fn to_yaml_file<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), MlxProfileError> {
+        let yaml = self.to_yaml()?;
+        std::fs::write(path, yaml)?;
+        Ok(())
+    }
+
+    // to_json_file serializes a SerializableProfile to a JSON file,
+    // leveraging our to_json method to make it happen.
+    pub fn to_json_file<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), MlxProfileError> {
+        let json = self.to_json()?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+
+    // to_toml_file serializes a SerializableProfile to a TOML file,
+    // leveraging our to_toml method to make it happen.
+    pub fn to_toml_file<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), MlxProfileError> {
+        let toml = self.to_toml()?;
+        std::fs::write(path, toml)?;
+        Ok(())
+    }
+}
+
+// TryFrom implementation for converting from a protobuf to a SerializableProfile.
+impl TryFrom<SerializableMlxConfigProfilePb> for SerializableProfile {
+    type Error = MlxProfileError;
+
+    fn try_from(proto: SerializableMlxConfigProfilePb) -> Result<Self, Self::Error> {
+        let mut config = HashMap::new();
+
+        // Convert protobuf string values back to serde_yaml::Value using serde_yaml.
+        for (key, value_str) in proto.config {
+            let yaml_value: serde_yaml::Value = serde_yaml::from_str(&value_str)?;
+            config.insert(key, yaml_value);
+        }
+
+        Ok(Self {
+            name: proto.name,
+            registry_name: proto.registry_name,
+            description: proto.description,
+            config,
+        })
+    }
+}
+
+// TryFrom implementation for converting from a SerializableProfile to a protobuf.
+impl TryFrom<&SerializableProfile> for SerializableMlxConfigProfilePb {
+    type Error = MlxProfileError;
+
+    fn try_from(profile: &SerializableProfile) -> Result<Self, Self::Error> {
+        let mut config = HashMap::new();
+
+        // Convert serde_yaml::Value to YAML string representations for protobuf.
+        //
+        // I make a mention of this in the mlx_device.proto file also, but when
+        // I was defining the SerializableMlxConfigProfile message, I had a choice
+        // of either making it a simple map<string, string>, or getting super
+        // fancy and creating a special "oneof" type, and then instead making it
+        // a map<string, special-oneof-type>, and then filling in the underlying
+        // type + value there. The intent was to preserve some sense of type
+        // safety within the proto itself. BUT, to be honest, it was kind of a lot
+        // of extra effort just to have yet another layer of type safety; we
+        // are already going to be translating the string value back into it's
+        // expected type, so it doesn't really matter what the data looks like
+        // when it's mashed into the protobuf.
+        for (key, yaml_value) in &profile.config {
+            let value_str = serde_yaml::to_string(yaml_value)
+                .map_err(|e| MlxProfileError::serialization(e.to_string()))?;
+            config.insert(key.clone(), value_str.trim().to_string());
+        }
+
+        Ok(Self {
+            name: profile.name.clone(),
+            registry_name: profile.registry_name.clone(),
+            description: profile.description.clone(),
+            config,
+        })
+    }
+}
+
+// Also implement TryFrom for owned SerializableProfile for convenience,
+// since I'm guessing I'll probably end up wanting to do both.
+impl TryFrom<SerializableProfile> for SerializableMlxConfigProfilePb {
+    type Error = MlxProfileError;
+
+    fn try_from(profile: SerializableProfile) -> Result<Self, Self::Error> {
+        (&profile).try_into()
     }
 }
 
