@@ -9,7 +9,7 @@
 
 # We keep this in its own section to ensure it gets evaluated separately.
 [meta owners]
-CODEOWNERS @@Owner
+CODEOWNERS @nvmetal/carbide-approvers
 
 # Code with security or correctness concerns can be assigned owners here.
 [critical]
