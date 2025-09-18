@@ -12,6 +12,7 @@
 
 use crate::CarbideClientError;
 use crate::attestation as attest;
+use crate::mlx_device;
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration, registration::RegistrationError,
 };
@@ -74,10 +75,13 @@ pub async fn run(
     let machine_id = registration_data.machine_id;
     info!("successfully discovered machine {machine_id} for interface {machine_interface_id}");
 
-    // if we are not on dpu and we have received back attestation key challenge, this means
-    // the carbide wants us to do an attestation ... so do it!
+    // If we are not on a DPU and have some post-registration things to do,
+    // we do them here.
     if !is_dpu {
-        // if attestation is requested, perform it
+        // If we have received back an attestation key challenge, this means
+        // that Carbide has requested an attestation, so do it!
+        //
+        // This will perform:
         // -> activate_credential() - to obtain nonce
         // -> get_pcr_quote() - to obtain pcr values
         // -> get_eventlog() - to obtain eventlog
@@ -145,12 +149,37 @@ pub async fn run(
                 CarbideClientError::TpmError(format!("Could not create quote request: {e}"))
             })?;
             // send to server
-            if !registration::attest_quote(forge_api, root_ca, false, retry.clone(), &quote_request)
-                .await?
+            if !registration::attest_quote(
+                forge_api,
+                root_ca.clone(),
+                false,
+                retry.clone(),
+                &quote_request,
+            )
+            .await?
             {
                 return Err(RegistrationError::AttestationFailed.into());
             }
         }
+
+        // Publish an MlxDeviceReport.
+        // TODO(chet): Right now this is just a one-time publish at
+        // registration time for preliminary data collection, but this
+        // will probably end up being more integrated as part of an
+        // Action::MlxUpdate action request for handling DPA state updates.
+        // On the carbide-api side, the report just gets logged that it
+        // was received; there is no storage/DB updates/etc. Hopefully
+        // these reports can actually remain ephemeral.
+        let report_request = mlx_device::create_device_report_request()
+            .map_err(CarbideClientError::MlxFwManagerError)?;
+        registration::publish_mlx_device_report(
+            forge_api,
+            root_ca.clone(),
+            false,
+            retry.clone(),
+            report_request,
+        )
+        .await?;
     }
 
     Ok(machine_id)

@@ -13,8 +13,10 @@
 use std::time::Duration;
 
 use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
-use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeTlsClient};
+use ::rpc::forge_tls_client::ForgeClientT;
+use ::rpc::forge_tls_client::{ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
+use ::rpc::protos::mlx_device::PublishMlxDeviceReportRequest;
 use ::rpc::{MachineDiscoveryInfo, forge as rpc};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
@@ -85,33 +87,54 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         }
     }
 
+    // connect will create a new ForgeTlsClient and return an underlying
+    // ForgeClientT connection for callers to leverage, returning an error
+    // if we were unable to create a client (e.g. if there was an issue
+    // loading certificates), or establish a connection. All calls from
+    // devices -> carbide-api generally follow this pattern, so you merely
+    // need to just do something like:
+    //
+    // let request = tonic::Request::new(your_request);
+    // let mut connection = self.connect("<what-youre-doing>").await?;
+    // let response = connection.your_api_endpoint(request).await?;
+    //
+    async fn connect(&self, purpose: &str) -> Result<ForgeClientT, RegistrationError> {
+        tracing::debug!("creating tls client connection for {purpose}");
+        let client = ForgeTlsClient::new(self.config);
+        match client.build(self.api_url.to_string()).await {
+            Ok(connection) => {
+                tracing::debug!(
+                    "created tls client connection for {purpose}: {:?}",
+                    connection
+                );
+                Ok(connection)
+            }
+            Err(e) => {
+                tracing::error!("could not create tls client for {purpose}: {:?}", e);
+                Err(RegistrationError::TransportError(e.to_string()))
+            }
+        }
+    }
+
     // discover_machine_once is a single future attempt of
     // trying to send MachineDiscoveryInfo to the API, creating
     // a new connection + wrapped request for each iteration
     // of the retry.
     async fn discover_machine_once(
         &self,
-        client: ForgeTlsClient<'_>,
         info: MachineDiscoveryInfo,
         attempt: u32,
     ) -> Result<rpc::MachineDiscoveryResult, RegistrationError> {
         tracing::info!("Attempting to discover_machine (attempt: {})", attempt);
 
         // Create a new connection off of the ForgeTlsClient.
-        let mut connection = match client.build(self.api_url.to_string()).await {
-            Ok(forge_client) => forge_client,
-            Err(e) => {
-                tracing::error!("could not create tls client: {:?}", e);
-                return Err(RegistrationError::TransportError(e.to_string()));
-            }
-        };
-        tracing::debug!("register_machine client connection {:?}", connection);
+        let mut connection = self.connect("discover_machine_once").await?;
 
         // Create a new request with the provided MachineDiscoveryInfo.
         let request = tonic::Request::new(info);
         tracing::debug!("register_machine request {:?}", request);
 
-        // And now attempt to send the discover_machine request.
+        // And now attempt to send the request.
         Ok(connection
             .discover_machine(request)
             .await
@@ -131,11 +154,6 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         &mut self,
         info: MachineDiscoveryInfo,
     ) -> Result<rpc::MachineDiscoveryResult, RegistrationError> {
-        // Create the client once, but due to ownership + things getting
-        // moved into the retry future, it will need to be cloned. Defer
-        // connection establishment to happen within the retry future.
-        let client = forge_tls_client::ForgeTlsClient::new(self.config);
-
         // The retry config is currently hard-coded in here to be
         // every minute for a week. Basically, keep trying every
         // minute for a while. This could probably become something
@@ -145,7 +163,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         let mut attempt = 0;
         tryhard::retry_fn(|| {
             attempt += 1;
-            self.discover_machine_once(client.clone(), info.clone(), attempt)
+            self.discover_machine_once(info.clone(), attempt)
         })
         .with_config(config)
         .await
@@ -155,20 +173,14 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         &self,
         quote: &AttestQuoteRequest,
     ) -> Result<rpc::AttestQuoteResponse, RegistrationError> {
-        let client = forge_tls_client::ForgeTlsClient::new(self.config);
-
         // Create a new connection off of the ForgeTlsClient.
-        let mut connection = client
-            .build(self.api_url.to_string())
-            .await
-            .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
-        tracing::debug!("attest_quote client connection {:?}", connection);
+        let mut connection = self.connect("attest_quote").await?;
 
-        // Create a new request with the provided MachineDiscoveryInfo.
+        // Create a new request with the provided AttestQuoteRequest.
         let request = tonic::Request::new(quote.clone());
         tracing::debug!("attest_quote request {:?}", request);
 
-        // And now attempt to send the discover_machine request.
+        // And now attempt to send the request.
         Ok(connection
             .attest_quote(request)
             .await
@@ -177,6 +189,52 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
             })?
             .into_inner())
     }
+
+    // publish_mlx_device_report is an internal call on a Carbide RegistrationClient,
+    // which is wrapped by the publish_mlx_device_report public-facing call. See below
+    // in the code for full details about what this does.
+    async fn publish_mlx_device_report(
+        &self,
+        req: PublishMlxDeviceReportRequest,
+    ) -> Result<(), RegistrationError> {
+        // Create a new connection off of the ForgeTlsClient.
+        let mut connection = self.connect("publish_mlx_device_report").await?;
+
+        // Create a new request with the provided PublishMlxDeviceReportRequest.
+        let request = tonic::Request::new(req);
+        tracing::debug!("publish_mlx_device_report request {:?}", request);
+
+        // And now attempt to send the request.
+        connection
+            .publish_mlx_device_report(request)
+            .await
+            .inspect_err(|err| {
+                tracing::error!(
+                    "error calling publish_mlx_device_report: {}",
+                    err.to_string()
+                )
+            })?
+            .into_inner();
+        Ok(())
+    }
+}
+
+// create_client_config creates a new ForgeClientConfig. All
+// calls in here follow the same pattern, so this was moved out
+// into its own function to clean up tons of duplication.
+fn create_client_config(
+    purpose: &str,
+    use_mgmt_vrf: bool,
+    root_ca: String,
+) -> Result<ForgeClientConfig, RegistrationError> {
+    let forge_client_config = match use_mgmt_vrf {
+        true => ForgeClientConfig::new(root_ca, None)
+            .use_mgmt_vrf()
+            .map_err(|e| RegistrationError::TransportError(e.to_string()))?,
+        false => ForgeClientConfig::new(root_ca, None),
+    };
+    tracing::debug!("{purpose} client_config {:?}", forge_client_config);
+    Ok(forge_client_config)
 }
 
 /// Registers a machine at the Forge API server for further interactions
@@ -202,14 +260,7 @@ pub async fn register_machine(
     };
     tracing::info!("register_machine discovery_info {:?}", info);
 
-    let forge_client_config = match use_mgmt_vrf {
-        true => ForgeClientConfig::new(root_ca, None)
-            .use_mgmt_vrf()
-            .map_err(|e| RegistrationError::TransportError(e.to_string()))?,
-        false => ForgeClientConfig::new(root_ca, None),
-    };
-    tracing::debug!("register_machine client_config {:?}", forge_client_config);
-
+    let forge_client_config = create_client_config("register_machine", use_mgmt_vrf, root_ca)?;
     let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
         .discover_machine(info)
         .await?;
@@ -245,14 +296,7 @@ pub async fn attest_quote(
 ) -> Result<bool, RegistrationError> {
     tracing::info!("registration client sending attest_quote");
 
-    let forge_client_config = match use_mgmt_vrf {
-        true => ForgeClientConfig::new(root_ca, None)
-            .use_mgmt_vrf()
-            .map_err(|e| RegistrationError::TransportError(e.to_string()))?,
-        false => ForgeClientConfig::new(root_ca, None),
-    };
-    tracing::debug!("attest_quote client_config {:?}", forge_client_config);
-
+    let forge_client_config = create_client_config("attest_quote", use_mgmt_vrf, root_ca)?;
     let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
         .attest_quote(quote)
         .await?;
@@ -269,6 +313,31 @@ pub async fn attest_quote(
     );
 
     Ok(response.success)
+}
+
+// publish_mlx_device_report is used to publish an MlxDeviceReport for the current
+// machine, which will collect the hardware + firmware/version details of all Mellanox
+// devices on the machine, including DPUs and DPAs. This is then published to carbide-api,
+// which leverages this data for ensuring devices are synced with the correct mlxconfig
+// settings, and have been (or will be instructed to) updated to the correct firmware version.
+//
+// When called from scout on a host, a report will contain *all* Mellanox devices on the host.
+// When called from the agent on a DPU, a report will contain *only* the DPU its being called from.
+pub async fn publish_mlx_device_report(
+    forge_api: &str,
+    root_ca: String,
+    use_mgmt_vrf: bool,
+    retry: DiscoveryRetry,
+    req: PublishMlxDeviceReportRequest,
+) -> Result<(), RegistrationError> {
+    tracing::info!("registration client sending mlx_device_report");
+
+    let forge_client_config = create_client_config("mlx_device_report", use_mgmt_vrf, root_ca)?;
+    RegistrationClient::new(forge_api, &forge_client_config, retry)
+        .publish_mlx_device_report(req)
+        .await?;
+
+    Ok(())
 }
 
 pub async fn write_certs(
