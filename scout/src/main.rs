@@ -40,6 +40,7 @@ mod client;
 mod deprovision;
 mod discovery;
 mod machine_validation;
+mod mlx_device;
 mod register;
 
 struct DevEnv {

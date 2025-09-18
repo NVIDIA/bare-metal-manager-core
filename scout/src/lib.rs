@@ -53,6 +53,9 @@ pub enum CarbideClientError {
 
     #[error("TPM Error: {0}")]
     TpmError(String),
+
+    #[error("MlxFwManagerError: {0}")]
+    MlxFwManagerError(String),
 }
 
 pub type CarbideClientResult<T> = Result<T, CarbideClientError>;
