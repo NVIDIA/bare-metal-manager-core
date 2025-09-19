@@ -157,7 +157,7 @@ def apply_nic_firmware(fw_url: str, bmc_ip: str, bmc_username: str, bmc_password
         # Unzip NIC firmware
         print(f"Unzipping {fw_filename}")
         ssh.sendline(f"unzip {fw_filename}")
-        ssh.expect(":~\\$", timeout=15)
+        ssh.expect(":~\\$", timeout=120)
         print("Unzip complete")
     
         # Run flint command to install NIC firmware binary
