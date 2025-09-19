@@ -32,7 +32,7 @@
 		</table>
 		</td>
 		{% if let Some(applied_at) = request.applied_at %}
-			<td>{{ applied_at|date_fmt }}{% if let Some(applier) = request.applier %}by <b>{{ applier }}</b> {% endif %} </td>
+			<td>{{ applied_at|date_fmt }}{% if let Some(applier) = request.applier %} by <b>{{ applier }}</b> {% endif %} </td>
 		{% else %}
 		  {% if request.approvers.len() >= required_approvals %}
 				<td>
