@@ -172,14 +172,17 @@ pub async fn run(
         // these reports can actually remain ephemeral.
         let report_request = mlx_device::create_device_report_request()
             .map_err(CarbideClientError::MlxFwManagerError)?;
-        registration::publish_mlx_device_report(
+        if let Err(e) = registration::publish_mlx_device_report(
             forge_api,
             root_ca.clone(),
             false,
             retry.clone(),
             report_request,
         )
-        .await?;
+        .await
+        {
+            tracing::warn!("failed to publish MlxDeviceReport: {e:?}");
+        }
     }
 
     Ok(machine_id)
