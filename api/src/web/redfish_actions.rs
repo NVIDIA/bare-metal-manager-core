@@ -198,12 +198,33 @@ pub async fn cancel(AxumState(state): AxumState<Arc<Api>>, request_id: String) -
 }
 
 pub mod filters {
+    use askama_escape::Escaper;
     use itertools::Itertools;
     use rpc::forge::OptionalRedfishActionResult;
+    use std::fmt::Write;
     use utils::managed_host_display::to_time;
 
     pub fn date_fmt(value: &rpc::Timestamp) -> ::askama::Result<String> {
         Ok(to_time::<String>(Some(*value), None).unwrap_or_default())
+    }
+
+    pub fn machine_ips_fmt(values: &[String]) -> ::askama::Result<String> {
+        let mut result = String::new();
+
+        for value in values {
+            if !result.is_empty() {
+                result += "<br>";
+            }
+            let mut escaped_ip = String::new();
+            askama_escape::Html.write_escaped(&mut escaped_ip, value)?;
+            write!(
+                &mut result,
+                r#"<a href="/admin/explored-endpoint/{escaped_ip}">{escaped_ip}</a>"#
+            )
+            .unwrap();
+        }
+
+        Ok(result)
     }
 
     pub fn contains_name(approvals: &[String], name: &str) -> ::askama::Result<bool> {

@@ -57,7 +57,7 @@
 			{% endif %}
 		{% endif %}
 		<td><pre><code class="prettyjson">{{ request.parameters }}</code></pre></td>
-		<td>{{ request.machine_ips|join(", ") }}</td>
+		<td>{{ request.machine_ips|machine_ips_fmt|safe }}</td>
 		<td>{{ request.target }}</td>
 		<td style="text-wrap: nowrap;">{{ request.results|to_json|join("\n ")|linebreaksbr|safe }}</td>
 	</tr>
