@@ -107,6 +107,10 @@
 - [Machine Validation](machine_validation/machine_validation.md)
 - [SKU Validation](machine_validation/sku_validation.md)
 
+# Breakfix Integration
+
+- [Release Instance API Enhancements](breakfix_integration/breakfix_integration.md)
+
 # Glossary
 
 - [Glossary](glossary.md)
