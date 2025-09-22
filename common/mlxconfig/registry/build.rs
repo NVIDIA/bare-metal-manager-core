@@ -19,11 +19,19 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
 
 // Of course, pull in the mlxconfig_variables crate
 // so we can deserialize the registry YAML files,
 // build variables, and generate corresponding .rs.
 use mlxconfig_variables::{MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec};
+
+static DEBUG_BUILD_SCRIPT: LazyLock<bool> = LazyLock::new(|| {
+    // Note that this variable is only evaluated when the build script is run,
+    // but the build script output (which this controls) is persisted for later
+    // `cargo` commands.
+    matches!(std::env::var("DEBUG_MLXCONFIG"), Ok(value) if value != "0")
+});
 
 fn main() {
     println!("cargo:rerun-if-changed=databases/");
@@ -32,11 +40,13 @@ fn main() {
     let generated_code = generate_registries_code(&registries);
     write_generated_code(&generated_code);
 
-    println!(
-        "cargo:warning=Generated {} registries with {} total variables",
-        registries.len(),
-        registries.iter().map(|r| r.variables.len()).sum::<usize>()
-    );
+    if *DEBUG_BUILD_SCRIPT {
+        println!(
+            "cargo:warning=Generated {} registries with {} total variables",
+            registries.len(),
+            registries.iter().map(|r| r.variables.len()).sum::<usize>()
+        );
+    }
 }
 
 // load_registries loads and validates all registry
@@ -92,21 +102,23 @@ fn load_registry_file(path: &Path, file_name: &str) -> MlxVariableRegistry {
         )
     });
 
-    println!(
-        "cargo:warning=[INFO] Parsed registry '{}' with {} variables from {}",
-        registry.name,
-        registry.variables.len(),
-        file_name
-    );
-
-    // Show filter info during build.
-    if registry.has_filters() {
+    if *DEBUG_BUILD_SCRIPT {
         println!(
-            "cargo:warning=[INFO]   Filters: {}",
-            registry.filter_summary()
+            "cargo:warning=[INFO] Parsed registry '{}' with {} variables from {}",
+            registry.name,
+            registry.variables.len(),
+            file_name
         );
-    } else {
-        println!("cargo:warning=[INFO]   No device filters configured for this registry");
+
+        // Show filter info during build.
+        if registry.has_filters() {
+            println!(
+                "cargo:warning=[INFO]   Filters: {}",
+                registry.filter_summary()
+            );
+        } else {
+            println!("cargo:warning=[INFO]   No device filters configured for this registry");
+        }
     }
 
     registry
