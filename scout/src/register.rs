@@ -12,7 +12,6 @@
 
 use crate::CarbideClientError;
 use crate::attestation as attest;
-use crate::mlx_device;
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration, registration::RegistrationError,
 };
@@ -160,28 +159,6 @@ pub async fn run(
             {
                 return Err(RegistrationError::AttestationFailed.into());
             }
-        }
-
-        // Publish an MlxDeviceReport.
-        // TODO(chet): Right now this is just a one-time publish at
-        // registration time for preliminary data collection, but this
-        // will probably end up being more integrated as part of an
-        // Action::MlxUpdate action request for handling DPA state updates.
-        // On the carbide-api side, the report just gets logged that it
-        // was received; there is no storage/DB updates/etc. Hopefully
-        // these reports can actually remain ephemeral.
-        let report_request = mlx_device::create_device_report_request()
-            .map_err(CarbideClientError::MlxFwManagerError)?;
-        if let Err(e) = registration::publish_mlx_device_report(
-            forge_api,
-            root_ca.clone(),
-            false,
-            retry.clone(),
-            report_request,
-        )
-        .await
-        {
-            tracing::warn!("failed to publish MlxDeviceReport: {e:?}");
         }
     }
 

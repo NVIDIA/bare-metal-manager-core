@@ -16,7 +16,6 @@ use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::forge_tls_client::{ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
-use ::rpc::protos::mlx_device::{PublishMlxDeviceReportRequest, PublishMlxDeviceReportResponse};
 use ::rpc::{MachineDiscoveryInfo, forge as rpc};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
@@ -189,33 +188,6 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
             })?
             .into_inner())
     }
-
-    // publish_mlx_device_report is an internal call on a Carbide RegistrationClient,
-    // which is wrapped by the publish_mlx_device_report public-facing call. See below
-    // in the code for full details about what this does.
-    async fn publish_mlx_device_report(
-        &self,
-        req: PublishMlxDeviceReportRequest,
-    ) -> Result<PublishMlxDeviceReportResponse, RegistrationError> {
-        // Create a new connection off of the ForgeTlsClient.
-        let mut connection = self.connect("publish_mlx_device_report").await?;
-
-        // Create a new request with the provided PublishMlxDeviceReportRequest.
-        let request = tonic::Request::new(req);
-        tracing::debug!("publish_mlx_device_report request {:?}", request);
-
-        // And now attempt to send the request.
-        Ok(connection
-            .publish_mlx_device_report(request)
-            .await
-            .inspect_err(|err| {
-                tracing::error!(
-                    "error calling publish_mlx_device_report: {}",
-                    err.to_string()
-                )
-            })?
-            .into_inner())
-    }
 }
 
 // create_client_config creates a new ForgeClientConfig. All
@@ -312,31 +284,6 @@ pub async fn attest_quote(
     );
 
     Ok(response.success)
-}
-
-// publish_mlx_device_report is used to publish an MlxDeviceReport for the current
-// machine, which will collect the hardware + firmware/version details of all Mellanox
-// devices on the machine, including DPUs and DPAs. This is then published to carbide-api,
-// which leverages this data for ensuring devices are synced with the correct mlxconfig
-// settings, and have been (or will be instructed to) updated to the correct firmware version.
-//
-// When called from scout on a host, a report will contain *all* Mellanox devices on the host.
-// When called from the agent on a DPU, a report will contain *only* the DPU its being called from.
-pub async fn publish_mlx_device_report(
-    forge_api: &str,
-    root_ca: String,
-    use_mgmt_vrf: bool,
-    retry: DiscoveryRetry,
-    req: PublishMlxDeviceReportRequest,
-) -> Result<(), RegistrationError> {
-    tracing::info!("registration client sending mlx_device_report");
-
-    let forge_client_config = create_client_config("mlx_device_report", use_mgmt_vrf, root_ca)?;
-    RegistrationClient::new(forge_api, &forge_client_config, retry)
-        .publish_mlx_device_report(req)
-        .await?;
-
-    Ok(())
 }
 
 pub async fn write_certs(

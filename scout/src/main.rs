@@ -154,6 +154,22 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
 
     let mut next_certs_check_time = get_next_certs_check_datetime()?;
 
+    // Do a one-time publish of MlxDeviceReport data at service
+    // start time for now. This will eventually be folded into
+    // an Action::MlxDevice feedback loop, but doing some preliminary
+    // work for now to get at the data. This was originally part of the
+    // common registration client, but I realized that was the wrong
+    // place to put it: since this is going to be part of the Action
+    // feedback loop, a more accurate place to run this would be after
+    // initial_setup (and after registration is complete).
+    match mlx_device::create_device_report_request() {
+        Ok(request) => match mlx_device::publish_mlx_device_report(config, request).await {
+            Ok(response) => tracing::info!("recevied PublishMlxDeviceReportResponse: {response:?}"),
+            Err(e) => tracing::warn!("failed to publish PublishMlxDeviceReportRequest: {e:?}"),
+        },
+        Err(e) => tracing::warn!("failed to create PublishMlxDeviceReportRequest: {e:?}"),
+    };
+
     loop {
         if is_time_to_check_certs_expiry(next_certs_check_time) {
             next_certs_check_time = get_next_certs_check_datetime()?;
