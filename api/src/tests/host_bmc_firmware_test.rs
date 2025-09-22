@@ -666,6 +666,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_none()); // Should be cleared or we'd right back in
+    assert!(host.update_complete);
     let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true, false).await?;
     assert!(reqs.is_empty());
     txn.commit().await.unwrap();
@@ -1708,6 +1709,7 @@ exit 0
         Firmware {
             vendor: bmc_vendor::BMCVendor::Dell,
             model: "PowerEdge R750".to_string(),
+            explicit_start_needed: false,
             components: HashMap::from([(
                 FirmwareComponentType::Bmc,
                 FirmwareComponent {
@@ -1801,6 +1803,7 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
         Firmware {
             vendor: bmc_vendor::BMCVendor::Dell,
             model: "PowerEdge R750".to_string(),
+            explicit_start_needed: false,
             components: HashMap::from([(
                 FirmwareComponentType::Bmc,
                 FirmwareComponent {
@@ -1859,5 +1862,109 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
     };
     txn.commit().await.unwrap();
 
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_explicit_update(pool: sqlx::PgPool) -> CarbideResult<()> {
+    let mut config = common::api_fixtures::get_config();
+    config
+        .host_models
+        .get_mut("1")
+        .unwrap()
+        .explicit_start_needed = true;
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let _segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    // Create and start an update manager
+    let update_manager =
+        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+
+    // A tick of the state machine, but we don't start anything yet and it's still in ready
+    update_manager.run_single_iteration().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::Ready = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+
+    // Start time in the future
+    db::machine::update_firmware_update_time_window_start_end(
+        &[mh.id],
+        chrono::Utc::now()
+            .checked_add_signed(chrono::TimeDelta::seconds(100))
+            .unwrap(),
+        chrono::Utc::now()
+            .checked_add_signed(chrono::TimeDelta::seconds(101))
+            .unwrap(),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await.unwrap();
+
+    // Still doesn't start
+    update_manager.run_single_iteration().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::Ready = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+
+    // End time in the past
+    db::machine::update_firmware_update_time_window_start_end(
+        &[mh.id],
+        chrono::Utc::now()
+            .checked_add_signed(chrono::TimeDelta::seconds(-100))
+            .unwrap(),
+        chrono::Utc::now()
+            .checked_add_signed(chrono::TimeDelta::seconds(-99))
+            .unwrap(),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await.unwrap();
+
+    // Still doesn't start
+    update_manager.run_single_iteration().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::Ready = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+
+    // Now a start and end around us
+    db::machine::update_firmware_update_time_window_start_end(
+        &[mh.id],
+        chrono::Utc::now()
+            .checked_add_signed(chrono::TimeDelta::seconds(-100))
+            .unwrap(),
+        chrono::Utc::now()
+            .checked_add_signed(chrono::TimeDelta::seconds(100))
+            .unwrap(),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await.unwrap();
+
+    // Now it should start
+    update_manager.run_single_iteration().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostReprovision { .. } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+
+    // That's sufficient to check the differences in this path
     Ok(())
 }

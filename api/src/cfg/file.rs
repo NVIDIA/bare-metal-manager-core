@@ -1080,6 +1080,7 @@ impl Default for DpuConfig {
                         vendor: BMCVendor::Nvidia,
                         model: "Bluefield 2 SmartNIC Main Card".to_string(),
                         ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+                        explicit_start_needed: false,
                         components: HashMap::from([
                             (
                                 FirmwareComponentType::Bmc,
@@ -1120,6 +1121,7 @@ impl Default for DpuConfig {
                         vendor: BMCVendor::Nvidia,
                         model: "Bluefield 3 SmartNIC Main Card".to_string(),
                         ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+                        explicit_start_needed: false,
                         components: HashMap::from([
                             (
                                 FirmwareComponentType::Bmc,
@@ -1171,6 +1173,9 @@ pub struct Firmware {
     pub model: String,
 
     pub components: HashMap<FirmwareComponentType, FirmwareComponent>,
+
+    #[serde(default)]
+    pub explicit_start_needed: bool,
 
     #[serde(default)]
     pub ordering: Vec<FirmwareComponentType>,

@@ -266,6 +266,9 @@ pub enum CliCommand {
     #[clap(about = "SSH Util functions", subcommand)]
     Ssh(SshActions),
 
+    #[clap(about = "Firmware related actions", subcommand)]
+    Firmware(Firmware),
+
     #[clap(about = "DPA related handling", subcommand)]
     Dpa(DpaOptions),
 
@@ -1306,6 +1309,26 @@ pub enum ManagedHost {
     ResetHostReprovisioning(ResetHostReprovisioning),
     #[clap(subcommand, about = "Power Manager related settings.")]
     PowerOptions(PowerOptions),
+    #[clap(about = "Start updates for machines with delayed updates, such as GB200")]
+    StartUpdates(StartUpdates),
+}
+
+#[derive(Parser, Debug)]
+pub struct StartUpdates {
+    #[clap(long, required(true), help = "Machine IDs to update, space separated", num_args = 1.., value_delimiter = ' ')]
+    pub machines: Vec<MachineId>,
+    #[clap(
+        long,
+        help = "Start of the maintenance window for doing the updates (default now) format 2025-01-02T03:04:05+0000 or 2025-01-02T03:04:05 for local time"
+    )]
+    pub start: Option<String>,
+    #[clap(
+        long,
+        help = "End of starting new updates (default 24 hours from the start) format 2025-01-02T03:04:05+0000 or 2025-01-02T03:04:05 for local time"
+    )]
+    pub end: Option<String>,
+    #[arg(long, help = "Cancel any new updates")]
+    pub cancel: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -3156,3 +3179,12 @@ pub struct ReplaceSkuComponents {
     #[clap(help = "override the ID of the SKU", long)]
     pub id: Option<String>,
 }
+
+#[derive(Parser, Debug)]
+pub enum Firmware {
+    #[clap(about = "Show available firmware")]
+    Show(ShowFirmware),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowFirmware {}

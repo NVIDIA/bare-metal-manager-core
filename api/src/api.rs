@@ -33,6 +33,7 @@ use ::rpc::protos::forge::{
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
 use ::rpc::protos::mlx_device as mlx_device_pb;
+use chrono::TimeZone;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use itertools::Itertools;
@@ -5273,6 +5274,99 @@ impl Forge for Api {
         );
 
         Ok(Response::new(rpc::DeleteBmcUserResponse {}))
+    }
+
+    async fn set_firmware_update_time_window(
+        &self,
+        request: tonic::Request<rpc::SetFirmwareUpdateTimeWindowRequest>,
+    ) -> Result<tonic::Response<rpc::SetFirmwareUpdateTimeWindowResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let start = request.start_timestamp.unwrap_or_default().seconds;
+        let end = request.end_timestamp.unwrap_or_default().seconds;
+        // Sanity checks
+        if start != 0 || end != 0 {
+            if start == 0 || end == 0 {
+                return Err(CarbideError::InvalidArgument(
+                    "Start and end must both be zero or nonzero".to_string(),
+                )
+                .into());
+            }
+            if start >= end {
+                return Err(
+                    CarbideError::InvalidArgument("Start must precede end".to_string()).into(),
+                );
+            }
+            if end < chrono::Utc::now().timestamp() {
+                return Err(
+                    CarbideError::InvalidArgument("End occurs in the past".to_string()).into(),
+                );
+            }
+        }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new("begin start_explicit_updates", e))
+        })?;
+
+        tracing::info!(
+            "set_firmware_update_time_window: Setting update start/end ({:?} {:?}) for {:?}",
+            chrono::Utc.timestamp_opt(start, 0),
+            chrono::Utc.timestamp_opt(end, 0),
+            request.machine_ids
+        );
+
+        crate::db::machine::update_firmware_update_time_window_start_end(
+            &request.machine_ids,
+            chrono::Utc
+                .timestamp_opt(request.start_timestamp.unwrap_or_default().seconds, 0)
+                .earliest()
+                .unwrap_or(chrono::Utc::now()),
+            chrono::Utc
+                .timestamp_opt(request.end_timestamp.unwrap_or_default().seconds, 0)
+                .earliest()
+                .unwrap_or(chrono::Utc::now()),
+            &mut txn,
+        )
+        .await
+        .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                "commit set_firmware_update_time_window",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(rpc::SetFirmwareUpdateTimeWindowResponse {}))
+    }
+
+    async fn list_host_firmware(
+        &self,
+        _request: tonic::Request<rpc::ListHostFirmwareRequest>,
+    ) -> Result<tonic::Response<rpc::ListHostFirmwareResponse>, tonic::Status> {
+        let mut ret = vec![];
+        for (_, entry) in self.runtime_config.get_firmware_config().map() {
+            for (component, component_info) in entry.components {
+                for firmware in component_info.known_firmware {
+                    if firmware.default {
+                        ret.push(rpc::AvailableHostFirmware {
+                            vendor: entry.vendor.to_string(),
+                            model: entry.model.clone(),
+                            r#type: component.to_string(),
+                            inventory_name_regex: component_info
+                                .current_version_reported_as
+                                .clone()
+                                .map(|x| x.as_str().to_string())
+                                .unwrap_or("UNSPECIFIED".to_string()),
+                            version: firmware.version.clone(),
+                            needs_explicit_start: entry.explicit_start_needed,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(Response::new(rpc::ListHostFirmwareResponse {
+            available: ret,
+        }))
     }
 
     async fn publish_mlx_device_report(
