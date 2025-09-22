@@ -543,6 +543,9 @@ service Forge {
   rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
 
   rpc PublishMlxDeviceReport(mlx_device.PublishMlxDeviceReportRequest) returns (mlx_device.PublishMlxDeviceReportResponse);
+
+  // Trim DB Tables
+  rpc TrimTable(TrimTableRequest) returns (TrimTableResponse);
 }
 
 message TpmCaAddedCaStatus{
@@ -5011,4 +5014,17 @@ message DeleteBmcUserRequest {
 }
 
 message DeleteBmcUserResponse {
+}
+
+enum TrimTableTarget {
+  MeasuredBoot = 0;
+}
+
+message TrimTableRequest{
+  TrimTableTarget target = 1;
+  uint32 keep_entries = 2;
+}
+
+message TrimTableResponse{
+  string total_deleted = 1;
 }

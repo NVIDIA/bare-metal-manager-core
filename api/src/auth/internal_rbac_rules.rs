@@ -452,6 +452,7 @@ impl InternalRBACRules {
             "PublishMlxDeviceReport",
             vec![Agent, Scout, Machineatron, ForgeAdminCLI],
         );
+        x.perm("TrimTable", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

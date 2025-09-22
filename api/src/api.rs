@@ -5300,6 +5300,35 @@ impl Forge for Api {
             mlx_device_pb::PublishMlxDeviceReportResponse {},
         ))
     }
+
+    async fn trim_table(
+        &self,
+        request: tonic::Request<rpc::TrimTableRequest>,
+    ) -> Result<tonic::Response<rpc::TrimTableResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new("begin trim_table", e)))?;
+
+        let total_deleted = db::trim_table::trim_table(
+            &mut txn,
+            request.get_ref().target(),
+            request.get_ref().keep_entries,
+        )
+        .await
+        .map_err(CarbideError::from)?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new("commit trim_table", e)))?;
+
+        Ok(Response::new(rpc::TrimTableResponse {
+            total_deleted: total_deleted.to_string(),
+        }))
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

@@ -268,6 +268,9 @@ pub enum CliCommand {
 
     #[clap(about = "DPA related handling", subcommand)]
     Dpa(DpaOptions),
+
+    #[clap(about = "Trim DB tables", subcommand)]
+    TrimTable(TrimTableTarget),
 }
 
 #[derive(Parser, Debug)]
@@ -3035,6 +3038,18 @@ pub struct TimeoutConfig {
 
     #[clap(long, help = "SSH Session Timeout (seconds)")]
     pub ssh_session_timeout: Option<u64>,
+}
+
+#[derive(Parser, Debug)]
+pub enum TrimTableTarget {
+    MeasuredBoot(KeepEntries),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct KeepEntries {
+    #[clap(help = "Number of entries to keep")]
+    #[arg(long)]
+    pub keep_entries: u32,
 }
 
 impl TimeoutConfig {
