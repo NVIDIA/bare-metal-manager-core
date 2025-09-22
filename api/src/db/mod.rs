@@ -57,6 +57,7 @@ pub mod site_exploration_report;
 pub mod sku;
 pub mod storage;
 pub mod tenant;
+pub mod trim_table;
 pub mod vpc;
 pub mod vpc_peering;
 pub mod vpc_prefix;

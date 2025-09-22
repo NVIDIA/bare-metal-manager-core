@@ -26,9 +26,13 @@ mod tests {
         get_all_measurement_report_records, test_support::get_all_measurement_report_value_records,
     };
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
+    use crate::tests::common::api_fixtures::create_test_env;
+    use forge_uuid::measured_boot::MeasurementReportId;
     use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
     use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
-    use std::collections::HashMap;
+    use rand::prelude::*;
+    use rpc::forge::forge_server::Forge;
+    use std::collections::{HashMap, HashSet};
 
     // test_profile_crudl creates a new profile with 3 attributes,
     // another new profile with 4 attributes.
@@ -546,6 +550,114 @@ mod tests {
             latest_journal.state,
             MeasurementMachineState::MeasuringFailed
         );
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    pub async fn test_max_reports_limit(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let env = create_test_env(pool.clone()).await;
+        let machine_1 = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &load_topology_json("dell_r750.json"),
+        )
+        .await?;
+
+        let machine_2 = create_test_machine(
+            &mut txn,
+            "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
+            &load_topology_json("dell_r750.json"),
+        )
+        .await?;
+
+        let mut inserted_report_ids = Vec::<MeasurementReportId>::new();
+        // create 260*2 reports, saving their report_ids in a vector
+        for i in 0..260 {
+            // generate random values to count as separate reports
+            let rng = rand::rng();
+
+            let mut random_str: String = rng
+                .sample_iter(&rand::distr::Alphanumeric)
+                .take(7)
+                .map(char::from)
+                .collect();
+
+            random_str.push_str(&i.to_string());
+
+            let values: Vec<PcrRegisterValue> = vec![
+                PcrRegisterValue {
+                    pcr_register: 0,
+                    sha_any: random_str,
+                },
+                PcrRegisterValue {
+                    pcr_register: 1,
+                    sha_any: "bb".to_string(),
+                },
+                PcrRegisterValue {
+                    pcr_register: 2,
+                    sha_any: "cc".to_string(),
+                },
+                PcrRegisterValue {
+                    pcr_register: 3,
+                    sha_any: "dd".to_string(),
+                },
+                PcrRegisterValue {
+                    pcr_register: 4,
+                    sha_any: "ee".to_string(),
+                },
+                PcrRegisterValue {
+                    pcr_register: 5,
+                    sha_any: "ff".to_string(),
+                },
+                PcrRegisterValue {
+                    pcr_register: 6,
+                    sha_any: "gg".to_string(),
+                },
+            ];
+
+            let report = db::report::new_with_txn(&mut txn, machine_1.machine_id, &values).await?;
+            inserted_report_ids.push(report.report_id);
+            let report = db::report::new_with_txn(&mut txn, machine_2.machine_id, &values).await?;
+            inserted_report_ids.push(report.report_id);
+        }
+
+        // make sure 520 reports have been stored
+        let inserted_reports = db::report::get_all(&mut txn).await?;
+        assert_eq!(inserted_reports.len(), 520);
+
+        // since the trim operation happens in a separate transaction, we need to commit
+        // the current transaction
+        let _ = txn.commit().await;
+
+        // now trim the table and verify that it has been trimmed down to 500
+        let request = tonic::Request::new(rpc::forge::TrimTableRequest {
+            target: rpc::forge::TrimTableTarget::MeasuredBoot as i32,
+            keep_entries: 250,
+        });
+
+        let response = env.api.trim_table(request).await?;
+        assert_eq!(response.into_inner().total_deleted, 20.to_string());
+
+        // make sure 500 are remaining
+        let mut txn = pool.begin().await?;
+        let remaining_reports = db::report::get_all(&mut txn).await?;
+        assert_eq!(remaining_reports.len(), 500);
+
+        // now make sure the first 20 reports are already gone and the rest are still in
+        let remaining_reports_as_set: HashSet<MeasurementReportId> =
+            remaining_reports.iter().map(|e| e.report_id).collect();
+        // the first 20 report_ids will not be in the all_reports, the rest will be
+        for report_id in inserted_report_ids.iter().take(20) {
+            assert!(!remaining_reports_as_set.contains(report_id));
+        }
+
+        for report_id in inserted_report_ids.iter().skip(20) {
+            assert!(remaining_reports_as_set.contains(report_id));
+        }
+
         Ok(())
     }
 }

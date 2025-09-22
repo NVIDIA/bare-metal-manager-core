@@ -2015,6 +2015,24 @@ async fn main() -> color_eyre::Result<()> {
                 println!("OBMC Console Log:\n{log}");
             }
         },
+        CliCommand::TrimTable(target) => {
+            match target {
+                cfg::cli_options::TrimTableTarget::MeasuredBoot(keep_entries) => {
+                    // create a request and send it
+                    let request = ::rpc::forge::TrimTableRequest {
+                        target: ::rpc::forge::TrimTableTarget::MeasuredBoot.into(),
+                        keep_entries: keep_entries.keep_entries,
+                    };
+
+                    let response = api_client.0.trim_table(request).await?;
+
+                    println!(
+                        "Trimmed {} reports from Measured Boot",
+                        response.total_deleted
+                    );
+                }
+            }
+        }
     }
 
     Ok(())
