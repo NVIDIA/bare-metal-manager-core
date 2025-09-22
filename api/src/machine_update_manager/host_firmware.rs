@@ -108,6 +108,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
                     HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
                 )
                 .await?;
+                db::machine::update_update_complete(&machine, true, txn).await?;
             }
         }
         Ok(())

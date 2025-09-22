@@ -542,6 +542,8 @@ service Forge {
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
   rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
 
+  rpc SetFirmwareUpdateTimeWindow(SetFirmwareUpdateTimeWindowRequest) returns (SetFirmwareUpdateTimeWindowResponse);
+  rpc ListHostFirmware(ListHostFirmwareRequest) returns (ListHostFirmwareResponse);
   rpc PublishMlxDeviceReport(mlx_device.PublishMlxDeviceReportRequest) returns (mlx_device.PublishMlxDeviceReportResponse);
 
   // Trim DB Tables
@@ -2075,6 +2077,8 @@ message Machine {
   optional ManagedHostQuarantineState quarantine_state = 40;
 
   optional string hw_sku_device_type = 41;
+
+  bool update_complete = 42;
 }
 
 message InstanceNetworkRestrictions {
@@ -5014,6 +5018,31 @@ message DeleteBmcUserRequest {
 }
 
 message DeleteBmcUserResponse {
+}
+
+message SetFirmwareUpdateTimeWindowRequest {
+  repeated common.MachineId machine_ids = 1;
+  google.protobuf.Timestamp start_timestamp = 2;
+  google.protobuf.Timestamp end_timestamp = 3;
+}
+
+message SetFirmwareUpdateTimeWindowResponse {
+}
+
+message ListHostFirmwareRequest {
+}
+
+message ListHostFirmwareResponse {
+  repeated AvailableHostFirmware available = 1;
+}
+
+message AvailableHostFirmware {
+  string vendor = 1;
+  string model = 2;
+  string type = 3;
+  string inventory_name_regex = 4;
+  string version = 5;
+  bool needs_explicit_start = 6;
 }
 
 enum TrimTableTarget {

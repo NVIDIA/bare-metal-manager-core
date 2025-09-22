@@ -180,6 +180,7 @@ pub struct MachineSnapshotPgJson {
     #[serde(default)] // Power options are valid only for host, not for DPUs.
     power_options: Option<PowerOptions>,
     hw_sku_device_type: Option<String>,
+    update_complete: bool,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -298,6 +299,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             sku_validation_health_report: value.sku_validation_health_report,
             power_options: value.power_options,
             hw_sku_device_type: value.hw_sku_device_type,
+            update_complete: value.update_complete,
         })
     }
 }
@@ -1565,6 +1567,44 @@ pub async fn get_host_reprovisioning_machines(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(&query, e))
+}
+
+pub async fn update_firmware_update_time_window_start_end(
+    machine_ids: &[MachineId],
+    start: chrono::DateTime<Utc>,
+    end: chrono::DateTime<Utc>,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = r#"UPDATE machines
+                        SET firmware_update_time_window_start = $2, firmware_update_time_window_end = $3, update_complete = false
+                       WHERE id = ANY($1) RETURNING id"#;
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_ids.iter().map(|x| x.to_string()).collect_vec())
+        .bind(start)
+        .bind(end)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
+
+    Ok(())
+}
+
+pub async fn update_update_complete(
+    machine_id: &MachineId,
+    complete: bool,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = r#"UPDATE machines
+                        SET update_complete = $2
+                       WHERE id=$1 RETURNING id"#;
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id.to_string())
+        .bind(complete)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
+
+    Ok(())
 }
 
 pub async fn update_controller_state_outcome(

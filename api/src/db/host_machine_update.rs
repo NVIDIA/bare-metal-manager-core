@@ -58,10 +58,12 @@ impl HostMachineUpdate {
             AND machines.host_reprovisioning_requested IS NULL
             AND desired_firmware.versions->>'Versions' != explored_endpoints.exploration_report->>'Versions'
             AND (machines.firmware_autoupdate = TRUE{from_global})
+            AND (desired_firmware.explicit_update_start_needed = false OR ($1 > machines.firmware_update_time_window_start AND $1 < machines.firmware_update_time_window_end))
         ORDER BY machines.controller_state->>'state' != 'ready'
         ;"#,
         );
         sqlx::query_as(query.as_str())
+            .bind(chrono::Utc::now())
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new("find_outdated_hosts", e))
@@ -105,7 +107,7 @@ pub async fn trigger_host_reprovisioning_request(
     };
 
     // The WHERE on controller state means that we'll update it in the case where we were in ready, but not when assigned.
-    let query = r#"UPDATE machines SET host_reprovisioning_requested=$2 WHERE id=$1 RETURNING id"#;
+    let query = r#"UPDATE machines SET host_reprovisioning_requested=$2, update_complete = false WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(req))

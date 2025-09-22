@@ -652,6 +652,9 @@ pub struct Machine {
 
     /// The hardware SKU's device type
     pub hw_sku_device_type: Option<String>,
+
+    /// If host upgrades have been completed since the last start explicit start request or actual start
+    pub update_complete: bool,
 }
 
 impl Machine {
@@ -996,6 +999,7 @@ impl From<Machine> for rpc::forge::Machine {
                 .take()
                 .map(Into::into),
             hw_sku_device_type: machine.hw_sku_device_type,
+            update_complete: machine.update_complete,
         }
     }
 }

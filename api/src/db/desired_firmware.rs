@@ -45,7 +45,7 @@ async fn snapshot_desired_firmware_for_model(
     txn: &mut PgConnection,
     model: &Firmware,
 ) -> Result<(), DatabaseError> {
-    let query = "INSERT INTO desired_firmware (vendor, model, versions) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING";
+    let query = "INSERT INTO desired_firmware (vendor, model, versions, explicit_update_start_needed) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING";
 
     let mut model = model.clone();
     model.components = model
@@ -70,6 +70,7 @@ async fn snapshot_desired_firmware_for_model(
         .bind(sqlx::types::Json(DbDesiredFirmwareVersions::from(
             model.clone(),
         )))
+        .bind(model.explicit_start_needed)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;

@@ -767,6 +767,7 @@ fn dpu_fw_example() -> HashMap<String, Firmware> {
             vendor: bmc_vendor::BMCVendor::Nvidia,
             model: "BlueField 3 SmartNIC Main Card".to_string(),
             ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+            explicit_start_needed: false,
             components: HashMap::from([
                 (
                     FirmwareComponentType::Bmc,
@@ -804,6 +805,7 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
             Firmware {
                 vendor: bmc_vendor::BMCVendor::Dell,
                 model: "PowerEdge R750".to_string(),
+                explicit_start_needed: false,
                 components: HashMap::from([
                     (
                         FirmwareComponentType::Bmc,
@@ -838,6 +840,7 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
             Firmware {
                 vendor: bmc_vendor::BMCVendor::Dell,
                 model: "Powercycle Test".to_string(),
+                explicit_start_needed: false,
                 components: HashMap::from([(
                     FirmwareComponentType::Uefi,
                     FirmwareComponent {

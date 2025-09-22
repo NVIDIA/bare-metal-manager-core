@@ -67,7 +67,7 @@ use cfg::cli_options::UriInfo;
 use cfg::cli_options::VpcPeeringOptions;
 use cfg::cli_options::VpcPrefixOptions;
 use cfg::cli_options::{
-    CliCommand, CliOptions, Domain, DpaOptions, Instance, Machine, MachineHardwareInfo,
+    CliCommand, CliOptions, Domain, DpaOptions, Firmware, Instance, Machine, MachineHardwareInfo,
     MachineHardwareInfoCommand, MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment,
     ResourcePool, VpcOptions,
 };
@@ -102,6 +102,7 @@ mod domain;
 mod dpa;
 mod dpu;
 mod expected_machines;
+mod firmware;
 mod host;
 mod ib_partition;
 mod instance;
@@ -739,6 +740,9 @@ async fn main() -> color_eyre::Result<()> {
                     managed_host::update_power_option(update_power_options, &api_client).await?;
                 }
             },
+            ManagedHost::StartUpdates(options) => {
+                crate::firmware::start_updates(&api_client, options).await?
+            }
         },
         CliCommand::Measurement(cmd) => {
             let args = cfg::measurement::GlobalOptions {
@@ -2013,6 +2017,11 @@ async fn main() -> color_eyre::Result<()> {
                 .await?;
 
                 println!("OBMC Console Log:\n{log}");
+            }
+        },
+        CliCommand::Firmware(action) => match action {
+            Firmware::Show(_) => {
+                firmware::firmware_show(&api_client, config.format, &mut output_file).await?;
             }
         },
         CliCommand::TrimTable(target) => {
