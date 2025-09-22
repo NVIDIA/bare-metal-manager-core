@@ -203,9 +203,24 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             vpc_vni = vpc.vni.map(|x|x as u32);
 
-            let network_security_group_details = match snapshot.instance {
-                None => None,
-                Some(ref i) => {
+            let suppress_tenant_security_groups = match &snapshot.managed_state {
+                ManagedHostState::Assigned { instance_state } => {
+                    // Within the BootingWithDiscoveryImage state, we use the
+                    // tenant's network to boot the discovery/scout image via
+                    // PXE, and then phone home via HTTPS to the API to signal
+                    // that the machine is no longer running the tenant OS (at
+                    // which point it's safe to move to the admin network). The
+                    // tenant's NSGs can interfere with these connections, so we
+                    // must avoid installing them.
+                    matches!(instance_state, InstanceState::BootingWithDiscoveryImage { ..})
+                },
+                _ => false,
+            };
+
+            let network_security_group_details = match (snapshot.instance.as_ref(), suppress_tenant_security_groups) {
+                (None, _) => None,
+                (_, true) => None,
+                (Some(i), false) => {
                     match i.config.network_security_group_id {
                         // If the instance doesn't have an NSG configured directly,
                         // we'll see if we the associated VPC does.
