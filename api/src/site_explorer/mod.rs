@@ -1658,7 +1658,10 @@ impl SiteExplorer {
         let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
         let oob_net0_mac = explored_dpu.report.systems.iter().find_map(|x| {
             x.ethernet_interfaces.iter().find_map(|x| {
-                if x.id == Some("oob_net0".to_string()) {
+                if x.id
+                    .as_ref()
+                    .is_some_and(|id| id.to_lowercase().contains("oob"))
+                {
                     x.mac_address
                 } else {
                     None

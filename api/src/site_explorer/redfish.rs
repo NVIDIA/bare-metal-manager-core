@@ -520,16 +520,6 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
     let mut nic_mode = None;
 
     if is_dpu {
-        if !ethernet_interfaces
-            .iter()
-            .any(|i| i.id == Some("oob_net0".to_owned()))
-        {
-            return Err(EndpointExplorationError::RedfishError {
-                details: "oob interface missing for dpu".to_string(),
-                response_body: None,
-                response_code: None,
-            });
-        }
         // This part processes dpu case and do two things such as
         // 1. update system serial_number in case it is empty using chassis serial_number
         // 2. format serial_number data using the same rules as in fetch_chassis()
@@ -605,28 +595,23 @@ async fn fetch_ethernet_interfaces(
         Err(e) => {
             match e {
                 RedfishError::HTTPErrorCode { status_code, .. } if status_code == NOT_FOUND => {
-                    // API to enumerate Ethernet interfaces is not supported
-                    // This is the case for Bluefield NICs with some BMCs
-                    // For this case we use a workaround to fetch the OOB interface
-                    // information
-                    if fetch_system_interfaces && fetch_bluefield_oob {
-                        if let Some(oob_iface) = get_oob_interface(client).await? {
-                            return Ok(vec![oob_iface]);
-                        }
-                    }
-                    return Ok(Vec::new());
+                    // missing oob for DPUs is handled below
+                    Vec::new()
                 }
                 _ => return Err(e),
             }
         }
     };
     let mut eth_ifs: Vec<EthernetInterface> = Vec::new();
+    let mut oob_found = false;
 
     for iface_id in eth_if_ids.iter() {
         let iface = match fetch_system_interfaces {
             false => client.get_manager_ethernet_interface(iface_id).await,
             true => client.get_system_ethernet_interface(iface_id).await,
         }?;
+
+        oob_found |= iface_id.to_lowercase().contains("oob");
 
         let mac_address = if let Some(iface_mac_address) = iface.mac_address {
             match deserialize_input_mac_to_address(&iface_mac_address).map_err(|e| {
@@ -675,13 +660,17 @@ async fn fetch_ethernet_interfaces(
         eth_ifs.push(iface);
     }
 
-    if eth_ifs.is_empty() && fetch_bluefield_oob {
+    if !oob_found && fetch_bluefield_oob {
         // Temporary workaround untill get_system_ethernet_interface will return oob interface information
         // Usually the workaround for not even being able to enumerate the interfaces
         // would be used. But if a future Bluefield BMC revision returns interfaces
         // but still misses the OOB interface, we would use this path.
         if let Some(oob_iface) = get_oob_interface(client).await? {
             eth_ifs.push(oob_iface);
+        } else {
+            return Err(RedfishError::GenericError {
+                error: "oob interface missing for dpu".to_string(),
+            });
         }
     }
 
