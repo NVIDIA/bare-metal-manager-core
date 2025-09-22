@@ -1,7 +1,5 @@
 BMC_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)_$(tr -dc '0-9' </dev/urandom | head -c 2)$(tr -dc 'a-z' </dev/urandom | head -c 1)$(tr -dc 'A-Z' </dev/urandom | head -c 1)"
 BMC_USER="firmware_updater"
-BMC_REBOOT="yes"
-CEC_REBOOT="yes"
 USER_ID=8
 
 pre_bmc_components_update() {
@@ -29,7 +27,7 @@ run_with_timeout() {
   done
 }
 
-post_bmc_components_update() {
+remove_bmc_user() {
     set -exE
     tee data.json <<DOF
     {
@@ -50,4 +48,13 @@ DOF
     fi
     curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD -X DELETE https://$BMC_IP/redfish/v1/AccountService/Accounts/$BMC_USER
     set +exE
+}
+
+bfb_post_install() {
+    # this command moves when we reboot the bmc to the end of the installation, hopefully capturing more of the logs we need
+    if [[ "$BMC_FIRMWARE_UPDATED" == "yes" ]]; then
+        bmc_reboot
+    fi
+    # move this to after the post install commands
+    remove_bmc_user
 }
