@@ -980,7 +980,7 @@ mod tests {
                 },
                 MachineCapabilityStorage {
                     name: "Dell Ent NVMe CM6 RI 1.92TB".to_string(),
-                    count: 9,
+                    count: 10,
                     vendor: None,
                     capacity: None,
                 },

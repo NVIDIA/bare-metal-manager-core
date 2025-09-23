@@ -668,6 +668,18 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         //     tracing::info!("attr:{:?} - {:?}", p.name(), p.value());
         // }
 
+        // skip the device if its hidden
+        if convert_sysattr_to_string("hidden", &device).is_ok_and(|v| v == "1") {
+            tracing::info!(
+                "Ignoring hidden device {}",
+                device
+                    .syspath()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or_default()
+            );
+            continue;
+        }
+
         // skip the device if its removable
         if convert_sysattr_to_string("removable", &device).is_ok_and(|v| v != "0") {
             tracing::info!(
@@ -692,6 +704,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             );
             continue;
         }
+
         disks.push(rpc_discovery::BlockDevice {
             model: convert_property_to_string("ID_MODEL", "NO_MODEL", &device)?.to_string(),
             revision: convert_property_to_string("ID_REVISION", "NO_REVISION", &device)?

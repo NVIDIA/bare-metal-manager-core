@@ -13,6 +13,7 @@
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
+use crate::db::sku::CURRENT_SKU_VERSION;
 use crate::model::machine::{InstallDpuOsState, Machine, SetSecureBootState};
 use crate::tests::common;
 use crate::tests::common::{
@@ -1874,7 +1875,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     // Create the SKU record first
     let test_sku = crate::model::sku::Sku {
-        schema_version: 2,
+        schema_version: CURRENT_SKU_VERSION,
         id: "Sku1".to_string(),
         description: "Test SKU for site explorer test".to_string(),
         created: chrono::Utc::now(),
@@ -3123,7 +3124,7 @@ async fn test_machine_creation_with_sku(
 
     // Create the SKU record first
     let test_sku = crate::model::sku::Sku {
-        schema_version: 2,
+        schema_version: CURRENT_SKU_VERSION,
         id: "Sku1".to_string(),
         description: "Test SKU for site explorer test".to_string(),
         created: chrono::Utc::now(),
@@ -3224,7 +3225,7 @@ async fn test_expected_machine_device_type_metrics(
     let mut txn = env.pool.begin().await?;
 
     let test_sku_with_device_type = crate::model::sku::Sku {
-        schema_version: 2,
+        schema_version: CURRENT_SKU_VERSION,
         id: test_sku_gpu_id.clone(),
         description: "Test GPU SKU".to_string(),
         created: chrono::Utc::now(),
@@ -3244,7 +3245,7 @@ async fn test_expected_machine_device_type_metrics(
     };
 
     let test_sku_without_device_type = crate::model::sku::Sku {
-        schema_version: 2,
+        schema_version: CURRENT_SKU_VERSION,
         id: test_sku_no_type_id.clone(),
         description: "Test SKU without device type".to_string(),
         created: chrono::Utc::now(),

@@ -4908,11 +4908,8 @@ impl Forge for Api {
             .map_err(|e| e.into())
     }
 
-    async fn replace_sku_components(
-        &self,
-        request: Request<rpc::SkuReplaceComponentsRequest>,
-    ) -> Result<Response<rpc::Sku>, Status> {
-        crate::handlers::sku::replace_sku_components(self, request)
+    async fn replace_sku(&self, request: Request<rpc::Sku>) -> Result<Response<rpc::Sku>, Status> {
+        crate::handlers::sku::replace_sku(self, request)
             .await
             .map_err(|e| e.into())
     }

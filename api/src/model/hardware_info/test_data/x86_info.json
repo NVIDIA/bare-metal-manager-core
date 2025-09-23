@@ -11,9 +11,9 @@
   "machine_type": "x86_64",
   "nvme_devices": [
     {
-      "model": "NO_MODEL",
-      "firmware_rev": "NO_FIRMWARE_REV",
-      "serial": "e932d5c34b090010"
+      "model": "Dell Ent NVMe CM6 RI 1.92TB",
+      "serial": "61M0A0D2TCD8",
+      "firmware_rev": "2.1.3"
     }
   ],
   "dmi_data": {

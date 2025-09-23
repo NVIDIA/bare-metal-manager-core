@@ -10,7 +10,11 @@ use crate::{
     CarbideError,
     db::{self, DatabaseError, machine::MachineSearchConfig},
     model::{
-        machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband},
+        hardware_info::HardwareInfo,
+        machine::{
+            Machine,
+            capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband},
+        },
         sku::{
             Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu,
             SkuComponentInfinibandDevices, SkuComponentMemory, SkuComponentStorage, SkuComponents,
@@ -22,7 +26,7 @@ use crate::{
 /// The current version of the SKU format.  The state machine will create older
 /// versions from hardware using the currently assigned sku's version so that
 /// SKUs can maintain backward compatibility
-pub const CURRENT_SKU_VERSION: u32 = 2;
+pub const CURRENT_SKU_VERSION: u32 = 3;
 
 /// Find a SKU that matches the specified SKU using the same comparison that
 /// the SKU validation code uses. (i.e. the description, id and others are not compared)
@@ -178,21 +182,59 @@ pub async fn update_metadata(
     Ok(())
 }
 
-pub async fn replace_components(
-    txn: &mut PgConnection,
-    sku_id: &str,
-    components: SkuComponents,
-) -> Result<Sku, DatabaseError> {
-    let query = "UPDATE machine_skus SET components = $1 WHERE id= $2 RETURNING *";
-    let sku = sqlx::query_as(query)
-        .bind(sqlx::types::Json(&components))
-        .bind(sku_id)
-        .fetch_one(&mut *txn)
-        .await
-        .map_err(|err| DatabaseError::query(query, err))?;
+pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, CarbideError> {
+    if sku.schema_version != CURRENT_SKU_VERSION {
+        return Err(CarbideError::InvalidArgument(
+            "SKU version is no longer supported".to_string(),
+        ));
+    }
 
-    crate::db::machine::update_sku_status_verify_request_time_for_sku(txn, sku_id).await?;
-    Ok(sku)
+    const DB_TXN_NAME: &str = "sku::replace";
+    let mut inner_txn = txn
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
+    let query = "LOCK TABLE machine_skus IN ACCESS EXCLUSIVE MODE";
+    sqlx::query(query)
+        .execute(&mut *inner_txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    if let Some(existing_sku) = find_matching(&mut inner_txn, sku).await? {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Specified SKU matches SKU with ID: {}",
+            existing_sku.id
+        )));
+    }
+
+    let query = "UPDATE machine_skus set description=$1, components=$2, schema_version=$3, device_type=$4 WHERE id=$5 RETURNING id";
+
+    let _: () = sqlx::query_as(query)
+        .bind(&sku.description)
+        .bind(sqlx::types::Json(&sku.components))
+        .bind(sku.schema_version as i32)
+        .bind(&sku.device_type)
+        .bind(&sku.id)
+        .fetch_one(&mut *inner_txn)
+        .await
+        .map_err(|e| DatabaseError::new("replace sku: update", e))?;
+
+    crate::db::machine::update_sku_status_verify_request_time_for_sku(&mut inner_txn, &sku.id)
+        .await?;
+
+    inner_txn
+        .commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+
+    find(txn, &[sku.id.clone()])
+        .await?
+        .pop()
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "SKU",
+            id: sku.id.clone(),
+        })
 }
 
 pub async fn generate_sku_from_machine(
@@ -210,6 +252,7 @@ pub async fn generate_sku_from_machine_at_version(
     match schema_version {
         0 | 1 => generate_sku_from_machine_at_version_0_or_1(txn, machine_id, schema_version).await,
         2 => generate_sku_from_machine_at_version_2(txn, machine_id).await,
+        3 => generate_sku_from_machine_at_version_3(txn, machine_id).await,
         _ => Err(DatabaseError::new(
             "generate_sku_from_machine_at_version",
             sqlx::Error::RowNotFound,
@@ -236,14 +279,14 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
     .into_iter()
     .next() else {
         return Err(DatabaseError::new(
-            "sku_from_topology",
+            "generate sku: find machine",
             sqlx::Error::RowNotFound,
         ));
     };
 
     let Some(hardware_info) = machine.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
-            "sku_from_topology",
+            "generate sku: load hardware info",
             sqlx::Error::RowNotFound,
         ));
     };
@@ -361,35 +404,12 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
     })
 }
 
-pub async fn generate_sku_from_machine_at_version_2(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-) -> Result<Sku, DatabaseError> {
+pub fn generate_base_sku_from_hardware(
+    machine: &Machine,
+    schema_version: u32,
+    hardware_info: &HardwareInfo,
+) -> Sku {
     let created = Utc::now();
-
-    let Some(machine) = db::machine::find(
-        txn,
-        db::ObjectFilter::One(*machine_id),
-        MachineSearchConfig {
-            include_predicted_host: true,
-            ..Default::default()
-        },
-    )
-    .await?
-    .into_iter()
-    .next() else {
-        return Err(DatabaseError::new(
-            "sku_from_topology",
-            sqlx::Error::RowNotFound,
-        ));
-    };
-
-    let Some(hardware_info) = machine.hardware_info.as_ref() else {
-        return Err(DatabaseError::new(
-            "sku_from_topology",
-            sqlx::Error::RowNotFound,
-        ));
-    };
 
     let capabilities = MachineCapabilitiesSet::from_hardware_info(
         hardware_info.clone(),
@@ -477,6 +497,53 @@ pub async fn generate_sku_from_machine_at_version_2(
         write!(&mut description, "; {num_ib_devices}xIB").unwrap();
     }
 
+    Sku {
+        schema_version,
+        id: format!("{} {}", chassis.model, Utc::now()),
+        description,
+        created,
+        components: SkuComponents {
+            chassis,
+            cpus,
+            gpus,
+            memory: mem_components.into_values().collect(),
+            infiniband_devices,
+            storage: Vec::default(),
+        },
+        device_type: None,
+    }
+}
+
+pub async fn generate_sku_from_machine_at_version_2(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Sku, DatabaseError> {
+    let Some(machine) = db::machine::find(
+        txn,
+        db::ObjectFilter::One(*machine_id),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await?
+    .into_iter()
+    .next() else {
+        return Err(DatabaseError::new(
+            "generate sku: find machine (v2)",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+        return Err(DatabaseError::new(
+            "generate sku: load hardware info (v2)",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let mut sku = generate_base_sku_from_hardware(&machine, 2, hardware_info);
+
     // Storage cannot be pulled from capabilities (yet).  The block device hardware inventory has duplicate entries
     // for disk and partitions on that disk.  The NVME device inventory is a duplicate of the disk entries
     // in the block device, and so is ignored.  TODO: move to use capabilities when available.
@@ -495,19 +562,56 @@ pub async fn generate_sku_from_machine_at_version_2(
             });
     }
 
-    Ok(Sku {
-        schema_version: CURRENT_SKU_VERSION,
-        id: format!("{} {}", chassis.model, Utc::now()),
-        description,
-        created,
-        components: SkuComponents {
-            chassis,
-            cpus,
-            gpus,
-            memory: mem_components.into_values().collect(),
-            infiniband_devices,
-            storage: storage.into_values().collect(),
+    sku.components.storage = storage.into_values().collect();
+
+    Ok(sku)
+}
+
+pub async fn generate_sku_from_machine_at_version_3(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Sku, DatabaseError> {
+    let Some(machine) = db::machine::find(
+        txn,
+        db::ObjectFilter::One(*machine_id),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
         },
-        device_type: None,
-    })
+    )
+    .await?
+    .into_iter()
+    .next() else {
+        return Err(DatabaseError::new(
+            "generate sku: find machine (v3)",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+        return Err(DatabaseError::new(
+            "generate sku: load hardware info (v3)",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let mut sku = generate_base_sku_from_hardware(&machine, 3, hardware_info);
+
+    // Storage cannot be pulled from capabilities (yet).  The block devices are no longer used
+    // as RAID devices cause issues by created additional devices (and how depends on which
+    // RAID card is used) Note that this will include RAID devices themselves, but not the
+    // intermediate devices created by the RAID device.
+    let mut storage: BTreeMap<String, SkuComponentStorage> = BTreeMap::default();
+    hardware_info.nvme_devices.iter().for_each(|nvme| {
+        storage
+            .entry(nvme.model.clone())
+            .and_modify(|s| s.count += 1)
+            .or_insert(SkuComponentStorage {
+                model: nvme.model.clone(),
+                count: 1,
+            });
+    });
+    sku.components.storage = storage.into_values().collect();
+
+    Ok(sku)
 }
