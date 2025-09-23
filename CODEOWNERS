@@ -16,6 +16,7 @@ CODEOWNERS @nvmetal/approvers/carbide-owners
 # patterns), that can be expressed as an entry in this section (which will
 # override the default owner).
 [carbide] @nvmetal/approvers/carbide-default
+*
 
 # Code with security or correctness concerns can be assigned owners here.
 [critical]
