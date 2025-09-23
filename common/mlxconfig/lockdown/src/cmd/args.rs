@@ -35,9 +35,10 @@ pub enum Commands {
 }
 
 // LockdownAction are the lockdown subcommands.
-#[derive(Subcommand)]
+#[derive(Clone, Subcommand)]
 pub enum LockdownAction {
     // lock locks hardware access on the device.
+    #[command(about = "Lock hardware access from a given device (PCI address or mst path).")]
     Lock {
         // device_id is the device identifier (PCI address or device path).
         device_id: String,
@@ -51,6 +52,7 @@ pub enum LockdownAction {
         dry_run: bool,
     },
     // unlock unlocks hardware access on the device.
+    #[command(about = "Unlock hardware access to the given device.")]
     Unlock {
         // device_id is the device identifier (PCI address or device path).
         device_id: String,
@@ -64,6 +66,7 @@ pub enum LockdownAction {
         dry_run: bool,
     },
     // status checks current lock and key status of the device.
+    #[command(about = "Get the current lock/unlock status of the given device.")]
     Status {
         // device_id is the device identifier (PCI address or device path).
         device_id: String,
@@ -75,7 +78,10 @@ pub enum LockdownAction {
         dry_run: bool,
     },
     // set-key sets or updates the hardware access key.
-    #[command(name = "set-key")]
+    #[command(
+        name = "set-key",
+        about = "Set a hardware access key on the given device, effectively locking it."
+    )]
     SetKey {
         // device_id is the device identifier (PCI address or device path).
         device_id: String,

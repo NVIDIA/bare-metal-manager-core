@@ -17,6 +17,7 @@ use ::rpc::protos::mlx_device::{
     PublishMlxDeviceReportResponse,
 };
 use mlxconfig_device::report::MlxDeviceReport;
+use mlxconfig_lockdown::{LockStatus, LockdownManager, MlxResult};
 use scout::CarbideClientResult;
 
 // create_device_report_request is a one stop shop to collect
@@ -52,4 +53,36 @@ pub async fn publish_mlx_device_report(
         .await?
         .into_inner();
     Ok(response)
+}
+
+// lock_device locks a device with a provided key. The device_address
+// can either be a PCI address, or a /dev/mst/* path. Generally when
+// going through the automation, we'll end up using whatever comes in
+// via the mlx device reports, with the device info coming from
+// mlxfwmanager, so if mst is running, it will probably be an mst path.
+// BUT, even if mst is running, you can still provide a PCI address.
+#[allow(dead_code)]
+pub fn lock_device(device_address: &str, key: &str) -> MlxResult<()> {
+    let manager = LockdownManager::new()?;
+    manager.lock_device(device_address, key)?;
+    Ok(())
+}
+
+// unlock_device unlocks a device with a provided key. See above comments
+// in lock_device about the device_address argument formatting options.
+#[allow(dead_code)]
+pub fn unlock_device(device_address: &str, key: &str) -> MlxResult<()> {
+    let manager = LockdownManager::new()?;
+    manager.unlock_device(device_address, key)?;
+    Ok(())
+}
+
+// device_lockdown_status returns the current lockdown status of
+// a device (locked or unlocked). See above comments in lock_device
+// about the device_address argument formatting options.
+#[allow(dead_code)]
+pub fn device_lockdown_status(device_address: &str) -> MlxResult<LockStatus> {
+    let manager = LockdownManager::new()?;
+    let status = manager.get_status(device_address)?;
+    Ok(status)
 }
