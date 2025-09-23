@@ -20,6 +20,7 @@ forge-version = { path = "../common/version" }
 utils = { path = "../common/utils" }
 machine-validation = { path = "../common/machine-validation" }
 mlxconfig-device = { path = "../common/mlxconfig/device" }
+mlxconfig-lockdown = { path = "../common/mlxconfig/lockdown" }
 
 chrono = "0.4.34"
 clap = { workspace = true }

@@ -9,9 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use forge_tls::default as tls_default;
 use mlxconfig_device::cmd::device::args::DeviceAction;
+use mlxconfig_lockdown::cmd::args::LockdownAction;
 
 #[derive(ValueEnum, Clone, Debug, Copy, PartialEq)]
 pub(crate) enum Mode {
@@ -119,8 +120,8 @@ pub(crate) enum Command {
     Reset(Reset),
     #[clap(about = "Machine Validation")]
     MachineValidation(MachineValidation),
-    #[clap(about = "Query local Mellanox device information.")]
-    MlxDevice(MlxDevice),
+    #[clap(about = "Local Mellanox device management.")]
+    Mlx(Mlx),
 }
 
 #[derive(Parser, Clone)]
@@ -149,9 +150,29 @@ pub struct MachineValidation {
 }
 
 #[derive(Parser, Clone)]
+pub struct Mlx {
+    #[command(subcommand)]
+    pub action: MlxAction,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum MlxAction {
+    #[clap(about = "Query local Mellanox device information.")]
+    Device(MlxDevice),
+    #[clap(about = "Mellanox lockdown operations.")]
+    Lockdown(MlxLockdown),
+}
+
+#[derive(Parser, Clone)]
 pub struct MlxDevice {
     #[command(subcommand)]
     pub action: DeviceAction,
+}
+
+#[derive(Parser, Clone)]
+pub struct MlxLockdown {
+    #[command(subcommand)]
+    pub action: LockdownAction,
 }
 
 impl Options {

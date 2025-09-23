@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use cfg::{AutoDetect, Command, Mode, Options};
+use cfg::{AutoDetect, Command, MlxAction, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
 use forge_host_support::registration;
@@ -18,6 +18,7 @@ use forge_uuid::machine::MachineId;
 use mlxconfig_device::{
     cmd::device::args::DeviceArgs, cmd::device::cmds::handle as handle_mlx_device,
 };
+use mlxconfig_lockdown::cmd::cmds::handle_lockdown as handle_mlx_lockdown;
 use once_cell::sync::Lazy;
 use rpc::forge::ForgeAgentControlResponse;
 use rpc::forge::forge_agent_control_response::Action;
@@ -219,13 +220,26 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
             // the state of Mellanox devices on the machine, to see what
             // Carbide will see re: reporting, troubleshooting, etc. Just
             // run the command locally and exit.
-            Command::MlxDevice(mlx_device) => {
-                let device_args = DeviceArgs {
-                    action: mlx_device.action.clone(),
-                };
-                handle_mlx_device(device_args).map_err(|e| eyre::eyre!("{e}"))?;
-                return Ok(());
-            }
+            Command::Mlx(mlx) => match &mlx.action {
+                // Then match on the specific action (Device or Lockdown)
+                MlxAction::Device(mlx_device) => {
+                    // The mlx device subcommand doesn't need to be run with any
+                    // sort of API integration; it's intended purely for interrogating
+                    // the state of Mellanox devices on the machine, to see what
+                    // Carbide will see re: reporting, troubleshooting, etc. Just
+                    // run the command locally and exit.
+                    let device_args = DeviceArgs {
+                        action: mlx_device.action.clone(),
+                    };
+                    handle_mlx_device(device_args).map_err(|e| eyre::eyre!("{e}"))?;
+                    return Ok(());
+                }
+                MlxAction::Lockdown(mlx_lockdown) => {
+                    handle_mlx_lockdown(mlx_lockdown.action.clone())
+                        .map_err(|e| eyre::eyre!("{e}"))?;
+                    return Ok(());
+                }
+            },
             _ => s,
         },
     };
@@ -285,7 +299,7 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
         // handled, but we need to have it here to make
         // sure we match everything. Maybe this could
         // log something.
-        Command::MlxDevice(_) => return Ok(()),
+        Command::Mlx(_) => return Ok(()),
     };
 
     handle_action(action, &machine_id, machine_interface_id, config).await?;

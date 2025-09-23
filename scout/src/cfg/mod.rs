@@ -11,4 +11,4 @@
  */
 mod command_line;
 
-pub(crate) use command_line::{AutoDetect, Command, Mode, Options};
+pub(crate) use command_line::{AutoDetect, Command, MlxAction, Mode, Options};
