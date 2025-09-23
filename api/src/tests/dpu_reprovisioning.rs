@@ -420,7 +420,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall),
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB,
+        }),
+    );
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
     let host = mh.host().db_machine(&mut txn).await;
@@ -723,6 +734,17 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
             .is_err()
     );
     txn.commit().await.unwrap();
+
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB,
+        })
+    );
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
@@ -1224,7 +1246,9 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     assert_eq!(
         dpu.current_state(),
-        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall),
+        &mh.new_dpu_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB
+        }),
     );
 }
 
@@ -1450,17 +1474,28 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
             .contains("Current state: Reprovisioning/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
-    for state in [
-        ReprovisionState::PowerDown,
-        ReprovisionState::VerifyFirmareVersions,
-        ReprovisionState::WaitingForNetworkConfig,
-    ] {
-        let dpu = mh.dpu_n(0).next_iteration_machine(&env).await;
-        assert_eq!(
-            dpu.current_state(),
-            &mh.new_dpus_reprovision_state(&[&state, &state])
-        );
-    }
+    env.run_machine_state_controller_iteration().await;
+    let dpu = mh.dpu_n(0).db_machine(&mut txn).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpus_reprovision_state(&[
+            &ReprovisionState::PowerDown,
+            &ReprovisionState::PowerDown
+        ])
+    );
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = mh.dpu_n(0).db_machine(&mut txn).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpus_reprovision_state(&[
+            &ReprovisionState::WaitingForNetworkConfig,
+            &ReprovisionState::WaitingForNetworkConfig
+        ])
+    );
 
     let pxe = dpu0_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
@@ -1571,11 +1606,19 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB,
+        })
     );
 
-    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
-    assert_ne!(pxe.pxe_script, "exit".to_string());
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
+    );
 
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
@@ -1596,17 +1639,19 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
             .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
-    for state in [
-        ReprovisionState::PowerDown,
-        ReprovisionState::VerifyFirmareVersions,
-        ReprovisionState::WaitingForNetworkConfig,
-    ] {
-        let dpu = mh.dpu().next_iteration_machine(&env).await;
-        assert_eq!(
-            dpu.current_state(),
-            &mh.new_dpu_assigned_reprovision_state(state)
-        );
-    }
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::PowerDown)
+    );
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkConfig)
+    );
 
     let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(

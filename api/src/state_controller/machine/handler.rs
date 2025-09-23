@@ -350,6 +350,7 @@ impl MachineStateHandler {
                 builder.common_pools,
                 host_upgrade.clone(),
                 builder.hardware_models.clone().unwrap_or_default(),
+                builder.enable_secure_boot,
             ),
             reachability_params: builder.reachability_params,
             host_upgrade,
@@ -1541,7 +1542,11 @@ impl MachineStateHandler {
                 .await?;
 
                 next_state = Some(
-                    ReprovisionState::WaitingForNetworkInstall.next_state_with_all_dpus_updated(
+                    ReprovisionState::next_substate_based_on_bfb_support(
+                        self.enable_secure_boot,
+                        &dpus_for_reprov,
+                    )
+                    .next_state_with_all_dpus_updated(
                         &state.managed_state,
                         &state.dpu_snapshots,
                         dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
@@ -2448,11 +2453,30 @@ async fn handle_dpu_reprovision(
                 return Ok(outcome);
             }
 
-            Ok(transition!(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
-            ))
+            Ok(transition!(next_state_resolver.next_state(
+                &state.managed_state,
+                dpu_machine_id,
+                &state.host_snapshot
+            )?))
         }
         ReprovisionState::WaitingForNetworkConfig => {
+            let dpus_states_for_reprov = &state
+                .dpu_snapshots
+                .iter()
+                .filter_map(|x| {
+                    if x.reprovision_requested.is_some() {
+                        state.managed_state.as_reprovision_state(dpu_machine_id)
+                    } else {
+                        None
+                    }
+                })
+                .collect_vec();
+
+            if !all_equal(dpus_states_for_reprov)? {
+                return Ok(wait!(
+                    "Waiting for DPUs to come in WaitingForNetworkConfig state.".to_string()
+                ));
+            }
             for dsnapshot in &state.dpu_snapshots {
                 if !is_dpu_up(state, dsnapshot) {
                     let msg = format!("Waiting for DPU {} to come up", dsnapshot.id);
@@ -4666,6 +4690,7 @@ pub struct InstanceStateHandler {
     common_pools: Option<Arc<CommonPools>>,
     host_upgrade: Arc<HostUpgradeState>,
     hardware_models: FirmwareConfig,
+    enable_secure_boot: bool,
 }
 
 impl InstanceStateHandler {
@@ -4675,6 +4700,7 @@ impl InstanceStateHandler {
         common_pools: Option<Arc<CommonPools>>,
         host_upgrade: Arc<HostUpgradeState>,
         hardware_models: FirmwareConfig,
+        enable_secure_boot: bool,
     ) -> Self {
         InstanceStateHandler {
             attestation_enabled,
@@ -4682,6 +4708,7 @@ impl InstanceStateHandler {
             common_pools,
             host_upgrade,
             hardware_models,
+            enable_secure_boot,
         }
     }
 }
@@ -5107,12 +5134,15 @@ impl StateHandler for InstanceStateHandler {
                         )
                         .await?;
 
-                        let next_state = ReprovisionState::WaitingForNetworkInstall
-                            .next_state_with_all_dpus_updated(
-                                &mh_snapshot.managed_state,
-                                &mh_snapshot.dpu_snapshots,
-                                dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
-                            )?;
+                        let next_state = ReprovisionState::next_substate_based_on_bfb_support(
+                            self.enable_secure_boot,
+                            &dpus_for_reprov,
+                        )
+                        .next_state_with_all_dpus_updated(
+                            &mh_snapshot.managed_state,
+                            &mh_snapshot.dpu_snapshots,
+                            dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                        )?;
                         Ok(transition!(next_state))
                     } else if mh_snapshot
                         .host_snapshot

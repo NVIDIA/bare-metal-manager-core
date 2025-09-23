@@ -2262,14 +2262,6 @@ pub trait NextState {
                     &state.dpu_snapshots,
                     dpu_ids_for_reprov,
                 ),
-            ReprovisionState::VerifyFirmareVersions => ReprovisionState::WaitingForNetworkConfig
-                .next_state_with_all_dpus_updated(
-                    &state.managed_state,
-                    &state.dpu_snapshots,
-                    // Move only DPUs in WaitingForNetworkInstall for which reprovision is
-                    // triggered.
-                    dpu_ids_for_reprov,
-                ),
             ReprovisionState::WaitingForNetworkConfig => ReprovisionState::RebootHostBmc
                 .next_state_with_all_dpus_updated(
                     &state.managed_state,
@@ -2300,12 +2292,27 @@ impl NextState for MachineNextStateResolver {
             .as_reprovision_state(dpu_id)
             .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_id))?;
 
+        let mut dpu_states = match current_state {
+            ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.clone(),
+            _ => {
+                return Err(StateHandlerError::InvalidState(format!(
+                    "Unhandled {current_state} state for Machine handling."
+                )));
+            }
+        };
+
         match reprovision_state {
             ReprovisionState::RebootHost => Ok(ManagedHostState::HostInit {
                 machine_state: MachineState::Discovered {
                     skip_reboot_wait: false,
                 },
             }),
+            ReprovisionState::VerifyFirmareVersions => {
+                dpu_states.insert(*dpu_id, ReprovisionState::WaitingForNetworkConfig);
+                Ok(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates { states: dpu_states },
+                })
+            }
             _ => Err(StateHandlerError::InvalidState(format!(
                 "Unhandled {reprovision_state} state for Non-Instance handling."
             ))),
@@ -2359,6 +2366,17 @@ impl NextState for InstanceNextStateResolver {
             .as_reprovision_state(dpu_id)
             .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_id))?;
 
+        let mut dpu_states = match current_state {
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision { dpu_states },
+            } => dpu_states.states.clone(),
+            _ => {
+                return Err(StateHandlerError::InvalidState(format!(
+                    "Unhandled {current_state} state for Instance handling."
+                )));
+            }
+        };
+
         match reprovision_state {
             ReprovisionState::RebootHost => {
                 if host_snapshot.host_reprovision_requested.is_some() {
@@ -2372,6 +2390,14 @@ impl NextState for InstanceNextStateResolver {
                         instance_state: InstanceState::Ready,
                     })
                 }
+            }
+            ReprovisionState::VerifyFirmareVersions => {
+                dpu_states.insert(*dpu_id, ReprovisionState::WaitingForNetworkConfig);
+                Ok(ManagedHostState::Assigned {
+                    instance_state: InstanceState::DPUReprovision {
+                        dpu_states: DpuReprovisionStates { states: dpu_states },
+                    },
+                })
             }
             _ => Err(StateHandlerError::InvalidState(format!(
                 "Unhandled {reprovision_state} state for Instance handling."
