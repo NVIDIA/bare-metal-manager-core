@@ -9,6 +9,7 @@ pub mod tests {
             self, DatabaseError, ObjectFilter,
             expected_machine::{ExpectedMachine, ExpectedMachineData},
             machine::MachineSearchConfig,
+            sku::CURRENT_SKU_VERSION,
         },
         model::{
             machine::{
@@ -64,17 +65,13 @@ pub mod tests {
           ],
           "storage": [
             {
-              "model": "DELLBOSS_VD",
-              "count": 1
-            },
-            {
               "model": "Dell Ent NVMe CM6 RI 1.92TB",
               "count": 1
             }
           ],
           "tpm": []
         },
-        "schema_version": 2
+        "schema_version": 3
     }"#;
 
     const SKU_DATA: &str = r#"
@@ -122,14 +119,9 @@ pub mod tests {
     ],
     "storage": [
       {
-        "model": "DELLBOSS_VD",
-        "count": 1
-      },
-      {
         "model": "Dell Ent NVMe CM6 RI 1.92TB",
         "count": 1
       }
-
     ],
     "memory": [
       {
@@ -140,7 +132,7 @@ pub mod tests {
     ],
     "tpm": []
   },
-  "schema_version": 2
+  "schema_version": 3
 }"#;
 
     pub async fn handle_inventory_update(pool: &sqlx::PgPool, env: &TestEnv, mh: &TestManagedHost) {
@@ -805,13 +797,13 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test]
-    async fn test_match_sku_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
+    async fn test_match_sku_versions(
+        env: &TestEnv,
+        old_schema_version: u32,
+    ) -> Result<(), eyre::Error> {
+        let (machine_id, _dpu_id) = create_managed_host(env).await.into();
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
-
-        let mut txn = pool.begin().await?;
+        let mut txn = env.pool.begin().await?;
         let machine = db::machine::find(
             &mut txn,
             ObjectFilter::One(machine_id),
@@ -824,11 +816,6 @@ pub mod tests {
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
         assert!(machine.hw_sku.is_some());
 
-        let mut old_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
-        //fake an old sku
-        old_sku.schema_version = 0;
-        old_sku.components.storage = Vec::default();
-
         let new_sku = crate::db::sku::find(&mut txn, &[machine.hw_sku.unwrap()])
             .await?
             .pop()
@@ -836,24 +823,34 @@ pub mod tests {
         assert_eq!(new_sku.schema_version, db::sku::CURRENT_SKU_VERSION);
         assert_ne!(new_sku.components.storage.len(), 0);
 
+        // create an older version sku from new topology data will create a backwards compatible sku
+        let old_sku = crate::db::sku::generate_sku_from_machine_at_version(
+            &mut txn,
+            &machine_id,
+            old_schema_version,
+        )
+        .await?;
+        assert_eq!(old_sku.schema_version, old_schema_version);
+
         // diff does not check version.  comparing SKUs of different versions will fail
         let diffs = crate::model::sku::diff_skus(&old_sku, &new_sku);
         assert!(!diffs.is_empty());
 
-        // create an older version sku from new topology data will create a backwards compatible sku
-        let old_new_sku =
-            crate::db::sku::generate_sku_from_machine_at_version(&mut txn, &machine_id, 0).await?;
-        assert_eq!(old_new_sku.schema_version, 0);
-        assert!(old_new_sku.components.storage.is_empty());
-
-        let diffs = crate::model::sku::diff_skus(&old_sku, &old_new_sku);
+        let diffs = crate::model::sku::diff_skus(&old_sku, &old_sku);
         assert!(diffs.is_empty());
 
-        let diffs = crate::model::sku::diff_skus(&old_new_sku, &new_sku);
+        let diffs = crate::model::sku::diff_skus(&old_sku, &new_sku);
         assert!(!diffs.is_empty());
 
-        txn.commit().await?;
+        Ok(())
+    }
 
+    #[crate::sqlx_test]
+    async fn test_match_all_sku_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
+        for old_sku_version in 0..CURRENT_SKU_VERSION {
+            test_match_sku_versions(&env, old_sku_version).await?;
+        }
         Ok(())
     }
 
@@ -1066,7 +1063,7 @@ pub mod tests {
             .unwrap();
 
         assert_eq!(&sku.description, "new description");
-        assert!(&sku.device_type.is_none());
+        assert_eq!(sku.device_type, Some("device_type".to_string()));
 
         crate::db::sku::update_metadata(
             &mut txn,
@@ -1134,9 +1131,7 @@ pub mod tests {
     }
 
     #[crate::sqlx_test(fixtures("create_sku"))]
-    pub fn test_sku_replace_componenets(
-        pool: sqlx::PgPool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn test_sku_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let sku_id = "sku1".to_string();
         let original_sku = crate::db::sku::find(&mut txn, &[sku_id.clone()])
@@ -1151,13 +1146,13 @@ pub mod tests {
         tracing::info!(replacement_sku_json, "replacment");
 
         let expected_sku = Sku {
+            schema_version: CURRENT_SKU_VERSION,
             components: replacement_sku.components,
             ..original_sku
         };
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
 
-        let returned_sku =
-            crate::db::sku::replace_components(&mut txn, &sku_id, expected_sku.components).await?;
+        let returned_sku = crate::db::sku::replace(&mut txn, &expected_sku).await?;
 
         let returned_sku_json = serde_json::ser::to_string_pretty(&returned_sku)?;
 
@@ -1175,16 +1170,14 @@ pub mod tests {
     }
 
     #[crate::sqlx_test]
-    async fn test_replace_components_triggers_verify(
-        pool: sqlx::PgPool,
-    ) -> Result<(), eyre::Error> {
+    async fn test_replace_triggers_verify(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let env = create_test_env_for_sku(pool.clone(), true, None, false).await;
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
         let mut txn = pool.begin().await?;
 
         let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         crate::db::sku::create(&mut txn, &actual_sku).await?;
-        let actual_sku = crate::db::sku::find(&mut txn, &[actual_sku.id])
+        let mut actual_sku = crate::db::sku::find(&mut txn, &[actual_sku.id])
             .await?
             .remove(0);
 
@@ -1205,8 +1198,8 @@ pub mod tests {
         txn.commit().await?;
         let mut txn = pool.begin().await?;
 
-        crate::db::sku::replace_components(&mut txn, &actual_sku.id, actual_sku.components.clone())
-            .await?;
+        actual_sku.components.cpus[0].thread_count *= 2;
+        crate::db::sku::replace(&mut txn, &actual_sku).await?;
 
         txn.commit().await?;
         let mut txn = pool.begin().await?;

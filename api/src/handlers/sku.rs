@@ -371,17 +371,11 @@ pub(crate) async fn update_sku_metadata(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn replace_sku_components(
+pub(crate) async fn replace_sku(
     api: &Api,
-    request: Request<::rpc::forge::SkuReplaceComponentsRequest>,
+    request: Request<::rpc::forge::Sku>,
 ) -> CarbideResult<Response<rpc::forge::Sku>> {
-    let request = request.into_inner();
-    let Some(components) = request.components else {
-        return Err(CarbideError::InvalidArgument(
-            "Components is required".to_string(),
-        ));
-    };
-
+    let request = request.into_inner().into();
     const DB_TXN_NAME: &str = "replace_sku_components";
 
     let mut txn = api
@@ -390,7 +384,7 @@ pub(crate) async fn replace_sku_components(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let sku = crate::db::sku::replace_components(&mut txn, &request.id, components.into()).await?;
+    let sku = crate::db::sku::replace(&mut txn, &request).await?;
 
     txn.commit()
         .await

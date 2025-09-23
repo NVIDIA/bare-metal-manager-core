@@ -2,7 +2,7 @@ use std::io::Write;
 use std::pin::Pin;
 
 use crate::cfg::cli_options::{
-    BulkUpdatyeSkuMetadata, CreateSku, GenerateSku, ReplaceSkuComponents, Sku, UpdateSkuMetadata,
+    BulkUpdatyeSkuMetadata, CreateSku, GenerateSku, Sku, UpdateSkuMetadata,
 };
 use crate::rpc::ApiClient;
 use crate::{async_write_table_as_csv, async_writeln};
@@ -449,18 +449,12 @@ pub async fn handle_sku_command(
             }
         }
 
-        Sku::ReplaceComponents(ReplaceSkuComponents { filename, id }) => {
+        Sku::Replace(CreateSku { filename, id }) => {
             let file_data = std::fs::read_to_string(filename)?;
-            let sku: rpc::forge::Sku = serde_json::de::from_str(&file_data)?;
-            let sku_id = id.unwrap_or(sku.id);
+            let mut sku: rpc::forge::Sku = serde_json::de::from_str(&file_data)?;
+            sku.id = id.unwrap_or(sku.id);
 
-            let updated_sku = api_client
-                .0
-                .replace_sku_components(rpc::forge::SkuReplaceComponentsRequest {
-                    id: sku_id,
-                    components: sku.components,
-                })
-                .await?;
+            let updated_sku = api_client.0.replace_sku(sku).await?;
             show_skus_table(output, output_format, vec![updated_sku]).await?;
         }
     }

@@ -3031,7 +3031,7 @@ pub enum Sku {
     #[clap(about = "Update multiple SKU's metadata from a file")]
     BulkUpdateMetadata(BulkUpdatyeSkuMetadata),
     #[clap(about = "Replace the component list of a SKU")]
-    ReplaceComponents(ReplaceSkuComponents),
+    Replace(CreateSku),
 }
 
 #[derive(Parser, Debug)]
@@ -3139,7 +3139,7 @@ pub struct GenerateSku {
 pub struct CreateSku {
     #[clap(help = "The filename of the SKU data")]
     pub filename: String,
-    #[clap(help = "override the ID of the SKU", long)]
+    #[clap(help = "override the ID of the SKU in the file data", long)]
     pub id: Option<String>,
 }
 
@@ -3168,16 +3168,6 @@ impl From<UpdateSkuMetadata> for ::rpc::forge::SkuUpdateMetadataRequest {
 pub struct BulkUpdatyeSkuMetadata {
     #[clap(help = "The CSV file to use to update metadata for multiple skus")]
     pub filename: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct ReplaceSkuComponents {
-    #[clap(
-        help = "The filename of the SKU data (A full SKU file may be used, but some details will be ignored)"
-    )]
-    pub filename: String,
-    #[clap(help = "override the ID of the SKU", long)]
-    pub id: Option<String>,
 }
 
 #[derive(Parser, Debug)]

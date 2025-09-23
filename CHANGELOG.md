@@ -10,9 +10,13 @@
 - [MR-4580](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4580): Modified `forge_hosts_by_sku_count` metric to include hosts without SKU as 'unknown'.
 
 ### Fixed
-- [FORGE-6603](https://jirasw.nvidia.com/browse/FORGE-6603)[5402133](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/5402133) do not ingest DPUs if they are not reporting their oob_net0 interface properly.  uses existing dpu bmc remediation to attempt recovery
+- [FORGE-6603](https://jirasw.nvidia.com/browse/FORGE-6603) [5402133](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/5402133) do not ingest DPUs if they are not reporting their oob_net0 interface properly.  uses existing dpu bmc remediation to attempt recovery
 - [FORGE-6908](https://jirasw.nvidia.com/browse/FORGE-6908) [5501548](https://nvbugspro.nvidia.com/bug/5501548) fix parsing of csv file
 - [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed stuck PXE boots by skipping NSGs in BootingWithDiscoveryImage state
+- [FORGE-6978](https://jirasw.nvidia.com/browse/FORGE-6978) [5507933](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/5507933):
+  - Add new sku version that uses nvme hardware info instead of block hardware info for storage components
+  - Change replace components to replace and allow most of the sku to be replaced
+
 
 ### Removed
 
