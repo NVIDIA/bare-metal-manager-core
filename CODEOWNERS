@@ -8,8 +8,14 @@
 # > defined later in the file take precedence over earlier rules.
 
 # We keep this in its own section to ensure it gets evaluated separately.
-[meta owners]
-CODEOWNERS @nvmetal/carbide-approvers
+[codeowners file]
+CODEOWNERS @nvmetal/approvers/carbide-owners
+
+# This section is intended to cover the majority of the project. If different
+# ownership is needed for something (a crate, a module, or specific files or
+# patterns), that can be expressed as an entry in this section (which will
+# override the default owner).
+[carbide] @nvmetal/approvers/carbide-default
 
 # Code with security or correctness concerns can be assigned owners here.
 [critical]
