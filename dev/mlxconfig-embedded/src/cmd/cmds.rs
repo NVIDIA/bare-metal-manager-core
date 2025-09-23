@@ -16,6 +16,7 @@ use crate::cmd::args::{
 use mlxconfig_device::{
     cmd::device::args::DeviceArgs, cmd::device::cmds::handle as handle_device, info::MlxDeviceInfo,
 };
+use mlxconfig_lockdown::cmd::cmds::handle_lockdown;
 use mlxconfig_profile::MlxConfigProfile;
 use mlxconfig_registry::registries;
 use mlxconfig_runner::{ExecOptions, MlxConfigRunner, MlxRunnerError, QueryResult};
@@ -98,6 +99,9 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Device { action }) => {
             let device_args = DeviceArgs { action };
             handle_device(device_args)?;
+        }
+        Some(Commands::Lockdown { action }) => {
+            handle_lockdown(action)?;
         }
         None => {
             cmd_show_default_info();

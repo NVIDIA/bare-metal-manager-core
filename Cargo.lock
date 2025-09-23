@@ -4814,6 +4814,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "mlxconfig-device",
+ "mlxconfig-lockdown",
  "mlxconfig-profile",
  "mlxconfig-registry",
  "mlxconfig-runner",
@@ -4823,6 +4824,20 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+]
+
+[[package]]
+name = "mlxconfig-lockdown"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
