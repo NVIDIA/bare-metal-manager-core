@@ -17,6 +17,7 @@ members = [
     "common/measured-boot",
     "common/metrics-endpoint",
     "common/mlxconfig/device",
+    "common/mlxconfig/lockdown",
     "common/mlxconfig/profile",
     "common/mlxconfig/registry",
     "common/mlxconfig/runner",

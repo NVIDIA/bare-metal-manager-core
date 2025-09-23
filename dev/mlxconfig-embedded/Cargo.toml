@@ -16,6 +16,7 @@ regex = "1.10"
 clap = { version = "4.0", features = ["derive"] }
 prettytable-rs = "^0.10"
 mlxconfig-device = { path = "../../common/mlxconfig/device" }
+mlxconfig-lockdown = { path = "../../common/mlxconfig/lockdown" }
 mlxconfig-profile = { path = "../../common/mlxconfig/profile" }
 mlxconfig-registry = { path = "../../common/mlxconfig/registry" }
 mlxconfig-runner = { path = "../../common/mlxconfig/runner" }

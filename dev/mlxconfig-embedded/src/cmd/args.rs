@@ -12,6 +12,7 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use mlxconfig_device::cmd::device::args::DeviceAction;
+use mlxconfig_lockdown::cmd::args::LockdownAction;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, ValueEnum, Default)]
@@ -122,6 +123,10 @@ pub enum Commands {
     Device {
         #[command(subcommand)]
         action: DeviceAction,
+    },
+    Lockdown {
+        #[command(subcommand)]
+        action: LockdownAction,
     },
 }
 
