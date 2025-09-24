@@ -115,6 +115,8 @@ pub async fn handle_show_version(
         );
         r!(table, config, dpa_enabled);
         r!(table, config, mqtt_endpoint);
+        r!(table, config, mqtt_broker_port);
+        r!(table, config, mqtt_hb_interval);
 
         _ = table.print_tty(true);
     }

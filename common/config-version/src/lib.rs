@@ -76,7 +76,7 @@ impl<T> DerefMut for Versioned<T> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct ConfigVersion {
     /// A monotonically incrementing number that alone uniquely identify the version
-    /// of a configuration.
+    /// of a configuration. Version number 0 is never used.
     version_nr: u64,
     /// A timestamp that is updated on each version number increment.
     /// This one mainly helps with observability: If we ever detect some
@@ -118,13 +118,24 @@ impl ConfigVersion {
         }
     }
 
+    // Creates an invalid version that should not match any valid version
+    pub fn invalid() -> Self {
+        Self {
+            version_nr: 0,
+            timestamp: tzero(),
+        }
+    }
+
     /// Increments the version
     ///
     /// This returns a new `ConfigVersion` instance, which carries the updated
-    /// version number.
+    /// version number. We avoid version number 0 by returning 1 if incrementing
+    /// results in version number being 0.
     pub fn increment(&self) -> Self {
+        let mut nr = self.version_nr.wrapping_add(1);
+        nr |= (nr == 0) as u64;
         Self {
-            version_nr: self.version_nr + 1,
+            version_nr: nr,
             timestamp: now(),
         }
     }
@@ -177,6 +188,19 @@ impl ConfigVersion {
 /// serialization and deserialization cycle.
 fn now() -> DateTime<Utc> {
     let mut now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before Unix epoch");
+    let round = now.as_nanos() % 1000;
+    now -= Duration::from_nanos(round as _);
+
+    let naive = DateTime::from_timestamp(now.as_secs() as i64, now.subsec_nanos())
+        .expect("out-of-range number of seconds and/or invalid nanosecond");
+    Utc.from_utc_datetime(&naive.naive_utc())
+}
+
+/// Returns the start of time per Unix convention
+fn tzero() -> DateTime<Utc> {
+    let mut now = SystemTime::UNIX_EPOCH
         .duration_since(UNIX_EPOCH)
         .expect("system time before Unix epoch");
     let round = now.as_nanos() % 1000;

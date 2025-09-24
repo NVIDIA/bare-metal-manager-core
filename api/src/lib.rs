@@ -32,6 +32,7 @@ mod credentials;
 mod db;
 mod db_init;
 mod dhcp;
+mod dpa;
 mod dynamic_settings;
 mod errors;
 mod ethernet_virtualization;

@@ -34,6 +34,7 @@ members = [
     "dev/machine-a-tron",
     "dev/mlxconfig-embedded",
     "dev/mqttea-example",
+    "dev/mockdpa",
     "dhcp",
     "dhcp-server",
     "dns",

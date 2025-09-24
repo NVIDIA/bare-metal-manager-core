@@ -44,7 +44,7 @@ use crate::{
     attestation,
     cfg::file::CarbideConfig,
     db::DatabaseError,
-    db_init, ethernet_virtualization,
+    db_init, dpa, ethernet_virtualization,
     firmware_downloader::FirmwareDownloader,
     ib::{self, IBFabricManager},
     ib_fabric_monitor::IbFabricMonitor,
@@ -617,6 +617,7 @@ pub async fn initialize_and_start_controllers(
     > = None;
 
     if carbide_config.is_dpa_enabled() {
+        let mqtt_client = dpa::start_dpa_handler(api_service.clone()).await?;
         tracing::info!("Starting DpaInterfaceStateController as dpa is enabled");
         _dpa_interface_state_controller_handle = Some(
             StateController::<DpaInterfaceStateControllerIO>::builder()
@@ -626,6 +627,7 @@ pub async fn initialize_and_start_controllers(
                 .nvmesh_client_pool(shared_nvmesh_pool.clone())
                 .ib_fabric_manager(ib_fabric_manager.clone())
                 .forge_api(api_service.clone())
+                .mqtt_client(mqtt_client)
                 .iteration_config(
                     (&carbide_config.dpa_interface_state_controller.controller).into(),
                 )

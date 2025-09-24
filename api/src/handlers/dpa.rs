@@ -17,6 +17,7 @@ use crate::{
 };
 
 use crate::db::{DatabaseError, dpa_interface::NewDpaInterface};
+use crate::model::dpa_interface::DpaInterfaceNetworkStatusObservation;
 use tonic::{Request, Response};
 
 pub(crate) async fn create(
@@ -181,7 +182,14 @@ pub(crate) async fn set_dpa_network_observation_status(
 
     let mut dpa_if_int = dpa_ifs_int[0].clone();
 
-    dpa_if_int.update_network_observation(&mut txn).await?;
+    let observation = DpaInterfaceNetworkStatusObservation {
+        observed_at: chrono::Utc::now(),
+        network_config_version: Some(dpa_if_int.network_config.version),
+    };
+
+    dpa_if_int
+        .update_network_observation(&mut txn, &observation)
+        .await?;
 
     txn.commit()
         .await

@@ -12,9 +12,7 @@
 
 //! State Handler implementation for Dpa Interfaces
 
-use crate::db;
-use crate::db::managed_host::LoadSnapshotOptions;
-use crate::db::vpc::Vpc;
+use crate::db::dpa_interface::get_dpa_vni;
 use crate::{
     db::dpa_interface::DpaInterface,
     model::dpa_interface::DpaInterfaceControllerState,
@@ -27,7 +25,9 @@ use crate::{
         },
     },
 };
+use chrono::{Duration, TimeDelta};
 use forge_uuid::dpa_interface::DpaInterfaceId;
+use mqttea::MqtteaClient;
 use sqlx::PgConnection;
 use std::sync::Arc;
 
@@ -71,6 +71,13 @@ impl StateHandler for DpaInterfaceStateHandler {
     ) -> Result<StateHandlerOutcome<DpaInterfaceControllerState>, StateHandlerError> {
         // record metrics irrespective of the state of the dpa interface
         self.record_metrics(state, ctx);
+
+        let hb_interval = ctx
+            .services
+            .site_config
+            .get_hb_interval()
+            .unwrap_or_else(|| Duration::minutes(2));
+
         match controller_state {
             DpaInterfaceControllerState::Provisioning => {
                 let new_state = DpaInterfaceControllerState::Ready;
@@ -82,16 +89,28 @@ impl StateHandler for DpaInterfaceStateHandler {
                 // When an instance is created from this host, use_admin_network
                 // will be turned off. We then need to SetVNI, and wait for the
                 // SetVNI to take effect.
+
+                let client =
+                    ctx.services.mqtt_client.clone().ok_or_else(|| {
+                        StateHandlerError::GenericError(eyre!("Missing mqtt_client"))
+                    })?;
+
                 if !state.use_admin_network() {
                     let new_state = DpaInterfaceControllerState::WaitingForSetVNI;
                     tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                    let _dpa_vni = get_dpa_vni_to_use(state, txn).await?;
-                    // XXX TODO  XXX
-                    // Need to send SetVNI command to MQTT broker
-                    // The VNI to be used has to be  obtained from associated VPC
-                    // XXX TODO  XXX
+
+                    // send the SetVni command
+                    send_set_vni_command(
+                        state, txn, client, true,  /* needs_vni */
+                        false, /* not a heartbeat */
+                        true,  /* send revision */
+                    )
+                    .await?;
+
                     Ok(transition!(new_state))
                 } else {
+                    do_heartbeat(state, txn, client, hb_interval, false).await?;
+
                     Ok(do_nothing!())
                 }
             }
@@ -102,10 +121,17 @@ impl StateHandler for DpaInterfaceStateHandler {
                 // will match.
                 if !state.managed_host_network_config_version_synced() {
                     tracing::debug!("DPA interface found in WaitingForSetVNI state");
-                    let _dpa_vni = get_dpa_vni_to_use(state, txn).await?;
-                    // XXX TODO XXX
-                    // Send SetVNI command to DPA Card Again
-                    // XXX TODO XXX
+
+                    let client = ctx.services.mqtt_client.clone().ok_or_else(|| {
+                        StateHandlerError::GenericError(eyre!("Missing mqtt_client"))
+                    })?;
+
+                    send_set_vni_command(
+                        state, txn, client, true,  /* needs_vni */
+                        false, /* not a heartbeat */
+                        true,  /* send revision */
+                    )
+                    .await?;
                     Ok(do_nothing!())
                 } else {
                     let new_state = DpaInterfaceControllerState::Assigned;
@@ -118,14 +144,22 @@ impl StateHandler for DpaInterfaceStateHandler {
                 // means we are in the tenant network. Once use_admin_network is turned on, we
                 // will send a SetVNI command to the DPA Interface card to set the VNI to 0
                 // and will transition to WaitingForResetVNI state.
+
+                let client =
+                    ctx.services.mqtt_client.clone().ok_or_else(|| {
+                        StateHandlerError::GenericError(eyre!("Missing mqtt_client"))
+                    })?;
+
                 if state.use_admin_network() {
                     let new_state = DpaInterfaceControllerState::WaitingForResetVNI;
                     tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                    // XXX TODO  XXX
-                    // Need to send SetVNI command with zero VNI to MQTT broker
-                    // XXX TODO  XXX
+                    send_set_vni_command(state, txn, client, false, false, true).await?;
+
                     Ok(transition!(new_state))
                 } else {
+                    do_heartbeat(state, txn, client, hb_interval, true).await?;
+
+                    // Send a heartbeat command, indicated by the revision string being "NIL".
                     Ok(do_nothing!())
                 }
             }
@@ -136,9 +170,11 @@ impl StateHandler for DpaInterfaceStateHandler {
                 // will match.
                 if !state.managed_host_network_config_version_synced() {
                     tracing::debug!("DPA interface found in WaitingForResetVNI state");
-                    // XXX TODO XXX
-                    // Resend SetVNI command again with VNI set to Zero
-                    // XXX TODO XXX
+                    let client = ctx.services.mqtt_client.clone().ok_or_else(|| {
+                        StateHandlerError::GenericError(eyre!("Missing mqtt_client"))
+                    })?;
+
+                    send_set_vni_command(state, txn, client, false, false, true).await?;
                     Ok(do_nothing!())
                 } else {
                     let new_state = DpaInterfaceControllerState::Ready;
@@ -150,64 +186,93 @@ impl StateHandler for DpaInterfaceStateHandler {
     }
 }
 
-// get_dpa_vni_to_use figures out the VNI to be used for this DPA interface
-// when we are transitioning to ASSIGNED state. This happens when we are
-// moving from Ready to WaitingForSetVNI or when we are still in WaitingForSetVNI
-// states.
-//
-// Given the DPA Interface, we know its associated machine ID. From that, we need
-// to find the VPC the machine belongs to. From the VPC, we can find the DPA VNI
-// allocated for that VPC.
-async fn get_dpa_vni_to_use(
+// Determine if we need to do a heartbeat or if we need to
+// send a SetVni command because the DPA and Carbide are out of sync.
+// If so, call send_set_vni_command to send the heart beat or set vni
+async fn do_heartbeat(
     state: &mut DpaInterface,
     txn: &mut PgConnection,
-) -> Result<i32, StateHandlerError> {
-    let machine_id = state.machine_id;
+    client: Arc<MqtteaClient>,
+    hb_interval: TimeDelta,
+    needs_vni: bool,
+) -> Result<(), StateHandlerError> {
+    let mut send_hb = false;
+    let mut send_revision = false;
 
-    let maybe_snapshot =
-        db::managed_host::load_snapshot(txn, &machine_id, LoadSnapshotOptions::default())
-            .await
-            .map_err(StateHandlerError::DBError)?;
+    // We are in the Ready or Assigned state and we continue to be in the same state.
+    // In this state, we will send SetVni command to the DPA if
+    //    (1) if the heartbeat interval has elapsed since the heartbeat
+    //    (2) The DPA sent us an ack and it looks like the DPA lost its config (due to powercycle potentially)
+    // Heartbeat is identified by the revision being se to the sentinel value "NIL"
+    // Both send_hb and send_revision could evaluate to true below. If send_hb is true, we will
+    // update the last_hb_time for the interface entry.
 
-    let snapshot = match maybe_snapshot {
-        Some(sn) => sn,
-        None => return Err(StateHandlerError::GenericError(eyre!("Error"))),
-    };
-
-    let instance = match snapshot.instance {
-        Some(inst) => inst,
-        None => {
-            return Err(StateHandlerError::GenericError(eyre!(
-                "Expected an instance and found none"
-            )));
+    if let Some(next_hb_time) = state.last_hb_time.checked_add_signed(hb_interval) {
+        if chrono::Utc::now() >= next_hb_time {
+            send_hb = true; // heartbeat interval elapsed since the last heartbeat 
         }
-    };
-
-    let interfaces = &instance.config.network.interfaces;
-    let Some(network_segment_id) = interfaces[0].network_segment_id else {
-        // Network segment allocation is done before persisting record in db. So if still
-        // network segment is empty, return error.
-        return Err(StateHandlerError::GenericError(eyre!(
-            "Expected Network Segment"
-        )));
-    };
-
-    let vpc = Vpc::find_by_segment(txn, network_segment_id)
-        .await
-        .map_err(StateHandlerError::DBError)?;
-
-    let dpa_vni = match vpc.dpa_vni {
-        Some(vni) => vni,
-        None => {
-            return Err(StateHandlerError::GenericError(eyre!(
-                "Expected VNI. Found none"
-            )));
-        }
-    };
-
-    if dpa_vni == 0 {
-        println!("Did not expect dpa_vni to be zero");
     }
 
-    Ok(dpa_vni)
+    if !state.managed_host_network_config_version_synced() {
+        send_revision = true; // DPA config not in sync with us. So resend the config
+    }
+
+    if send_hb || send_revision {
+        send_set_vni_command(state, txn, client, needs_vni, send_hb, send_revision).await?;
+    }
+
+    Ok(())
+}
+
+// Send a SetVni command to the DPA. The SetVni command could be a heart beat (identified by
+// revision being "NIL"). If needs_vni is true, get the VNI to use from the DB. Otherwise, vni
+// sent is 0.
+async fn send_set_vni_command(
+    state: &mut DpaInterface,
+    txn: &mut PgConnection,
+    client: Arc<MqtteaClient>,
+    needs_vni: bool,
+    heart_beat: bool,
+    send_revision: bool,
+) -> Result<(), StateHandlerError> {
+    let revision_str = if send_revision {
+        state.network_config.version.to_string()
+    } else {
+        "NIL".to_string()
+    };
+
+    let vni = if needs_vni {
+        match get_dpa_vni(state, txn).await {
+            Ok(dv) => dv,
+            Err(e) => {
+                return Err(StateHandlerError::GenericError(eyre!(
+                    "get_dpa_vni error: {:#?}",
+                    e
+                )));
+            }
+        }
+    } else {
+        0
+    };
+
+    // Send a heartbeat command, indicated by the revision string being "NIL".
+    match crate::dpa::send_dpa_command(client, state.mac_address.to_string(), revision_str, vni)
+        .await
+    {
+        Ok(()) => {
+            if heart_beat {
+                let res = state.update_last_hb_time(txn).await;
+                if res.is_err() {
+                    tracing::error!(
+                        "Error updating last_hb_time for dpa id: {} res: {:#?}",
+                        state.id,
+                        res
+                    );
+                }
+            }
+        }
+        Err(_e) => (),
+    }
+
+    Ok(())
 }

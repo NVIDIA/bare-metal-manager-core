@@ -1,10 +1,10 @@
 [package]
-name = "mqttea-example"
+name = "mockdpa"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "mqttea-example"
+name = "mockdpa"
 path = "src/main.rs"
 
 [dependencies]
@@ -19,6 +19,7 @@ tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 mqttea = { path = "../../common/mqttea" }
+rpc = { path = "../../rpc" }
 
 [build-dependencies]
 prost-build = "0.14"

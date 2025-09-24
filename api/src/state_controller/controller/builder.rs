@@ -30,6 +30,7 @@ use crate::{
         state_handler::{NoopStateHandler, StateHandler, StateHandlerServices},
     },
 };
+use mqttea::client::MqtteaClient;
 
 /// The return value of `[Builder::build_internal]`
 struct BuildOrSpawn<IO: StateControllerIO> {
@@ -71,6 +72,7 @@ pub struct Builder<IO: StateControllerIO> {
     ib_pools: Option<IbPools>,
     ipmi_tool: Option<Arc<dyn IPMITool>>,
     site_config: Option<Arc<CarbideConfig>>,
+    mqtt_client: Option<Arc<MqtteaClient>>,
 }
 
 impl<IO: StateControllerIO> Default for Builder<IO> {
@@ -95,6 +97,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
             ib_pools: None,
             ipmi_tool: None,
             site_config: None,
+            mqtt_client: None,
         }
     }
 }
@@ -174,6 +177,8 @@ impl<IO: StateControllerIO> Builder<IO> {
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("ipmi_tool"))?;
 
+        let mqtt_client = self.mqtt_client.take();
+
         let site_config = self
             .site_config
             .take()
@@ -187,6 +192,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             ib_pools: self.ib_pools.unwrap_or_default(),
             ipmi_tool,
             site_config,
+            mqtt_client,
         });
 
         // This defines the shared storage location for metrics between the state handler
@@ -244,6 +250,11 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures the utilized IBService
     pub fn ib_fabric_manager(mut self, ib_fabric_manager: Arc<dyn IBFabricManager>) -> Self {
         self.ib_fabric_manager = Some(ib_fabric_manager);
+        self
+    }
+
+    pub fn mqtt_client(mut self, mqtt_client: Arc<MqtteaClient>) -> Self {
+        self.mqtt_client = Some(mqtt_client);
         self
     }
 

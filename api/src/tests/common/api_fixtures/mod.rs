@@ -278,6 +278,7 @@ impl TestEnv {
             ib_pools: self.common_pools.infiniband.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.clone(),
+            mqtt_client: None,
         }
     }
 
@@ -967,6 +968,8 @@ pub fn get_config() -> CarbideConfig {
         dpa_config: Some(DpaConfig {
             enabled: true,
             mqtt_endpoint: "mqtt.forge".to_string(),
+            mqtt_broker_port: 1884_u16,
+            hb_interval: Duration::minutes(2),
         }),
         power_manager_options: PowerManagerOptions {
             enabled: true,

@@ -27,6 +27,7 @@ use crate::{
 };
 use forge_uuid::machine::MachineId;
 use libredfish::RedfishError;
+use mqttea::MqtteaClient;
 use sqlx::PgConnection;
 
 /// Services that are accessible to the `StateHandler`
@@ -51,6 +52,8 @@ pub struct StateHandlerServices {
 
     /// Access to the site config
     pub site_config: Arc<CarbideConfig>,
+
+    pub mqtt_client: Option<Arc<MqtteaClient>>,
 }
 
 /// The collection of generic objects which are referenced in StateHandlerContext

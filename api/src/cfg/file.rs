@@ -403,6 +403,20 @@ impl CarbideConfig {
 
         conf.enabled
     }
+
+    pub fn mqtt_broker_host(&self) -> Option<String> {
+        self.dpa_config
+            .as_ref()
+            .map(|conf| conf.mqtt_endpoint.clone())
+    }
+
+    pub fn mqtt_broker_port(&self) -> Option<u16> {
+        self.dpa_config.as_ref().map(|conf| conf.mqtt_broker_port)
+    }
+
+    pub fn get_hb_interval(&self) -> Option<Duration> {
+        self.dpa_config.as_ref().map(|conf| conf.hb_interval)
+    }
 }
 
 pub struct MaxConcurrentUpdates {
@@ -898,6 +912,12 @@ impl SiteExplorerConfig {
 
     pub const fn default_reset_rate_limit() -> Duration {
         Duration::hours(1)
+    }
+}
+
+impl DpaConfig {
+    pub const fn default_hb_interval() -> chrono::Duration {
+        Duration::minutes(2)
     }
 }
 
@@ -2046,7 +2066,13 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .ignore_unassigned_machines,
             dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
             dpa_enabled: value.dpa_config.clone().unwrap_or_default().enabled,
-            mqtt_endpoint: value.dpa_config.unwrap_or_default().mqtt_endpoint,
+            mqtt_endpoint: value.dpa_config.clone().unwrap_or_default().mqtt_endpoint,
+            mqtt_broker_port: value
+                .dpa_config
+                .clone()
+                .unwrap_or_default()
+                .mqtt_broker_port as i32,
+            mqtt_hb_interval: value.dpa_config.unwrap_or_default().hb_interval.to_string(),
             bom_validation_auto_generate_missing_sku: value
                 .bom_validation
                 .auto_generate_missing_sku,
@@ -2089,6 +2115,10 @@ fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEn
 fn default_mqtt_endpoint() -> String {
     "mqtt.forge".to_string()
 }
+
+fn default_mqtt_broker_port() -> u16 {
+    1884
+}
 /// DPA (aka Cluster Ineteconnect Network) related configuration
 /// In addition to enabling DPA and specifying
 /// the mqtt endpoint, you need to specify the vni range to
@@ -2100,9 +2130,23 @@ pub struct DpaConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// MQTT endpoint for communcation with the Agent on the NICs
+    /// MQTT broker host (name or IP address) used to create client connections
     #[serde(default = "default_mqtt_endpoint")]
     pub mqtt_endpoint: String,
+
+    /// MQTT broker port to use to estabilsh client connections
+    #[serde(default = "default_mqtt_broker_port")]
+    pub mqtt_broker_port: u16,
+
+    /// hb_interval is the interval at which we issue heartbeat
+    /// requests to the DPA.
+    /// Defaults to 120 if not specified.
+    #[serde(
+        default = "DpaConfig::default_hb_interval",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub hb_interval: chrono::TimeDelta,
 }
 
 /// MachineValidation related configuration
@@ -3162,6 +3206,8 @@ mqtt_endpoint = "mqtt.forge"
             DpaConfig {
                 enabled: true,
                 mqtt_endpoint: "mqtt.forge".to_string(),
+                mqtt_broker_port: 1884,
+                hb_interval: Duration::minutes(2),
             }
         );
     }

@@ -120,6 +120,8 @@ oauth2 = { version = "5", default-features = false }
 time = "0.3.36"
 asn1-rs = "0.7.0"
 ansi-to-html = { workspace = true }
+rumqttc = "0.24"
+mqttea = { path = "../common/mqttea" }
 
 [features]
 default = ["linux-build"]

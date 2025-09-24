@@ -91,6 +91,7 @@ impl MqtteaClient {
                 .and_then(|opts| opts.keep_alive)
                 .unwrap_or(DEFAULT_KEEP_ALIVE),
         );
+        mqtt_options.set_clean_session(false);
 
         if let Some(credentials) = client_options
             .as_ref()

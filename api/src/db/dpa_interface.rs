@@ -14,6 +14,8 @@ use forge_uuid::machine::MachineId;
 
 use super::DatabaseError;
 use crate::CarbideError;
+use crate::db::managed_host;
+use crate::db::vpc::Vpc;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::{
     db::dpa_interface_state_history::DpaInterfaceStateHistory,
@@ -25,9 +27,11 @@ use crate::{
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use config_version::Versioned;
+use eyre::eyre;
 use forge_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use itertools::Itertools;
 use mac_address::MacAddress;
+use managed_host::LoadSnapshotOptions;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
@@ -37,11 +41,17 @@ use std::str::FromStr;
 pub struct DpaInterface {
     pub id: DpaInterfaceId,
     pub machine_id: MachineId,
+
     pub mac_address: MacAddress,
+
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
+
     pub controller_state: Versioned<DpaInterfaceControllerState>,
+
+    // Last time we issued a heartbeat command to the DPA
+    pub last_hb_time: DateTime<Utc>,
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
@@ -60,6 +70,7 @@ pub struct DpaInterfaceSnapshotPgJson {
     created: DateTime<Utc>,
     updated: DateTime<Utc>,
     deleted: Option<DateTime<Utc>>,
+    last_hb_time: DateTime<Utc>,
     controller_state: DpaInterfaceControllerState,
     controller_state_version: String,
     controller_state_outcome: Option<PersistentStateHandlerOutcome>,
@@ -81,6 +92,7 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
             created: value.created,
             updated: value.updated,
             deleted: value.deleted,
+            last_hb_time: value.last_hb_time,
             controller_state: Versioned {
                 value: value.controller_state,
                 version: value.controller_state_version.parse().map_err(|e| {
@@ -158,15 +170,8 @@ impl DpaInterface {
     pub async fn update_network_observation(
         &mut self,
         txn: &mut PgConnection,
+        observation: &DpaInterfaceNetworkStatusObservation,
     ) -> Result<DpaInterfaceId, DatabaseError> {
-        let network_config_version = self.network_config.version;
-        let observation = DpaInterfaceNetworkStatusObservation {
-            observed_at: chrono::Utc::now(),
-            network_config_version: Some(network_config_version),
-        };
-
-        self.network_status_observation = Some(observation.clone());
-
         let query = "UPDATE dpa_interfaces SET network_status_observation = $1::json WHERE id = $2::uuid AND
                 (
                     (network_status_observation->>'observed_at' IS NULL)
@@ -177,6 +182,22 @@ impl DpaInterface {
             .bind(sqlx::types::Json(&observation))
             .bind(self.id.to_string())
             .bind(observation.observed_at)
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))
+    }
+
+    // Update the last_hb_time field with the current timestamp for the given DPA interface
+    // and return the DPA Interface ID
+    pub async fn update_last_hb_time(
+        &mut self,
+        txn: &mut PgConnection,
+    ) -> Result<DpaInterfaceId, DatabaseError> {
+        let query = "UPDATE dpa_interfaces SET last_hb_time = NOW() WHERE id = $1::uuid
+                RETURNING id";
+
+        sqlx::query_as(query)
+            .bind(self.id)
             .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
@@ -203,6 +224,25 @@ impl DpaInterface {
         let results: Vec<DpaInterfaceId> = {
             sqlx::query_as(query)
                 .fetch_all(txn)
+                .await
+                .map_err(|e| DatabaseError::query(query, e))?
+        };
+
+        Ok(results)
+    }
+
+    // Find a DPA Interface given its mac address. When we receive messages from the MQTT broker,
+    // the topic contains the mac address, and we look up the interface based on that mac address.
+    pub async fn find_by_mac_addr(
+        txn: &mut PgConnection,
+        maddr: &MacAddress,
+    ) -> Result<Vec<DpaInterface>, DatabaseError> {
+        let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND mac_address = $1) m";
+
+        let results: Vec<DpaInterface> = {
+            sqlx::query_as(query)
+                .bind(maddr)
+                .fetch_all(&mut *txn)
                 .await
                 .map_err(|e| DatabaseError::query(query, e))?
         };
@@ -321,6 +361,55 @@ impl DpaInterface {
     }
 }
 
+// get_dpa_vni figures out the VNI to be used for this DPA interface
+// when we are transitioning to ASSIGNED state. This happens when we are
+// moving from Ready to WaitingForSetVNI or when we are still in WaitingForSetVNI
+// states.
+//
+// Given the DPA Interface, we know its associated machine ID. From that, we need
+// to find the VPC the machine belongs to. From the VPC, we can find the DPA VNI
+// allocated for that VPC.
+pub async fn get_dpa_vni(
+    state: &mut DpaInterface,
+    txn: &mut PgConnection,
+) -> Result<i32, eyre::Report> {
+    let machine_id = state.machine_id;
+
+    let maybe_snapshot =
+        managed_host::load_snapshot(txn, &machine_id, LoadSnapshotOptions::default()).await?;
+
+    let snapshot = match maybe_snapshot {
+        Some(sn) => sn,
+        None => return Err(eyre!("machine {machine_id} snapshot found".to_string())),
+    };
+
+    let instance = match snapshot.instance {
+        Some(inst) => inst,
+        None => {
+            return Err(eyre!("Expected an instance and found none"));
+        }
+    };
+
+    let interfaces = &instance.config.network.interfaces;
+    let Some(network_segment_id) = interfaces[0].network_segment_id else {
+        // Network segment allocation is done before persisting record in db. So if still
+        // network segment is empty, return error.
+        return Err(eyre!("Expected Network Segment"));
+    };
+
+    let vpc = Vpc::find_by_segment(txn, network_segment_id).await?;
+
+    match vpc.dpa_vni {
+        Some(vni) => {
+            if vni == 0 {
+                tracing::warn!("Did not expect DPA VNI to be zero");
+            }
+            Ok(vni)
+        }
+        None => Err(eyre!("Expected VNI. Found none")),
+    }
+}
+
 impl<'r> FromRow<'r, PgRow> for DpaInterface {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let json: serde_json::value::Value = row.try_get(0)?;
@@ -404,6 +493,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
+            last_hb_time: Some(src.last_hb_time.into()),
             mac_addr: src.mac_address.to_string(),
             machine_id: Some(src.machine_id),
             controller_state: controller_state.to_string(),
