@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::{collections::HashMap, sync::LazyLock};
+
 use super::ExternalUserInfo;
 use crate::auth::Principal;
-use std::collections::HashMap;
-use std::sync::LazyLock;
 
 static INTERNAL_RBAC_RULES: LazyLock<InternalRBACRules> = LazyLock::new(InternalRBACRules::new);
 
@@ -455,6 +455,17 @@ impl InternalRBACRules {
             vec![Agent, Scout, Machineatron, ForgeAdminCLI],
         );
         x.perm("TrimTable", vec![ForgeAdminCLI]);
+        x.perm("CreateRemediation", vec![ForgeAdminCLI]);
+        x.perm("ApproveRemediation", vec![ForgeAdminCLI]);
+        x.perm("RevokeRemediation", vec![ForgeAdminCLI]);
+        x.perm("EnableRemediation", vec![ForgeAdminCLI]);
+        x.perm("DisableRemediation", vec![ForgeAdminCLI]);
+        x.perm("FindRemediationIds", vec![ForgeAdminCLI]);
+        x.perm("FindRemediationsByIds", vec![ForgeAdminCLI]);
+        x.perm("FindAppliedRemediations", vec![ForgeAdminCLI]);
+        x.perm("FindAppliedRemediationIds", vec![ForgeAdminCLI]);
+        x.perm("GetNextRemediationForMachine", vec![Agent]);
+        x.perm("RemediationApplied", vec![Agent]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

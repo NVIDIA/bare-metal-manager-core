@@ -14,17 +14,21 @@ use std::{
     net::IpAddr,
 };
 
-use crate::dhcp::allocation::DhcpError;
-use crate::model::{
-    ConfigValidationError, hardware_info::HardwareInfoError, network_devices::LldpError,
-    site_explorer::EndpointExplorationError, tenant::TenantError,
-};
-use crate::{db, resource_pool};
 use ::rpc::errors::RpcDataConversionError;
 use config_version::ConfigVersionParseError;
 use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use tonic::Status;
+
+use crate::{
+    db,
+    dhcp::allocation::DhcpError,
+    model::{
+        ConfigValidationError, hardware_info::HardwareInfoError, network_devices::LldpError,
+        site_explorer::EndpointExplorationError, tenant::TenantError,
+    },
+    resource_pool,
+};
 
 /// Represents various Errors that can occur throughout the system.
 ///
@@ -290,6 +294,9 @@ impl From<CarbideError> for tonic::Status {
             }
             error @ CarbideError::FailedPrecondition(_) => {
                 Status::failed_precondition(error.to_string())
+            }
+            error @ CarbideError::ClientCertificateMissingInformation(_) => {
+                Status::unauthenticated(error.to_string())
             }
             other => Status::internal(other.to_string()),
         }

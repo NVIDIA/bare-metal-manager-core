@@ -10,32 +10,34 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::time::Duration;
-
-use crate::db::attestation as db_attest;
-use crate::handlers::instance;
-use crate::handlers::utils::convert_and_log_machine_id;
-use crate::model::ib_partition::PartitionKey;
-use crate::model::metadata::Metadata;
-use crate::model::power_manager::PowerOptions;
-pub use ::rpc::forge as rpc;
-use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
-use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
-use ::rpc::protos::forge::{
-    EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
-    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse,
+use std::{
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr},
+    str::FromStr,
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
 };
-use ::rpc::protos::measured_boot as measured_boot_pb;
-use ::rpc::protos::mlx_device as mlx_device_pb;
+
+pub use ::rpc::forge as rpc;
+use ::rpc::{
+    errors::RpcDataConversionError,
+    forge::{BmcEndpointRequest, SkuIdList},
+    forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair,
+    protos::{
+        forge::{
+            EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
+            InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
+            MachineCredentialsUpdateResponse,
+        },
+        measured_boot as measured_boot_pb, mlx_device as mlx_device_pb,
+    },
+};
 use chrono::TimeZone;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
+use forge_secrets::{
+    certificates::CertificateProvider,
+    credentials::{BmcCredentialType, CredentialKey, CredentialProvider},
+};
+use forge_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use itertools::Itertools;
 use libredfish::{RoleId, SystemPowerControl};
 use mac_address::MacAddress;
@@ -47,62 +49,65 @@ use tss_esapi::{
     structures::{Attest, Public as TssPublic, Signature},
     traits::UnMarshall,
 };
+use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
-use crate::attestation as attest;
-use crate::cfg::file::CarbideConfig;
-use crate::db::desired_firmware::DbDesiredFirmwareVersions;
-use crate::db::explored_endpoints::DbExploredEndpoint;
-use crate::db::machine::{self, MachineSearchConfig};
-use crate::db::machine_validation::{
-    MachineValidation, MachineValidationState, MachineValidationStatus,
-};
-use crate::db::managed_host::LoadSnapshotOptions;
-use crate::db::network_devices::NetworkDeviceSearchConfig;
-use crate::dynamic_settings;
-use crate::handlers::machine_validation::{
-    add_machine_validation_test, add_update_machine_validation_external_config,
-    get_machine_validation_external_config, get_machine_validation_external_configs,
-    get_machine_validation_results, get_machine_validation_runs, get_machine_validation_tests,
-    machine_validation_test_enable_disable_test, machine_validation_test_next_version,
-    machine_validation_test_verfied, mark_machine_validation_complete,
-    on_demand_machine_validation, persist_validation_result,
-    remove_machine_validation_external_config, update_machine_validation_run,
-    update_machine_validation_test,
-};
-use crate::ib::{DEFAULT_IB_FABRIC_NAME, IBFabricManager};
-use crate::logging::log_limiter::LogLimiter;
-use crate::measured_boot;
-use crate::model::machine::machine_id::{
-    from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
-};
-use crate::model::machine::network::ManagedHostQuarantineState;
-use crate::model::machine::{
-    BomValidating, CleanupState, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
-    FailureSource, Machine, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
-    MeasuringState, ValidationState, get_action_for_dpu_state,
-};
-use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
-use crate::model::tenant::Tenant;
-use crate::redfish::RedfishAuth;
-use crate::resource_pool;
-use crate::resource_pool::common::CommonPools;
-use crate::site_explorer::EndpointExplorer;
-use crate::storage::NvmeshClientPool;
 use crate::{
-    CarbideError, CarbideResult, auth,
+    CarbideError, CarbideResult, attestation as attest, auth,
+    cfg::file::CarbideConfig,
     db::{
-        self, DatabaseError, ObjectFilter, explored_managed_host::DbExploredManagedHost,
-        instance::Instance, machine_topology::MachineTopology,
+        self, DatabaseError, ObjectFilter, attestation as db_attest,
+        desired_firmware::DbDesiredFirmwareVersions,
+        explored_endpoints::DbExploredEndpoint,
+        explored_managed_host::DbExploredManagedHost,
+        instance::Instance,
+        machine::{self, MachineSearchConfig},
+        machine_topology::MachineTopology,
+        machine_validation::{MachineValidation, MachineValidationState, MachineValidationStatus},
+        managed_host::LoadSnapshotOptions,
+        network_devices::NetworkDeviceSearchConfig,
     },
-    ethernet_virtualization,
-    model::{hardware_info::HardwareInfo, machine::MachineState},
-    redfish::RedfishClientPool,
+    dynamic_settings, ethernet_virtualization,
+    handlers::{
+        instance,
+        machine_validation::{
+            add_machine_validation_test, add_update_machine_validation_external_config,
+            get_machine_validation_external_config, get_machine_validation_external_configs,
+            get_machine_validation_results, get_machine_validation_runs,
+            get_machine_validation_tests, machine_validation_test_enable_disable_test,
+            machine_validation_test_next_version, machine_validation_test_verfied,
+            mark_machine_validation_complete, on_demand_machine_validation,
+            persist_validation_result, remove_machine_validation_external_config,
+            update_machine_validation_run, update_machine_validation_test,
+        },
+        utils::convert_and_log_machine_id,
+    },
+    ib::{DEFAULT_IB_FABRIC_NAME, IBFabricManager},
+    logging::log_limiter::LogLimiter,
+    measured_boot,
+    model::{
+        hardware_info::HardwareInfo,
+        ib_partition::PartitionKey,
+        machine::{
+            BomValidating, CleanupState, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
+            FailureSource, Machine, MachineState, MachineValidatingState, ManagedHostState,
+            ManagedHostStateSnapshot, MeasuringState, ValidationState, get_action_for_dpu_state,
+            machine_id::{
+                from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
+            },
+            network::ManagedHostQuarantineState,
+        },
+        metadata::Metadata,
+        network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData},
+        power_manager::PowerOptions,
+        tenant::Tenant,
+    },
+    redfish::{RedfishAuth, RedfishClientPool},
+    resource_pool,
+    resource_pool::common::CommonPools,
+    site_explorer::EndpointExplorer,
+    storage::NvmeshClientPool,
 };
-use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineInterfaceId;
-use forge_uuid::machine::{MachineId, MachineType};
-use utils::HostPortPair;
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
@@ -5419,6 +5424,79 @@ impl Forge for Api {
         Ok(Response::new(rpc::TrimTableResponse {
             total_deleted: total_deleted.to_string(),
         }))
+    }
+    async fn create_remediation(
+        &self,
+        request: tonic::Request<rpc::CreateRemediationRequest>,
+    ) -> Result<tonic::Response<rpc::CreateRemediationResponse>, Status> {
+        crate::handlers::dpu_remediation::create(self, request).await
+    }
+
+    async fn approve_remediation(
+        &self,
+        request: tonic::Request<rpc::ApproveRemediationRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::handlers::dpu_remediation::approve(self, request).await
+    }
+
+    async fn revoke_remediation(
+        &self,
+        request: tonic::Request<rpc::RevokeRemediationRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::handlers::dpu_remediation::revoke(self, request).await
+    }
+
+    async fn enable_remediation(
+        &self,
+        request: tonic::Request<rpc::EnableRemediationRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::handlers::dpu_remediation::enable(self, request).await
+    }
+
+    async fn disable_remediation(
+        &self,
+        request: tonic::Request<rpc::DisableRemediationRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::handlers::dpu_remediation::disable(self, request).await
+    }
+
+    async fn find_remediation_ids(
+        &self,
+        request: tonic::Request<()>,
+    ) -> Result<tonic::Response<rpc::RemediationIdList>, Status> {
+        crate::handlers::dpu_remediation::find_remediation_ids(self, request).await
+    }
+
+    async fn find_remediations_by_ids(
+        &self,
+        request: tonic::Request<rpc::RemediationIdList>,
+    ) -> Result<tonic::Response<rpc::RemediationList>, Status> {
+        crate::handlers::dpu_remediation::find_remediations_by_ids(self, request).await
+    }
+    async fn find_applied_remediation_ids(
+        &self,
+        request: tonic::Request<rpc::FindAppliedRemediationIdsRequest>,
+    ) -> Result<tonic::Response<rpc::AppliedRemediationIdList>, Status> {
+        crate::handlers::dpu_remediation::find_applied_remediation_ids(self, request).await
+    }
+    async fn find_applied_remediations(
+        &self,
+        request: tonic::Request<rpc::FindAppliedRemediationsRequest>,
+    ) -> Result<tonic::Response<rpc::AppliedRemediationList>, Status> {
+        crate::handlers::dpu_remediation::find_applied_remediations(self, request).await
+    }
+    async fn get_next_remediation_for_machine(
+        &self,
+        request: tonic::Request<rpc::GetNextRemediationForMachineRequest>,
+    ) -> Result<tonic::Response<rpc::GetNextRemediationForMachineResponse>, Status> {
+        crate::handlers::dpu_remediation::get_next_remediation_for_machine(self, request).await
+    }
+
+    async fn remediation_applied(
+        &self,
+        request: tonic::Request<rpc::RemediationAppliedRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::handlers::dpu_remediation::remediation_applied(self, request).await
     }
 }
 

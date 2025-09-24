@@ -10,38 +10,43 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::Machine;
-use ::rpc::NetworkSegment;
-use ::rpc::forge::instance_interface_config::NetworkDetails;
-use ::rpc::forge::{
-    self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest,
-    CreateNetworkSecurityGroupRequest, DeleteNetworkSecurityGroupRequest,
-    FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest,
-    GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
-    IdentifySerialRequest, IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
-    MachineHardwareInfoUpdateType, NetworkPrefix, NetworkSecurityGroupAttributes,
-    NetworkSegmentCreationRequest, NetworkSegmentType, PowerState, SshRequest,
-    UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
-    VpcSearchQuery, VpcVirtualizationType,
-};
-use forge_uuid::machine::MachineId;
+use std::{collections::HashMap, path::Path};
 
-use std::collections::HashMap;
-use std::path::Path;
+use ::rpc::{
+    Machine, NetworkSegment,
+    admin_cli::{CarbideCliError, CarbideCliResult},
+    forge::{
+        self as rpc, AppliedRemediationIdList, AppliedRemediationList, ApproveRemediationRequest,
+        BmcCredentialStatusResponse, BmcEndpointRequest, CreateNetworkSecurityGroupRequest,
+        CreateRemediationRequest, CreateRemediationResponse, DeleteNetworkSecurityGroupRequest,
+        DisableRemediationRequest, EnableRemediationRequest, FindAppliedRemediationIdsRequest,
+        FindAppliedRemediationsRequest, FindInstanceTypesByIdsRequest,
+        FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
+        GetNetworkSecurityGroupPropagationStatusRequest, IdentifySerialRequest,
+        IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
+        MachineHardwareInfoUpdateType, Metadata, NetworkPrefix, NetworkSecurityGroupAttributes,
+        NetworkSegmentCreationRequest, NetworkSegmentType, PowerState, Remediation,
+        RemediationIdList, RemediationList, RevokeRemediationRequest, SshRequest,
+        UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
+        VpcSearchQuery, VpcVirtualizationType, instance_interface_config::NetworkDetails,
+    },
+    forge_api_client::ForgeApiClient,
+};
+use forge_uuid::{
+    dpa_interface::DpaInterfaceId,
+    dpu_remediations::RemediationId,
+    infiniband::IBPartitionId,
+    instance::InstanceId,
+    machine::{MachineId, MachineInterfaceId},
+    network::NetworkSegmentId,
+    vpc::VpcId,
+    vpc_peering::VpcPeeringId,
+};
+use mac_address::MacAddress;
 
 use crate::cfg::cli_options::{
     self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, TimeoutConfig,
 };
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge_api_client::ForgeApiClient;
-use forge_uuid::dpa_interface::DpaInterfaceId;
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineInterfaceId;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
-use forge_uuid::vpc_peering::VpcPeeringId;
-use mac_address::MacAddress;
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
 /// methods.
@@ -2219,7 +2224,6 @@ impl ApiClient {
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }
-
     pub async fn delete_bmc_user(
         &self,
         ip_address: Option<String>,
@@ -2275,5 +2279,158 @@ impl ApiClient {
             .is_infinite_boot_enabled(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn create_dpu_remediation(
+        &self,
+        script: String,
+        metadata: Option<Metadata>,
+        retries: Option<u32>,
+    ) -> CarbideCliResult<CreateRemediationResponse> {
+        let retries = retries.unwrap_or_default() as i32;
+        let request = CreateRemediationRequest {
+            script,
+            metadata,
+            retries,
+        };
+        self.0
+            .create_remediation(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn approve_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
+        let request = ApproveRemediationRequest {
+            remediation_id: Some(id),
+        };
+        self.0
+            .approve_remediation(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn revoke_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
+        let request = RevokeRemediationRequest {
+            remediation_id: Some(id),
+        };
+        self.0
+            .revoke_remediation(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn enable_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
+        let request = EnableRemediationRequest {
+            remediation_id: Some(id),
+        };
+        self.0
+            .enable_remediation(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn disable_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
+        let request = DisableRemediationRequest {
+            remediation_id: Some(id),
+        };
+        self.0
+            .disable_remediation(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn find_applied_remediations_by_remediation_id(
+        &self,
+        remediation_id: RemediationId,
+    ) -> CarbideCliResult<AppliedRemediationIdList> {
+        self.find_applied_remediation_ids(Some(remediation_id), None)
+            .await
+    }
+
+    pub async fn find_applied_remediations_by_machine_id(
+        &self,
+        dpu_machine_id: MachineId,
+    ) -> CarbideCliResult<AppliedRemediationIdList> {
+        self.find_applied_remediation_ids(None, Some(dpu_machine_id))
+            .await
+    }
+
+    async fn find_applied_remediation_ids(
+        &self,
+        remediation_id: Option<RemediationId>,
+        dpu_machine_id: Option<MachineId>,
+    ) -> CarbideCliResult<AppliedRemediationIdList> {
+        let request = FindAppliedRemediationIdsRequest {
+            remediation_id,
+            dpu_machine_id,
+        };
+
+        self.0
+            .find_applied_remediation_ids(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn find_applied_remediations(
+        &self,
+        remediation_id: RemediationId,
+        machine_id: MachineId,
+    ) -> CarbideCliResult<AppliedRemediationList> {
+        let request = FindAppliedRemediationsRequest {
+            remediation_id: Some(remediation_id),
+            dpu_machine_id: Some(machine_id),
+        };
+
+        self.0
+            .find_applied_remediations(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn get_remediation(
+        &self,
+        remediation_id: RemediationId,
+    ) -> CarbideCliResult<Remediation> {
+        let remediation_list = RemediationIdList {
+            remediation_ids: vec![remediation_id],
+        };
+
+        let response = self
+            .0
+            .find_remediations_by_ids(remediation_list)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        response
+            .remediations
+            .into_iter()
+            .next()
+            .ok_or(CarbideCliError::RemediationNotFound(remediation_id))
+    }
+
+    pub async fn get_all_remediations(
+        &self,
+        page_size: usize,
+    ) -> CarbideCliResult<RemediationList> {
+        let all_remediation_ids = self
+            .0
+            .find_remediation_ids()
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        use futures::{StreamExt, TryStreamExt, stream};
+        let remediations = stream::iter(all_remediation_ids.remediation_ids.chunks(page_size))
+            .then(|remediation_ids| async move {
+                self.0
+                    .find_remediations_by_ids(remediation_ids)
+                    .await
+                    .map_err(CarbideCliError::ApiInvocationError)
+            })
+            .try_fold(vec![], |mut accum, remediations| async move {
+                accum.extend(remediations.remediations);
+                Ok(accum)
+            })
+            .await?;
+        Ok(RemediationList { remediations })
     }
 }

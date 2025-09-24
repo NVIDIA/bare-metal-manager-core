@@ -18,6 +18,7 @@ pub mod dns;
 pub mod domain;
 pub mod dpa;
 pub mod dpu;
+pub mod dpu_remediation;
 pub mod expected_machine;
 pub mod finder;
 pub mod health;

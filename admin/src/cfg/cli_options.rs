@@ -1,6 +1,3 @@
-use clap::builder::BoolishValueParser;
-use rpc::InstanceInfinibandConfig;
-use std::collections::HashMap;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -12,39 +9,43 @@ use std::collections::HashMap;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::fmt;
-use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::{collections::HashMap, fmt, net::SocketAddr, path::PathBuf};
 
-use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
-use ipnet::IpNet;
-use mac_address::MacAddress;
-
+use clap::{ArgGroup, Parser, ValueEnum, ValueHint, builder::BoolishValueParser};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_ssh::ssh::{
     DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
     DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
 };
-use forge_uuid::domain::DomainId;
-use forge_uuid::dpa_interface::DpaInterfaceId;
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
-use forge_uuid::machine::MachineInterfaceId;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::{VpcId, VpcPrefixId};
-use forge_uuid::vpc_peering::VpcPeeringId;
+use forge_uuid::{
+    domain::DomainId,
+    dpa_interface::DpaInterfaceId,
+    dpu_remediations::RemediationId,
+    infiniband::IBPartitionId,
+    instance::InstanceId,
+    machine::{MachineId, MachineInterfaceId},
+    network::NetworkSegmentId,
+    vpc::{VpcId, VpcPrefixId},
+    vpc_peering::VpcPeeringId,
+};
+use ipnet::IpNet;
 use libredfish::model::update_service::ComponentType;
-use rpc::admin_cli::OutputFormat;
-use rpc::forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig};
+use mac_address::MacAddress;
+use rpc::{
+    InstanceInfinibandConfig,
+    admin_cli::OutputFormat,
+    forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig},
+};
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
-use crate::cfg::instance_type;
-use crate::cfg::measurement;
-use crate::cfg::network_security_group;
-use crate::cfg::storage::{OsImageActions, StorageActions};
-use crate::vpc_prefix::VpcPrefixSelector;
+use crate::{
+    cfg::{
+        instance_type, measurement, network_security_group,
+        storage::{OsImageActions, StorageActions},
+    },
+    vpc_prefix::VpcPrefixSelector,
+};
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
@@ -271,9 +272,10 @@ pub enum CliCommand {
 
     #[clap(about = "DPA related handling", subcommand)]
     Dpa(DpaOptions),
-
     #[clap(about = "Trim DB tables", subcommand)]
     TrimTable(TrimTableTarget),
+    #[clap(about = "Dpu Remediation handling", subcommand)]
+    DpuRemediation(DpuRemediation),
 }
 
 #[derive(Parser, Debug)]
@@ -3178,3 +3180,130 @@ pub enum Firmware {
 
 #[derive(Parser, Debug)]
 pub struct ShowFirmware {}
+
+#[derive(Parser, Debug)]
+pub enum DpuRemediation {
+    #[clap(about = "Create a remediation")]
+    Create(CreateDpuRemediation),
+    #[clap(about = "Approve a remediation")]
+    Approve(ApproveDpuRemediation),
+    #[clap(about = "Revoke a remediation")]
+    Revoke(RevokeDpuRemediation),
+    #[clap(about = "Enable a remediation")]
+    Enable(EnableDpuRemediation),
+    #[clap(about = "Disable a remediation")]
+    Disable(DisableDpuRemediation),
+    #[clap(about = "Display remediation information")]
+    Show(ShowRemediation),
+    #[clap(about = "Display information about applied remediations")]
+    ListApplied(ListAppliedRemediations),
+}
+
+#[derive(Parser, Debug)]
+pub struct CreateDpuRemediation {
+    #[clap(help = "The filename of the script to run", long)]
+    pub script_filename: String,
+    #[clap(
+        help = "specify the amount of retries for the remediation, defaults to no retries",
+        long
+    )]
+    pub retries: Option<u32>,
+    #[clap(
+        long = "meta-name",
+        value_name = "META_NAME",
+        help = "The name that should be used as part of the Metadata for newly created Remediations.  Completely optional."
+    )]
+    pub meta_name: Option<String>,
+
+    #[clap(
+        long = "meta-description",
+        value_name = "META_DESCRIPTION",
+        help = "The description that should be used as part of the Metadata for newly created Remediations.  Completely optional."
+    )]
+    pub meta_description: Option<String>,
+
+    #[clap(
+        long = "label",
+        value_name = "LABEL",
+        help = "A label that will be added as metadata for the newly created Remediation. The labels key and value must be separated by a : character. E.g. DATACENTER:XYZ.  Completely optional.",
+        action = clap::ArgAction::Append
+    )]
+    pub labels: Option<Vec<String>>,
+}
+
+impl CreateDpuRemediation {
+    pub fn metadata(&self) -> Option<::rpc::forge::Metadata> {
+        if self.labels.is_none() && self.meta_name.is_none() && self.meta_description.is_none() {
+            return None;
+        }
+
+        let mut labels = Vec::new();
+        if let Some(list) = &self.labels {
+            for label in list {
+                let label = match label.split_once(':') {
+                    Some((k, v)) => rpc::forge::Label {
+                        key: k.trim().to_string(),
+                        value: Some(v.trim().to_string()),
+                    },
+                    None => rpc::forge::Label {
+                        key: label.trim().to_string(),
+                        value: None,
+                    },
+                };
+                labels.push(label);
+            }
+        }
+
+        Some(::rpc::forge::Metadata {
+            name: self.meta_name.clone().unwrap_or_default(),
+            description: self.meta_description.clone().unwrap_or_default(),
+            labels,
+        })
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct ApproveDpuRemediation {
+    #[clap(help = "The id of the remediation to approve", long)]
+    pub id: RemediationId,
+}
+
+#[derive(Parser, Debug)]
+pub struct RevokeDpuRemediation {
+    #[clap(help = "The id of the remediation to revoke", long)]
+    pub id: RemediationId,
+}
+
+#[derive(Parser, Debug)]
+pub struct EnableDpuRemediation {
+    #[clap(help = "The id of the remediation to enable", long)]
+    pub id: RemediationId,
+}
+
+#[derive(Parser, Debug)]
+pub struct DisableDpuRemediation {
+    #[clap(help = "The id of the remediation to disable", long)]
+    pub id: RemediationId,
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowRemediation {
+    #[clap(help = "The remediation id to query, if not provided defaults to all")]
+    pub id: Option<RemediationId>,
+    #[clap(long, action)]
+    pub display_script: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct ListAppliedRemediations {
+    #[clap(
+        help = "The remediation id to query, in case the user wants to see which machines have a specific remediation applied.  Provide both arguments to see all the details for a specific remediation and machine.",
+        long
+    )]
+    pub remediation_id: Option<RemediationId>,
+    #[clap(
+        help = "The machine id to query, in case the user wants to see which remediations have been applied to a specific box.  Provide both arguments to see all the details for a specific remediation and machine.",
+        long
+    )]
+    pub machine_id: Option<MachineId>,
+}

@@ -9,17 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::VecDeque;
-use std::pin::Pin;
+use std::{collections::VecDeque, fmt::Write, fs, pin::Pin, str::FromStr, time::Duration};
 
-use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
-use crate::cfg::cli_options::{
-    ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField,
+use ::rpc::{
+    admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat},
+    forge as forgerpc,
 };
-use crate::rpc::ApiClient;
-use crate::{async_write, async_write_table_as_csv, async_writeln};
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
 use health_report::{
@@ -27,10 +22,13 @@ use health_report::{
 };
 use prettytable::{Row, Table, row};
 use rpc::Machine;
-use std::fmt::Write;
-use std::fs;
-use std::str::FromStr;
-use std::time::Duration;
+
+use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
+use crate::{
+    async_write, async_write_table_as_csv, async_writeln,
+    cfg::cli_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField},
+    rpc::ApiClient,
+};
 
 fn convert_machine_to_nice_format(
     machine: forgerpc::Machine,
@@ -77,12 +75,9 @@ fn convert_machine_to_nice_format(
     };
     data.push(("FIRMWARE AUTOUPDATE", autoupdate));
 
-    let width = data
+    let width = 1 + data
         .iter()
-        .map(|(key, _value)| key.len())
-        .max()
-        .unwrap_or(20)
-        + 1;
+        .fold(0, |accum, (key, _value)| std::cmp::max(accum, key.len()));
 
     for (key, value) in data {
         writeln!(&mut lines, "{key:<width$}: {value}")?;
@@ -145,7 +140,6 @@ fn convert_machine_to_nice_format(
         }
     }
 
-    let width = 13;
     writeln!(&mut lines, "INTERFACES:")?;
     if machine.interfaces.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
@@ -184,6 +178,9 @@ fn convert_machine_to_nice_format(
                 ("Addresses", interface.address.join(",")),
             ];
 
+            let width = 1 + data
+                .iter()
+                .fold(0, |accum, (key, _value)| std::cmp::max(accum, key.len()));
             for (key, value) in data {
                 writeln!(&mut lines, "\t{key:<width$}: {value}")?;
             }
@@ -214,7 +211,6 @@ fn get_machine_type(machine_id: Option<MachineId>) -> String {
 
 fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
     let mut table = Box::new(Table::new());
-    let default_metadata = Default::default();
 
     table.set_titles(row![
         "",
@@ -277,18 +273,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             }
         }
 
-        let labels = machine
-            .metadata
-            .as_ref()
-            .unwrap_or(&default_metadata)
-            .labels
-            .iter()
-            .map(|label| {
-                let key = &label.key;
-                let value = label.value.clone().unwrap_or_default();
-                format!("\"{key}:{value}\"")
-            })
-            .collect::<Vec<_>>();
+        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&machine.metadata);
 
         let is_unhealthy = machine
             .health
@@ -796,9 +781,11 @@ pub async fn handle_metadata_show(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use health_report::{HealthAlertClassification, HealthProbeId};
     use std::str::FromStr;
+
+    use health_report::{HealthAlertClassification, HealthProbeId};
+
+    use super::*;
 
     #[test]
     fn test_tenant_reported_issue_template() {

@@ -54,6 +54,8 @@ pub enum RpcDataConversionError {
     InvalidCriticalErrorType(i32),
     #[error("Instance ID {0} is not valid")]
     InvalidInstanceId(String),
+    #[error("Remediation ID {0} is not valid")]
+    InvalidRemediationId(String),
     #[error("VPC ID {0} is not valid")]
     InvalidVpcId(String),
     #[error("VPC peering ID {0} is not valid")]
