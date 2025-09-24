@@ -9,17 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::{
-    CarbideError,
-    cfg::file::{AllowedCertCriteria, CertComponent},
-};
+use std::{path::Path, sync::Arc};
+
 use asn1_rs::PrintableString;
 use middleware::CertDescriptionMiddleware;
 use oid_registry::Oid;
 use rustls_pki_types::CertificateDer;
-use std::path::Path;
-use std::sync::Arc;
 use x509_parser::prelude::{FromDer, X509Certificate, X509Name};
+
+use crate::{
+    CarbideError,
+    cfg::file::{AllowedCertCriteria, CertComponent},
+};
 
 mod casbin_engine;
 pub mod internal_rbac_rules;
@@ -52,7 +53,7 @@ pub enum Principal {
     SpiffeServiceIdentifier(String),
     SpiffeMachineIdentifier(String),
 
-    // Certficate based authentication from outside of the cluster
+    // Certificate based authentication from outside of the cluster
     ExternalUser(ExternalUserInfo),
 
     // Any certificate that was trusted by the TLS acceptor. This is a superset
@@ -147,7 +148,7 @@ fn try_external_cert(
     auth_context: &CertDescriptionMiddleware,
 ) -> Option<Principal> {
     if let Ok((_remainder, x509_cert)) = X509Certificate::from_der(der_certificate) {
-        // Looks through the issuer releative distinguished names for a CN matching what we expect for nvinit certs.
+        // Looks through the issuer relative distinguished names for a CN matching what we expect for nvinit certs.
         // Other options may be available in the future, but just this for now.
         for rdn in x509_cert.issuer().iter() {
             if let Some(value) = rdn
@@ -356,6 +357,17 @@ impl AuthContext {
             _ => None,
         })
     }
+
+    pub fn get_external_user_name(&self) -> Option<&str> {
+        self.principals.iter().find_map(|p| match p {
+            Principal::ExternalUser(external_user_info) => external_user_info
+                .user
+                .as_ref()
+                .filter(|x| !x.is_empty())
+                .map(|x| x.as_str()),
+            _ => None,
+        })
+    }
 }
 
 impl Default for AuthContext {
@@ -555,10 +567,11 @@ impl PolicyEngine for PermissiveWrapper {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{collections::HashMap, io::BufRead};
+
     use eyre::Context;
-    use std::collections::HashMap;
-    use std::io::BufRead;
+
+    use super::*;
 
     struct ClientCertTable {
         cert: String,

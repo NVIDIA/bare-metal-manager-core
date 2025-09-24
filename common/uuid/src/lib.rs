@@ -1,8 +1,8 @@
-use std::error::Error;
-use std::fmt;
+use std::{error::Error, fmt};
 
 pub mod domain;
 pub mod dpa_interface;
+pub mod dpu_remediations;
 pub mod infiniband;
 pub mod instance;
 pub mod instance_type;

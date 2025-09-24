@@ -12,95 +12,81 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
-
-use std::collections::HashSet;
-use std::collections::VecDeque;
-
-use std::fs;
-use std::fs::File;
-use std::io;
-use std::io::BufReader;
-use std::io::Write;
-use std::net::IpAddr;
-use std::path::Path;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::str::FromStr;
-
-use crate::cfg::cli_options::AdminPowerControlAction;
-use crate::cfg::cli_options::QuarantineAction;
-use crate::cfg::storage::{
-    OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions, StorageVolumeActions,
+use std::{
+    collections::{HashSet, VecDeque},
+    fs,
+    fs::File,
+    io,
+    io::{BufReader, Write},
+    net::IpAddr,
+    path::{Path, PathBuf},
+    pin::Pin,
+    str::FromStr,
 };
-use crate::rpc::ApiClient;
-use ::rpc::CredentialType;
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
-use ::rpc::forge as forgerpc;
-use ::rpc::forge::ConfigSetting;
-use ::rpc::forge::dpu_reprovisioning_request::Mode;
-use ::rpc::forge_api_client::ForgeApiClient;
-use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-use cfg::cli_options::AgentUpgrade;
-use cfg::cli_options::AgentUpgradePolicyChoice;
-use cfg::cli_options::BmcAction;
-use cfg::cli_options::BootOverrideAction;
-use cfg::cli_options::CredentialAction;
-use cfg::cli_options::DpuAction;
-use cfg::cli_options::DpuAction::AgentUpgradePolicy;
-use cfg::cli_options::DpuAction::Reprovision;
-use cfg::cli_options::DpuAction::Versions;
-use cfg::cli_options::DpuReprovision;
-use cfg::cli_options::ExpectedMachineJson;
-use cfg::cli_options::HostAction;
-use cfg::cli_options::HostReprovision;
-use cfg::cli_options::IbPartitionOptions;
-use cfg::cli_options::IpAction;
-use cfg::cli_options::MachineInterfaces;
-use cfg::cli_options::MachineMetadataCommand;
-use cfg::cli_options::RedfishCommand;
-use cfg::cli_options::SetAction;
-use cfg::cli_options::Shell;
-use cfg::cli_options::SiteExplorer;
-use cfg::cli_options::TenantKeySetOptions;
-use cfg::cli_options::TpmCa;
-use cfg::cli_options::UriInfo;
-use cfg::cli_options::VpcPeeringOptions;
-use cfg::cli_options::VpcPrefixOptions;
-use cfg::cli_options::{
-    CliCommand, CliOptions, Domain, DpaOptions, Firmware, Instance, Machine, MachineHardwareInfo,
-    MachineHardwareInfoCommand, MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment,
-    ResourcePool, VpcOptions,
+
+use ::rpc::{
+    CredentialType,
+    admin_cli::{CarbideCliError, OutputFormat},
+    forge as forgerpc,
+    forge::{ConfigSetting, dpu_reprovisioning_request::Mode},
+    forge_api_client::ForgeApiClient,
+    forge_tls_client::{ApiConfig, ForgeClientConfig},
 };
-use cfg::instance_type::InstanceTypeActions;
-use cfg::network_security_group::NetworkSecurityGroupActions;
+use cfg::{
+    cli_options::{
+        AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand,
+        CliOptions, CredentialAction, Domain, DpaOptions, DpuAction,
+        DpuAction::{AgentUpgradePolicy, Reprovision, Versions},
+        DpuReprovision, ExpectedMachineJson, Firmware, HostAction, HostReprovision,
+        IbPartitionOptions, Instance, IpAction, Machine, MachineHardwareInfo,
+        MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
+        ManagedHost, NetworkCommand, NetworkSegment, RedfishCommand, ResourcePool, SetAction,
+        Shell, SiteExplorer, TenantKeySetOptions, TpmCa, UriInfo, VpcOptions, VpcPeeringOptions,
+        VpcPrefixOptions,
+    },
+    instance_type::InstanceTypeActions,
+    network_security_group::NetworkSecurityGroupActions,
+};
 use clap::CommandFactory;
 use devenv::apply_devenv_config;
 use forge_secrets::credentials::Credentials;
-use forge_ssh::ssh::copy_bfb_to_bmc_rshim;
-use forge_ssh::ssh::disable_rshim;
-use forge_ssh::ssh::enable_rshim;
-use forge_ssh::ssh::is_rshim_enabled;
-use forge_ssh::ssh::read_obmc_console_log;
-use forge_tls::client_config::get_carbide_api_url;
-use forge_tls::client_config::get_client_cert_info;
-use forge_tls::client_config::get_config_from_file;
-use forge_tls::client_config::get_forge_root_ca_path;
-use forge_tls::client_config::get_proxy_info;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
+use forge_ssh::ssh::{
+    copy_bfb_to_bmc_rshim, disable_rshim, enable_rshim, is_rshim_enabled, read_obmc_console_log,
+};
+use forge_tls::client_config::{
+    get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
+    get_proxy_info,
+};
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 use mac_address::MacAddress;
 use machine::{handle_show_machine_hardware_info, handle_update_machine_hardware_info_gpus};
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use site_explorer::show_site_explorer_discovered_managed_host;
-use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
+use tracing_subscriber::{
+    filter::{EnvFilter, LevelFilter},
+    fmt,
+    prelude::*,
+};
+
+use crate::{
+    cfg::{
+        cli_options::{AdminPowerControlAction, QuarantineAction},
+        storage::{
+            OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions,
+            StorageVolumeActions,
+        },
+    },
+    rpc::ApiClient,
+};
 
 mod async_write;
+
 mod cfg;
 mod devenv;
 mod domain;
 mod dpa;
 mod dpu;
+mod dpu_remediation;
 mod expected_machines;
 mod firmware;
 mod host;
@@ -113,6 +99,7 @@ mod machine_interfaces;
 mod machine_validation;
 mod managed_host;
 mod measurement;
+mod metadata;
 mod network;
 mod network_devices;
 mod network_security_group;
@@ -2042,6 +2029,44 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
+        CliCommand::DpuRemediation(command) => match command {
+            cfg::cli_options::DpuRemediation::Create(create_remediation) => {
+                dpu_remediation::create_dpu_remediation(create_remediation, &api_client).await?;
+            }
+            cfg::cli_options::DpuRemediation::Approve(approve_remediation) => {
+                dpu_remediation::approve_dpu_remediation(approve_remediation, &api_client).await?;
+            }
+            cfg::cli_options::DpuRemediation::Revoke(revoke_remediation) => {
+                dpu_remediation::revoke_dpu_remediation(revoke_remediation, &api_client).await?;
+            }
+
+            cfg::cli_options::DpuRemediation::Enable(enable_remediation) => {
+                dpu_remediation::enable_dpu_remediation(enable_remediation, &api_client).await?;
+            }
+            cfg::cli_options::DpuRemediation::Disable(disable_remediation) => {
+                dpu_remediation::disable_dpu_remediation(disable_remediation, &api_client).await?;
+            }
+            cfg::cli_options::DpuRemediation::Show(show_remediation) => {
+                dpu_remediation::handle_show(
+                    show_remediation,
+                    config.format,
+                    &mut output_file,
+                    &api_client,
+                    config.internal_page_size,
+                )
+                .await?;
+            }
+            cfg::cli_options::DpuRemediation::ListApplied(list_applied_remediations) => {
+                dpu_remediation::handle_list_applied(
+                    list_applied_remediations,
+                    config.format,
+                    &mut output_file,
+                    &api_client,
+                    config.internal_page_size,
+                )
+                .await?;
+            }
+        },
     }
 
     Ok(())
@@ -2079,11 +2104,12 @@ pub async fn get_output_file_or_stdout(
 
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
+
     use crate::cfg::cli_options::{
         CliCommand, CliOptions, ExpectedMachine, ExpectedMachineAction::Update,
         UpdateExpectedMachine,
     };
-    use clap::Parser;
 
     #[test]
     fn forge_admin_cli_expected_machine_test() {

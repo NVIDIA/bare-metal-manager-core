@@ -16,11 +16,9 @@ use hyper::service::Service;
 use resolv_conf::Config;
 use rpc::{
     Instance, Timestamp,
-    forge::InstancePhoneHomeLastContactRequest,
-    forge::ManagedHostNetworkConfigRequest,
-    forge::VersionRequest,
+    forge::{InstancePhoneHomeLastContactRequest, ManagedHostNetworkConfigRequest, VersionRequest},
     forge_resolver,
-    forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT},
+    forge_tls_client::ForgeClientT,
 };
 
 pub fn compare_lines(left: &str, right: &str, strip_behavior: Option<StripType>) -> CompareResult {
@@ -134,22 +132,6 @@ impl UrlResolver {
             .collect::<Vec<Ipv4Addr>>();
 
         Ok(ip)
-    }
-}
-
-// Forge Communication
-pub async fn create_forge_client(
-    forge_api: &str,
-    client_config: &ForgeClientConfig,
-) -> Result<ForgeClientT, eyre::Error> {
-    match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(forge_api, client_config))
-        .await
-    {
-        Ok(client) => Ok(client),
-        Err(err) => Err(eyre::eyre!(
-            "Could not connect to Forge API server at {}: {err}",
-            forge_api
-        )),
     }
 }
 

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::path::PathBuf;
+
 use tonic_client_wrapper::codegen;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,17 +28,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
-        .extern_path(".common.MachineId", "::forge_uuid::machine::MachineId")
         .extern_path(".common.DomainId", "::forge_uuid::domain::DomainId")
-        .extern_path(".common.MachineInterfaceId", "::forge_uuid::machine::MachineInterfaceId")
-        .extern_path(".common.VpcId", "::forge_uuid::vpc::VpcId")
-        .extern_path(".common.VpcPrefixId", "::forge_uuid::vpc::VpcPrefixId")
-        .extern_path(".common.VpcPeeringId", "::forge_uuid::vpc_peering::VpcPeeringId")
+        .extern_path(".common.DpaInterfaceId", "::forge_uuid::dpa_interface::DpaInterfaceId")
         .extern_path(".common.IBPartitionId", "::forge_uuid::infiniband::IBPartitionId")
         .extern_path(".common.InstanceId", "::forge_uuid::instance::InstanceId")
-        .extern_path(".common.NetworkSegmentId", "::forge_uuid::network::NetworkSegmentId")
-        .extern_path(".common.DpaInterfaceId", "::forge_uuid::dpa_interface::DpaInterfaceId")
+        .extern_path(".common.MachineId", "::forge_uuid::machine::MachineId")
+        .extern_path(".common.MachineInterfaceId", "::forge_uuid::machine::MachineInterfaceId")
         .extern_path(".common.NetworkPrefixId", "::forge_uuid::network::NetworkPrefixId")
+        .extern_path(".common.NetworkSegmentId", "::forge_uuid::network::NetworkSegmentId")
+        .extern_path(".common.RemediationId", "forge_uuid::dpu_remediations::RemediationId")
+        .extern_path(".common.VpcId", "::forge_uuid::vpc::VpcId")
+        .extern_path(".common.VpcPeeringId", "::forge_uuid::vpc_peering::VpcPeeringId")
+        .extern_path(".common.VpcPrefixId", "::forge_uuid::vpc::VpcPrefixId")
         .extern_path(".measured_boot.MeasurementSystemProfileId", "::forge_uuid::measured_boot::MeasurementSystemProfileId")
         .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::forge_uuid::measured_boot::MeasurementSystemProfileAttrId")
         .extern_path(".measured_boot.MeasurementBundleId", "::forge_uuid::measured_boot::MeasurementBundleId")
@@ -47,7 +49,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".measured_boot.MeasurementJournalId", "::forge_uuid::measured_boot::MeasurementJournalId")
         .extern_path(".measured_boot.MeasurementApprovedMachineId", "::forge_uuid::measured_boot::MeasurementApprovedMachineId")
         .extern_path(".measured_boot.MeasurementApprovedProfileId", "::forge_uuid::measured_boot::MeasurementApprovedProfileId")
-
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -556,6 +557,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.ManagedHostQuarantineMode",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute("forge.AppliedRemediationIdList", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.AppliedRemediationId", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.AppliedRemediationList", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.AppliedRemediation", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.RemediationList", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.Remediation", "#[derive(serde::Deserialize, serde::Serialize)]")
         .field_attribute("machine_discovery.BlockDevice.device_type", "#[serde(default)]")
         .field_attribute("machine_discovery.NvmeDevice.serial", "#[serde(default)]")
         .type_attribute(
@@ -589,6 +596,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             "common.MachineId",
             "#[derive(Ord, PartialOrd)]",
+        )
+        .type_attribute(
+            "common.RemediationId",
+            "#[derive(serde::Serialize, serde::Deserialize, Ord, PartialOrd)]",
         )
         .type_attribute("common.StringList", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -629,6 +640,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         extern_paths: vec![
             (".common.MachineId", "::forge_uuid::machine::MachineId"),
             (".common.DomainId", "::forge_uuid::domain::DomainId"),
+            (
+                ".common.RemediationId",
+                "::forge_uuid::dpu_remediations::RemediationId",
+            ),
             (
                 ".common.MachineInterfaceId",
                 "::forge_uuid::machine::MachineInterfaceId",

@@ -62,3 +62,6 @@ message DpaInterfaceId {
 message NetworkPrefixId {
   string value = 1;
 }
+message RemediationId {
+  string value = 1;
+}

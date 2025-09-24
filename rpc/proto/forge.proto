@@ -549,6 +549,28 @@ service Forge {
 
   // Trim DB Tables
   rpc TrimTable(TrimTableRequest) returns (TrimTableResponse);
+
+  // begin DPU Remediation APIs
+  // these apis are intended for consumption by the admin-cli to manage remediations and their status
+  rpc CreateRemediation(CreateRemediationRequest) returns (CreateRemediationResponse);
+
+  rpc ApproveRemediation(ApproveRemediationRequest) returns (google.protobuf.Empty);
+  // the revoke call will also disable the remediation.
+  rpc RevokeRemediation(RevokeRemediationRequest) returns (google.protobuf.Empty);
+
+  rpc EnableRemediation(EnableRemediationRequest) returns (google.protobuf.Empty);
+  rpc DisableRemediation(DisableRemediationRequest) returns (google.protobuf.Empty);
+
+  rpc FindRemediationIds(google.protobuf.Empty) returns (RemediationIdList);
+  rpc FindRemediationsByIds(RemediationIdList) returns (RemediationList);
+
+  rpc FindAppliedRemediationIds(FindAppliedRemediationIdsRequest) returns (AppliedRemediationIdList);
+  rpc FindAppliedRemediations(FindAppliedRemediationsRequest) returns (AppliedRemediationList);
+
+  // these two are called by the DPU agent to fetch the next script and to report the status of the one just applied
+  rpc GetNextRemediationForMachine(GetNextRemediationForMachineRequest) returns (GetNextRemediationForMachineResponse);
+  rpc RemediationApplied(RemediationAppliedRequest) returns (google.protobuf.Empty);
+  // end DPU Remediation APIs
 }
 
 message TpmCaAddedCaStatus{
@@ -5058,3 +5080,87 @@ message TrimTableRequest{
 message TrimTableResponse{
   string total_deleted = 1;
 }
+
+// begin DPU remediation models
+message CreateRemediationRequest{
+  string script = 1;
+  Metadata metadata = 2; 
+  int32 retries = 3;
+}
+message CreateRemediationResponse {
+  common.RemediationId remediation_id = 1;
+}
+message RemediationIdList {
+  repeated common.RemediationId remediation_ids = 1;
+}
+message RemediationList {
+  repeated Remediation remediations = 1;
+}
+
+message Remediation {
+  common.RemediationId id = 1;
+  Metadata metadata = 2;
+  google.protobuf.Timestamp creation_time = 3;
+  string script_author = 4;
+  optional string script_reviewed_by = 5;
+  string script = 6;
+  bool enabled = 7;
+  int32 retries = 8;
+}
+
+message ApproveRemediationRequest {
+  common.RemediationId remediation_id = 1;
+}
+message RevokeRemediationRequest {
+  common.RemediationId remediation_id = 1;
+}
+message EnableRemediationRequest {
+  common.RemediationId remediation_id = 1;
+}
+message DisableRemediationRequest {
+  common.RemediationId remediation_id = 1;
+}
+
+/// you can look up by *either* the remediation_id *or* the dpu_machine_id,
+/// and the api server will give you back the other one(s).
+message FindAppliedRemediationIdsRequest {
+  optional common.RemediationId remediation_id = 1;
+  optional common.MachineId dpu_machine_id = 2;
+}
+message AppliedRemediationIdList {
+  repeated common.RemediationId remediation_ids = 1;
+  repeated common.MachineId dpu_machine_ids = 2;
+}
+message FindAppliedRemediationsRequest {
+  common.RemediationId remediation_id = 1;
+  common.MachineId dpu_machine_id = 2;
+}
+message AppliedRemediation {
+  common.RemediationId remediation_id = 1;
+  common.MachineId dpu_machine_id = 2;
+  int32 attempt = 3;
+  bool succeeded = 4;
+  google.protobuf.Timestamp applied_time = 5;
+  Metadata metadata = 6; // only the labels will be populated.
+}
+message AppliedRemediationList {
+  repeated AppliedRemediation applied_remediations = 1;
+}
+
+message GetNextRemediationForMachineRequest {
+  common.MachineId dpu_machine_id = 1;
+}
+message GetNextRemediationForMachineResponse {
+  optional common.RemediationId remediation_id = 1;
+  optional string remediation_script = 2;
+}
+message RemediationAppliedRequest {
+  common.RemediationId remediation_id = 1;
+  common.MachineId dpu_machine_id = 2;
+  RemediationApplicationStatus status = 3;
+}
+message RemediationApplicationStatus {
+  bool succeeded = 1;
+  Metadata metadata = 2; // the name/description is ignored, only using the labels for status persistence.
+}
+// end DPU remediation models

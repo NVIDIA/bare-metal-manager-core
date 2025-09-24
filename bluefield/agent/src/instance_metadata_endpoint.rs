@@ -11,25 +11,28 @@
  */
 use std::sync::Arc;
 
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
-use axum::http::StatusCode;
-use axum::{Router, extract::Path, extract::State, routing::get, routing::post};
+use axum::{
+    Router,
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{get, post},
+};
 use eyre::eyre;
-use governor::Quota;
-use governor::RateLimiter;
-use governor::clock;
-use governor::middleware::NoOpMiddleware;
-use governor::state::InMemoryState;
-use governor::state::NotKeyed;
+use forge_dpu_agent_utils::utils::create_forge_client;
+use forge_uuid::machine::MachineId;
+use governor::{
+    Quota, RateLimiter, clock,
+    middleware::NoOpMiddleware,
+    state::{InMemoryState, NotKeyed},
+};
 use mockall::automock;
 use nonzero_ext::nonzero;
-
-use crate::periodic_config_fetcher::InstanceMetadata;
-use crate::util::{create_forge_client, phone_home};
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use forge_uuid::machine::MachineId;
 use rpc::forge::ManagedHostNetworkConfigResponse;
+
+use crate::{periodic_config_fetcher::InstanceMetadata, util::phone_home};
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
@@ -465,9 +468,8 @@ mod tests {
     use hyper_util::rt::TokioExecutor;
     use uuid::uuid;
 
-    use crate::periodic_config_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
-
     use super::*;
+    use crate::periodic_config_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
 
     async fn setup_server(
         metadata: Option<InstanceMetadata>,

@@ -20,6 +20,7 @@ pub mod dpa_interface;
 pub mod dpa_interface_state_history;
 pub mod dpu_agent_upgrade_policy;
 pub mod dpu_machine_update;
+pub mod dpu_remediation;
 pub mod expected_machine;
 pub mod explored_endpoints;
 pub mod explored_managed_host;
@@ -62,11 +63,15 @@ pub mod vpc;
 pub mod vpc_peering;
 pub mod vpc_prefix;
 
-use crate::CarbideError;
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+    panic::Location,
+};
+
 use sqlx::Postgres;
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::panic::Location;
+
+use crate::CarbideError;
 
 // Max values we can bind to a Postgres SQL statement;
 pub const BIND_LIMIT: usize = 65535;

@@ -12,23 +12,28 @@ path = "src/main.rs"
 [dependencies]
 
 # [local-dependencies]
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 config-version = { path = "../../common/config-version" }
 forge-certs = { path = "../certs" }
+forge-dpu-agent-utils = { path = "../utils"}
+forge-dpu-remediation = { path = "../remediation"}
 forge-host-support = { path = "../../common/host-support" }
 forge-http-connector = { path = "../../common/http-connector" }
 forge-network = { path = "../../common/network" }
 forge-systemd = { path = "../systemd" }
 forge-tls = { path = "../../common/tls" }
+forge-uuid = { path = "../../common/uuid" }
 forge-version = { path = "../../common/version" }
 health-report = { path = "../../common/health-report" }
 rpc = { path = "../../rpc" }
 utils = { path = "../../common/utils" }
-forge-uuid = { path = "../../common/uuid" }
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
+#these are alphabetized
 arc-swap = "1.6"
+async-trait = "0.1.77"
 axum = { workspace = true, features = ["macros"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
-async-trait = "0.1.77"
 blake3 = "1.4"
 chrono = "0.4.38"
 clap = { workspace = true }
@@ -39,15 +44,16 @@ diff = "0.1"
 eyre = "*"
 futures = "0.3"
 futures-util = "0.3"
+governor = "*"
 gtmpl = "0.7.1"
 gtmpl_derive = "0.5.0"
 gtmpl_value = "0.5.1"
-governor = "*"
+hickory-resolver = "0.24.0"
 http-body = "1.0.1"
+http-body-util = "0.1.2"
 humantime = "*"
 hyper = { workspace = true }
 hyper-util = { workspace = true, features = ["client-legacy"] }
-http-body-util = "0.1.2"
 ipnetwork = { workspace = true }
 lazy_static = "*"
 libc = "*"
@@ -56,15 +62,14 @@ mockall = "0.13.0"
 netlink-packet-route = "=0.19"
 nix = { version = "=0.29.0", features = ["fs", "user"] }
 nonzero_ext = "*"
-
 opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 opentelemetry_sdk = { workspace = true, features = ["spec_unstable_metrics_views"] }
-
 prometheus = "0.13.3"
 rand = "0.9"
 regex = "1.10.2"
+resolv-conf = "0.7.0"
 rtnetlink = "0.14"
 rustls = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
@@ -74,16 +79,15 @@ sha2 = "0.10.8"
 similar = "2.7.0"
 surge-ping = "0.8.1"
 tempfile = "3"
-tracing = "*"
 tokio = { workspace = true }
 tonic = { workspace = true }
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["trace"] }
+tracing = "*"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 uzers = "0.12.1"
-resolv-conf = "0.7.0"
-hickory-resolver = "0.24.0"
 version-compare = "0.2.0"
+#these are alphabetized
 
 [build-dependencies]
 forge-version = { path = "../../common/version" }
@@ -91,10 +95,7 @@ forge-version = { path = "../../common/version" }
 [dev-dependencies]
 ctor = "0.2"
 prost = "0.14.1"
-reqwest = { version = "*", default-features = false, features = [
-    "rustls-tls",
-    "stream",
-] }
+reqwest = { version = "*", default-features = false, features = ["rustls-tls", "stream"] }
 rustls-pemfile = "2.2.0"
 rustls-pki-types = "1.10.0"
 

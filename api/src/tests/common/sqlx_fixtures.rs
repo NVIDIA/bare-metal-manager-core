@@ -32,6 +32,7 @@ macro_rules! define_sqlx_fixtures {
 define_sqlx_fixtures!(
     "create_cred_pub_key",
     "create_cred_pub_key_invalid",
+    "create_dpu_remediation",
     "create_expected_machine",
     "create_machine_validation_tests",
     "create_tpm_ca_cert_invalid",
