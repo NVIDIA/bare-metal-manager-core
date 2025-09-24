@@ -6,6 +6,7 @@ package forge;
 // message types!
 
 import "common.proto";
+import "dpa_rpc.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/struct.proto";
@@ -728,6 +729,9 @@ message RuntimeConfig {
 
   bool bom_validation_auto_generate_missing_sku = 41;
   uint64 bom_validation_auto_generate_missing_sku_interval = 42;
+
+  int32 mqtt_broker_port = 43;
+  string mqtt_hb_interval = 44;
 }
 
 message EchoRequest {
@@ -4916,6 +4920,8 @@ message DpaInterface {
   string network_config_version = 12;
 
   repeated DpaInterfaceStateHistory history = 13;
+
+  google.protobuf.Timestamp last_hb_time = 14;
 }
 
 

@@ -45,3 +45,7 @@ pub mod forge_api_client;
 #[allow(clippy::all)]
 #[rustfmt::skip]
 pub mod convenience_converters;
+
+#[allow(non_snake_case, unknown_lints, clippy::all)]
+#[rustfmt::skip]
+pub mod dpa_rpc;
