@@ -89,6 +89,8 @@ dpu_wait_time = "3m"
 power_down_wait = "13s"
 failure_retry_time = "31m"
 dpu_up_threshold = "33m"
+scout_reporting_timeout = "20m"
+
 [machine_state_controller.controller]
 iteration_time = "9m"
 max_object_handling_time = "99s"

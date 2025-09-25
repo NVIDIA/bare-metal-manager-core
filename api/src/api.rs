@@ -1696,6 +1696,12 @@ impl Forge for Api {
                 })?
         };
 
+        if !is_dpu {
+            db::machine::update_scout_contact_time(&machine_id, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+
         // Respond based on machine current state
         let state = host_machine.current_state();
         let (action, action_data) = if is_dpu {

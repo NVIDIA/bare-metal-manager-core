@@ -564,6 +564,9 @@ pub struct Machine {
     /// Last time when discovery finished.
     pub last_discovery_time: Option<DateTime<Utc>>,
 
+    /// Last time when scout contacted the machine.
+    pub last_scout_contact_time: Option<DateTime<Utc>>,
+
     /// Failure cause. If failure cause is critical, machine will move into Failed state.
     pub failure_details: FailureDetails,
 

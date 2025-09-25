@@ -141,6 +141,7 @@ pub struct MachineSnapshotPgJson {
     controller_state_version: String,
     controller_state: ManagedHostState,
     last_discovery_time: Option<DateTime<Utc>>,
+    last_scout_contact_time: Option<DateTime<Utc>>,
     last_reboot_time: Option<DateTime<Utc>>,
     last_reboot_requested: Option<MachineLastRebootRequested>,
     last_cleanup_time: Option<DateTime<Utc>>,
@@ -266,6 +267,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             last_reboot_time: value.last_reboot_time,
             last_cleanup_time: value.last_cleanup_time,
             last_discovery_time: value.last_discovery_time,
+            last_scout_contact_time: value.last_scout_contact_time,
             failure_details: value.failure_details,
             reprovision_requested: value.reprovisioning_requested,
             host_reprovision_requested: value.host_reprovisioning_requested,
@@ -826,6 +828,19 @@ pub async fn update_discovery_time(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
+    Ok(())
+}
+
+pub async fn update_scout_contact_time(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET last_scout_contact_time=NOW() WHERE id=$1 RETURNING id";
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id.to_string())
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
