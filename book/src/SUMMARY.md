@@ -7,6 +7,7 @@
 
 # Architecture
 
+- [Reliable state handling](architecture/state_handling.md)
 - [DPU configuration](architecture/dpu_configuration.md)
 - [Key Group Synchronization](architecture/key_group_sync.md)
 - [Infiniband support]()
