@@ -340,8 +340,9 @@ impl InstanceNetworkConfig {
                 };
 
                 if is_network_same {
-                    // Exactly same interface id must be used.
+                    // Exactly same interface id and device locator must be used.
                     interface.function_id == x.function_id
+                        && interface.device_locator == x.device_locator
                 } else {
                     false
                 }
