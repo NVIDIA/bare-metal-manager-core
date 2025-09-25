@@ -341,6 +341,7 @@ pub mod tests {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
                         machine_validation_context: Some("Discovery".to_string()),
+                        ..BomValidatingContext::default()
                     },
                 ),
             });
@@ -372,6 +373,7 @@ pub mod tests {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
                         machine_validation_context: Some("Discovery".to_string()),
+                        ..BomValidatingContext::default()
                     },
                 ),
             });
@@ -419,6 +421,7 @@ pub mod tests {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
                         machine_validation_context: Some("Discovery".to_string()),
+                        ..BomValidatingContext::default()
                     },
                 ),
             });
@@ -656,6 +659,7 @@ pub mod tests {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
                         machine_validation_context: Some("Discovery".to_string()),
+                        ..BomValidatingContext::default()
                     },
                 ),
             });
@@ -884,6 +888,7 @@ pub mod tests {
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
                     machine_validation_context: Some("Discovery".to_string()),
+                    ..BomValidatingContext::default()
                 }),
             });
 
@@ -961,6 +966,7 @@ pub mod tests {
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
                     machine_validation_context: Some("Discovery".to_string()),
+                    ..BomValidatingContext::default()
                 }),
             });
 

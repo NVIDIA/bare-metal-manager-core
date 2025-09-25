@@ -12,8 +12,12 @@ use crate::{
         },
         sku::diff_skus,
     },
-    state_controller::state_handler::{
-        StateHandlerError, StateHandlerOutcome, do_nothing, transition, wait,
+    state_controller::{
+        machine::handler::trigger_reboot_if_needed,
+        state_handler::{
+            StateHandlerError, StateHandlerOutcome, StateHandlerServices, do_nothing, transition,
+            wait,
+        },
     },
 };
 
@@ -33,6 +37,7 @@ fn get_bom_validation_context(state: &ManagedHostState) -> BomValidatingContext 
     } else {
         BomValidatingContext {
             machine_validation_context: None,
+            reboot_retry_count: None,
         }
     }
 }
@@ -360,168 +365,204 @@ async fn handle_bom_validation_disabled(
 pub(crate) async fn handle_bom_validation_state(
     txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
+    services: &StateHandlerServices,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     bom_validating_state: &BomValidating,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    if !host_handler_params.bom_validation.enabled {
-        return handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await;
-    }
+    let outcome = if !host_handler_params.bom_validation.enabled {
+        handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
+    } else {
+        match bom_validating_state {
+            BomValidating::MatchingSku(bom_validating_context) => {
+                if mh_snapshot.host_snapshot.hw_sku.is_none() {
+                    if let Some(sku) =
+                        match_sku_for_machine(txn, host_handler_params, mh_snapshot).await?
+                    {
+                        db::machine::assign_sku(txn, &mh_snapshot.host_snapshot.id, &sku.id)
+                            .await?;
+                        // finding a match uses the same check as verifying the sku, so consider it verified.
+                        advance_to_machine_validating(txn, mh_snapshot).await
+                    } else {
+                        advance_to_waiting_for_sku_assignment(txn, mh_snapshot, host_handler_params)
+                            .await
+                    }
+                } else {
+                    Ok(transition!(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::VerifyingSku(
+                            bom_validating_context.clone()
+                        ),
+                    }))
+                }
+            }
+            BomValidating::UpdatingInventory(bom_validating_context) => {
+                if !discovered_after_state_transition(
+                    mh_snapshot.host_snapshot.state.version,
+                    mh_snapshot.host_snapshot.last_discovery_time,
+                ) {
+                    match trigger_reboot_if_needed(
+                        &mh_snapshot.host_snapshot,
+                        mh_snapshot,
+                        bom_validating_context.reboot_retry_count,
+                        &host_handler_params.reachability_params,
+                        services,
+                        txn,
+                    )
+                    .await
+                    {
+                        Ok(status) => {
+                            if status.increase_retry_count {
+                                let reboot_retry_count = Some(
+                                    bom_validating_context
+                                        .reboot_retry_count
+                                        .unwrap_or_default()
+                                        + 1,
+                                );
+                                Ok(transition!(ManagedHostState::BomValidating {
+                                    bom_validating_state: BomValidating::UpdatingInventory(
+                                        BomValidatingContext {
+                                            machine_validation_context: bom_validating_context
+                                                .machine_validation_context
+                                                .clone(),
+                                            reboot_retry_count,
+                                        },
+                                    ),
+                                }))
+                            } else {
+                                Ok(do_nothing!())
+                            }
+                        }
+                        Err(e) => Ok(wait!(format!("Failed to reboot host: {e}"))),
+                    }
+                } else if mh_snapshot.host_snapshot.hw_sku.is_none() {
+                    Ok(transition!(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::MatchingSku(
+                            bom_validating_context.clone(),
+                        ),
+                    }))
+                } else {
+                    Ok(transition!(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::VerifyingSku(
+                            bom_validating_context.clone(),
+                        ),
+                    }))
+                }
+            }
+            BomValidating::VerifyingSku(bom_validating_context) => {
+                let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() else {
+                    // the sku got removed before it could be verified.  start over
+                    return Ok(transition!(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::MatchingSku(
+                            bom_validating_context.clone(),
+                        ),
+                    }));
+                };
 
-    let outcome = match bom_validating_state {
-        BomValidating::MatchingSku(bom_validating_context) => {
-            if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                if let Some(sku) =
-                    match_sku_for_machine(txn, host_handler_params, mh_snapshot).await?
-                {
-                    db::machine::assign_sku(txn, &mh_snapshot.host_snapshot.id, &sku.id).await?;
-                    // finding a match uses the same check as verifying the sku, so consider it verified.
+                let Some(expected_sku) = crate::db::sku::find(txn, &[sku_id.clone()]).await?.pop()
+                else {
+                    return advance_to_sku_missing(txn, mh_snapshot).await;
+                };
+
+                let actual_sku = crate::db::sku::generate_sku_from_machine_at_version(
+                    txn,
+                    &mh_snapshot.host_snapshot.id,
+                    expected_sku.schema_version,
+                )
+                .await?;
+
+                let diffs = diff_skus(&actual_sku, &expected_sku);
+                for diff in &diffs {
+                    tracing::error!(machine_id=%mh_snapshot.host_snapshot.id, "{}", diff);
+                }
+
+                if diffs.is_empty() {
+                    let health_report = HealthReport::sku_validation_success();
+
+                    db::machine::update_sku_validation_health_report(
+                        txn,
+                        &mh_snapshot.host_snapshot.id,
+                        &health_report,
+                    )
+                    .await?;
+
                     advance_to_machine_validating(txn, mh_snapshot).await
                 } else {
-                    advance_to_waiting_for_sku_assignment(txn, mh_snapshot, host_handler_params)
-                        .await
+                    let health_report = HealthReport::sku_mismatch(diffs);
+                    db::machine::update_sku_validation_health_report(
+                        txn,
+                        &mh_snapshot.host_snapshot.id,
+                        &health_report,
+                    )
+                    .await?;
+
+                    Ok(transition!(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::SkuVerificationFailed(
+                            bom_validating_context.clone(),
+                        ),
+                    }))
                 }
-            } else {
-                Ok(transition!(ManagedHostState::BomValidating {
-                    bom_validating_state: BomValidating::VerifyingSku(
-                        bom_validating_context.clone()
-                    ),
-                }))
             }
-        }
-        BomValidating::UpdatingInventory(bom_validating_context) => {
-            if !discovered_after_state_transition(
-                mh_snapshot.host_snapshot.state.version,
-                mh_snapshot.host_snapshot.last_discovery_time,
-            ) {
-                return Ok(do_nothing!());
-            }
-
-            if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                Ok(transition!(ManagedHostState::BomValidating {
-                    bom_validating_state: BomValidating::MatchingSku(
-                        bom_validating_context.clone(),
-                    ),
-                }))
-            } else {
-                Ok(transition!(ManagedHostState::BomValidating {
-                    bom_validating_state: BomValidating::VerifyingSku(
-                        bom_validating_context.clone(),
-                    ),
-                }))
-            }
-        }
-        BomValidating::VerifyingSku(bom_validating_context) => {
-            let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() else {
-                // the sku got removed before it could be verified.  start over
-                return Ok(transition!(ManagedHostState::BomValidating {
-                    bom_validating_state: BomValidating::MatchingSku(
-                        bom_validating_context.clone(),
-                    ),
-                }));
-            };
-
-            let Some(expected_sku) = crate::db::sku::find(txn, &[sku_id.clone()]).await?.pop()
-            else {
-                return advance_to_sku_missing(txn, mh_snapshot).await;
-            };
-
-            let actual_sku = crate::db::sku::generate_sku_from_machine_at_version(
-                txn,
-                &mh_snapshot.host_snapshot.id,
-                expected_sku.schema_version,
-            )
-            .await?;
-
-            let diffs = diff_skus(&actual_sku, &expected_sku);
-            for diff in &diffs {
-                tracing::error!(machine_id=%mh_snapshot.host_snapshot.id, "{}", diff);
-            }
-
-            if diffs.is_empty() {
-                let health_report = HealthReport::sku_validation_success();
-
-                db::machine::update_sku_validation_health_report(
-                    txn,
-                    &mh_snapshot.host_snapshot.id,
-                    &health_report,
-                )
-                .await?;
-
-                advance_to_machine_validating(txn, mh_snapshot).await
-            } else {
-                let health_report = HealthReport::sku_mismatch(diffs);
-                db::machine::update_sku_validation_health_report(
-                    txn,
-                    &mh_snapshot.host_snapshot.id,
-                    &health_report,
-                )
-                .await?;
-
-                Ok(transition!(ManagedHostState::BomValidating {
-                    bom_validating_state: BomValidating::SkuVerificationFailed(
-                        bom_validating_context.clone(),
-                    ),
-                }))
-            }
-        }
-        BomValidating::SkuVerificationFailed(bom_validating_context) => {
-            if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                Ok(transition!(ManagedHostState::BomValidating {
-                    bom_validating_state: BomValidating::WaitingForSkuAssignment(
-                        bom_validating_context.clone(),
-                    ),
-                }))
-            } else if mh_snapshot
-                .host_snapshot
-                .hw_sku_status
-                .as_ref()
-                .is_some_and(|ss| {
-                    ss.verify_request_time
-                        .is_some_and(|t| t > mh_snapshot.host_snapshot.state.version.timestamp())
-                })
-            {
-                advance_to_updating_inventory(txn, mh_snapshot).await
-            } else {
-                Ok(do_nothing!())
-            }
-        }
-        BomValidating::WaitingForSkuAssignment(_) => {
-            if mh_snapshot.host_snapshot.hw_sku.is_some()
-                || match_sku_for_machine(txn, host_handler_params, mh_snapshot)
-                    .await?
-                    .is_some()
-            {
-                advance_to_updating_inventory(txn, mh_snapshot).await
-            } else if host_handler_params
-                .bom_validation
-                .ignore_unassigned_machines
-            {
-                handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
-            } else {
-                Ok(do_nothing!())
-            }
-        }
-        BomValidating::SkuMissing(_) => {
-            let outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
-                if crate::db::sku::find(txn, &[sku_id]).await?.pop().is_some()
-                    || generate_missing_sku_for_machine(txn, host_handler_params, mh_snapshot).await
+            BomValidating::SkuVerificationFailed(bom_validating_context) => {
+                if mh_snapshot.host_snapshot.hw_sku.is_none() {
+                    Ok(transition!(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                            bom_validating_context.clone(),
+                        ),
+                    }))
+                } else if mh_snapshot
+                    .host_snapshot
+                    .hw_sku_status
+                    .as_ref()
+                    .is_some_and(|ss| {
+                        ss.verify_request_time.is_some_and(|t| {
+                            t > mh_snapshot.host_snapshot.state.version.timestamp()
+                        })
+                    })
                 {
                     advance_to_updating_inventory(txn, mh_snapshot).await
                 } else {
-                    Ok(wait!(
+                    Ok(do_nothing!())
+                }
+            }
+            BomValidating::WaitingForSkuAssignment(_) => {
+                if mh_snapshot.host_snapshot.hw_sku.is_some()
+                    || match_sku_for_machine(txn, host_handler_params, mh_snapshot)
+                        .await?
+                        .is_some()
+                {
+                    advance_to_updating_inventory(txn, mh_snapshot).await
+                } else if host_handler_params
+                    .bom_validation
+                    .ignore_unassigned_machines
+                {
+                    handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
+                } else {
+                    Ok(do_nothing!())
+                }
+            }
+            BomValidating::SkuMissing(_) => {
+                let outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
+                    if crate::db::sku::find(txn, &[sku_id]).await?.pop().is_some()
+                        || generate_missing_sku_for_machine(txn, host_handler_params, mh_snapshot)
+                            .await
+                    {
+                        advance_to_updating_inventory(txn, mh_snapshot).await
+                    } else {
+                        Ok(wait!(
                         "Assigned SKU does not exist.  Create the SKU or assign a different one"
                             .to_string()
                     ))
-                }
-            } else {
-                advance_to_waiting_for_sku_assignment(txn, mh_snapshot, host_handler_params).await
-            };
+                    }
+                } else {
+                    advance_to_waiting_for_sku_assignment(txn, mh_snapshot, host_handler_params)
+                        .await
+                };
 
-            // if leaving this state, clear the health report
-            if matches!(outcome, Ok(StateHandlerOutcome::Transition { .. })) {
-                clear_sku_validation_report(txn, mh_snapshot).await?;
+                // if leaving this state, clear the health report
+                if matches!(outcome, Ok(StateHandlerOutcome::Transition { .. })) {
+                    clear_sku_validation_report(txn, mh_snapshot).await?;
+                }
+                outcome
             }
-            outcome
         }
     };
 

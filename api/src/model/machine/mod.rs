@@ -2748,7 +2748,7 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
 
 /// A context for passing information between states thoughout the BOM validation
 /// process.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct BomValidatingContext {
     // Machine validation works differently depending on how it is started.  In order
     // to preserve that behavior BOM validation must carry that context through
@@ -2756,6 +2756,7 @@ pub struct BomValidatingContext {
     // used to skip machine validation.  Note that "None" is not a valid
     // context for machine validation, but only services to skip it.
     pub machine_validation_context: Option<String>,
+    pub reboot_retry_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

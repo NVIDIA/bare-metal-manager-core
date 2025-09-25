@@ -50,8 +50,9 @@ use crate::model::instance::config::network::{
 use crate::model::instance::snapshot::InstanceSnapshot;
 use crate::model::machine::infiniband::ib_config_synced;
 use crate::model::machine::{
-    CreateBossVolumeContext, CreateBossVolumeState, NetworkConfigUpdateState, NextStateBFBSupport,
-    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
+    CreateBossVolumeContext, CreateBossVolumeState, MachineLastRebootRequested,
+    NetworkConfigUpdateState, NextStateBFBSupport, SecureEraseBossContext, SecureEraseBossState,
+    SetBootOrderInfo, SetBootOrderState,
 };
 use crate::model::machine::{DpuInitNextStateResolver, InstallDpuOsState};
 use crate::model::power_manager::PowerHandlingOutcome;
@@ -1011,6 +1012,7 @@ impl MachineStateHandler {
                                 bom_validating_state: BomValidating::UpdatingInventory(
                                     BomValidatingContext {
                                         machine_validation_context: Some("Cleanup".to_string()),
+                                        ..BomValidatingContext::default()
                                     },
                                 ),
                             },
@@ -1143,6 +1145,7 @@ impl MachineStateHandler {
                                                 machine_validation_context: Some(
                                                     "Cleanup".to_string(),
                                                 ),
+                                                ..BomValidatingContext::default()
                                             },
                                         ),
                                     };
@@ -1446,6 +1449,7 @@ impl MachineStateHandler {
                 handle_bom_validation_state(
                     txn,
                     &self.host_handler.host_handler_params,
+                    ctx.services,
                     mh_snapshot,
                     bom_validating_state,
                 )
@@ -1874,7 +1878,16 @@ async fn are_dpus_up_trigger_reboot_if_needed(
 ) -> bool {
     for dpu_snapshot in &state.dpu_snapshots {
         if !is_dpu_up(state, dpu_snapshot) {
-            match reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn).await {
+            match trigger_reboot_if_needed(
+                dpu_snapshot,
+                state,
+                None,
+                reachability_params,
+                services,
+                txn,
+            )
+            .await
+            {
                 Ok(_) => {}
                 Err(e) => tracing::warn!("could not reboot dpu {}: {e}", dpu_snapshot.id),
             }
@@ -2486,9 +2499,10 @@ async fn handle_dpu_reprovision(
                     // Reboot only dpu for which handler is called.
                     if dpu_snapshot.id == dsnapshot.id {
                         reboot_status = Some(
-                            reboot_if_needed(
-                                state,
+                            trigger_reboot_if_needed(
                                 dsnapshot,
+                                state,
+                                None,
                                 reachability_params,
                                 ctx.services,
                                 txn,
@@ -2510,9 +2524,10 @@ async fn handle_dpu_reprovision(
                     // Reboot only dpu for which handler is called.
                     if dpu_snapshot.id == dsnapshot.id {
                         reboot_status = Some(
-                            reboot_if_needed(
-                                state,
+                            trigger_reboot_if_needed(
                                 dsnapshot,
+                                state,
+                                None,
                                 reachability_params,
                                 ctx.services,
                                 txn,
@@ -3213,9 +3228,10 @@ impl DpuMachineStateHandler {
                         tracing::warn!(msg);
                         // If we cannot create a redfish client for the DPU, this function call will never result in an actual DPU reboot.
                         // The only side effect is turning the DPU's host back on if we turned it off earlier.
-                        let reboot_status = reboot_if_needed(
-                            state,
+                        let reboot_status = trigger_reboot_if_needed(
                             dpu_snapshot,
+                            state,
+                            None,
                             &self.reachability_params,
                             ctx.services,
                             txn,
@@ -3253,9 +3269,10 @@ impl DpuMachineStateHandler {
                         dpu_snapshot.id, e
                     );
                     tracing::warn!(msg);
-                    let reboot_status = reboot_if_needed(
-                        state,
+                    let reboot_status = trigger_reboot_if_needed(
                         dpu_snapshot,
+                        state,
+                        None,
                         &self.reachability_params,
                         ctx.services,
                         txn,
@@ -3279,9 +3296,10 @@ impl DpuMachineStateHandler {
                         dpu_snapshot.id, e
                     );
                     tracing::warn!(msg);
-                    let reboot_status = reboot_if_needed(
-                        state,
+                    let reboot_status = trigger_reboot_if_needed(
                         dpu_snapshot,
+                        state,
+                        None,
                         &self.reachability_params,
                         ctx.services,
                         txn,
@@ -3316,9 +3334,10 @@ impl DpuMachineStateHandler {
                             // let the trigger_reboot_if_needed determine if we are stuck here
                             // (based on how long it has been since the last requested reboot)
                             reboot_status = Some(
-                                reboot_if_needed(
-                                    state,
+                                trigger_reboot_if_needed(
                                     dsnapshot,
+                                    state,
+                                    None,
                                     &self.reachability_params,
                                     ctx.services,
                                     txn,
@@ -3672,13 +3691,18 @@ pub async fn trigger_reboot_if_needed(
     services: &StateHandlerServices,
     txn: &mut PgConnection,
 ) -> Result<RebootStatus, StateHandlerError> {
-    let Some(last_reboot_requested) = &target.last_reboot_requested else {
-        return Ok(RebootStatus {
-            increase_retry_count: false,
-            status: "No pending reboot. Will keep waiting.".to_string(),
-        });
-    };
     let host = &state.host_snapshot;
+    // Its highly unlikely that the host has never been rebooted (and the last_reboot_reqeusted
+    // field shouldn't get cleared), but default it if its not set
+    let last_reboot_requested = match &target.last_reboot_requested {
+        None => &MachineLastRebootRequested {
+            time: host.state.version.timestamp(),
+            mode: MachineLastRebootRequestedMode::Reboot,
+            ..MachineLastRebootRequested::default()
+        },
+        Some(req) => req,
+    };
+
     if let MachineLastRebootRequestedMode::PowerOff = last_reboot_requested.mode {
         // PowerOn the host.
         tracing::info!(
@@ -3686,18 +3710,16 @@ pub async fn trigger_reboot_if_needed(
             target.id,
             host.id,
         );
-        let basetime = host
-            .last_reboot_requested
-            .as_ref()
-            .map(|x| x.time)
-            .unwrap_or(host.state.version.timestamp());
 
-        if wait(&basetime, reachability_params.power_down_wait) {
+        if wait(
+            &last_reboot_requested.time,
+            reachability_params.power_down_wait,
+        ) {
             return Ok(RebootStatus {
                 increase_retry_count: false,
                 status: format!(
                     "Waiting for host to power off. Next check at {}",
-                    basetime + reachability_params.power_down_wait
+                    last_reboot_requested.time + reachability_params.power_down_wait
                 ),
             });
         }
@@ -3829,7 +3851,11 @@ pub async fn trigger_reboot_if_needed(
                 )
             };
 
-            tracing::info!("Machine {}: {status}", target.id,);
+            tracing::info!(machine_id=%target.id,
+                "triggered reboot for machine in managed-host state {}: {}",
+                state.managed_state,
+                status,
+            );
 
             Ok(RebootStatus {
                 increase_retry_count: true,
@@ -3921,40 +3947,6 @@ fn check_host_health_for_alerts(state: &ManagedHostStateSnapshot) -> Result<(), 
         true => Err(StateHandlerError::HealthProbeAlert),
         false => Ok(()),
     }
-}
-
-async fn reboot_if_needed(
-    state: &ManagedHostStateSnapshot,
-    machine: &Machine,
-    reachability_params: &ReachabilityParams,
-    services: &StateHandlerServices,
-    txn: &mut PgConnection,
-) -> Result<RebootStatus, StateHandlerError> {
-    let reboot_status = trigger_reboot_if_needed(
-        machine,
-        &state.clone(),
-        None,
-        reachability_params,
-        services,
-        txn,
-    )
-    .await
-    .map_err(|e| {
-        StateHandlerError::GenericError(eyre!(
-            "failed to trigger reboot for DPU {}: {e}",
-            machine.id
-        ))
-    })?;
-
-    if reboot_status.increase_retry_count {
-        tracing::info!(%machine.id,
-            "triggered reboot for machine in managed-host state {}: {}",
-            state.managed_state,
-            reboot_status.status
-        );
-    }
-
-    Ok(reboot_status)
 }
 
 async fn handler_host_lockdown(
@@ -4631,6 +4623,7 @@ impl StateHandler for HostMachineStateHandler {
                                                 machine_validation_context: Some(
                                                     "Discovery".to_string(),
                                                 ),
+                                                ..BomValidatingContext::default()
                                             },
                                         ),
                                     };
