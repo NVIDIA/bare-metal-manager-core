@@ -499,6 +499,13 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub dpu_up_threshold: Duration,
+    /// Duration after which a host is considered unhealthy if scout hasn't reported back
+    #[serde(
+        default = "MachineStateControllerConfig::scout_reporting_timeout_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub scout_reporting_timeout: Duration,
 }
 
 impl MachineStateControllerConfig {
@@ -517,6 +524,10 @@ impl MachineStateControllerConfig {
     pub fn dpu_up_threshold_default() -> Duration {
         Duration::minutes(5)
     }
+
+    fn scout_reporting_timeout_default() -> Duration {
+        Duration::minutes(5)
+    }
 }
 
 impl Default for MachineStateControllerConfig {
@@ -527,6 +538,8 @@ impl Default for MachineStateControllerConfig {
             power_down_wait: MachineStateControllerConfig::power_down_wait_default(),
             failure_retry_time: MachineStateControllerConfig::failure_retry_time_default(),
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
+            scout_reporting_timeout: MachineStateControllerConfig::scout_reporting_timeout_default(
+            ),
         }
     }
 }
@@ -2254,6 +2267,7 @@ mod tests {
             power_down_wait: Duration::seconds(10),
             failure_retry_time: Duration::minutes(90),
             dpu_up_threshold: Duration::weeks(1),
+            scout_reporting_timeout: Duration::minutes(5),
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -2291,6 +2305,7 @@ mod tests {
                 power_down_wait: Duration::seconds(10),
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
+                scout_reporting_timeout: Duration::minutes(5),
             }
         );
     }
@@ -2309,6 +2324,7 @@ mod tests {
                 power_down_wait: Duration::seconds(10),
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
+                scout_reporting_timeout: Duration::minutes(5),
             }
         );
     }
@@ -2527,6 +2543,7 @@ mod tests {
                 power_down_wait: Duration::seconds(17),
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
+                scout_reporting_timeout: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -2675,6 +2692,7 @@ mod tests {
                 power_down_wait: Duration::seconds(13),
                 failure_retry_time: Duration::minutes(31),
                 dpu_up_threshold: Duration::minutes(33),
+                scout_reporting_timeout: Duration::minutes(20),
             }
         );
         assert_eq!(
@@ -2898,6 +2916,7 @@ mod tests {
                 power_down_wait: Duration::seconds(17),
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
+                scout_reporting_timeout: Duration::minutes(20)
             }
         );
         assert_eq!(

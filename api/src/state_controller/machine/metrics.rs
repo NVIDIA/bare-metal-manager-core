@@ -62,6 +62,8 @@ pub struct MachineMetrics {
     pub is_host_bios_password_set: bool,
     /// The last machine validation list ((machine_id, context), status)
     pub last_machine_validation_list: HashMap<(String, String), i32>,
+    /// Machine ID if this host has a scout heartbeat timeout
+    pub host_with_scout_heartbeat_timeout: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -97,6 +99,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub hosts_by_sku: HashMap<(String, String), usize>,
     pub hosts_with_bios_password_set: usize,
     pub last_machine_validation_list: HashMap<(String, String), i32>,
+    pub hosts_with_scout_heartbeat_timeout: HashSet<String>,
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
@@ -581,6 +584,27 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .build()
         };
         {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_with_scout_heartbeat_timeout")
+                .with_description("Scout heartbeat timeout status for hosts")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for machine_id in &metrics.hosts_with_scout_heartbeat_timeout {
+                            observer.observe(
+                                1u64,
+                                &[
+                                    attrs,
+                                    &[KeyValue::new("host_machine_id", machine_id.clone())],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+        {
             let metrics = shared_metrics;
             meter
                 .u64_observable_gauge("forge_machine_validation_tests_on_machines")
@@ -638,6 +662,12 @@ impl MetricsEmitter for MachineMetricsEmitter {
         // The object_metrics.is_host_bios_password_set bool cast as usize will translate to 0 or 1
         iteration_metrics.hosts_with_bios_password_set +=
             object_metrics.is_host_bios_password_set as usize;
+
+        if let Some(machine_id) = &object_metrics.host_with_scout_heartbeat_timeout {
+            iteration_metrics
+                .hosts_with_scout_heartbeat_timeout
+                .insert(machine_id.clone());
+        }
 
         if let Some(tenant) = object_metrics.in_use_by_tenant.as_ref() {
             *iteration_metrics
@@ -808,6 +838,7 @@ mod tests {
                 last_machine_validation_list: HashMap::new(),
                 sku: None,
                 sku_device_type: None,
+                host_with_scout_heartbeat_timeout: None,
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -863,6 +894,7 @@ mod tests {
                 )]),
                 sku: Some("SkuA".to_string()),
                 sku_device_type: Some("DeviceTypeA".to_string()),
+                host_with_scout_heartbeat_timeout: Some("machine_b".to_string()),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -894,6 +926,7 @@ mod tests {
                 last_machine_validation_list: HashMap::new(),
                 sku: Some("SkuA".to_string()),
                 sku_device_type: Some("DeviceTypeA".to_string()),
+                host_with_scout_heartbeat_timeout: None,
             },
             MachineMetrics {
                 num_gpus: 1,
@@ -935,6 +968,7 @@ mod tests {
                 last_machine_validation_list: HashMap::new(),
                 sku: Some("SkuB".to_string()),
                 sku_device_type: Some("DeviceTypeA".to_string()),
+                host_with_scout_heartbeat_timeout: Some("machine_d".to_string()),
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -1000,6 +1034,7 @@ mod tests {
                 last_machine_validation_list: HashMap::new(),
                 sku: Some("SkuC".to_string()),
                 sku_device_type: Some("DeviceTypeC".to_string()),
+                host_with_scout_heartbeat_timeout: None,
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -1052,6 +1087,7 @@ mod tests {
                 last_machine_validation_list: HashMap::new(),
                 sku: Some("SkuC".to_string()),
                 sku_device_type: Some("DeviceTypeC".to_string()),
+                host_with_scout_heartbeat_timeout: Some("machine_f".to_string()),
             },
         ];
 
@@ -1087,6 +1123,14 @@ mod tests {
         );
         assert_eq!(iteration_metrics.hosts_usable, 3);
         assert_eq!(iteration_metrics.hosts_with_bios_password_set, 5);
+        assert_eq!(
+            iteration_metrics.hosts_with_scout_heartbeat_timeout,
+            HashSet::from_iter([
+                "machine_b".to_string(),
+                "machine_d".to_string(),
+                "machine_f".to_string(),
+            ])
+        );
         assert_eq!(iteration_metrics.gpus_usable, 3);
         assert_eq!(iteration_metrics.gpus_total, 11);
         assert_eq!(iteration_metrics.dpus_up, 6);

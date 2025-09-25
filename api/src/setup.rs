@@ -540,6 +540,11 @@ pub async fn initialize_and_start_controllers(
                 .dpu_wait_time(carbide_config.machine_state_controller.dpu_wait_time)
                 .power_down_wait(carbide_config.machine_state_controller.power_down_wait)
                 .failure_retry_time(carbide_config.machine_state_controller.failure_retry_time)
+                .scout_reporting_timeout(
+                    carbide_config
+                        .machine_state_controller
+                        .scout_reporting_timeout,
+                )
                 .hardware_models(carbide_config.get_firmware_config())
                 .firmware_downloader(&downloader)
                 .attestation_enabled(carbide_config.attestation_enabled)

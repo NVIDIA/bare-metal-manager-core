@@ -109,6 +109,7 @@ pub struct ReachabilityParams {
     pub dpu_wait_time: chrono::Duration,
     pub power_down_wait: chrono::Duration,
     pub failure_retry_time: chrono::Duration,
+    pub scout_reporting_timeout: chrono::Duration,
 }
 
 /// Parameters used by the HostStateMachineHandler.
@@ -175,6 +176,7 @@ impl MachineStateHandlerBuilder {
                 dpu_wait_time: chrono::Duration::zero(),
                 power_down_wait: chrono::Duration::zero(),
                 failure_retry_time: chrono::Duration::zero(),
+                scout_reporting_timeout: chrono::Duration::zero(),
             },
             firmware_downloader: None,
             no_firmware_update_reset_retries: false,
@@ -249,6 +251,11 @@ impl MachineStateHandlerBuilder {
 
     pub fn failure_retry_time(mut self, failure_retry_time: chrono::Duration) -> Self {
         self.reachability_params.failure_retry_time = failure_retry_time;
+        self
+    }
+
+    pub fn scout_reporting_timeout(mut self, scout_reporting_timeout: chrono::Duration) -> Self {
+        self.reachability_params.scout_reporting_timeout = scout_reporting_timeout;
         self
     }
 
@@ -677,6 +684,18 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::Ready => {
+                // Check if scout is running. If not, emit metric.
+                if let Some(last_scout_contact) = mh_snapshot.host_snapshot.last_scout_contact_time
+                {
+                    let since_last_contact = Utc::now().signed_duration_since(last_scout_contact);
+                    let timeout_threshold = self.reachability_params.scout_reporting_timeout;
+
+                    if since_last_contact > timeout_threshold {
+                        ctx.metrics.host_with_scout_heartbeat_timeout =
+                            Some(host_machine_id.to_string());
+                    }
+                }
+
                 // Check if instance to be created.
                 if mh_snapshot.instance.is_some() {
                     // Instance is requested by user. Let's configure it.
