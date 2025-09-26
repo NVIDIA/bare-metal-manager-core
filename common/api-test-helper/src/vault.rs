@@ -50,12 +50,11 @@ pub async fn start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
         let mut sender = Some(token_tx);
         while let Some(line) = lines.next_line().await? {
             let mut parts = line.trim().split(':');
-            if let Some(left) = parts.next() {
-                if left == ROOT_TOKEN {
-                    if let Some(sender) = sender.take() {
-                        sender.send(parts.next().unwrap().to_string()).ok();
-                    }
-                }
+            if let Some(left) = parts.next()
+                && left == ROOT_TOKEN
+                && let Some(sender) = sender.take()
+            {
+                sender.send(parts.next().unwrap().to_string()).ok();
             }
             // there's no logger so can't use tracing
             println!("{line}");

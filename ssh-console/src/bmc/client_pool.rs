@@ -153,9 +153,9 @@ impl BmcConnectionStore {
                 .map(|session_handle| session_handle.subscribe(metrics))
                 .ok_or_else(|| GetConnectionError::NoMachineWithInstanceId { instance_id })
         } else {
-            return Err(InvalidMachineId {
+            Err(InvalidMachineId {
                 machine_or_instance_id: machine_or_instance_id.to_owned(),
-            });
+            })
         }
     }
 }

@@ -125,11 +125,10 @@ impl SshServer {
                             let handler = self.new_client(socket.peer_addr().ok());
 
                             tokio::spawn(async move {
-                                if russh_config.nodelay {
-                                    if let Err(error) = socket.set_nodelay(true) {
+                                if russh_config.nodelay
+                                    && let Err(error) = socket.set_nodelay(true) {
                                         tracing::warn!(%error, "set_nodelay() failed");
                                     }
-                                }
 
                                 let session = match run_stream(russh_config, socket, handler).await {
                                     Ok(s) => s,

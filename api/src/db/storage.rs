@@ -169,12 +169,12 @@ impl StoragePool {
         let query = "SELECT * from storage_pools l {where}".to_string();
         let mut where_clause = String::new();
         let mut filter = String::new();
-        if cluster_id.is_some() {
+        if let Some(cluster_id) = cluster_id {
             where_clause = "WHERE l.cluster_id=$1".to_string();
-            filter = cluster_id.unwrap().to_string();
-        } else if tenant_organization_id.is_some() {
+            filter = cluster_id.to_string();
+        } else if let Some(tenant_organization_id) = tenant_organization_id {
             where_clause = "WHERE l.organization_id=$1".to_string();
-            filter = tenant_organization_id.unwrap().to_string();
+            filter = tenant_organization_id.to_string();
         }
         if filter.is_empty() {
             let pools = sqlx::query_as(&query.replace("{where}", ""))
@@ -500,9 +500,9 @@ impl OsImage {
         let mut where_clause = String::new();
         let mut filter = String::new();
 
-        if tenant_organization_id.is_some() {
+        if let Some(tenant_organization_id) = tenant_organization_id {
             where_clause = "WHERE l.organization_id=$1".to_string();
-            filter = tenant_organization_id.unwrap().to_string();
+            filter = tenant_organization_id.to_string();
         }
 
         if filter.is_empty() {

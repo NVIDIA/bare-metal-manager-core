@@ -487,7 +487,7 @@ impl IpmitoolMessageProxy {
     }
 
     // output_buf is a 4096-byte array, get the output up to the first null terminator.
-    fn output_buf_str(&self) -> Cow<str> {
+    fn output_buf_str(&'_ self) -> Cow<'_, str> {
         if let Some(null_idx) = self.output_buf.iter().position(|c| *c == b'\0') {
             String::from_utf8_lossy(&self.output_buf[0..null_idx])
         } else {

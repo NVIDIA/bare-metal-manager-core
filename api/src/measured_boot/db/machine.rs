@@ -150,12 +150,11 @@ pub async fn get_measurement_bundle_state(
     machine_id: &MachineId,
 ) -> eyre::Result<Option<MeasurementBundleState>> {
     let result = get_latest_journal_for_id(&mut *txn, *machine_id).await?;
-    if let Some(journal_record) = result {
-        if let Some(bundle_id) = journal_record.bundle_id {
-            if let Some(bundle) = get_measurement_bundle_by_id(txn, bundle_id).await? {
-                return Ok(Some(bundle.state));
-            }
-        }
+    if let Some(journal_record) = result
+        && let Some(bundle_id) = journal_record.bundle_id
+        && let Some(bundle) = get_measurement_bundle_by_id(txn, bundle_id).await?
+    {
+        return Ok(Some(bundle.state));
     }
     Ok(None)
 }

@@ -228,7 +228,7 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, CarbideEr
         .await
         .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
-    find(txn, &[sku.id.clone()])
+    find(txn, std::slice::from_ref(&sku.id))
         .await?
         .pop()
         .ok_or_else(|| CarbideError::NotFoundError {

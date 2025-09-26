@@ -502,21 +502,21 @@ pub async fn auth_oauth2(
     }
 
     // If it exists, do we still want to accept it?
-    if let Some(c) = cookiejar.get("sid").map(|cookie| cookie.value().to_owned()) {
-        if let Ok(expiraton_timestamp) = c.parse::<u64>() {
-            let now_seconds = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| {
-                    tracing::error!(%e, "failed to get system time for oauth2 expiration check");
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?
-                .as_secs();
+    if let Some(c) = cookiejar.get("sid").map(|cookie| cookie.value().to_owned())
+        && let Ok(expiraton_timestamp) = c.parse::<u64>()
+    {
+        let now_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| {
+                tracing::error!(%e, "failed to get system time for oauth2 expiration check");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .as_secs();
 
-            // Still valid?  Let'em pass through to where they wanted
-            // to go.
-            if now_seconds < expiraton_timestamp {
-                return Ok(next.run(req).await);
-            }
+        // Still valid?  Let'em pass through to where they wanted
+        // to go.
+        if now_seconds < expiraton_timestamp {
+            return Ok(next.run(req).await);
         }
     }
 

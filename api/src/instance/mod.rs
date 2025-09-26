@@ -342,7 +342,7 @@ pub async fn allocate_instance(
         // a row-level lock on it if it exists.
         if network_security_group::find_by_ids(
             &mut txn,
-            &[nsg_id.clone()],
+            std::slice::from_ref(nsg_id),
             Some(&request.config.tenant.tenant_organization_id),
             true,
         )

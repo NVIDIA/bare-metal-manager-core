@@ -183,11 +183,11 @@ impl DpuMachine {
     ) -> bool {
         // If the dpu is up, and if anyone is waiting for the current state to be
         // reached, notify them.
-        if self.live_state.read().unwrap().is_up {
-            if let Some(waiters) = self.state_waiters.remove(&self.api_state) {
-                for waiter in waiters.into_iter() {
-                    _ = waiter.send(());
-                }
+        if self.live_state.read().unwrap().is_up
+            && let Some(waiters) = self.state_waiters.remove(&self.api_state)
+        {
+            for waiter in waiters.into_iter() {
+                _ = waiter.send(());
             }
         }
 
@@ -283,8 +283,7 @@ impl DpuMachine {
             .unwrap()
             .observed_machine_id
             .is_none()
-        {
-            if let Ok(Some(machine_id)) = self
+            && let Ok(Some(machine_id)) = self
                 .app_context
                 .forge_api_client
                 .identify_serial(IdentifySerialRequest {
@@ -293,10 +292,9 @@ impl DpuMachine {
                 })
                 .await
                 .map(|r| r.machine_id)
-            {
-                tracing::trace!("dpu's machine id: {}", machine_id);
-                self.live_state.write().unwrap().observed_machine_id = Some(machine_id);
-            }
+        {
+            tracing::trace!("dpu's machine id: {}", machine_id);
+            self.live_state.write().unwrap().observed_machine_id = Some(machine_id);
         }
 
         result

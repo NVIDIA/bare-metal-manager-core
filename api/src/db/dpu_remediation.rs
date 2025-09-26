@@ -291,10 +291,10 @@ impl Remediation {
 
             let attempted_so_far = remediations_applied.len() as i32;
             if attempted_so_far < max_attempts {
-                if let Some(last_attempted) = remediations_applied.first() {
-                    if last_attempted.succeeded {
-                        continue;
-                    }
+                if let Some(last_attempted) = remediations_applied.first()
+                    && last_attempted.succeeded
+                {
+                    continue;
                 }
                 return Ok(Some(remediation));
             }

@@ -40,32 +40,32 @@ impl VpcPrefix {
         let sub_prefixes = NetworkPrefix::containing_prefixes(txn, &nw_prefixes).await?;
 
         for vpc_prefix in prefixes {
-            if let IpNetwork::V4(ipv4_network) = vpc_prefix.prefix {
-                if let Some(used_prefixes) = sub_prefixes.get(&vpc_prefix.prefix) {
-                    let ip_net = forge_network::ip::prefix::Ipv4Net::new(
-                        ipv4_network.network(),
-                        ipv4_network.prefix(),
+            if let IpNetwork::V4(ipv4_network) = vpc_prefix.prefix
+                && let Some(used_prefixes) = sub_prefixes.get(&vpc_prefix.prefix)
+            {
+                let ip_net = forge_network::ip::prefix::Ipv4Net::new(
+                    ipv4_network.network(),
+                    ipv4_network.prefix(),
+                )
+                .map_err(|err| {
+                    DatabaseError::new(
+                        "vpc_prefix_update_stats_ipv4_conversion",
+                        sqlx::Error::Protocol(err.to_string()),
                     )
+                })?;
+
+                let total_31_segments = ip_net
+                    .subnets(31)
                     .map_err(|err| {
                         DatabaseError::new(
-                            "vpc_prefix_update_stats_ipv4_conversion",
+                            "vpc_prefix_update_stats_subnet_count",
                             sqlx::Error::Protocol(err.to_string()),
                         )
-                    })?;
-
-                    let total_31_segments = ip_net
-                        .subnets(31)
-                        .map_err(|err| {
-                            DatabaseError::new(
-                                "vpc_prefix_update_stats_subnet_count",
-                                sqlx::Error::Protocol(err.to_string()),
-                            )
-                        })?
-                        .collect::<Vec<forge_network::ip::prefix::Ipv4Net>>();
-                    vpc_prefix.total_31_segments = total_31_segments.len() as u32;
-                    vpc_prefix.available_31_segments =
-                        vpc_prefix.total_31_segments - used_prefixes.len() as u32;
-                }
+                    })?
+                    .collect::<Vec<forge_network::ip::prefix::Ipv4Net>>();
+                vpc_prefix.total_31_segments = total_31_segments.len() as u32;
+                vpc_prefix.available_31_segments =
+                    vpc_prefix.total_31_segments - used_prefixes.len() as u32;
             }
         }
 

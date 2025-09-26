@@ -1058,10 +1058,15 @@ pub(crate) async fn update_instance_config(
     {
         // Query to check the validity of the NSG ID but to also grab
         // a row-level lock on it if it exists.
-        if network_security_group::find_by_ids(&mut txn, &[nsg_id.clone()], Some(tenant_org), true)
-            .await?
-            .pop()
-            .is_none()
+        if network_security_group::find_by_ids(
+            &mut txn,
+            std::slice::from_ref(nsg_id),
+            Some(tenant_org),
+            true,
+        )
+        .await?
+        .pop()
+        .is_none()
         {
             return Err(CarbideError::FailedPrecondition(format!(
                 "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",

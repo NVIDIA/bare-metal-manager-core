@@ -49,10 +49,10 @@ impl DpuMachineUpdate {
             .into_iter()
             .filter_map(|outdated_host| {
                 // If the limit on scheduled host updates is reached, skip creating more
-                if let Some(limit) = limit {
-                    if scheduled_host_updates >= limit {
-                        return None;
-                    }
+                if let Some(limit) = limit
+                    && scheduled_host_updates >= limit
+                {
+                    return None;
                 }
                 if !outdated_host.is_available_for_updates() {
                     return None;

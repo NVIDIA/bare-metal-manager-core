@@ -604,7 +604,7 @@ pub struct ExpectedMachineJson {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ExpectedMachineMetadata {
+pub struct _ExpectedMachineMetadata {
     pub name: Option<String>,
     pub description: Option<String>,
     pub labels: HashMap<String, Option<String>>,
@@ -709,10 +709,10 @@ impl UpdateExpectedMachine {
         {
             return Err("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string());
         }
-        if let Some(dpu_serials) = self.fallback_dpu_serial_numbers.clone() {
-            if has_duplicates(&dpu_serials) {
-                return Err("Duplicate dpu serial numbers found".to_string());
-            }
+        if let Some(dpu_serials) = self.fallback_dpu_serial_numbers.clone()
+            && has_duplicates(&dpu_serials)
+        {
+            return Err("Duplicate dpu serial numbers found".to_string());
         }
         Ok(())
     }

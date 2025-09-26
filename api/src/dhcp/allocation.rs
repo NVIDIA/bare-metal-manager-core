@@ -265,10 +265,10 @@ fn build_allocated_networks(
     // First, if the segment prefix has a configured gateway (which comes
     // from the `network_prefixes` table), make sure to add the gateway
     // to already-allocated IPs.
-    if let Some(gateway) = segment_prefix.gateway {
-        if segment_prefix.prefix.contains(gateway) {
-            allocated_ips.push(IpNetwork::new(gateway, 32)?);
-        }
+    if let Some(gateway) = segment_prefix.gateway
+        && segment_prefix.prefix.contains(gateway)
+    {
+        allocated_ips.push(IpNetwork::new(gateway, 32)?);
     }
 
     // Next, exclude the first "N" number of addresses in the segment

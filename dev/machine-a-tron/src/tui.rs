@@ -310,41 +310,37 @@ impl Tui {
                 host_logs,
             } = self;
 
-            if list_updated {
-                if let Tab::Machines { list_state, .. } = ui {
-                    items.clear();
+            if list_updated && let Tab::Machines { list_state, .. } = ui {
+                items.clear();
 
-                    for (_uuid, machine) in data.machine_cache.iter() {
-                        items.push(ListItem::new(machine.header()));
-                    }
-                    list_updated = false;
-
-                    let machine_index = list_state.selected();
-                    let (machine_details, logs_fut) = if let Some(machine_index) = machine_index {
-                        data.machine_cache
-                            .iter()
-                            .nth(machine_index)
-                            .map(|(id, m)| {
-                                (m.details(), host_logs.as_ref().map(|h| h.get_logs(*id)))
-                            })
-                            .unwrap_or_default()
-                    } else {
-                        (String::default(), None)
-                    };
-
-                    data.machine_details = machine_details;
-                    data.machine_logs = if let Some(logs_fut) = logs_fut {
-                        logs_fut
-                            .await
-                            .iter()
-                            .cloned()
-                            .rev()
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    } else {
-                        String::default()
-                    };
+                for (_uuid, machine) in data.machine_cache.iter() {
+                    items.push(ListItem::new(machine.header()));
                 }
+                list_updated = false;
+
+                let machine_index = list_state.selected();
+                let (machine_details, logs_fut) = if let Some(machine_index) = machine_index {
+                    data.machine_cache
+                        .iter()
+                        .nth(machine_index)
+                        .map(|(id, m)| (m.details(), host_logs.as_ref().map(|h| h.get_logs(*id))))
+                        .unwrap_or_default()
+                } else {
+                    (String::default(), None)
+                };
+
+                data.machine_details = machine_details;
+                data.machine_logs = if let Some(logs_fut) = logs_fut {
+                    logs_fut
+                        .await
+                        .iter()
+                        .cloned()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    String::default()
+                };
             }
 
             let list = List::new(items.clone())

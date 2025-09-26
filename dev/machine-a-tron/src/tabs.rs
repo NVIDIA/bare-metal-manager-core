@@ -87,10 +87,10 @@ impl Tab {
             }
             // If it doesn't handle, then we continue handling.
         }
-        if let Tab::Overrides(state) = self {
-            if state.handle_key(terminal, data, key) {
-                return (true, false);
-            }
+        if let Tab::Overrides(state) = self
+            && state.handle_key(terminal, data, key)
+        {
+            return (true, false);
         }
 
         match key.code {

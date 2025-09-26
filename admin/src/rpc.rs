@@ -81,10 +81,10 @@ impl ApiClient {
         // Note: The field going forward is `associated_dpu_machine_ids`, but if we're talking to
         // an older version of the API which doesn't support it, fall back on building our own Vec
         // out of the `associated_dpu_machine_id` field.
-        if machine_details.associated_dpu_machine_ids.is_empty() {
-            if let Some(ref dpu_id) = machine_details.associated_dpu_machine_id {
-                machine_details.associated_dpu_machine_ids = vec![*dpu_id];
-            }
+        if machine_details.associated_dpu_machine_ids.is_empty()
+            && let Some(ref dpu_id) = machine_details.associated_dpu_machine_id
+        {
+            machine_details.associated_dpu_machine_ids = vec![*dpu_id];
         }
 
         Ok(machine_details)
@@ -1101,7 +1101,9 @@ impl ApiClient {
         &self,
         keyset_id: rpc::TenantKeysetIdentifier,
     ) -> CarbideCliResult<rpc::TenantKeySetList> {
-        let keysets = self.get_keysets_by_ids(&[keyset_id.clone()]).await?;
+        let keysets = self
+            .get_keysets_by_ids(std::slice::from_ref(&keyset_id))
+            .await?;
 
         Ok(keysets)
     }

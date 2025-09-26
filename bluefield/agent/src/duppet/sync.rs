@@ -179,10 +179,10 @@ pub fn create_file(
 
     // Make sure the parent directory has been
     // created before trying to put the file in it.
-    if !options.dry_run {
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
+    if !options.dry_run
+        && let Some(parent) = dest_path.parent()
+    {
+        fs::create_dir_all(parent)?;
     }
 
     write_file_content(dest_path, &file_spec.content, options)?;

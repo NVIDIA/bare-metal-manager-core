@@ -594,43 +594,42 @@ impl MachineStateHandler {
                 &mh_snapshot.dpu_snapshots,
                 mh_snapshot.host_snapshot.state.version,
             );
-            if restart_reprov {
-                if let Some(next_state) = self
+            if restart_reprov
+                && let Some(next_state) = self
                     .start_dpu_reprovision(&mh_state, mh_snapshot, ctx, txn, host_machine_id)
                     .await?
-                {
-                    return Ok(transition!(next_state));
-                }
+            {
+                return Ok(transition!(next_state));
             }
         }
 
         // Don't update failed state failure cause everytime. Record first failure cause only,
         // otherwise first failure cause will be overwritten.
-        if !matches!(mh_state, ManagedHostState::Failed { .. }) {
-            if let Some((machine_id, details)) = get_failed_state(mh_snapshot) {
-                tracing::error!(
-                    %machine_id,
-                    "ManagedHost {}/{} (failed machine: {}) is moved to Failed state with cause: {:?}",
-                    mh_snapshot.host_snapshot.id,
-                    get_display_ids(&mh_snapshot.dpu_snapshots),
-                    machine_id,
-                    details
-                );
-                let next_state = match mh_state {
-                    ManagedHostState::Assigned { .. } => ManagedHostState::Assigned {
-                        instance_state: InstanceState::Failed {
-                            details,
-                            machine_id,
-                        },
-                    },
-                    _ => ManagedHostState::Failed {
+        if !matches!(mh_state, ManagedHostState::Failed { .. })
+            && let Some((machine_id, details)) = get_failed_state(mh_snapshot)
+        {
+            tracing::error!(
+                %machine_id,
+                "ManagedHost {}/{} (failed machine: {}) is moved to Failed state with cause: {:?}",
+                mh_snapshot.host_snapshot.id,
+                get_display_ids(&mh_snapshot.dpu_snapshots),
+                machine_id,
+                details
+            );
+            let next_state = match mh_state {
+                ManagedHostState::Assigned { .. } => ManagedHostState::Assigned {
+                    instance_state: InstanceState::Failed {
                         details,
                         machine_id,
-                        retry_count: 0,
                     },
-                };
-                return Ok(transition!(next_state));
-            }
+                },
+                _ => ManagedHostState::Failed {
+                    details,
+                    machine_id,
+                    retry_count: 0,
+                },
+            };
+            return Ok(transition!(next_state));
         }
 
         match &mh_state {
@@ -877,30 +876,29 @@ impl MachineStateHandler {
 
                 match cleanup_state {
                     CleanupState::Init => {
-                        if mh_snapshot.host_snapshot.bmc_vendor().is_dell() {
-                            if let Some(boss_controller_id) = redfish_client
+                        if mh_snapshot.host_snapshot.bmc_vendor().is_dell()
+                            && let Some(boss_controller_id) = redfish_client
                                 .get_boss_controller()
                                 .await
                                 .map_err(|e| StateHandlerError::RedfishError {
                                     operation: "get_boss_controller",
                                     error: e,
                                 })?
-                            {
-                                let next_state: ManagedHostState =
-                                    ManagedHostState::WaitingForCleanup {
-                                        cleanup_state: CleanupState::SecureEraseBoss {
-                                            secure_erase_boss_context: SecureEraseBossContext {
-                                                boss_controller_id,
-                                                secure_erase_jid: None,
-                                                secure_erase_boss_state:
-                                                    SecureEraseBossState::UnlockHost,
-                                                iteration: Some(0),
-                                            },
+                        {
+                            let next_state: ManagedHostState =
+                                ManagedHostState::WaitingForCleanup {
+                                    cleanup_state: CleanupState::SecureEraseBoss {
+                                        secure_erase_boss_context: SecureEraseBossContext {
+                                            boss_controller_id,
+                                            secure_erase_jid: None,
+                                            secure_erase_boss_state:
+                                                SecureEraseBossState::UnlockHost,
+                                            iteration: Some(0),
                                         },
-                                    };
+                                    },
+                                };
 
-                                return Ok(transition!(next_state));
-                            }
+                            return Ok(transition!(next_state));
                         }
 
                         let next_state: ManagedHostState = ManagedHostState::WaitingForCleanup {
@@ -1639,63 +1637,30 @@ async fn handle_restart_verification(
     const MAX_VERIFICATION_ATTEMPTS: i32 = 2;
 
     // Check host first
-    if let Some(last_reboot) = &mh_snapshot.host_snapshot.last_reboot_requested {
-        if last_reboot.restart_verified == Some(false) {
-            let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
+    if let Some(last_reboot) = &mh_snapshot.host_snapshot.last_reboot_requested
+        && last_reboot.restart_verified == Some(false)
+    {
+        let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
 
-            let host_redfish_client = ctx
-                .services
-                .redfish_client_pool
-                .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
-                .await?;
+        let host_redfish_client = ctx
+            .services
+            .redfish_client_pool
+            .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+            .await?;
 
-            let restart_found = match check_restart_in_logs(
-                host_redfish_client.as_ref(),
-                last_reboot.time,
-            )
-            .await
-            {
-                Ok(found) => found,
-                Err(err) => {
-                    tracing::warn!(
-                        "Failed to fetch BMC logs for host {} during force-restart verification: {}",
-                        mh_snapshot.host_snapshot.id,
-                        err
-                    );
-                    update_restart_verification_status(
-                        &mh_snapshot.host_snapshot.id,
-                        last_reboot.clone(),
-                        None,
-                        0,
-                        txn,
-                    )
-                    .await?;
-                    return Ok(None); // Skip verification, continue with state transition
-                }
-            };
-
-            if restart_found {
-                update_restart_verification_status(
-                    &mh_snapshot.host_snapshot.id,
-                    last_reboot.clone(),
-                    Some(true),
-                    0,
-                    txn,
-                )
-                .await?;
-                tracing::info!("Restart verified for host {}", mh_snapshot.host_snapshot.id);
-                return Ok(None);
-            }
-
-            if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
-                host_redfish_client
-                    .power(SystemPowerControl::ForceRestart)
-                    .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "restart host",
-                        error: e,
-                    })?;
-
+        let restart_found = match check_restart_in_logs(
+            host_redfish_client.as_ref(),
+            last_reboot.time,
+        )
+        .await
+        {
+            Ok(found) => found,
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to fetch BMC logs for host {} during force-restart verification: {}",
+                    mh_snapshot.host_snapshot.id,
+                    err
+                );
                 update_restart_verification_status(
                     &mh_snapshot.host_snapshot.id,
                     last_reboot.clone(),
@@ -1704,115 +1669,142 @@ async fn handle_restart_verification(
                     txn,
                 )
                 .await?;
-
-                tracing::info!(
-                    "Issued force-restart for host {} after {} failed verifications",
-                    mh_snapshot.host_snapshot.id,
-                    verification_attempts
-                );
-                return Ok(None);
+                return Ok(None); // Skip verification, continue with state transition
             }
+        };
+
+        if restart_found {
+            update_restart_verification_status(
+                &mh_snapshot.host_snapshot.id,
+                last_reboot.clone(),
+                Some(true),
+                0,
+                txn,
+            )
+            .await?;
+            tracing::info!("Restart verified for host {}", mh_snapshot.host_snapshot.id);
+            return Ok(None);
+        }
+
+        if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
+            host_redfish_client
+                .power(SystemPowerControl::ForceRestart)
+                .await
+                .map_err(|e| StateHandlerError::RedfishError {
+                    operation: "restart host",
+                    error: e,
+                })?;
 
             update_restart_verification_status(
                 &mh_snapshot.host_snapshot.id,
                 last_reboot.clone(),
-                Some(false),
-                verification_attempts + 1,
+                None,
+                0,
                 txn,
             )
             .await?;
 
-            return Ok(Some(wait!(format!(
-                "Waiting for {} force-restart verification - attempt {}/{}",
+            tracing::info!(
+                "Issued force-restart for host {} after {} failed verifications",
                 mh_snapshot.host_snapshot.id,
-                verification_attempts + 1,
-                MAX_VERIFICATION_ATTEMPTS
-            ))));
+                verification_attempts
+            );
+            return Ok(None);
         }
+
+        update_restart_verification_status(
+            &mh_snapshot.host_snapshot.id,
+            last_reboot.clone(),
+            Some(false),
+            verification_attempts + 1,
+            txn,
+        )
+        .await?;
+
+        return Ok(Some(wait!(format!(
+            "Waiting for {} force-restart verification - attempt {}/{}",
+            mh_snapshot.host_snapshot.id,
+            verification_attempts + 1,
+            MAX_VERIFICATION_ATTEMPTS
+        ))));
     }
 
     // Check DPUs
     let mut pending_message = Vec::new();
 
     for dpu in &mh_snapshot.dpu_snapshots {
-        if let Some(last_reboot) = &dpu.last_reboot_requested {
-            if last_reboot.restart_verified == Some(false) {
-                let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
+        if let Some(last_reboot) = &dpu.last_reboot_requested
+            && last_reboot.restart_verified == Some(false)
+        {
+            let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
 
-                let dpu_redfish_client = ctx
-                    .services
-                    .redfish_client_pool
-                    .create_client_from_machine(dpu, txn)
-                    .await?;
+            let dpu_redfish_client = ctx
+                .services
+                .redfish_client_pool
+                .create_client_from_machine(dpu, txn)
+                .await?;
 
-                let restart_found = match check_restart_in_logs(
-                    dpu_redfish_client.as_ref(),
-                    last_reboot.time,
-                )
-                .await
-                {
-                    Ok(found) => found,
-                    Err(err) => {
-                        tracing::warn!(
-                            "Failed to fetch BMC logs for DPU {} during force-restart verification: {}",
-                            dpu.id,
-                            err
-                        );
-                        update_restart_verification_status(
-                            &dpu.id,
-                            last_reboot.clone(),
-                            None,
-                            0,
-                            txn,
-                        )
-                        .await?;
-                        continue; // Skip verification, continue with state transition
-                    }
-                };
-
-                if restart_found {
-                    update_restart_verification_status(
-                        &dpu.id,
-                        last_reboot.clone(),
-                        Some(true),
-                        0,
-                        txn,
-                    )
-                    .await?;
-                    tracing::info!("Restart verified for DPU {}", dpu.id);
-                } else if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
-                    dpu_redfish_client
-                        .power(SystemPowerControl::ForceRestart)
-                        .await
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "reboot dpu",
-                            error: e,
-                        })?;
-
+            let restart_found = match check_restart_in_logs(
+                dpu_redfish_client.as_ref(),
+                last_reboot.time,
+            )
+            .await
+            {
+                Ok(found) => found,
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to fetch BMC logs for DPU {} during force-restart verification: {}",
+                        dpu.id,
+                        err
+                    );
                     update_restart_verification_status(&dpu.id, last_reboot.clone(), None, 0, txn)
                         .await?;
-
-                    tracing::info!(
-                        "Issued force-restart for DPU {} after {} failed verifications",
-                        dpu.id,
-                        verification_attempts
-                    );
-                } else {
-                    update_restart_verification_status(
-                        &dpu.id,
-                        last_reboot.clone(),
-                        Some(false),
-                        verification_attempts + 1,
-                        txn,
-                    )
-                    .await?;
-                    pending_message.push(format!(
-                        "DPU {} force-restart verification - attempt {}/{}",
-                        dpu.id,
-                        verification_attempts + 1,
-                        MAX_VERIFICATION_ATTEMPTS
-                    ));
+                    continue; // Skip verification, continue with state transition
                 }
+            };
+
+            if restart_found {
+                update_restart_verification_status(
+                    &dpu.id,
+                    last_reboot.clone(),
+                    Some(true),
+                    0,
+                    txn,
+                )
+                .await?;
+                tracing::info!("Restart verified for DPU {}", dpu.id);
+            } else if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
+                dpu_redfish_client
+                    .power(SystemPowerControl::ForceRestart)
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "reboot dpu",
+                        error: e,
+                    })?;
+
+                update_restart_verification_status(&dpu.id, last_reboot.clone(), None, 0, txn)
+                    .await?;
+
+                tracing::info!(
+                    "Issued force-restart for DPU {} after {} failed verifications",
+                    dpu.id,
+                    verification_attempts
+                );
+            } else {
+                update_restart_verification_status(
+                    &dpu.id,
+                    last_reboot.clone(),
+                    Some(false),
+                    verification_attempts + 1,
+                    txn,
+                )
+                .await?;
+                pending_message.push(format!(
+                    "DPU {} force-restart verification - attempt {}/{}",
+                    dpu.id,
+                    verification_attempts + 1,
+                    MAX_VERIFICATION_ATTEMPTS
+                ));
             }
         }
     }
@@ -5593,25 +5585,24 @@ fn check_instance_network_synced_and_dpu_healthy(
             .filter(|dpu_machine_id| {
                 if let Some(device) = id_to_device_map.get(dpu_machine_id) {
                     tracing::info!("Found device {} for dpu {}", device, dpu_machine_id);
-                    if let Some(id_vec) = device_to_id_map.get(device) {
-                        if let Some(device_instance) =
+                    if let Some(id_vec) = device_to_id_map.get(device)
+                        && let Some(device_instance) =
                             id_vec.iter().position(|id| id == *dpu_machine_id)
-                        {
-                            tracing::info!(
-                                "Found device_instance {} for dpu {}",
-                                device_instance,
-                                dpu_machine_id
-                            );
-                            let device_locator = DeviceLocator {
-                                device: device.clone(),
-                                device_instance,
-                            };
-                            return instance.config.network.interfaces.iter().any(|i| {
-                                i.device_locator
-                                    .as_ref()
-                                    .is_some_and(|dl| dl == &device_locator)
-                            });
-                        }
+                    {
+                        tracing::info!(
+                            "Found device_instance {} for dpu {}",
+                            device_instance,
+                            dpu_machine_id
+                        );
+                        let device_locator = DeviceLocator {
+                            device: device.clone(),
+                            device_instance,
+                        };
+                        return instance.config.network.interfaces.iter().any(|i| {
+                            i.device_locator
+                                .as_ref()
+                                .is_some_and(|dl| dl == &device_locator)
+                        });
                     }
                 }
                 false
@@ -6556,48 +6547,38 @@ impl HostUpgradeState {
                         // If we have multiple firmware files to be uploaded, do the next one.
                         if let Some(endpoint) =
                             find_explored_refreshed_endpoint(state, machine_id, txn).await?
-                        {
-                            if let Some(fw_info) =
+                            && let Some(fw_info) =
                                 self.parsed_hosts.find_fw_info_for_host(&endpoint)
+                            && let Some(component_info) = fw_info.components.get(firmware_type)
+                            && let Some(selected_firmware) =
+                                component_info.known_firmware.iter().find(|&x| x.default)
+                        {
+                            let firmware_number = firmware_number.unwrap_or(0) + 1;
+                            if firmware_number
+                                < selected_firmware.filenames.len().try_into().unwrap_or(0)
                             {
-                                if let Some(component_info) = fw_info.components.get(firmware_type)
-                                {
-                                    if let Some(selected_firmware) =
-                                        component_info.known_firmware.iter().find(|&x| x.default)
-                                    {
-                                        let firmware_number = firmware_number.unwrap_or(0) + 1;
-                                        if firmware_number
-                                            < selected_firmware
-                                                .filenames
-                                                .len()
-                                                .try_into()
-                                                .unwrap_or(0)
-                                        {
-                                            tracing::info!(
-                                                "Installing {:?} chain step {} on {}",
-                                                selected_firmware,
-                                                firmware_number,
-                                                endpoint.address
-                                            );
+                                tracing::info!(
+                                    "Installing {:?} chain step {} on {}",
+                                    selected_firmware,
+                                    firmware_number,
+                                    endpoint.address
+                                );
 
-                                            return self
-                                                .initiate_host_fw_update(
-                                                    endpoint.address,
-                                                    state,
-                                                    services,
-                                                    FullFirmwareInfo {
-                                                        model: fw_info.model.as_str(),
-                                                        to_install: selected_firmware,
-                                                        component_type: firmware_type,
-                                                        firmware_number: &firmware_number,
-                                                    },
-                                                    scenario,
-                                                    txn,
-                                                )
-                                                .await;
-                                        }
-                                    }
-                                }
+                                return self
+                                    .initiate_host_fw_update(
+                                        endpoint.address,
+                                        state,
+                                        services,
+                                        FullFirmwareInfo {
+                                            model: fw_info.model.as_str(),
+                                            to_install: selected_firmware,
+                                            component_type: firmware_type,
+                                            firmware_number: &firmware_number,
+                                        },
+                                        scenario,
+                                        txn,
+                                    )
+                                    .await;
                             }
                         }
 
@@ -6661,35 +6642,30 @@ impl HostUpgradeState {
                             return Ok(None);
                         };
 
-                        if let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint) {
-                            if let Some(current_version) =
+                        if let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint)
+                            && let Some(current_version) =
                                 endpoint.find_version(&fw_info, *firmware_type)
-                            {
-                                if current_version == final_version {
-                                    tracing::info!(
-                                        "Marking completion of Redfish task of firmware upgrade for {} with missing task",
-                                        &endpoint.address
-                                    );
-                                    return scenario.actual_new_state(
-                                        HostReprovisionState::CheckingFirmwareRepeat,
-                                    );
-                                }
-                            }
+                            && current_version == final_version
+                        {
+                            tracing::info!(
+                                "Marking completion of Redfish task of firmware upgrade for {} with missing task",
+                                &endpoint.address
+                            );
+                            return scenario
+                                .actual_new_state(HostReprovisionState::CheckingFirmwareRepeat);
                         }
 
                         // We have also observed (FORGE-6177) the upgrade somehow disappearing, but working when retried.  If a long time has passed, go back to checking to retry.
-                        if let Some(started_waiting) = started_waiting {
-                            if Utc::now().signed_duration_since(started_waiting)
+                        if let Some(started_waiting) = started_waiting
+                            && Utc::now().signed_duration_since(started_waiting)
                                 > chrono::TimeDelta::minutes(15)
-                            {
-                                tracing::info!(%machine_id,
-                                    "Timed out with missing Redfish task for firmware upgrade for {}, returning to CheckingFirmware",
-                                    &endpoint.address
-                                );
-                                return scenario.actual_new_state(
-                                    HostReprovisionState::CheckingFirmwareRepeat,
-                                );
-                            }
+                        {
+                            tracing::info!(%machine_id,
+                                "Timed out with missing Redfish task for firmware upgrade for {}, returning to CheckingFirmware",
+                                &endpoint.address
+                            );
+                            return scenario
+                                .actual_new_state(HostReprovisionState::CheckingFirmwareRepeat);
                         }
                     }
                     Err(StateHandlerError::RedfishError {
@@ -6747,14 +6723,14 @@ impl HostUpgradeState {
         };
 
         if let Some(power_drains_needed) = power_drains_needed {
-            if let Some(delay_until) = delay_until {
-                if *delay_until > chrono::Utc::now().timestamp() {
-                    tracing::info!(
-                        "Waiting after {last_power_drain_operation:?} of {}",
-                        &endpoint.address
-                    );
-                    return Ok(None);
-                }
+            if let Some(delay_until) = delay_until
+                && *delay_until > chrono::Utc::now().timestamp()
+            {
+                tracing::info!(
+                    "Waiting after {last_power_drain_operation:?} of {}",
+                    &endpoint.address
+                );
+                return Ok(None);
             }
 
             match last_power_drain_operation {
@@ -6932,28 +6908,27 @@ impl HostUpgradeState {
             tracing::debug!("Done waiting for {machine_id} to reach version");
             scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
         } else {
-            if !self.no_firmware_update_reset_retries {
-                if let Some(previous_reset_time) = previous_reset_time {
-                    if previous_reset_time + 30 * 60 <= Utc::now().timestamp() {
-                        tracing::info!(
-                            "Upgrade for {} {:?} has taken more than 30 minutes to report new version; resetting again.",
-                            &endpoint.address,
-                            firmware_type
-                        );
-                        let details = &HostReprovisionState::ResetForNewFirmware {
-                            final_version: final_version.to_string(),
-                            firmware_type: *firmware_type,
-                            power_drains_needed: None,
-                            delay_until: None,
-                            last_power_drain_operation: None,
-                        };
-                        return self
-                            .host_reset_for_new_firmware(
-                                state, services, machine_id, details, scenario, txn,
-                            )
-                            .await;
-                    }
-                }
+            if !self.no_firmware_update_reset_retries
+                && let Some(previous_reset_time) = previous_reset_time
+                && previous_reset_time + 30 * 60 <= Utc::now().timestamp()
+            {
+                tracing::info!(
+                    "Upgrade for {} {:?} has taken more than 30 minutes to report new version; resetting again.",
+                    &endpoint.address,
+                    firmware_type
+                );
+                let details = &HostReprovisionState::ResetForNewFirmware {
+                    final_version: final_version.to_string(),
+                    firmware_type: *firmware_type,
+                    power_drains_needed: None,
+                    delay_until: None,
+                    last_power_drain_operation: None,
+                };
+                return self
+                    .host_reset_for_new_firmware(
+                        state, services, machine_id, details, scenario, txn,
+                    )
+                    .await;
             }
             tracing::info!(
                 "Waiting for {machine_id} {firmware_type:?} to reach version {final_version} currently {current_version}"

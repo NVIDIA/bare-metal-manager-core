@@ -348,7 +348,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .instance_builer(&env)
         .network(interface_network_config_with_devices(
             &[segment_id],
-            &[device_locator.clone()],
+            std::slice::from_ref(&device_locator),
         ))
         .build()
         .await;
@@ -2196,7 +2196,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
         device_instance: 0,
     };
     let mut nw_config =
-        interface_network_config_with_devices(&[segment_id], &[device_locator.clone()]);
+        interface_network_config_with_devices(&[segment_id], std::slice::from_ref(&device_locator));
     for interface in &mut nw_config.interfaces {
         interface.network_details = None;
     }

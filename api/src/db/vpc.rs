@@ -242,10 +242,10 @@ impl Vpc {
         txn: &mut PgConnection,
         api: &Api,
     ) -> Result<(), CarbideError> {
-        if let Some(dpa_vni) = self.dpa_vni {
-            if dpa_vni != 0 {
-                return Ok(());
-            };
+        if let Some(dpa_vni) = self.dpa_vni
+            && dpa_vni != 0
+        {
+            return Ok(());
         };
 
         // VPC does not have dpa_vni associated with it. Allocate an dpa_vni for VPC now.

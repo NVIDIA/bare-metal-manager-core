@@ -626,14 +626,13 @@ async fn get_chassis_pcie_devices(
                     .await;
 
                 // Keep all default PCIE devices. Just remove any of the DPU entries
-                if let Ok(device_bytes) = device_response {
-                    if let Ok(pcie_device) = serde_json::from_slice::<PCIeDevice>(&device_bytes) {
-                        if pcie_device.manufacturer.is_some_and(|manufacturer| {
-                            manufacturer != *"Mellanox Technologies".to_string()
-                        }) {
-                            members.push(member.clone());
-                        }
-                    }
+                if let Ok(device_bytes) = device_response
+                    && let Ok(pcie_device) = serde_json::from_slice::<PCIeDevice>(&device_bytes)
+                    && pcie_device
+                        .manufacturer
+                        .is_some_and(|manufacturer| manufacturer != "Mellanox Technologies")
+                {
+                    members.push(member.clone());
                 }
             }
         }

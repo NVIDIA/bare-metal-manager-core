@@ -158,7 +158,7 @@ impl fmt::Display for BuildVersion<'_> {
 impl<'a> TryFrom<&'a str> for BuildVersion<'a> {
     type Error = eyre::Report;
 
-    fn try_from(s: &str) -> Result<BuildVersion, Self::Error> {
+    fn try_from(s: &'_ str) -> Result<BuildVersion<'_>, Self::Error> {
         if s.is_empty() {
             eyre::bail!("Build version is empty");
         }

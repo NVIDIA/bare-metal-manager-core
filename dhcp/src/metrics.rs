@@ -33,12 +33,12 @@ pub async fn certificate_loop() {
             .expect("config lock poisoned?")
             .metrics
             .clone();
-        if let Some(metrics) = metrics {
-            if let Some(client_expiry) = metrics.forge_client_config.client_cert_expiry() {
-                metrics
-                    .certificate_expiration_value
-                    .store(client_expiry, Ordering::SeqCst);
-            }
+        if let Some(metrics) = metrics
+            && let Some(client_expiry) = metrics.forge_client_config.client_cert_expiry()
+        {
+            metrics
+                .certificate_expiration_value
+                .store(client_expiry, Ordering::SeqCst);
         }
     }
 }

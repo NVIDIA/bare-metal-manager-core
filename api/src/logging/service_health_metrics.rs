@@ -111,7 +111,7 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
             .with_callback(move |observer| {
                 for (name, stats) in rp_stats.lock().unwrap().iter() {
                     let name_attr = KeyValue::new("pool", name.to_string());
-                    observer.observe(stats.free as u64, &[name_attr.clone()]);
+                    observer.observe(stats.free as u64, std::slice::from_ref(&name_attr));
                 }
             })
             .build();

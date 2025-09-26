@@ -132,10 +132,9 @@ exit ||
         // follow the same code path and retrieve the non customer pxe
         if let Some(machine_boot_override) =
             MachineBootOverride::find_optional(txn, interface_id).await?
+            && let Some(custom_pxe) = machine_boot_override.custom_pxe
         {
-            if let Some(custom_pxe) = machine_boot_override.custom_pxe {
-                return Ok(custom_pxe);
-            }
+            return Ok(custom_pxe);
         }
 
         let Some(machine_id) = interface.machine_id else {
@@ -193,19 +192,19 @@ exit ||
         // The second boot enables HBN.  This is handled here when the DPU is
         // waiting for the network install
         if machine.is_dpu() {
-            if let Some(reprov_state) = &machine.current_state().as_reprovision_state(&machine_id) {
-                if matches!(
+            if let Some(reprov_state) = &machine.current_state().as_reprovision_state(&machine_id)
+                && matches!(
                     reprov_state,
                     ReprovisionState::FirmwareUpgrade | ReprovisionState::WaitingForNetworkInstall
-                ) {
-                    return Ok(PxeInstructions::get_pxe_instruction_for_arch(
-                        arch,
-                        interface_id,
-                        interface.mac_address,
-                        console,
-                        machine.id.machine_type(),
-                    ));
-                }
+                )
+            {
+                return Ok(PxeInstructions::get_pxe_instruction_for_arch(
+                    arch,
+                    interface_id,
+                    interface.mac_address,
+                    console,
+                    machine.id.machine_type(),
+                ));
             }
 
             match &machine.current_state() {
@@ -235,12 +234,11 @@ exit ||
             }
         }
 
-        if let Some(hardware_info) = machine.hardware_info.as_ref() {
-            if let Some(dmi_info) = hardware_info.dmi_data.as_ref() {
-                if dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro" {
-                    console = "ttyS1";
-                }
-            }
+        if let Some(hardware_info) = machine.hardware_info.as_ref()
+            && let Some(dmi_info) = hardware_info.dmi_data.as_ref()
+            && (dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro")
+        {
+            console = "ttyS1";
         }
 
         let pxe_script = match &machine.current_state() {

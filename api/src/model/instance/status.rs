@@ -172,11 +172,11 @@ impl InstanceStatus {
         let mut instance_config_synced = SyncState::Synced;
 
         for network_obs in observations.network.values() {
-            if let Some(version_obs) = network_obs.instance_config_version {
-                if instance_config.version != version_obs {
-                    instance_config_synced = SyncState::Pending;
-                    break;
-                }
+            if let Some(version_obs) = network_obs.instance_config_version
+                && instance_config.version != version_obs
+            {
+                instance_config_synced = SyncState::Pending;
+                break;
             }
             // TODO(bcavanagh): Switch to SyncState::Pending or
             //                  return Err(RpcDataConversionError::InvalidConfigVersion)

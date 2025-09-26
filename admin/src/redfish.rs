@@ -222,19 +222,19 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                     status = x;
                 }
                 let mut predictlife = 100;
-                if let Some(ref _pred_fail) = dev.failure_predicted {
-                    if *_pred_fail {
-                        predictlife = 1;
-                    }
+                if let Some(ref _pred_fail) = dev.failure_predicted
+                    && *_pred_fail
+                {
+                    predictlife = 1;
                 }
                 if dev.predicted_media_life_left_percent.is_none() {
                     // supermicro has percentage_drive_life_used in oem...
                     // if dev.oem.is_some() && dev.oem.clone().unwrap().supermicro.is_some() {
-                    if let Some(oem) = dev.oem {
-                        if let Some(supermicro) = oem.supermicro {
-                            predictlife =
-                                100 - (supermicro.percentage_drive_life_used.unwrap_or(0.0) as i32);
-                        }
+                    if let Some(oem) = dev.oem
+                        && let Some(supermicro) = oem.supermicro
+                    {
+                        predictlife =
+                            100 - (supermicro.percentage_drive_life_used.unwrap_or(0.0) as i32);
                     }
                 }
                 table.add_row(row![
@@ -812,32 +812,32 @@ fn convert_ports_to_nice_table(
 
     for port in &ports {
         for netdev in &netdevs {
-            if let (Some(port_id), Some(netdev_id)) = (&port.id, &netdev.id) {
-                if netdev_id.contains(port_id) {
-                    table.add_row(row![
-                        port_id,
-                        port.link_status
-                            .as_ref()
-                            .unwrap_or(&LinkStatus::NoLink)
-                            .to_string(),
-                        netdev
-                            .net_dev_func_type
-                            .as_ref()
-                            .unwrap_or(&"None".to_string()),
-                        netdev
-                            .ethernet
-                            .as_ref()
-                            .and_then(|ethernet| ethernet.mac_address.as_ref())
-                            .cloned()
-                            .unwrap_or_else(|| "None".to_string()),
-                        netdev
-                            .ethernet
-                            .as_ref()
-                            .and_then(|ethernet| ethernet.mtu_size)
-                            .unwrap_or(0),
-                        port.current_speed_gbps.unwrap_or(0),
-                    ]);
-                }
+            if let (Some(port_id), Some(netdev_id)) = (&port.id, &netdev.id)
+                && netdev_id.contains(port_id)
+            {
+                table.add_row(row![
+                    port_id,
+                    port.link_status
+                        .as_ref()
+                        .unwrap_or(&LinkStatus::NoLink)
+                        .to_string(),
+                    netdev
+                        .net_dev_func_type
+                        .as_ref()
+                        .unwrap_or(&"None".to_string()),
+                    netdev
+                        .ethernet
+                        .as_ref()
+                        .and_then(|ethernet| ethernet.mac_address.as_ref())
+                        .cloned()
+                        .unwrap_or_else(|| "None".to_string()),
+                    netdev
+                        .ethernet
+                        .as_ref()
+                        .and_then(|ethernet| ethernet.mtu_size)
+                        .unwrap_or(0),
+                    port.current_speed_gbps.unwrap_or(0),
+                ]);
             }
         }
     }

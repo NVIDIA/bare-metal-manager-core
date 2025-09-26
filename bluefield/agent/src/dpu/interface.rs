@@ -48,17 +48,17 @@ impl Interface {
             for (interface, networks) in interfaces {
                 match action {
                     Action::Add => {
-                        if let Some(networks) = networks {
-                            if !networks.is_empty() {
-                                tracing::info!(
-                                    "Adding addresses {:?} to Interface {:?}",
-                                    networks,
-                                    interface
-                                );
+                        if let Some(networks) = networks
+                            && !networks.is_empty()
+                        {
+                            tracing::info!(
+                                "Adding addresses {:?} to Interface {:?}",
+                                networks,
+                                interface
+                            );
 
-                                for network in networks {
-                                    Interface::ip_addrs_add(&interface, network).await?;
-                                }
+                            for network in networks {
+                                Interface::ip_addrs_add(&interface, network).await?;
                             }
                         }
                     }

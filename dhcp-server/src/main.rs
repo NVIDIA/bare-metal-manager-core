@@ -69,12 +69,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::load();
     let config__ = init(args.clone()).await?;
 
-    if let ServerMode::Controller = args.mode {
-        if args.interfaces.len() != 1 {
-            return Err(
-                DhcpError::MultipleInterfacesProvidedOneSupported(args.interfaces.len()).into(),
-            );
-        }
+    if let ServerMode::Controller = args.mode
+        && args.interfaces.len() != 1
+    {
+        return Err(
+            DhcpError::MultipleInterfacesProvidedOneSupported(args.interfaces.len()).into(),
+        );
     }
 
     let mut join_handles = vec![];

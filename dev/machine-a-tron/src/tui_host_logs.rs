@@ -164,27 +164,27 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for HostLogSubscriber {
         let mut event_info = HostEventInfo::default();
 
         // If this event is inside a span which already has a mat_host_id recorded, inherit its metadata
-        if let Some(id) = ctx.current_span().id() {
-            if let Some(span_metadata) = self.span_infos.read().unwrap().get(id) {
-                event_info = span_metadata.clone();
-            }
+        if let Some(id) = ctx.current_span().id()
+            && let Some(span_metadata) = self.span_infos.read().unwrap().get(id)
+        {
+            event_info = span_metadata.clone();
         }
 
         // Record the info from this event
         event.record(&mut event_info);
 
-        if let Some(host_id) = event_info.host_id.as_ref() {
-            if let Ok(host_uuid) = Uuid::parse_str(host_id) {
-                self.host_log.log(
-                    host_uuid,
-                    format!(
-                        "{}: {} {}",
-                        Local::now(),
-                        event.metadata().target(),
-                        event_info
-                    ),
-                );
-            }
+        if let Some(host_id) = event_info.host_id.as_ref()
+            && let Ok(host_uuid) = Uuid::parse_str(host_id)
+        {
+            self.host_log.log(
+                host_uuid,
+                format!(
+                    "{}: {} {}",
+                    Local::now(),
+                    event.metadata().target(),
+                    event_info
+                ),
+            );
         }
     }
 }

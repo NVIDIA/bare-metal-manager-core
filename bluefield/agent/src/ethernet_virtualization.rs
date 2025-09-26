@@ -380,13 +380,13 @@ pub async fn update_nvue(
     // nvue can save a copy of the config here. If that exists nvue uses it on boot.
     // We always want to use the most recent `nv config apply`, so ensure this doesn't exist.
     let saved_config = hbn_root.join(nvue::SAVE_PATH);
-    if saved_config.exists() {
-        if let Err(err) = fs::remove_file(&saved_config) {
-            tracing::warn!(
-                "Failed removing old startup.yaml at {}: {err:#}",
-                saved_config.display()
-            );
-        }
+    if saved_config.exists()
+        && let Err(err) = fs::remove_file(&saved_config)
+    {
+        tracing::warn!(
+            "Failed removing old startup.yaml at {}: {err:#}",
+            saved_config.display()
+        );
     }
 
     // Write the config we're going to apply
@@ -605,13 +605,13 @@ async fn do_post(
             match hbn::run_in_container_shell(post.cmd).await {
                 Ok(_) => {
                     let path_bak = post.path.backup();
-                    if path_bak.exists() {
-                        if let Err(err) = fs::remove_file(&path_bak) {
-                            errs.push(format!(
-                                "remove .BAK on success {}: {err:#}",
-                                path_bak.display()
-                            ));
-                        }
+                    if path_bak.exists()
+                        && let Err(err) = fs::remove_file(&path_bak)
+                    {
+                        errs.push(format!(
+                            "remove .BAK on success {}: {err:#}",
+                            path_bak.display()
+                        ));
                     }
                 }
                 Err(err) => {
@@ -629,14 +629,14 @@ async fn do_post(
                     // .. and copy the old one back.
                     // This also ensures that we retry writing the config on subsequent runs.
                     let path_bak = post.path.backup();
-                    if path_bak.exists() {
-                        if let Err(err) = fs::rename(&path_bak, &post.path) {
-                            errs.push(format!(
-                                "rename {} to {}, reverting on error: {err:#}",
-                                path_bak.display(),
-                                post.path
-                            ));
-                        }
+                    if path_bak.exists()
+                        && let Err(err) = fs::rename(&path_bak, &post.path)
+                    {
+                        errs.push(format!(
+                            "rename {} to {}, reverting on error: {err:#}",
+                            path_bak.display(),
+                            post.path
+                        ));
                     }
                 }
             }

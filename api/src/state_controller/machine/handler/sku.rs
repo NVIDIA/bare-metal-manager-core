@@ -224,14 +224,13 @@ pub(crate) async fn handle_bom_validation_requested(
         .hw_sku_status
         .as_ref()
         .and_then(|ss| ss.verify_request_time)
+        && verify_request_time > mh_snapshot.host_snapshot.state.version.timestamp()
     {
-        if verify_request_time > mh_snapshot.host_snapshot.state.version.timestamp() {
-            tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "Verify SKU requested, attempting verification");
+        tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "Verify SKU requested, attempting verification");
 
-            return advance_to_updating_inventory(txn, mh_snapshot)
-                .await
-                .map(Some);
-        }
+        return advance_to_updating_inventory(txn, mh_snapshot)
+            .await
+            .map(Some);
     }
 
     // if there is a request for verification pending
@@ -252,7 +251,10 @@ pub(crate) async fn handle_bom_validation_requested(
     }
 
     // check if the sku got deleted
-    if db::sku::find(txn, &[sku_id.clone()]).await?.is_empty() {
+    if db::sku::find(txn, std::slice::from_ref(sku_id))
+        .await?
+        .is_empty()
+    {
         return advance_to_sku_missing(txn, mh_snapshot).await.map(Some);
     }
 
@@ -457,7 +459,9 @@ pub(crate) async fn handle_bom_validation_state(
                     }));
                 };
 
-                let Some(expected_sku) = crate::db::sku::find(txn, &[sku_id.clone()]).await?.pop()
+                let Some(expected_sku) = crate::db::sku::find(txn, std::slice::from_ref(&sku_id))
+                    .await?
+                    .pop()
                 else {
                     return advance_to_sku_missing(txn, mh_snapshot).await;
                 };
@@ -567,10 +571,10 @@ pub(crate) async fn handle_bom_validation_state(
     };
 
     // if leaving BOM validation states, clear any health reports
-    if let Ok(StateHandlerOutcome::Transition { next_state, .. }) = &outcome {
-        if !matches!(next_state, ManagedHostState::BomValidating { .. }) {
-            clear_sku_validation_report(txn, mh_snapshot).await?;
-        }
+    if let Ok(StateHandlerOutcome::Transition { next_state, .. }) = &outcome
+        && !matches!(next_state, ManagedHostState::BomValidating { .. })
+    {
+        clear_sku_validation_report(txn, mh_snapshot).await?;
     }
 
     outcome

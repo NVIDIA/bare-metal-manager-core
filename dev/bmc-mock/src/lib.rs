@@ -80,12 +80,12 @@ pub struct BmcMockHandle {
 
 impl Drop for BmcMockHandle {
     fn drop(&mut self) {
-        if let Some(join_handle) = self.join_handle.take() {
-            if !join_handle.is_finished() {
-                tracing::info!("Stopping BMC Mock at {}", self.address);
-                self.axum_handle.shutdown();
-                join_handle.abort()
-            }
+        if let Some(join_handle) = self.join_handle.take()
+            && !join_handle.is_finished()
+        {
+            tracing::info!("Stopping BMC Mock at {}", self.address);
+            self.axum_handle.shutdown();
+            join_handle.abort()
         }
     }
 }
@@ -130,7 +130,7 @@ pub trait PowerStateQuerying: std::fmt::Debug + Send + Sync {
 }
 
 pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {
-    fn get_hostname(&self) -> Cow<str>;
+    fn get_hostname(&'_ self) -> Cow<'_, str>;
 }
 
 // Simulate a 5-second power cycle

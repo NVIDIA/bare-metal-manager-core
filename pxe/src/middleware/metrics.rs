@@ -238,10 +238,10 @@ impl<B: Body> Body for ResponseBody<B> {
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let this = self.as_mut().project();
         let ret = ready!(this.inner.poll_frame(cx));
-        if let Some(Ok(frame)) = &ret {
-            if let Some(data) = frame.data_ref() {
-                this.metric.body_size += data.remaining() as u64;
-            }
+        if let Some(Ok(frame)) = &ret
+            && let Some(data) = frame.data_ref()
+        {
+            this.metric.body_size += data.remaining() as u64;
         }
         Poll::Ready(ret)
     }
@@ -276,10 +276,10 @@ impl<B: Body> Body for RequestBody<B> {
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let this = self.project();
         let ret = ready!(this.inner.poll_frame(cx));
-        if let Some(Ok(frame)) = &ret {
-            if let Some(data) = frame.data_ref() {
-                this.metric.body_size += data.remaining() as u64;
-            }
+        if let Some(Ok(frame)) = &ret
+            && let Some(data) = frame.data_ref()
+        {
+            this.metric.body_size += data.remaining() as u64;
         }
         Poll::Ready(ret)
     }

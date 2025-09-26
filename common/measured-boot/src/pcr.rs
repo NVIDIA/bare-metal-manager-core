@@ -58,7 +58,7 @@ impl PcrSet {
         Self(Vec::new())
     }
 
-    pub fn iter(&self) -> PcrSetIter {
+    pub fn iter(&'_ self) -> PcrSetIter<'_> {
         PcrSetIter {
             current_slice: &self.0,
         }

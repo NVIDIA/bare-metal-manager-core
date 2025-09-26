@@ -126,7 +126,7 @@ impl Ord for MachineId {
 
 impl PartialOrd for MachineId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.to_string().cmp(&other.to_string()))
+        Some(self.cmp(other))
     }
 }
 

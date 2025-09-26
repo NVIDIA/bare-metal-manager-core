@@ -2334,10 +2334,10 @@ pub async fn clear_quarantine_state(
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct HealthReportWrapper {
+pub struct _HealthReportWrapper {
     hardware_health_report: Option<HealthReport>,
 }
-impl<'r> FromRow<'r, PgRow> for HealthReportWrapper {
+impl<'r> FromRow<'r, PgRow> for _HealthReportWrapper {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let hardware_health_report: sqlx::types::Json<Option<HealthReport>> =
             row.try_get("health_report")?;

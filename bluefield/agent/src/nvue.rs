@@ -491,13 +491,13 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
             // of the way to an .error file for others to enjoy (while attempting
             // to remove any previous .error file in the process).
             let path_error = config_path.with_ext("error");
-            if path_error.exists() {
-                if let Err(e) = fs::remove_file(path_error.clone()) {
-                    tracing::warn!(
-                        "Failed to remove previous error file ({}): {e}",
-                        path_error.display()
-                    );
-                }
+            if path_error.exists()
+                && let Err(e) = fs::remove_file(path_error.clone())
+            {
+                tracing::warn!(
+                    "Failed to remove previous error file ({}): {e}",
+                    path_error.display()
+                );
             }
 
             if let Err(err) = fs::rename(config_path, &path_error) {
@@ -509,13 +509,13 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
             // .. and copy the old one back.
             // This also ensures that we retry writing the config on subsequent runs.
             let path_bak = config_path.backup();
-            if path_bak.exists() {
-                if let Err(err) = fs::rename(&path_bak, config_path) {
-                    eyre::bail!(
-                        "rename {} to {config_path}, reverting on error: {err:#}",
-                        path_bak.display(),
-                    );
-                }
+            if path_bak.exists()
+                && let Err(err) = fs::rename(&path_bak, config_path)
+            {
+                eyre::bail!(
+                    "rename {} to {config_path}, reverting on error: {err:#}",
+                    path_bak.display(),
+                );
             }
 
             Err(err)

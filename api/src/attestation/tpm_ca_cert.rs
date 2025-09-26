@@ -119,19 +119,17 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
             .get_extension_unique(&oid_registry::OID_PKIX_AUTHORITY_INFO_ACCESS)
             .ok()
             .flatten()
-        {
-            if let ParsedExtension::AuthorityInfoAccess(auth_info_access) =
+            && let ParsedExtension::AuthorityInfoAccess(auth_info_access) =
                 auth_info_access_ext.parsed_extension()
+        {
+            //access_methods.contains_key(oid_registry::OID_PKIX_ACCESS_DESCRIPTOR_CA_ISSUERS)
+            if let Some(access_values) = auth_info_access
+                .as_hashmap()
+                .get(&oid_registry::OID_PKIX_ACCESS_DESCRIPTOR_CA_ISSUERS)
             {
-                //access_methods.contains_key(oid_registry::OID_PKIX_ACCESS_DESCRIPTOR_CA_ISSUERS)
-                if let Some(access_values) = auth_info_access
-                    .as_hashmap()
-                    .get(&oid_registry::OID_PKIX_ACCESS_DESCRIPTOR_CA_ISSUERS)
-                {
-                    for access_value in access_values {
-                        if let GeneralName::URI(access_uri) = access_value {
-                            auth_info_access_str = access_uri;
-                        }
+                for access_value in access_values {
+                    if let GeneralName::URI(access_uri) = access_value {
+                        auth_info_access_str = access_uri;
                     }
                 }
             }

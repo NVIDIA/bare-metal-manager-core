@@ -379,22 +379,22 @@ fn connect(
         TcpSocket::from_raw_fd(socket.into_raw_fd())
     };
 
-    if config.reuse_address {
-        if let Err(e) = socket.set_reuseaddr(true) {
-            warn!("tcp set_reuse_address error: {}", e);
-        }
+    if config.reuse_address
+        && let Err(e) = socket.set_reuseaddr(true)
+    {
+        warn!("tcp set_reuse_address error: {}", e);
     }
 
-    if let Some(size) = config.send_buffer_size {
-        if let Err(e) = socket.set_send_buffer_size(size.try_into().unwrap_or(u32::MAX)) {
-            warn!("tcp set_buffer_size error: {}", e);
-        }
+    if let Some(size) = config.send_buffer_size
+        && let Err(e) = socket.set_send_buffer_size(size.try_into().unwrap_or(u32::MAX))
+    {
+        warn!("tcp set_buffer_size error: {}", e);
     }
 
-    if let Some(size) = config.recv_buffer_size {
-        if let Err(e) = socket.set_recv_buffer_size(size.try_into().unwrap_or(u32::MAX)) {
-            warn!("tcp set_recv_buffer_size error: {}", e);
-        }
+    if let Some(size) = config.recv_buffer_size
+        && let Err(e) = socket.set_recv_buffer_size(size.try_into().unwrap_or(u32::MAX))
+    {
+        warn!("tcp set_recv_buffer_size error: {}", e);
     }
 
     let connect = socket.connect(*addr);

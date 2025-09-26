@@ -62,10 +62,10 @@ async fn check_if_running_in_qemu() {
         }
     };
 
-    if let Ok(x) = String::from_utf8(output.stdout) {
-        if x.trim() != "none" {
-            IN_QEMU_VM.write().await.in_qemu = true;
-        }
+    if let Ok(x) = String::from_utf8(output.stdout)
+        && x.trim() != "none"
+    {
+        IN_QEMU_VM.write().await.in_qemu = true;
     }
 }
 

@@ -33,13 +33,14 @@ pub(crate) async fn create(
     log_request_data(&request);
     let vpc_creation_request = request.get_ref();
 
-    if let Some(metadata) = &vpc_creation_request.metadata {
-        if !vpc_creation_request.name.is_empty() && metadata.name != vpc_creation_request.name {
-            return Err(CarbideError::InvalidArgument(
-                "VPC name must be specified under metadata only.".to_string(),
-            )
-            .into());
-        }
+    if let Some(metadata) = &vpc_creation_request.metadata
+        && !vpc_creation_request.name.is_empty()
+        && metadata.name != vpc_creation_request.name
+    {
+        return Err(CarbideError::InvalidArgument(
+            "VPC name must be specified under metadata only.".to_string(),
+        )
+        .into());
     }
 
     const DB_TXN_NAME: &str = "create_vpc";
@@ -61,7 +62,7 @@ pub(crate) async fn create(
         // a row-level lock on it if it exists.
         if network_security_group::find_by_ids(
             &mut txn,
-            &[id.clone()],
+            std::slice::from_ref(&id),
             Some(
                 &vpc_creation_request
                     .tenant_organization_id
@@ -148,7 +149,7 @@ pub(crate) async fn update(
         // a row-level lock on it if it exists.
         if network_security_group::find_by_ids(
             &mut txn,
-            &[id.clone()],
+            std::slice::from_ref(&id),
             Some(
                 &vpc.tenant_organization_id
                     .parse()

@@ -179,10 +179,10 @@ impl InstanceInfinibandStatus {
 
 /// The network status that was last reported by the infiniband subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InstanceInfinibandStatusObservation {
+pub struct _InstanceInfinibandStatusObservation {
     /// Observed status for each configured interface
     #[serde(default)]
-    pub ib_interfaces: Vec<InstanceIbInterfaceStatusObservation>,
+    pub ib_interfaces: Vec<_InstanceIbInterfaceStatusObservation>,
 
     /// When this status was observed
     pub observed_at: DateTime<Utc>,
@@ -229,12 +229,12 @@ impl TryFrom<rpc::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
 
 /// The network status that was last reported by the infiniband subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InstanceIbInterfaceStatusObservation {
+pub struct _InstanceIbInterfaceStatusObservation {
     pub guid: Option<String>,
     pub lid: u32,
 }
 
-impl From<&IBPort> for InstanceIbInterfaceStatusObservation {
+impl From<&IBPort> for _InstanceIbInterfaceStatusObservation {
     fn from(p: &IBPort) -> Self {
         Self {
             guid: Some(p.guid.clone()),

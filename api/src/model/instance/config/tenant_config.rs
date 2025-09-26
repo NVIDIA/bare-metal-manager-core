@@ -87,12 +87,12 @@ impl TenantConfig {
                 ));
             }
         }
-        if let Some(hostname) = &self.hostname {
-            if !HOSTNAME_RE.is_match(hostname) {
-                return Err(ConfigValidationError::InvalidValue(
+        if let Some(hostname) = &self.hostname
+            && !HOSTNAME_RE.is_match(hostname)
+        {
+            return Err(ConfigValidationError::InvalidValue(
                     "Hostname does not meet DNS requirements (lowercase alphanumeric characters and dashes). Valid examples: test, test-hostname, host-1".to_string()
                 ));
-            }
         }
 
         // check to see if we are over the max IDs or not

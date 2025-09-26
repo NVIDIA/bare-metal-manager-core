@@ -317,54 +317,54 @@ pub async fn tenant_network(
 
     let mut vpc_peer_vnis = vec![];
     let mut vpc_peer_prefixes = vec![];
-    if let Some(policy) = vpc_peering_policy_on_existing {
-        if let Some(vpc_id) = segment.vpc_id {
-            match policy {
-                VpcPeeringPolicy::Exclusive => {
-                    // Under exclusive policy, VPC only allowed to peer with VPC of same network virtualization type.
-                    // If nvue_enabled, ETHERNET_VIRTUALIZER is same as ETHERNET_VIRTUALIZER_NVUE.
-                    let allowed_network_virtualization_types =
-                        match (nvue_enabled, network_virtualization_type) {
-                            (true, t) if t != VpcVirtualizationType::Fnn => {
-                                vec![
-                                    VpcVirtualizationType::EthernetVirtualizer,
-                                    VpcVirtualizationType::EthernetVirtualizerWithNvue,
-                                ]
-                            }
-                            _ => vec![network_virtualization_type],
-                        };
-                    let vpc_peers = VpcPeering::get_vpc_peer_vnis(
+    if let Some(policy) = vpc_peering_policy_on_existing
+        && let Some(vpc_id) = segment.vpc_id
+    {
+        match policy {
+            VpcPeeringPolicy::Exclusive => {
+                // Under exclusive policy, VPC only allowed to peer with VPC of same network virtualization type.
+                // If nvue_enabled, ETHERNET_VIRTUALIZER is same as ETHERNET_VIRTUALIZER_NVUE.
+                let allowed_network_virtualization_types =
+                    match (nvue_enabled, network_virtualization_type) {
+                        (true, t) if t != VpcVirtualizationType::Fnn => {
+                            vec![
+                                VpcVirtualizationType::EthernetVirtualizer,
+                                VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                            ]
+                        }
+                        _ => vec![network_virtualization_type],
+                    };
+                let vpc_peers = VpcPeering::get_vpc_peer_vnis(
+                    txn,
+                    vpc_id,
+                    allowed_network_virtualization_types,
+                )
+                .await?;
+
+                let vpc_peer_ids = vpc_peers.iter().map(|(vpc_id, _)| *vpc_id).collect();
+                vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
+                if network_virtualization_type == VpcVirtualizationType::Fnn {
+                    vpc_peer_vnis = vpc_peers.iter().map(|(_, vni)| *vni as u32).collect();
+                }
+            }
+            VpcPeeringPolicy::Mixed => {
+                // Any combination of VPC peering allowed
+                let vpc_peer_ids = VpcPeering::get_vpc_peer_ids(txn, vpc_id).await?;
+                vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
+                if network_virtualization_type == VpcVirtualizationType::Fnn {
+                    // Get vnis of all FNN peers for route import
+                    vpc_peer_vnis = VpcPeering::get_vpc_peer_vnis(
                         txn,
                         vpc_id,
-                        allowed_network_virtualization_types,
+                        vec![VpcVirtualizationType::Fnn],
                     )
-                    .await?;
-
-                    let vpc_peer_ids = vpc_peers.iter().map(|(vpc_id, _)| *vpc_id).collect();
-                    vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
-                    if network_virtualization_type == VpcVirtualizationType::Fnn {
-                        vpc_peer_vnis = vpc_peers.iter().map(|(_, vni)| *vni as u32).collect();
-                    }
+                    .await?
+                    .iter()
+                    .map(|(_, vni)| *vni as u32)
+                    .collect();
                 }
-                VpcPeeringPolicy::Mixed => {
-                    // Any combination of VPC peering allowed
-                    let vpc_peer_ids = VpcPeering::get_vpc_peer_ids(txn, vpc_id).await?;
-                    vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
-                    if network_virtualization_type == VpcVirtualizationType::Fnn {
-                        // Get vnis of all FNN peers for route import
-                        vpc_peer_vnis = VpcPeering::get_vpc_peer_vnis(
-                            txn,
-                            vpc_id,
-                            vec![VpcVirtualizationType::Fnn],
-                        )
-                        .await?
-                        .iter()
-                        .map(|(_, vni)| *vni as u32)
-                        .collect();
-                    }
-                }
-                VpcPeeringPolicy::None => {}
             }
+            VpcPeeringPolicy::None => {}
         }
     }
 

@@ -209,12 +209,12 @@ impl ManagedHostStateSnapshot {
             return Err(NotAllocatableReason::NoDpuSnapshots);
         }
 
-        if !allow_unhealthy {
-            if let Some(alert) = self.aggregate_health.find_alert_by_classification(
+        if !allow_unhealthy
+            && let Some(alert) = self.aggregate_health.find_alert_by_classification(
                 &health_report::HealthAlertClassification::prevent_allocations(),
-            ) {
-                return Err(NotAllocatableReason::HealthAlert(Box::new(alert.clone())));
-            }
+            )
+        {
+            return Err(NotAllocatableReason::HealthAlert(Box::new(alert.clone())));
         }
 
         Ok(())
@@ -309,15 +309,14 @@ impl ManagedHostStateSnapshot {
                 snapshot.dpu_agent_health_report.clone()
             };
 
-            if let Some(network_status_observation) = snapshot.network_status_observation.as_ref() {
-                if let Ok(Some(health_report)) = network_status_observation
+            if let Some(network_status_observation) = snapshot.network_status_observation.as_ref()
+                && let Ok(Some(health_report)) = network_status_observation
                     .expired_version_health_report(
                         host_health_config.dpu_agent_version_staleness_threshold,
                         host_health_config.prevent_allocations_on_stale_dpu_agent_version,
                     )
-                {
-                    output.merge(&health_report);
-                }
+            {
+                output.merge(&health_report);
             }
 
             merge_or_timeout(&mut output, &health_report, "forge-dpu-agent".to_string());
@@ -795,15 +794,14 @@ impl Machine {
     ) -> CarbideResult<DeviceLocator> {
         let (id_to_device_map, device_to_id_map) = self.get_dpu_device_and_id_mappings()?;
 
-        if let Some(device) = id_to_device_map.get(dpu_machine_id) {
-            if let Some(id_vec) = device_to_id_map.get(device) {
-                if let Some(instance) = id_vec.iter().position(|id| id == dpu_machine_id) {
-                    return Ok(DeviceLocator {
-                        device: device.clone(),
-                        device_instance: instance,
-                    });
-                }
-            }
+        if let Some(device) = id_to_device_map.get(dpu_machine_id)
+            && let Some(id_vec) = device_to_id_map.get(device)
+            && let Some(instance) = id_vec.iter().position(|id| id == dpu_machine_id)
+        {
+            return Ok(DeviceLocator {
+                device: device.clone(),
+                device_instance: instance,
+            });
         }
         Err(CarbideError::DpuMappingError(format!(
             "No device instance found for dpu {} in machine {}",
@@ -832,18 +830,16 @@ impl Machine {
         // hardware_interfaces has the primary dpu as the first interface, self.interfaces may not.
         // iterate over hardware_interfaces and match it to self.interfaces using the mac address
         for hardware_iface in &hardware_info.network_interfaces {
-            if let Some(pci) = &hardware_iface.pci_properties {
-                if let Some(iface) = self
+            if let Some(pci) = &hardware_iface.pci_properties
+                && let Some(iface) = self
                     .interfaces
                     .iter()
                     .find(|i| i.mac_address == hardware_iface.mac_address)
-                {
-                    if let Some(dpu_machine_id) = iface.attached_dpu_machine_id {
-                        id_to_device_map.insert(dpu_machine_id, pci.device.clone());
-                        let id_vec = device_to_id_map.entry(pci.device.clone()).or_default();
-                        id_vec.push(dpu_machine_id);
-                    }
-                }
+                && let Some(dpu_machine_id) = iface.attached_dpu_machine_id
+            {
+                id_to_device_map.insert(dpu_machine_id, pci.device.clone());
+                let id_vec = device_to_id_map.entry(pci.device.clone()).or_default();
+                id_vec.push(dpu_machine_id);
             }
         }
 

@@ -57,16 +57,16 @@ fn convert_machine_to_nice_format(
         ("SKU", sku),
         ("SKU DEVICE TYPE", sku_device_type),
     ];
-    if let Some(di) = machine.discovery_info.as_ref() {
-        if let Some(dmi) = di.dmi_data.as_ref() {
-            data.push(("VENDOR", dmi.sys_vendor.clone()));
-            data.push(("PRODUCT NAME", dmi.product_name.clone()));
-            data.push(("PRODUCT SERIAL", dmi.product_serial.clone()));
-            data.push(("BOARD SERIAL", dmi.board_serial.clone()));
-            data.push(("CHASSIS SERIAL", dmi.chassis_serial.clone()));
-            data.push(("BIOS VERSION", dmi.bios_version.clone()));
-            data.push(("BOARD VERSION", dmi.board_version.clone()));
-        }
+    if let Some(di) = machine.discovery_info.as_ref()
+        && let Some(dmi) = di.dmi_data.as_ref()
+    {
+        data.push(("VENDOR", dmi.sys_vendor.clone()));
+        data.push(("PRODUCT NAME", dmi.product_name.clone()));
+        data.push(("PRODUCT SERIAL", dmi.product_serial.clone()));
+        data.push(("BOARD SERIAL", dmi.board_serial.clone()));
+        data.push(("CHASSIS SERIAL", dmi.chassis_serial.clone()));
+        data.push(("BIOS VERSION", dmi.bios_version.clone()));
+        data.push(("BOARD VERSION", dmi.board_version.clone()));
     }
     let autoupdate = if let Some(autoupdate) = machine.firmware_autoupdate {
         autoupdate.to_string()
@@ -191,12 +191,12 @@ fn convert_machine_to_nice_format(
         }
     }
 
-    if let Some(health) = machine.health {
-        if !health.alerts.is_empty() {
-            writeln!(&mut lines, "ALERTS:")?;
-            for alert in health.alerts {
-                writeln!(&mut lines, "\t- {}", alert.message)?;
-            }
+    if let Some(health) = machine.health
+        && !health.alerts.is_empty()
+    {
+        writeln!(&mut lines, "ALERTS:")?;
+        for alert in health.alerts {
+            writeln!(&mut lines, "\t- {}", alert.message)?;
         }
     }
 
@@ -267,10 +267,10 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             )
         };
         let mut vendor = String::new();
-        if let Some(di) = machine.discovery_info.as_ref() {
-            if let Some(dmi) = di.dmi_data.as_ref() {
-                vendor = dmi.sys_vendor.clone();
-            }
+        if let Some(di) = machine.discovery_info.as_ref()
+            && let Some(dmi) = di.dmi_data.as_ref()
+        {
+            vendor = dmi.sys_vendor.clone();
         }
 
         let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&machine.metadata);
@@ -618,18 +618,17 @@ pub async fn force_delete(
     let start = std::time::Instant::now();
     let mut dpu_machine_id = String::new();
 
-    if let Ok(id) = MachineId::from_str(&query.machine) {
-        if api_client
+    if let Ok(id) = MachineId::from_str(&query.machine)
+        && api_client
             .0
             .find_instance_by_machine_id(id)
             .await
             .is_ok_and(|i| !i.instances.is_empty())
-            && !query.allow_delete_with_instance
-        {
-            return Err(CarbideCliError::GenericError(
+        && !query.allow_delete_with_instance
+    {
+        return Err(CarbideCliError::GenericError(
                 "Machine has an associated instance, use --allow-delete-with-instance to acknowledge that this machine should be deleted with an instance allocated".to_string(),
             ));
-        }
     }
 
     loop {

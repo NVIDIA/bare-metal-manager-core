@@ -327,7 +327,7 @@ impl IntoTable for ShowOutput {
         self.as_slice()
     }
 
-    fn row_values(row: &Self::Row) -> Vec<Cow<str>> {
+    fn row_values(row: &'_ Self::Row) -> Vec<Cow<'_, str>> {
         let vpc_prefix_id: Cow<str> = row.id.map(|id| id.to_string().into()).unwrap_or("".into());
         let vpc_id: Cow<str> = row
             .vpc_id
