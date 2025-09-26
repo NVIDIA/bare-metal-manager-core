@@ -125,13 +125,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
     let mut use_fnn_over_admin_nw = false;
 
     // If FNN config is enabled, we should use it in admin network.
-    if let Some(fnn) = &api.runtime_config.fnn {
-        if let Some(admin) = &fnn.admin_vpc {
-            if admin.enabled {
-                use_fnn_over_admin_nw = true;
-                network_virtualization_type = VpcVirtualizationType::Fnn;
-            }
-        }
+    if let Some(fnn) = &api.runtime_config.fnn
+        && let Some(admin) = &fnn.admin_vpc
+        && admin.enabled
+    {
+        use_fnn_over_admin_nw = true;
+        network_virtualization_type = VpcVirtualizationType::Fnn;
     }
 
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
@@ -606,7 +605,7 @@ pub(crate) async fn update_agent_reported_inventory(
             .database_connection
             .begin()
             .await
-            .map_err(|e| (DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let inventory =
             MachineInventory::try_from(inventory.clone()).map_err(CarbideError::from)?;

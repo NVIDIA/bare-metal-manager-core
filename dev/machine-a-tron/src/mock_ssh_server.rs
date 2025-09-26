@@ -97,11 +97,10 @@ impl Server {
                             let handler = self.new_client(socket.peer_addr().ok());
 
                             tokio::spawn(async move {
-                                if config.nodelay {
-                                    if let Err(e) = socket.set_nodelay(true) {
+                                if config.nodelay
+                                    && let Err(e) = socket.set_nodelay(true) {
                                         tracing::warn!("set_nodelay() failed: {e:?}");
                                     }
-                                }
 
                                 let session = match run_stream(config, socket, handler).await {
                                     Ok(s) => s,

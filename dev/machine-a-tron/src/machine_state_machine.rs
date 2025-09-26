@@ -63,7 +63,7 @@ impl PowerStateQuerying for LiveStatePowerQuery {
 pub struct LiveStateHostnameQuery(pub Arc<RwLock<LiveState>>);
 
 impl HostnameQuerying for LiveStateHostnameQuery {
-    fn get_hostname(&self) -> Cow<str> {
+    fn get_hostname(&'_ self) -> Cow<'_, str> {
         self.0
             .read()
             .unwrap()

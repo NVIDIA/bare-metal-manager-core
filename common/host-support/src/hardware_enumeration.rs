@@ -94,15 +94,14 @@ impl PciDevicePropertiesExt {
         //   - It is assumption for SUBSYSTEM=[net|infiniband]
         // ID_PCI_SUBCLASS_FROM_DATABASE='Infiniband controller' or 'Ethernet controller'
         //   - Because ports for VPI Mellanox device can be configured in IB(1) or ETH(2) type
-        if let Some(slot) = self.pci_properties.slot.as_ref() {
-            if !slot.is_empty()
-                && self
-                    .pci_properties
-                    .vendor
-                    .eq_ignore_ascii_case("Mellanox Technologies")
-            {
-                return self.sub_class.eq_ignore_ascii_case("Infiniband controller");
-            }
+        if let Some(slot) = self.pci_properties.slot.as_ref()
+            && !slot.is_empty()
+            && self
+                .pci_properties
+                .vendor
+                .eq_ignore_ascii_case("Mellanox Technologies")
+        {
+            return self.sub_class.eq_ignore_ascii_case("Infiniband controller");
         }
         false
     }
@@ -380,16 +379,16 @@ fn get_lscpu_info() -> HashMap<&'static str, String> {
     let mut lscpu_info: HashMap<&'static str, String> = HashMap::new();
     let output = Command::new("lscpu").output();
 
-    if let Ok(out) = output {
-        if let Ok(text) = std::str::from_utf8(&out.stdout) {
-            for line in text.lines() {
-                // `lscpu` output format is "  <key>:   <value>" with
-                // various levels of indentation before <key>
-                if let Some((k, v)) = line.split_once(':') {
-                    let trimmed_key = k.trim();
-                    if let Some(key) = keys.iter().find(|&&s| s == trimmed_key).copied() {
-                        lscpu_info.insert(key, v.trim().to_string());
-                    }
+    if let Ok(out) = output
+        && let Ok(text) = std::str::from_utf8(&out.stdout)
+    {
+        for line in text.lines() {
+            // `lscpu` output format is "  <key>:   <value>" with
+            // various levels of indentation before <key>
+            if let Some((k, v)) = line.split_once(':') {
+                let trimmed_key = k.trim();
+                if let Some(key) = keys.iter().find(|&&s| s == trimmed_key).copied() {
+                    lscpu_info.insert(key, v.trim().to_string());
                 }
             }
         }
@@ -489,38 +488,38 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         //    tracing::trace!("attribute - {:?} - {:?}", a.name(), a.value());
         //}
 
-        if let Ok(pci_subclass) = convert_property_to_string(PCI_SUBCLASS, "", &device) {
-            if pci_subclass.eq_ignore_ascii_case("Ethernet controller") {
-                let properties_ext = match PciDevicePropertiesExt::try_from(&device) {
-                    Ok(properties_ext) => properties_ext,
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to enumerate properties of device {:?}: {}",
-                            device.devpath(),
-                            e
-                        );
-                        continue;
-                    }
-                };
-
-                tracing::trace!("properties: {:?}", properties_ext);
-
-                // discovery DPU and non ib capable device
-                // Note:
-                //   Probably current logic does not allow to detect non DPU network interfaces
-                //   with following properties
-                //     SUBSYSTEM=infiniband
-                //     ID_PCI_CLASS_FROM_DATABASE='Network controller'
-                //     ID_PCI_SUBCLASS_FROM_DATABASE='Ethernet controller'
-                if properties_ext.is_dpu() || !properties_ext.mlnx_ib_capable() {
-                    nics.push(rpc_discovery::NetworkInterface {
-                        mac_address: convert_udev_to_mac(
-                            convert_property_to_string("ID_NET_NAME_MAC", &info.machine, &device)?
-                                .to_string(),
-                        )?,
-                        pci_properties: Some(properties_ext.pci_properties),
-                    });
+        if let Ok(pci_subclass) = convert_property_to_string(PCI_SUBCLASS, "", &device)
+            && pci_subclass.eq_ignore_ascii_case("Ethernet controller")
+        {
+            let properties_ext = match PciDevicePropertiesExt::try_from(&device) {
+                Ok(properties_ext) => properties_ext,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to enumerate properties of device {:?}: {}",
+                        device.devpath(),
+                        e
+                    );
+                    continue;
                 }
+            };
+
+            tracing::trace!("properties: {:?}", properties_ext);
+
+            // discovery DPU and non ib capable device
+            // Note:
+            //   Probably current logic does not allow to detect non DPU network interfaces
+            //   with following properties
+            //     SUBSYSTEM=infiniband
+            //     ID_PCI_CLASS_FROM_DATABASE='Network controller'
+            //     ID_PCI_SUBCLASS_FROM_DATABASE='Ethernet controller'
+            if properties_ext.is_dpu() || !properties_ext.mlnx_ib_capable() {
+                nics.push(rpc_discovery::NetworkInterface {
+                    mac_address: convert_udev_to_mac(
+                        convert_property_to_string("ID_NET_NAME_MAC", &info.machine, &device)?
+                            .to_string(),
+                    )?,
+                    pci_properties: Some(properties_ext.pci_properties),
+                });
             }
         }
     }

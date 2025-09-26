@@ -240,10 +240,12 @@ impl RestClient {
                     .with_no_client_auth()
             };
 
-            if !certs.is_empty() && key.is_some() {
+            if !certs.is_empty()
+                && let Some(key) = key
+            {
                 if let Ok(config) = rustls_client_builder()
                     .with_root_certificates(roots.clone())
-                    .with_client_auth_cert(certs, key.unwrap())
+                    .with_client_auth_cert(certs, key)
                 {
                     // Use TLS flow with client authentication
                     config

@@ -81,15 +81,15 @@ pub async fn upgrade(
     // If the updates are overridden for unit-test purposes, then don't move
     // the binary. It will not be replaced by an update - and running the
     // unit-test would require it to be rebuilt
-    if override_upgrade_cmd.is_none() {
-        if let Err(err) = fs::rename(&binary_path, &backup) {
-            tracing::warn!(
-                "Failed backing up current binary: 'mv {} {}', {err}",
-                binary_path.display(),
-                backup.display()
-            );
-            // keep going - if the rename fails we still want the upgrade
-        }
+    if override_upgrade_cmd.is_none()
+        && let Err(err) = fs::rename(&binary_path, &backup)
+    {
+        tracing::warn!(
+            "Failed backing up current binary: 'mv {} {}', {err}",
+            binary_path.display(),
+            backup.display()
+        );
+        // keep going - if the rename fails we still want the upgrade
     }
 
     let upgrade_cmd = override_upgrade_cmd.unwrap_or(UPGRADE_CMD);

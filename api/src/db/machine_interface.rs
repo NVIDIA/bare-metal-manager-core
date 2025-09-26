@@ -491,16 +491,16 @@ pub async fn find_by_ip_or_id(
     remote_ip: Option<IpAddr>,
     interface_id: Option<MachineInterfaceId>,
 ) -> Result<MachineInterfaceSnapshot, CarbideError> {
-    if let Some(remote_ip) = remote_ip {
-        if let Some(interface) = find_by_ip(txn, remote_ip).await? {
-            // remove debug message by Apr 2024
-            tracing::debug!(
-                interface_id = %interface.id,
-                %remote_ip,
-                "Loaded interface by remote IP"
-            );
-            return Ok(interface);
-        }
+    if let Some(remote_ip) = remote_ip
+        && let Some(interface) = find_by_ip(txn, remote_ip).await?
+    {
+        // remove debug message by Apr 2024
+        tracing::debug!(
+            interface_id = %interface.id,
+            %remote_ip,
+            "Loaded interface by remote IP"
+        );
+        return Ok(interface);
     }
     match interface_id {
         Some(interface_id) => find_one(txn, interface_id).await,

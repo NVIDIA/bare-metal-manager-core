@@ -167,7 +167,7 @@ pub mod tests {
 
         crate::db::sku::create(&mut txn, &expected_sku).await?;
 
-        let mut actual_sku = crate::db::sku::find(&mut txn, &[expected_sku.id.clone()])
+        let mut actual_sku = crate::db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
             .await?
             .remove(0);
         // cheat the created timestamp
@@ -198,7 +198,7 @@ pub mod tests {
         let expected_sku: Sku = rpc_sku.into();
 
         crate::db::sku::create(&mut txn, &expected_sku).await?;
-        let actual_sku = crate::db::sku::find(&mut txn, &[expected_sku.id.clone()])
+        let actual_sku = crate::db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
             .await?
             .remove(0);
 
@@ -1140,7 +1140,7 @@ pub mod tests {
     pub fn test_sku_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let sku_id = "sku1".to_string();
-        let original_sku = crate::db::sku::find(&mut txn, &[sku_id.clone()])
+        let original_sku = crate::db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
             .await?
             .remove(0);
         let original_sku_json = serde_json::ser::to_string_pretty(&original_sku)?;

@@ -205,14 +205,13 @@ async fn check_constraints(
     if constraints.count.is_some() && constraints.duration.is_some() {
         if Some(event_type.name.clone()) == log.pending_event {
             log.pending_event_count += 1;
-            if let Some(start_ts) = log.pending_event_ts {
-                if let Some(duration) = constraints.duration {
-                    if (timestamp - start_ts) > duration {
-                        // time window expired, reset it
-                        log.pending_event_ts = Some(timestamp);
-                        log.pending_event_count = 1;
-                    }
-                }
+            if let Some(start_ts) = log.pending_event_ts
+                && let Some(duration) = constraints.duration
+                && (timestamp - start_ts) > duration
+            {
+                // time window expired, reset it
+                log.pending_event_ts = Some(timestamp);
+                log.pending_event_count = 1;
             }
         } else {
             // setup the pending summary event.
@@ -222,14 +221,14 @@ async fn check_constraints(
             log.pending_event_ts = Some(timestamp);
         }
         // now check the count
-        if let Some(count) = constraints.count {
-            if log.pending_event_count >= count {
-                log.pending_event_count = 0;
-                log.pending_event_ts = None;
-                log.pending_event = None;
-                // send the summary event, it has met the constraints and considered as occurred
-                queue_event(timestamp, event_type, log, buffer).await?;
-            }
+        if let Some(count) = constraints.count
+            && log.pending_event_count >= count
+        {
+            log.pending_event_count = 0;
+            log.pending_event_ts = None;
+            log.pending_event = None;
+            // send the summary event, it has met the constraints and considered as occurred
+            queue_event(timestamp, event_type, log, buffer).await?;
         }
     } else if let Some(event_pattern) = constraints.preceded_by.as_ref() {
         let mut event_pattern_matched = true;
@@ -429,18 +428,18 @@ async fn scan_files(cfg: &mut Configuration, set_offset: bool) -> Result<(), any
     let path = Path::new(&path_str);
     if path.is_dir() {
         for f in path.read_dir().expect("read_dir failed").flatten() {
-            if f.path().is_file() {
-                if let Some(name) = f.file_name().to_str() {
-                    // file name matches filename_format regex
-                    one_log_file(cfg, f.path().as_path(), name, set_offset).await?;
-                }
+            if f.path().is_file()
+                && let Some(name) = f.file_name().to_str()
+            {
+                // file name matches filename_format regex
+                one_log_file(cfg, f.path().as_path(), name, set_offset).await?;
             }
         }
     } else if path.is_file() {
-        if let Some(x) = path.file_name() {
-            if let Some(name) = x.to_str() {
-                one_log_file(cfg, path, name, set_offset).await?;
-            }
+        if let Some(x) = path.file_name()
+            && let Some(name) = x.to_str()
+        {
+            one_log_file(cfg, path, name, set_offset).await?;
         }
     } else {
         eprintln!(
@@ -569,34 +568,34 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     let mut poll_interval: u64 = 5;
-    if args_given.opt_present("t") {
-        if let Some(t) = args_given.opt_str("t") {
-            poll_interval = t.parse()?;
-            if poll_interval == 0 {
-                eprintln!("-t {t} time interval specified is invalid");
-                help();
-                return Ok(());
-            }
+    if args_given.opt_present("t")
+        && let Some(t) = args_given.opt_str("t")
+    {
+        poll_interval = t.parse()?;
+        if poll_interval == 0 {
+            eprintln!("-t {t} time interval specified is invalid");
+            help();
+            return Ok(());
         }
     }
     let mut mode = Mode::Unknown;
-    if args_given.opt_present("m") {
-        if let Some(m) = args_given.opt_str("m") {
-            match m.as_str() {
-                "monitor" => {
-                    if api.is_empty() {
-                        eprintln!("-c carbide api url argument required for monitor mode");
-                        help();
-                        return Ok(());
-                    }
-                    mode = Mode::Monitor;
+    if args_given.opt_present("m")
+        && let Some(m) = args_given.opt_str("m")
+    {
+        match m.as_str() {
+            "monitor" => {
+                if api.is_empty() {
+                    eprintln!("-c carbide api url argument required for monitor mode");
+                    help();
+                    return Ok(());
                 }
-                "oneshot" => {
-                    mode = Mode::Oneshot;
-                }
-                _ => {
-                    mode = Mode::Unknown;
-                }
+                mode = Mode::Monitor;
+            }
+            "oneshot" => {
+                mode = Mode::Oneshot;
+            }
+            _ => {
+                mode = Mode::Unknown;
             }
         }
     }

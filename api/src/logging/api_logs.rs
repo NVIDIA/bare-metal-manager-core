@@ -165,16 +165,17 @@ where
             // Try to extract the gRPC service and method from the URI
             let mut grpc_method: Option<String> = None;
             let mut grpc_service: Option<String> = None;
-            if let Some(path) = request.uri().path_and_query() {
-                if *request.method() == hyper::http::Method::POST && path.query().is_none() {
-                    let parts: Vec<&str> = path.path().split('/').collect();
-                    if parts.len() == 3 {
-                        // the path starts with an empty segment, and the middle
-                        // segment is the service name, the last segment is the
-                        // method
-                        grpc_service = Some(parts[1].to_string());
-                        grpc_method = Some(parts[2].to_string());
-                    }
+            if let Some(path) = request.uri().path_and_query()
+                && *request.method() == hyper::http::Method::POST
+                && path.query().is_none()
+            {
+                let parts: Vec<&str> = path.path().split('/').collect();
+                if parts.len() == 3 {
+                    // the path starts with an empty segment, and the middle
+                    // segment is the service name, the last segment is the
+                    // method
+                    grpc_service = Some(parts[1].to_string());
+                    grpc_method = Some(parts[2].to_string());
                 }
             }
 

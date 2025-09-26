@@ -265,10 +265,9 @@ impl EndpointExplorationReport {
 
                 if let Ok(res) =
                     version_compare::compare_to(path, existing_path, version_compare::Cmp::Lt)
+                    && res
                 {
-                    if res {
-                        return x;
-                    }
+                    return x;
                 }
 
                 return acc;

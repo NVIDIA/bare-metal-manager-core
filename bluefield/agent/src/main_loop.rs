@@ -153,14 +153,14 @@ pub async fn setup_and_run(
         }
     }
 
-    if !agent_config.machine.is_fake_dpu {
-        if let Err(e) = crate::agent_platform::ensure_doca_containers().await {
-            // The HBN container health check will notice this problem and
-            // turn it into an unhealthy status that gets reported to the
-            // API, so we're not going to do much more than log this for
-            // now.
-            tracing::error!("Couldn't ensure DOCA pods: {e}");
-        }
+    if !agent_config.machine.is_fake_dpu
+        && let Err(e) = crate::agent_platform::ensure_doca_containers().await
+    {
+        // The HBN container health check will notice this problem and
+        // turn it into an unhealthy status that gets reported to the
+        // API, so we're not going to do much more than log this for
+        // now.
+        tracing::error!("Couldn't ensure DOCA pods: {e}");
     }
 
     let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(

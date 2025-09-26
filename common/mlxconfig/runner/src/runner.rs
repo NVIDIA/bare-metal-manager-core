@@ -52,21 +52,21 @@ pub struct MlxConfigRunner {
 // JsonResponse is the JSON representation of
 // an mlxconfig JSON response.
 #[derive(Debug, Deserialize, Serialize)]
-struct JsonResponse {
+struct _JsonResponse {
     #[serde(rename = "Device #1")]
-    device: JsonDevice,
+    device: _JsonDevice,
 }
 
 // JsonDevice is the device information from an
 // mlxconfig JSON response, where tlv_configuration
 // is the actual set of variables and values.
 #[derive(Debug, Deserialize, Serialize)]
-struct JsonDevice {
+struct _JsonDevice {
     description: String,
     device: String,
     device_type: String,
     name: String,
-    tlv_configuration: HashMap<String, JsonVariable>,
+    tlv_configuration: HashMap<String, _JsonVariable>,
 }
 
 // JsonVariable is an individual variable + data
@@ -74,7 +74,7 @@ struct JsonDevice {
 // current, and next values will all be parsed
 // and converted into MlxConfigValue instances.
 #[derive(Debug, Deserialize, Serialize)]
-struct JsonVariable {
+struct _JsonVariable {
     current_value: serde_json::Value,
     default_value: serde_json::Value,
     modified: bool,

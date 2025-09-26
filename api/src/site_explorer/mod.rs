@@ -818,50 +818,50 @@ impl SiteExplorer {
             if expected_num_dpus_attached_to_host == 0 {
                 for chassis in ep.report.chassis.iter() {
                     for network_adapter in chassis.network_adapters.iter() {
-                        if let Some(model) = network_adapter.part_number.as_ref() {
-                            if is_bluefield_model(model.trim()) {
-                                expected_num_dpus_attached_to_host += 1;
-                            }
+                        if let Some(model) = network_adapter.part_number.as_ref()
+                            && is_bluefield_model(model.trim())
+                        {
+                            expected_num_dpus_attached_to_host += 1;
                         }
 
-                        if let Some(sn) = network_adapter.serial_number.as_ref() {
-                            if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn.trim()) {
-                                if let Some(model) = network_adapter.part_number.as_ref() {
-                                    match self
-                                        .check_and_configure_dpu_mode(
-                                            (**dpu_ep).to_owned(),
-                                            model.to_string(),
-                                        )
-                                        .await
-                                    {
-                                        Ok(is_dpu_mode_configured_correctly) => {
-                                            if !is_dpu_mode_configured_correctly {
-                                                all_dpus_configured_properly_in_host = false;
-                                                // we do not want to ingest a host with an incorrectly configured DPU
-                                                continue;
-                                            }
-                                        }
-                                        Err(err) => {
-                                            tracing::warn!(
-                                                "failed to check DPU mode against {}: {err}",
-                                                dpu_ep.address
-                                            );
+                        if let Some(sn) = network_adapter.serial_number.as_ref()
+                            && let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn.trim())
+                        {
+                            if let Some(model) = network_adapter.part_number.as_ref() {
+                                match self
+                                    .check_and_configure_dpu_mode(
+                                        (**dpu_ep).to_owned(),
+                                        model.to_string(),
+                                    )
+                                    .await
+                                {
+                                    Ok(is_dpu_mode_configured_correctly) => {
+                                        if !is_dpu_mode_configured_correctly {
+                                            all_dpus_configured_properly_in_host = false;
+                                            // we do not want to ingest a host with an incorrectly configured DPU
                                             continue;
                                         }
-                                    };
-                                }
-
-                                // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                                if is_dpu_in_nic_mode(dpu_ep, ep) {
-                                    expected_num_dpus_attached_to_host -= 1;
-                                    continue;
-                                }
-                                dpus_explored_for_host.push(ExploredDpu {
-                                    bmc_ip: dpu_ep.address,
-                                    host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
-                                    report: dpu_ep.report.clone(),
-                                });
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            "failed to check DPU mode against {}: {err}",
+                                            dpu_ep.address
+                                        );
+                                        continue;
+                                    }
+                                };
                             }
+
+                            // We do not want to attach bluefields that are in NIC mode as DPUs to the host
+                            if is_dpu_in_nic_mode(dpu_ep, ep) {
+                                expected_num_dpus_attached_to_host -= 1;
+                                continue;
+                            }
+                            dpus_explored_for_host.push(ExploredDpu {
+                                bmc_ip: dpu_ep.address,
+                                host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
+                                report: dpu_ep.report.clone(),
+                            });
                         }
                     }
                 }
@@ -1407,18 +1407,17 @@ impl SiteExplorer {
             }
 
             // Update possible stale machine versions
-            if let Ok(report) = &result {
-                if let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc) {
-                    if let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi) {
-                        MachineTopology::update_firmware_version_by_bmc_address(
-                            &mut txn,
-                            &address,
-                            bmc_version,
-                            uefi_version,
-                        )
-                        .await?;
-                    }
-                }
+            if let Ok(report) = &result
+                && let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc)
+                && let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi)
+            {
+                MachineTopology::update_firmware_version_by_bmc_address(
+                    &mut txn,
+                    &address,
+                    bmc_version,
+                    uefi_version,
+                )
+                .await?;
             }
 
             match endpoint.old_report {
@@ -1673,26 +1672,26 @@ impl SiteExplorer {
         if let Some(oob_net0_mac) = oob_net0_mac {
             let mi = db::machine_interface::find_by_mac_address(txn, oob_net0_mac).await?;
 
-            if let Some(interface) = mi.first() {
-                if interface.machine_id.is_none() {
-                    tracing::info!(
-                        "Updating machine interface {} with machine id {dpu_machine_id}.",
-                        interface.id
-                    );
-                    db::machine_interface::associate_interface_with_machine(
-                        &interface.id,
-                        dpu_machine_id,
-                        txn,
-                    )
-                    .await?;
-                    db::machine_interface::associate_interface_with_dpu_machine(
-                        &interface.id,
-                        dpu_machine_id,
-                        txn,
-                    )
-                    .await?;
-                    return Ok(true);
-                }
+            if let Some(interface) = mi.first()
+                && interface.machine_id.is_none()
+            {
+                tracing::info!(
+                    "Updating machine interface {} with machine id {dpu_machine_id}.",
+                    interface.id
+                );
+                db::machine_interface::associate_interface_with_machine(
+                    &interface.id,
+                    dpu_machine_id,
+                    txn,
+                )
+                .await?;
+                db::machine_interface::associate_interface_with_dpu_machine(
+                    &interface.id,
+                    dpu_machine_id,
+                    txn,
+                )
+                .await?;
+                return Ok(true);
             }
         }
 

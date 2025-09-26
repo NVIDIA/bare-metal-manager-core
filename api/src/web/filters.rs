@@ -114,12 +114,10 @@ pub fn health_alerts_fmt(
 
         result += r#"<span class="bubble error">"#;
         askama_escape::Html.write_escaped(&mut result, &alert.id.to_string())?;
-        if include_target {
-            if let Some(target) = alert.target.as_ref() {
-                result += " [Target: ";
-                askama_escape::Html.write_escaped(&mut result, target)?;
-                result.push(']');
-            }
+        if include_target && let Some(target) = alert.target.as_ref() {
+            result += " [Target: ";
+            askama_escape::Html.write_escaped(&mut result, target)?;
+            result.push(']');
         }
 
         if include_message {

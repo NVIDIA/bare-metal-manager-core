@@ -107,7 +107,7 @@ pub async fn redfish_create_action(
         .database_connection
         .begin()
         .await
-        .map_err(|e| (DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let ip_to_serial = find_serials(&request.ips, &mut txn).await?;
     let machine_ips: Vec<_> = ip_to_serial.keys().cloned().collect();
@@ -181,7 +181,7 @@ pub async fn redfish_apply_action(
         .database_connection
         .begin()
         .await
-        .map_err(|e| (DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let action_request = fetch_request(request, &mut txn).await?;
     if action_request.applied_at.is_some() {
@@ -256,7 +256,7 @@ async fn update_response_in_tx(
     let mut txn = pool
         .begin()
         .await
-        .map_err(|e| (DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     update_response(request, &mut txn, response, index).await?;
     txn.commit()
         .await
@@ -406,7 +406,7 @@ pub async fn redfish_cancel_action(
         .database_connection
         .begin()
         .await
-        .map_err(|e| (DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     delete_request(request, &mut txn).await?;
 

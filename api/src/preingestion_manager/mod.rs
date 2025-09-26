@@ -384,31 +384,31 @@ impl PreingestionManagerStatic {
             Some(fw_info) => fw_info,
         };
         for (fwtype, desc) in &fw_info.components {
-            if let Some(min_preingestion) = &desc.preingest_upgrade_when_below {
-                if let Some(current) = endpoint.find_version(&fw_info, *fwtype) {
+            if let Some(min_preingestion) = &desc.preingest_upgrade_when_below
+                && let Some(current) = endpoint.find_version(&fw_info, *fwtype)
+            {
+                tracing::info!(
+                    "check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}",
+                    endpoint.address
+                );
+
+                if version_compare::compare(current, min_preingestion)
+                    .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                {
                     tracing::info!(
-                        "check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}",
+                        "check_firmware_versions_below_preingestion {}: Start upload of {fwtype:?}",
                         endpoint.address
                     );
-
-                    if version_compare::compare(current, min_preingestion)
-                        .is_ok_and(|c| c == version_compare::Cmp::Lt)
-                    {
-                        tracing::info!(
-                            "check_firmware_versions_below_preingestion {}: Start upload of {fwtype:?}",
-                            endpoint.address
-                        );
-                        // One or both of the versions are low enough to absolutely need upgrades first - do them both while we're at it.
-                        let delayed_upgrade = self
-                            .start_firmware_uploads_or_continue(txn, endpoint, false)
-                            .await?;
-                        return Ok(delayed_upgrade);
-                    } else {
-                        tracing::info!(
-                            "check_firmware_versions_below_preingestion {}: {fwtype:?} is good",
-                            endpoint.address
-                        );
-                    }
+                    // One or both of the versions are low enough to absolutely need upgrades first - do them both while we're at it.
+                    let delayed_upgrade = self
+                        .start_firmware_uploads_or_continue(txn, endpoint, false)
+                        .await?;
+                    return Ok(delayed_upgrade);
+                } else {
+                    tracing::info!(
+                        "check_firmware_versions_below_preingestion {}: {fwtype:?} is good",
+                        endpoint.address
+                    );
                 }
             }
         }
@@ -604,35 +604,33 @@ impl PreingestionManagerStatic {
                         // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
 
                         // If we have multiple firmware files to be uploaded, do the next one.
-                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
-                            if let Some(component_info) = fw_info.components.get(upgrade_type) {
-                                if let Some(selected_firmware) =
-                                    component_info.known_firmware.iter().find(|&x| x.default)
-                                {
-                                    let firmware_number = firmware_number + 1;
-                                    if firmware_number
-                                        < selected_firmware.filenames.len().try_into().unwrap_or(0)
-                                    {
-                                        tracing::info!(
-                                            "Installing {:?} chain step {} on {}",
-                                            selected_firmware,
-                                            firmware_number,
-                                            endpoint.address
-                                        );
+                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint)
+                            && let Some(component_info) = fw_info.components.get(upgrade_type)
+                            && let Some(selected_firmware) =
+                                component_info.known_firmware.iter().find(|&x| x.default)
+                        {
+                            let firmware_number = firmware_number + 1;
+                            if firmware_number
+                                < selected_firmware.filenames.len().try_into().unwrap_or(0)
+                            {
+                                tracing::info!(
+                                    "Installing {:?} chain step {} on {}",
+                                    selected_firmware,
+                                    firmware_number,
+                                    endpoint.address
+                                );
 
-                                        initiate_update(
-                                            txn,
-                                            endpoint,
-                                            &self.redfish_client_pool,
-                                            selected_firmware,
-                                            upgrade_type,
-                                            &self.downloader,
-                                            firmware_number,
-                                        )
-                                        .await?;
-                                        return Ok(());
-                                    }
-                                }
+                                initiate_update(
+                                    txn,
+                                    endpoint,
+                                    &self.redfish_client_pool,
+                                    selected_firmware,
+                                    upgrade_type,
+                                    &self.downloader,
+                                    firmware_number,
+                                )
+                                .await?;
+                                return Ok(());
                             }
                         }
                         tracing::info!(
@@ -712,22 +710,20 @@ impl PreingestionManagerStatic {
                 RedfishError::HTTPErrorCode { status_code, .. } => {
                     if status_code == NOT_FOUND {
                         // Dells (maybe others) have been observed to not have report the job any more after completing a host reboot for a UEFI upgrade.  If we get a 404 but see that we're at the right version, we're done with that upgrade.
-                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
-                            if let Some(current_version) =
+                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint)
+                            && let Some(current_version) =
                                 endpoint.find_version(&fw_info, *upgrade_type)
-                            {
-                                if current_version == final_version {
-                                    tracing::debug!(
-                                        "Marking completion of Redfish task of firmware upgrade for {} with missing task",
-                                        &endpoint.address
-                                    );
-                                    DbExploredEndpoint::set_preingestion_recheck_versions(
-                                        endpoint.address,
-                                        txn,
-                                    )
-                                    .await?;
-                                }
-                            }
+                            && current_version == final_version
+                        {
+                            tracing::debug!(
+                                "Marking completion of Redfish task of firmware upgrade for {} with missing task",
+                                &endpoint.address
+                            );
+                            DbExploredEndpoint::set_preingestion_recheck_versions(
+                                endpoint.address,
+                                txn,
+                            )
+                            .await?;
                         }
                     }
                 }
@@ -793,14 +789,14 @@ impl PreingestionManagerStatic {
         // The version reported doesn't update until the end of the UEFI portion of the boot, which can be quite a long wait.
 
         if let Some(power_drains_needed) = power_drains_needed {
-            if let Some(delay_until) = delay_until {
-                if *delay_until > chrono::Utc::now().timestamp() {
-                    tracing::info!(
-                        "Waiting after {last_power_drain_operation:?} of {}",
-                        &endpoint.address
-                    );
-                    return Ok(());
-                }
+            if let Some(delay_until) = delay_until
+                && *delay_until > chrono::Utc::now().timestamp()
+            {
+                tracing::info!(
+                    "Waiting after {last_power_drain_operation:?} of {}",
+                    &endpoint.address
+                );
+                return Ok(());
             }
 
             match last_power_drain_operation {
@@ -1000,27 +996,24 @@ impl PreingestionManagerStatic {
             if let Some(current_version) = endpoint.find_version(&fw_info, *upgrade_type) {
                 if current_version != final_version {
                     // Still not reporting the new version.
-                    if !self.firmware_global.no_reset_retries {
-                        if let Some(previous_reset_time) = previous_reset_time {
-                            if previous_reset_time + 30 * 60 <= Utc::now().timestamp() {
-                                tracing::info!(
-                                    "Upgrade for {} {:?} has taken more than 30 minutes to report new version; resetting again.",
-                                    &endpoint.address,
-                                    upgrade_type
-                                );
-                                let state = &PreingestionState::ResetForNewFirmware {
-                                    final_version: final_version.to_string(),
-                                    upgrade_type: *upgrade_type,
-                                    power_drains_needed: None,
-                                    delay_until: None,
-                                    last_power_drain_operation: None,
-                                };
-                                return Box::pin(
-                                    self.in_reset_for_new_firmware(txn, endpoint, state),
-                                )
-                                .await;
-                            }
-                        }
+                    if !self.firmware_global.no_reset_retries
+                        && let Some(previous_reset_time) = previous_reset_time
+                        && previous_reset_time + 30 * 60 <= Utc::now().timestamp()
+                    {
+                        tracing::info!(
+                            "Upgrade for {} {:?} has taken more than 30 minutes to report new version; resetting again.",
+                            &endpoint.address,
+                            upgrade_type
+                        );
+                        let state = &PreingestionState::ResetForNewFirmware {
+                            final_version: final_version.to_string(),
+                            upgrade_type: *upgrade_type,
+                            power_drains_needed: None,
+                            delay_until: None,
+                            last_power_drain_operation: None,
+                        };
+                        return Box::pin(self.in_reset_for_new_firmware(txn, endpoint, state))
+                            .await;
                     }
                     DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
                         .await?;

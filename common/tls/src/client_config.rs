@@ -34,10 +34,10 @@ pub fn get_carbide_api_url(
     }
 
     // Third config file
-    if let Some(file_config) = file_config {
-        if let Some(carbide_api_url) = file_config.carbide_api_url.as_ref() {
-            return carbide_api_url.clone();
-        }
+    if let Some(file_config) = file_config
+        && let Some(carbide_api_url) = file_config.carbide_api_url.as_ref()
+    {
+        return carbide_api_url.clone();
     }
 
     // Otherwise we assume the admin-cli is called from inside a kubernetes pod
@@ -58,16 +58,16 @@ pub fn get_client_cert_info(
     }
 
     // Third config file
-    if let Some(file_config) = file_config {
-        if let (Some(client_key_path), Some(client_cert_path)) = (
+    if let Some(file_config) = file_config
+        && let (Some(client_key_path), Some(client_cert_path)) = (
             file_config.client_key_path.as_ref(),
             file_config.client_cert_path.as_ref(),
-        ) {
-            return ClientCert {
-                cert_path: client_cert_path.clone(),
-                key_path: client_key_path.clone(),
-            };
-        }
+        )
+    {
+        return ClientCert {
+            cert_path: client_cert_path.clone(),
+            key_path: client_key_path.clone(),
+        };
     }
 
     // this is the location for most k8s pods
@@ -125,10 +125,10 @@ pub fn get_forge_root_ca_path(
     }
 
     // Third config file
-    if let Some(file_config) = file_config {
-        if let Some(forge_root_ca_path) = file_config.forge_root_ca_path.as_ref() {
-            return forge_root_ca_path.clone();
-        }
+    if let Some(file_config) = file_config
+        && let Some(forge_root_ca_path) = file_config.forge_root_ca_path.as_ref()
+    {
+        return forge_root_ca_path.clone();
     }
 
     // this is the location for most k8s pods

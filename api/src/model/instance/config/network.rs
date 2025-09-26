@@ -661,12 +661,12 @@ pub fn validate_interface_function_ids<
         let function_id = get_function_id(iface);
         let device_locator = get_device_locator(iface);
 
-        if let InterfaceFunctionId::Virtual { id } = function_id {
-            if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(id) {
-                return Err(format!(
-                    "Invalid interface virtual function ID {id} for network interface at index {idx}"
-                ));
-            }
+        if let InterfaceFunctionId::Virtual { id } = function_id
+            && !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(id)
+        {
+            return Err(format!(
+                "Invalid interface virtual function ID {id} for network interface at index {idx}"
+            ));
         }
 
         let func_id = match function_id {

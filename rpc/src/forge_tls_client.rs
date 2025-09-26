@@ -482,24 +482,24 @@ impl<'a> ForgeTlsClient<'a> {
         })?;
 
         // only check for the root cert if the uri we were given is actually HTTPS.  That lets tests function properly.
-        if let Some(scheme) = uri.scheme() {
-            if scheme == &tonic::codegen::http::uri::Scheme::HTTPS {
-                // TODO: by reading the pemfile every time, we're automatically getting hot-reload
-                // TODO: -- but we could use inotify in order to make this more performant.
-                match tokio::fs::read(&self.forge_client_config.root_ca_path).await {
-                    Ok(pem_file) => {
-                        let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
-                        let (_added, _ignored) = roots.add_parsable_certificates(
-                            rustls_pemfile::certs(&mut cert_cursor).filter_map(|cert| cert.ok()),
-                        );
+        if let Some(scheme) = uri.scheme()
+            && scheme == &tonic::codegen::http::uri::Scheme::HTTPS
+        {
+            // TODO: by reading the pemfile every time, we're automatically getting hot-reload
+            // TODO: -- but we could use inotify in order to make this more performant.
+            match tokio::fs::read(&self.forge_client_config.root_ca_path).await {
+                Ok(pem_file) => {
+                    let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
+                    let (_added, _ignored) = roots.add_parsable_certificates(
+                        rustls_pemfile::certs(&mut cert_cursor).filter_map(|cert| cert.ok()),
+                    );
+                }
+                Err(error) => {
+                    return Err(CouldNotReadRootCa {
+                        path: self.forge_client_config.root_ca_path.clone(),
+                        error,
                     }
-                    Err(error) => {
-                        return Err(CouldNotReadRootCa {
-                            path: self.forge_client_config.root_ca_path.clone(),
-                            error,
-                        }
-                        .into());
-                    }
+                    .into());
                 }
             }
         }

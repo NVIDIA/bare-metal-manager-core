@@ -159,13 +159,12 @@ fn try_external_cert(
                     value.string().as_str() == "pki-k8s-usercert-ca.ngc.nvidia.com"
                         || value.string().as_str() == "NVIDIA Forge Root Certificate Authority 2022"
                 })
+                && value.string().as_str() == "pki-k8s-usercert-ca.ngc.nvidia.com"
             {
-                if value.string().as_str() == "pki-k8s-usercert-ca.ngc.nvidia.com" {
-                    // This CN is what we expect from nvinit certs
-                    return Some(Principal::ExternalUser(nvinit_cert_values(
-                        x509_cert.subject(),
-                    )));
-                }
+                // This CN is what we expect from nvinit certs
+                return Some(Principal::ExternalUser(nvinit_cert_values(
+                    x509_cert.subject(),
+                )));
             }
         }
 
@@ -467,7 +466,7 @@ pub trait PolicyEngine {
     ) -> Result<Authorization, AuthorizationError>;
 }
 
-pub type PolicyEngineObject = (dyn PolicyEngine + Send + Sync);
+pub type PolicyEngineObject = dyn PolicyEngine + Send + Sync;
 
 #[derive(Clone)]
 pub struct CasbinAuthorizer {

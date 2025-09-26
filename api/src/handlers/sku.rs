@@ -160,7 +160,8 @@ pub(crate) async fn assign_to_machine(
         }
     }
 
-    let mut skus = crate::db::sku::find(&mut txn, &[sku_machine_pair.sku_id.clone()]).await?;
+    let mut skus =
+        crate::db::sku::find(&mut txn, std::slice::from_ref(&sku_machine_pair.sku_id)).await?;
 
     let sku = skus.pop().ok_or(CarbideError::NotFoundError {
         kind: "SKU ID",

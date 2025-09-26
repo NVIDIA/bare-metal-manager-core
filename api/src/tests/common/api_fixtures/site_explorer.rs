@@ -1029,9 +1029,9 @@ impl<'a> MockExploredHost<'a> {
 /// to ingest it into the database. Returns a MockExploredHost that you can call more methods on
 /// before finishing.
 pub async fn new_mock_host(
-    env: &TestEnv,
+    env: &'_ TestEnv,
     config: ManagedHostConfig,
-) -> eyre::Result<MockExploredHost> {
+) -> eyre::Result<MockExploredHost<'_>> {
     // Make the IB ports visible in Mock-UFM
     let mock_ib_fabric = env.ib_fabric_manager.get_mock_manager();
     for ib_guid in config.ib_guids.iter() {

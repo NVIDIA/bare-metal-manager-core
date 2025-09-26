@@ -272,7 +272,7 @@ pub mod output {
             /// values represented as strings, these values can be returned as
             /// Cow::Borrowed, and if not you will need to string-format them
             /// and return these as Cow::Owned.
-            fn row_values(row: &Self::Row) -> Vec<Cow<str>>;
+            fn row_values(row: &'_ Self::Row) -> Vec<Cow<'_, str>>;
 
             // fn render_text_table(&self) -> String {
             //     let table = make_table(self);

@@ -9,7 +9,7 @@
 # its affiliates is strictly prohibited.
 
 # This should match rust-toolchain.toml
-FROM rust:1.88.0-slim-bookworm
+FROM rust:1.90.0-slim-bookworm
 
 # Set in gitlab-templates/scripts/build-push-container-image.sh
 ARG CI_COMMIT_SHORT_SHA

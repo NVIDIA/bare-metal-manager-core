@@ -603,10 +603,10 @@ impl EndpointExplorer for BmcEndpointExplorer {
         // If the site explorer was previously unable to login to the root BMC account using
         // the expected credentials, wait for an operator to manually intervene.
         // This will avoid locking us out of BMCs.
-        if let Some(report) = last_report {
-            if report.cannot_login() {
-                return Err(EndpointExplorationError::AvoidLockout);
-            }
+        if let Some(report) = last_report
+            && report.cannot_login()
+        {
+            return Err(EndpointExplorationError::AvoidLockout);
         }
 
         let bmc_mac_address = interface.mac_address;

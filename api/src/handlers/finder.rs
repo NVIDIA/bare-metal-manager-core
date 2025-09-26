@@ -425,13 +425,12 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         }
     }
 
-    if let Ok(mi_id) = MachineInterfaceId::from_str(&u.value) {
-        if db::machine_interface::find_one(&mut txn, mi_id)
+    if let Ok(mi_id) = MachineInterfaceId::from_str(&u.value)
+        && db::machine_interface::find_one(&mut txn, mi_id)
             .await
             .is_ok()
-        {
-            return Ok(Some(rpc::UuidType::MachineInterface));
-        }
+    {
+        return Ok(Some(rpc::UuidType::MachineInterface));
     }
 
     if let Ok(vpc_id) = VpcId::from_str(&u.value) {

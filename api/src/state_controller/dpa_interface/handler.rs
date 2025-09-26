@@ -207,10 +207,10 @@ async fn do_heartbeat(
     // Both send_hb and send_revision could evaluate to true below. If send_hb is true, we will
     // update the last_hb_time for the interface entry.
 
-    if let Some(next_hb_time) = state.last_hb_time.checked_add_signed(hb_interval) {
-        if chrono::Utc::now() >= next_hb_time {
-            send_hb = true; // heartbeat interval elapsed since the last heartbeat 
-        }
+    if let Some(next_hb_time) = state.last_hb_time.checked_add_signed(hb_interval)
+        && chrono::Utc::now() >= next_hb_time
+    {
+        send_hb = true; // heartbeat interval elapsed since the last heartbeat 
     }
 
     if !state.managed_host_network_config_version_synced() {

@@ -1,4 +1,5 @@
 mod api;
+#[allow(dead_code)]
 mod generated;
 
 use crate::generated::{

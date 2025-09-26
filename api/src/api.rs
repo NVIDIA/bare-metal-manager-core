@@ -1021,22 +1021,22 @@ impl Forge for Api {
             .await?;
         db::machine::update_cleanup_time(&machine, &mut txn).await?;
 
-        if let Some(nvme_result) = cleanup_info.nvme {
-            if rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result {
-                // NVME Cleanup failed. Move machine to failed state.
-                db::machine::update_failure_details(
-                    &machine,
-                    &mut txn,
-                    FailureDetails {
-                        cause: FailureCause::NVMECleanFailed {
-                            err: nvme_result.message.to_string(),
-                        },
-                        failed_at: chrono::Utc::now(),
-                        source: FailureSource::Scout,
+        if let Some(nvme_result) = cleanup_info.nvme
+            && rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result
+        {
+            // NVME Cleanup failed. Move machine to failed state.
+            db::machine::update_failure_details(
+                &machine,
+                &mut txn,
+                FailureDetails {
+                    cause: FailureCause::NVMECleanFailed {
+                        err: nvme_result.message.to_string(),
                     },
-                )
-                .await?;
-            }
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::Scout,
+                },
+            )
+            .await?;
         }
 
         txn.commit()
@@ -2098,11 +2098,10 @@ impl Forge for Api {
                                 }
                             }
 
-                            if host_restart_needed {
-                                if let Err(e) = client.power(SystemPowerControl::ForceRestart).await
-                                {
-                                    tracing::warn!(%machine_id, error = %e, "Failed to reboot host while force deleting machine");
-                                }
+                            if host_restart_needed
+                                && let Err(e) = client.power(SystemPowerControl::ForceRestart).await
+                            {
+                                tracing::warn!(%machine_id, error = %e, "Failed to reboot host while force deleting machine");
                             }
                         }
                         Err(e) => {
@@ -2128,17 +2127,16 @@ impl Forge for Api {
         }
 
         if let Some(machine) = &host_machine {
-            if request.delete_bmc_interfaces {
-                if let Some(bmc_ip) = &machine.bmc_info.ip {
-                    response.host_bmc_interface_associated = true;
-                    if let Ok(ip_addr) = IpAddr::from_str(bmc_ip) {
-                        if db::machine_interface::delete_by_ip(&mut txn, ip_addr)
-                            .await?
-                            .is_some()
-                        {
-                            response.host_bmc_interface_deleted = true;
-                        }
-                    }
+            if request.delete_bmc_interfaces
+                && let Some(bmc_ip) = &machine.bmc_info.ip
+            {
+                response.host_bmc_interface_associated = true;
+                if let Ok(ip_addr) = IpAddr::from_str(bmc_ip)
+                    && db::machine_interface::delete_by_ip(&mut txn, ip_addr)
+                        .await?
+                        .is_some()
+                {
+                    response.host_bmc_interface_deleted = true;
                 }
             }
             db::machine::force_cleanup(&mut txn, &machine.id).await?;
@@ -2150,14 +2148,14 @@ impl Forge for Api {
                 response.host_interfaces_deleted = true;
             }
 
-            if let Some(addr) = &machine.bmc_info.ip {
-                if let Ok(addr) = IpAddr::from_str(addr) {
-                    tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id);
+            if let Some(addr) = &machine.bmc_info.ip
+                && let Ok(addr) = IpAddr::from_str(addr)
+            {
+                tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id);
 
-                    DbExploredEndpoint::delete(&mut txn, addr).await?;
+                DbExploredEndpoint::delete(&mut txn, addr).await?;
 
-                    DbExploredManagedHost::delete_by_host_bmc_addr(&mut txn, addr).await?;
-                }
+                DbExploredManagedHost::delete_by_host_bmc_addr(&mut txn, addr).await?;
             }
 
             if request.delete_bmc_credentials {
@@ -2211,20 +2209,18 @@ impl Forge for Api {
             }
             DpuToNetworkDeviceMap::delete(&mut txn, &dpu_machine.id).await?;
 
-            if request.delete_bmc_interfaces {
-                if let Some(bmc_ip) = &dpu_machine.bmc_info.ip {
-                    response.dpu_bmc_interface_associated = true;
-                    if let Ok(ip_addr) = IpAddr::from_str(bmc_ip) {
-                        if db::machine_interface::delete_by_ip(&mut txn, ip_addr)
-                            .await?
-                            .is_some()
-                        {
-                            response.dpu_bmc_interface_deleted = true;
-                        }
-                    }
+            if request.delete_bmc_interfaces
+                && let Some(bmc_ip) = &dpu_machine.bmc_info.ip
+            {
+                response.dpu_bmc_interface_associated = true;
+                if let Ok(ip_addr) = IpAddr::from_str(bmc_ip)
+                    && db::machine_interface::delete_by_ip(&mut txn, ip_addr)
+                        .await?
+                        .is_some()
+                {
+                    response.dpu_bmc_interface_deleted = true;
                 }
             }
-
             if let Some(asn) = dpu_machine.asn {
                 self.common_pools
                     .ethernet
@@ -2242,12 +2238,12 @@ impl Forge for Api {
                 response.dpu_interfaces_deleted = true;
             }
 
-            if let Some(addr) = &dpu_machine.bmc_info.ip {
-                if let Ok(addr) = IpAddr::from_str(addr) {
-                    tracing::info!("Cleaning up explored endpoint at {addr} {}", dpu_machine.id);
+            if let Some(addr) = &dpu_machine.bmc_info.ip
+                && let Ok(addr) = IpAddr::from_str(addr)
+            {
+                tracing::info!("Cleaning up explored endpoint at {addr} {}", dpu_machine.id);
 
-                    DbExploredEndpoint::delete(&mut txn, addr).await?;
-                }
+                DbExploredEndpoint::delete(&mut txn, addr).await?;
             }
 
             if request.delete_bmc_credentials {
@@ -2671,13 +2667,12 @@ impl Forge for Api {
                     id: machine_id.to_string(),
                 })?;
 
-        if let Some(request) = snapshot.host_snapshot.reprovision_requested {
-            if request.started_at.is_some() {
-                return Err(CarbideError::internal(
-                    "Reprovisioning is already started.".to_string(),
-                )
-                .into());
-            }
+        if let Some(request) = snapshot.host_snapshot.reprovision_requested
+            && request.started_at.is_some()
+        {
+            return Err(
+                CarbideError::internal("Reprovisioning is already started.".to_string()).into(),
+            );
         }
 
         match req.mode() {

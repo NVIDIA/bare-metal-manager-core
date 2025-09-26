@@ -383,10 +383,10 @@ pub async fn initialize_and_start_controllers(
             .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
     }
 
-    if let Some(domain_name) = &carbide_config.initial_domain_name {
-        if db_init::create_initial_domain(db_pool.clone(), domain_name).await? {
-            tracing::info!("Created initial domain {domain_name}");
-        }
+    if let Some(domain_name) = &carbide_config.initial_domain_name
+        && db_init::create_initial_domain(db_pool.clone(), domain_name).await?
+    {
+        tracing::info!("Created initial domain {domain_name}");
     }
 
     const DB_TXN_NAME: &str = "define resource pools";
@@ -494,14 +494,12 @@ pub async fn initialize_and_start_controllers(
         db_init::create_initial_networks(&api_service, db_pool, networks).await?;
     }
 
-    if let Some(fnn_config) = carbide_config.fnn.as_ref() {
-        if let Some(admin) = fnn_config.admin_vpc.as_ref() {
-            if admin.enabled {
-                db_init::create_admin_vpc(db_pool, admin.vpc_vni).await?;
-            }
-        }
+    if let Some(fnn_config) = carbide_config.fnn.as_ref()
+        && let Some(admin) = fnn_config.admin_vpc.as_ref()
+        && admin.enabled
+    {
+        db_init::create_admin_vpc(db_pool, admin.vpc_vni).await?;
     }
-
     // Update SVI IP to segments which have VPC attached and type is FNN.
     db_init::update_network_segments_svi_ip(db_pool).await?;
 

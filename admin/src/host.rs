@@ -35,17 +35,16 @@ pub async fn trigger_reprovisioning(
             .into_iter()
             .next();
 
-        if let Some(host_machine) = host_machine {
-            if host_machine
+        if let Some(host_machine) = host_machine
+            && host_machine
                 .health_overrides
                 .iter()
                 .any(|or| or.source == "host-update")
-            {
-                return Err(CarbideCliError::GenericError(format!(
-                    "Host machine: {:?} already has a \"host-update\" override.",
-                    host_machine.id,
-                )));
-            }
+        {
+            return Err(CarbideCliError::GenericError(format!(
+                "Host machine: {:?} already has a \"host-update\" override.",
+                host_machine.id,
+            )));
         }
 
         let report = get_health_report(

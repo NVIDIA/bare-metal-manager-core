@@ -91,14 +91,13 @@ pub async fn spawn(
                             bytes_received += data.len();
                             output_last_received = Some(Utc::now());
                             output_ringbuf.push_iter_overwrite(data.iter().copied());
-                            if let Some(bmc_prompt) = bmc_prompt {
-                                if ringbuf_contains(&output_ringbuf, bmc_prompt) {
+                            if let Some(bmc_prompt) = bmc_prompt
+                                && ringbuf_contains(&output_ringbuf, bmc_prompt) {
                                     let mut ringbuf_str = String::new();
                                     output_ringbuf.read_to_string(&mut ringbuf_str).ok();
                                     tracing::warn!(%machine_id, "BMC dropped to system prompt, exiting. output: {ringbuf_str:?}");
                                     break;
                                 }
-                            }
                         }
                         to_frontend_tx.send(ToFrontendMessage::Channel(Arc::new(msg))).map_err(|_| SpawnError::SendingMsgToFrontend)?;
                     }

@@ -313,14 +313,12 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     if let Some(discovery_data) = raw_json_topology
         .get_mut("discovery_data")
         .and_then(|v| v.as_object_mut())
-    {
-        if let Some(info) = discovery_data
+        && let Some(info) = discovery_data
             .get_mut("Info")
             .and_then(|v| v.as_object_mut())
-        {
-            info.remove("cpus");
-            info.remove("cpu_info");
-        }
+    {
+        info.remove("cpus");
+        info.remove("cpu_info");
     }
 
     // Insert the topology with missing cpu data into the machine_topologies table.

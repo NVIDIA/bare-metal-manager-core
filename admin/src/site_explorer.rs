@@ -49,18 +49,16 @@ fn convert_managed_host_to_nice_table(
 
     for managedhost in &explored_endpoints.managed_hosts {
         let endpoints = get_endpoints_for_managed_host(managedhost, explored_endpoints);
-        if let Some(vendor) = &vendor {
-            if let Some(report) = endpoints.get(&managedhost.host_bmc_ip) {
-                if &report
-                    .report
-                    .as_ref()
-                    .and_then(|x| x.vendor.clone())
-                    .unwrap_or("".to_string())
-                    != vendor
-                {
-                    continue;
-                }
-            }
+        if let Some(vendor) = &vendor
+            && let Some(report) = endpoints.get(&managedhost.host_bmc_ip)
+            && &report
+                .report
+                .as_ref()
+                .and_then(|x| x.vendor.clone())
+                .unwrap_or("".to_string())
+                != vendor
+        {
+            continue;
         }
         table.add_row(managed_host_to_row(managedhost, endpoints));
     }
@@ -138,7 +136,7 @@ async fn get_exploration_report_for_bmc_address(
     // get managed host with host bmc
     let mut managed_host = api_client
         .0
-        .find_explored_managed_hosts_by_ids(&[ip.clone()])
+        .find_explored_managed_hosts_by_ids(std::slice::from_ref(&ip))
         .await?
         .managed_hosts;
 

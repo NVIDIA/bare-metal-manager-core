@@ -221,7 +221,7 @@ impl MockBmcHandle {
 struct KnownHostname(String);
 
 impl HostnameQuerying for KnownHostname {
-    fn get_hostname(&self) -> Cow<str> {
+    fn get_hostname(&'_ self) -> Cow<'_, str> {
         Cow::Borrowed(self.0.as_str())
     }
 }

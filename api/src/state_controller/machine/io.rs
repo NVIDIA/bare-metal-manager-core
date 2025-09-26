@@ -86,11 +86,10 @@ impl StateControllerIO for MachineStateControllerIO {
         )
         .await?;
 
-        if retstate.is_some() {
-            let retstate_ref: &mut ManagedHostStateSnapshot = retstate.as_mut().unwrap();
+        if let Some(retstate) = retstate.as_mut() {
             let dpa_snapshots =
                 db::dpa_interface::DpaInterface::find_by_machine_id(txn, machine_id).await?;
-            retstate_ref.dpa_interface_snapshots = dpa_snapshots;
+            retstate.dpa_interface_snapshots = dpa_snapshots;
         };
 
         return Ok(retstate);

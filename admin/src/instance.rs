@@ -218,60 +218,60 @@ fn convert_instance_to_nice_format(
         }
     }
 
-    if let Some(ib_config) = instance.config.clone().unwrap().infiniband {
-        if let Some(ib_status) = instance.status.clone().unwrap().infiniband {
-            writeln!(&mut lines, "IB INTERFACES:")?;
-            writeln!(
-                &mut lines,
-                "\t{:<width$}: {}",
-                "IB CONFIG VERSION",
-                instance.ib_config_version.clone()
-            )?;
-            writeln!(
-                &mut lines,
-                "\t{:<width$}: {}",
-                "CONFIG SYNCED", ib_status.configs_synced
-            )?;
-            for (i, interface) in ib_config.ib_interfaces.iter().enumerate() {
-                let status = &ib_status.ib_interfaces[i];
-                let data = &[
-                    (
-                        "FUNCTION_TYPE",
-                        forgerpc::InterfaceFunctionType::try_from(interface.function_type)
-                            .ok()
-                            .map(|ty| format!("{ty:?}"))
-                            .unwrap_or_else(|| "INVALID".to_string()),
-                    ),
-                    ("VENDOR", interface.vendor.clone().unwrap_or_default()),
-                    ("DEVICE", interface.device.clone()),
-                    ("DEVICE INSTANCE", interface.device_instance.to_string()),
-                    (
-                        "VF ID",
-                        interface
-                            .virtual_function_id
-                            .map(|x| x.to_string())
-                            .unwrap_or_default(),
-                    ),
-                    (
-                        "PARTITION ID",
-                        interface
-                            .ib_partition_id
-                            .map(|x| x.to_string())
-                            .unwrap_or_default(),
-                    ),
-                    ("PF GUID", status.pf_guid.clone().unwrap_or_default()),
-                    ("GUID", status.guid.clone().unwrap_or_default()),
-                    ("LID", status.lid.to_string()),
-                ];
+    if let Some(ib_config) = instance.config.clone().unwrap().infiniband
+        && let Some(ib_status) = instance.status.clone().unwrap().infiniband
+    {
+        writeln!(&mut lines, "IB INTERFACES:")?;
+        writeln!(
+            &mut lines,
+            "\t{:<width$}: {}",
+            "IB CONFIG VERSION",
+            instance.ib_config_version.clone()
+        )?;
+        writeln!(
+            &mut lines,
+            "\t{:<width$}: {}",
+            "CONFIG SYNCED", ib_status.configs_synced
+        )?;
+        for (i, interface) in ib_config.ib_interfaces.iter().enumerate() {
+            let status = &ib_status.ib_interfaces[i];
+            let data = &[
+                (
+                    "FUNCTION_TYPE",
+                    forgerpc::InterfaceFunctionType::try_from(interface.function_type)
+                        .ok()
+                        .map(|ty| format!("{ty:?}"))
+                        .unwrap_or_else(|| "INVALID".to_string()),
+                ),
+                ("VENDOR", interface.vendor.clone().unwrap_or_default()),
+                ("DEVICE", interface.device.clone()),
+                ("DEVICE INSTANCE", interface.device_instance.to_string()),
+                (
+                    "VF ID",
+                    interface
+                        .virtual_function_id
+                        .map(|x| x.to_string())
+                        .unwrap_or_default(),
+                ),
+                (
+                    "PARTITION ID",
+                    interface
+                        .ib_partition_id
+                        .map(|x| x.to_string())
+                        .unwrap_or_default(),
+                ),
+                ("PF GUID", status.pf_guid.clone().unwrap_or_default()),
+                ("GUID", status.guid.clone().unwrap_or_default()),
+                ("LID", status.lid.to_string()),
+            ];
 
-                for (key, value) in data {
-                    writeln!(&mut lines, "\t{key:<width$}: {value}")?;
-                }
-                writeln!(
-                    &mut lines,
-                    "\t--------------------------------------------------"
-                )?;
+            for (key, value) in data {
+                writeln!(&mut lines, "\t{key:<width$}: {value}")?;
             }
+            writeln!(
+                &mut lines,
+                "\t--------------------------------------------------"
+            )?;
         }
     }
 

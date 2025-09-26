@@ -103,13 +103,13 @@ where
         setup_test_db(&test_context.connect_opts, &args).await;
 
         let res = test_fn(test_context.pool_opts, test_context.connect_opts).await;
-        if res.is_success() {
-            if let Err(e) = cleanup_test(&test_context.db_name).await {
-                eprintln!(
-                    "failed to cleanup database {:?}: {}",
-                    test_context.db_name, e
-                );
-            }
+        if res.is_success()
+            && let Err(e) = cleanup_test(&test_context.db_name).await
+        {
+            eprintln!(
+                "failed to cleanup database {:?}: {}",
+                test_context.db_name, e
+            );
         }
         res
     })

@@ -69,17 +69,16 @@ pub async fn trigger_reprovisioning(
                 .into_iter()
                 .next();
 
-            if let Some(host_machine) = host_machine {
-                if host_machine
+            if let Some(host_machine) = host_machine
+                && host_machine
                     .health_overrides
                     .iter()
                     .any(|or| or.source == "host-update")
-                {
-                    return Err(CarbideCliError::GenericError(format!(
-                        "Host machine: {:?} already has a \"host-update\" override.",
-                        host_machine.id,
-                    )));
-                }
+            {
+                return Err(CarbideCliError::GenericError(format!(
+                    "Host machine: {:?} already has a \"host-update\" override.",
+                    host_machine.id,
+                )));
             }
 
             let report = get_health_report(
@@ -426,17 +425,16 @@ pub async fn get_dpu_version_status(
         .map(|dmi_data| dmi_data.product_name.clone())
         .unwrap_or_default();
 
-    if let Some(expected_version) = expected_nic_versions.get(&product_name) {
-        if expected_version
+    if let Some(expected_version) = expected_nic_versions.get(&product_name)
+        && expected_version
             != machine
                 .discovery_info
                 .as_ref()
                 .and_then(|di| di.dpu_info.as_ref())
                 .map(|dpu| dpu.firmware_version.as_str())
                 .unwrap_or("")
-        {
-            version_statuses.push("NIC Firmware update needed");
-        }
+    {
+        version_statuses.push("NIC Firmware update needed");
     }
 
     /* TODO add bmc version check when available

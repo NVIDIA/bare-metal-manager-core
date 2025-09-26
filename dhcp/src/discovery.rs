@@ -420,15 +420,14 @@ unsafe fn discovery_fetch_machine_at(
 
                         if let Ok(last_invalidation) =
                             chrono::DateTime::<chrono::Utc>::try_from(*last_invalidation)
+                            && last_invalidation >= startup_time
                         {
-                            if last_invalidation >= startup_time {
-                                log::error!(
-                                    "Restarting KEA since invalidation was reported by Carbide. Startup: {}. Last_Invalidation: {}",
-                                    startup_time.to_rfc3339(),
-                                    last_invalidation.to_rfc3339()
-                                );
-                                std::process::exit(99);
-                            }
+                            log::error!(
+                                "Restarting KEA since invalidation was reported by Carbide. Startup: {}. Last_Invalidation: {}",
+                                startup_time.to_rfc3339(),
+                                last_invalidation.to_rfc3339()
+                            );
+                            std::process::exit(99);
                         }
                     }
 

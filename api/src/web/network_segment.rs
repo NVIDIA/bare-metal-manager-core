@@ -93,11 +93,11 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut tenant = Vec::new();
     for n in networks.into_iter() {
         let mut domain_name = String::new();
-        if let Some(domain_id) = n.subdomain_id.as_ref() {
-            if let Ok(name) = get_domain_name(state.clone(), domain_id).await {
-                domain_name = name;
-            };
-        }
+        if let Some(domain_id) = n.subdomain_id.as_ref()
+            && let Ok(name) = get_domain_name(state.clone(), domain_id).await
+        {
+            domain_name = name;
+        };
         let segment_type = n.segment_type;
         let mut display: NetworkSegmentRowDisplay = n.into();
         display.sub_domain = domain_name;
@@ -349,11 +349,11 @@ pub async fn detail(
     }
 
     let mut domain_name = String::new();
-    if let Some(domain_id) = segment.subdomain_id.as_ref() {
-        if let Ok(name) = get_domain_name(state.clone(), domain_id).await {
-            domain_name = name;
-        };
-    }
+    if let Some(domain_id) = segment.subdomain_id.as_ref()
+        && let Ok(name) = get_domain_name(state.clone(), domain_id).await
+    {
+        domain_name = name;
+    };
     let mut tmpl: NetworkSegmentDetail = segment.into();
     tmpl.domain_name = domain_name;
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()

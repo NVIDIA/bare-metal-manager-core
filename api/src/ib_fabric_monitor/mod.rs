@@ -693,20 +693,18 @@ async fn record_machine_infiniband_status_observation(
     // If not - e.g. during Instance termination - there are no pkeys expected on any
     // interface
     let use_tenant_network = !use_admin_network;
-    if use_tenant_network {
-        if let Some(expected_ib_config) = expected_ib_config {
-            for iface in expected_ib_config.ib_interfaces.iter() {
-                let Some(guid) = iface.guid.as_ref() else {
-                    continue;
-                };
-                let Some(partition_data) = tenant_partitions.get(&iface.ib_partition_id) else {
-                    continue;
-                };
-                let Some(expected_pkey) = partition_data.config.pkey else {
-                    continue;
-                };
-                expected_pkeys.insert(guid.clone(), expected_pkey);
-            }
+    if use_tenant_network && let Some(expected_ib_config) = expected_ib_config {
+        for iface in expected_ib_config.ib_interfaces.iter() {
+            let Some(guid) = iface.guid.as_ref() else {
+                continue;
+            };
+            let Some(partition_data) = tenant_partitions.get(&iface.ib_partition_id) else {
+                continue;
+            };
+            let Some(expected_pkey) = partition_data.config.pkey else {
+                continue;
+            };
+            expected_pkeys.insert(guid.clone(), expected_pkey);
         }
     }
 

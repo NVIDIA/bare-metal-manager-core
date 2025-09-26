@@ -237,12 +237,12 @@ async fn get_from_tar(
 
 fn maybe_power_back_on(state: &BmcState) {
     let mut off_until = state.off_until.lock().unwrap();
-    if let Some(off_timeout) = *off_until {
-        if off_timeout < time::SystemTime::now() {
-            *off_until = None;
-            state.is_on.store(true, Ordering::Relaxed);
-            tracing::debug!("Powered back on");
-        }
+    if let Some(off_timeout) = *off_until
+        && off_timeout < time::SystemTime::now()
+    {
+        *off_until = None;
+        state.is_on.store(true, Ordering::Relaxed);
+        tracing::debug!("Powered back on");
     }
 }
 

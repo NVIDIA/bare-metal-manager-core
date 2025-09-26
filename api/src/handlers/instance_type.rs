@@ -239,7 +239,7 @@ pub(crate) async fn update(
     // because their instance type wasn't found or because the version
     // didn't match.  We'll need to also bump the version, anyway.
     let mut current_instance_type =
-        instance_type::find_by_ids(&mut txn, &[id.clone()], true).await?;
+        instance_type::find_by_ids(&mut txn, std::slice::from_ref(&id), true).await?;
 
     // If we found more than one, the DB is corrupt.
     if current_instance_type.len() > 1 {
@@ -437,7 +437,7 @@ pub(crate) async fn associate_machines(
 
     // Query the DB to make sure the instance type is valid/active.
     let instance_types =
-        instance_type::find_by_ids(&mut txn, &[instance_type_id.clone()], true).await?;
+        instance_type::find_by_ids(&mut txn, std::slice::from_ref(&instance_type_id), true).await?;
 
     if instance_types.is_empty() {
         return Err(CarbideError::NotFoundError {
@@ -478,7 +478,7 @@ pub(crate) async fn associate_machines(
 
     // Query the DB to make sure the instance type is valid/active.
     let instance_types =
-        instance_type::find_by_ids(&mut txn, &[instance_type_id.clone()], true).await?;
+        instance_type::find_by_ids(&mut txn, std::slice::from_ref(&instance_type_id), true).await?;
 
     if instance_types.len() > 1 {
         return Err(CarbideError::Internal {
@@ -616,14 +616,14 @@ pub(crate) async fn remove_machine_association(
     // Check that there are no associated instances for the machines.
     let instances = instance::Instance::find_by_machine_ids(&mut txn, &[&machine_id]).await?;
 
-    if let Some(instance) = instances.first() {
-        if instance.deleted.is_none() {
-            return Err(CarbideError::FailedPrecondition(format!(
+    if let Some(instance) = instances.first()
+        && instance.deleted.is_none()
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
             "machine {} has instance assigned. This operation is allowed only in terminating state.",
             &machine.id
         ))
         .into());
-        }
     }
 
     // Make our DB query to remove the association
