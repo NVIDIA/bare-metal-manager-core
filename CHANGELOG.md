@@ -60,6 +60,7 @@
 
 ### Internal Changes
 
+- [MR-4649](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4649): Update Rust toolchain to version 1.90
 - [MR-4644](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4644): Internal change where documentation was added for state handling in Carbide.
 - [MR-4635](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4635): Internal change where an outdated comment was removed from `Dockerfile.build-container-x86_64` to ensure the build container is up to date and includes required tools such as mdbook-plantuml.
 - [MR-4624](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4624): Internal change where the BMC reboot step was moved to the end of the install process.
