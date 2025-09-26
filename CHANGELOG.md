@@ -1,35 +1,88 @@
 # Changelog
 
-## [Unreleased (v2025.09.26-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...trunk)
+## [Unreleased (v2025.10.10-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc2-0...trunk)
 
 ### Added
-- [VMAAS-48](https://jirasw.nvidia.com/browse/VMAAS-48): add config flag to disable creation of VFs in an instance allocation or modification
-- [MR-4580](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4580): Added new metric `forge_site_exploration_expected_machines_sku_count` to report SKU counts based on expected machines table.
 
 ### Changed
-- [MR-4580](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4580): Modified `forge_hosts_by_sku_count` metric to include hosts without SKU as 'unknown'.
 
 ### Fixed
-- [FORGE-6603](https://jirasw.nvidia.com/browse/FORGE-6603) [5402133](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/5402133) do not ingest DPUs if they are not reporting their oob_net0 interface properly.  uses existing dpu bmc remediation to attempt recovery
-- [FORGE-6908](https://jirasw.nvidia.com/browse/FORGE-6908) [5501548](https://nvbugspro.nvidia.com/bug/5501548) fix parsing of csv file
-- [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed stuck PXE boots by skipping NSGs in BootingWithDiscoveryImage state
-- [FORGE-6978](https://jirasw.nvidia.com/browse/FORGE-6978) [5507933](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/5507933):
-  - Add new sku version that uses nvme hardware info instead of block hardware info for storage components
-  - Change replace components to replace and allow most of the sku to be replaced
-
 
 ### Removed
 
 ### Internal Changes
 
+## [v2025.09.26-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...v2025.09.26-rc2-0)
+
+### Added
+
+- [VMAAS-48](https://jirasw.nvidia.com/browse/VMAAS-48), [MR-4506](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4506): Added the ability to configure VMaaS behavior via a new `vmaas_config` section in the API config, including the ability to disable creation of VFs during instance allocation or modification (`allow_instance_vf`), and to specify which interface reps (`hbn_reps`) are pre-created when a DPU is provisioned.
+- [FORGE-5915](https://jirasw.nvidia.com/browse/FORGE-5915), [FORGE-5914](https://jirasw.nvidia.com/browse/FORGE-5914), [FORGE-5856](https://jirasw.nvidia.com/browse/FORGE-5856), [MR-4640](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4640): Added the ability to remediate production DPUs at scale using the forge-admin-cli and basic scripting through the new DPU remediation feature.
+- [FORGE-5987](https://jirasw.nvidia.com/browse/FORGE-5987), [MR-4637](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4637): Added the ability to lock, unlock, and query the status of Mellanox devices via new `{lock,unlock}_device` calls in `scout::mlx_device` and a `scout mlx lockdown` CLI subcommand.
+- [FORGE-5987](https://jirasw.nvidia.com/browse/FORGE-5987), [MR-4633](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4633): Added the ability to lock, unlock, and query the status of Mellanox devices from the host (scout) using the new `mlxconfig-lockdown` crate, supporting both DPA and DPU devices via symmetric key operations. This includes a reference CLI (`mlxconfig-embedded lockdown`) for lock, unlock, and status commands, and is accompanied by extensive tests.
+- [MR-4619](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4619): Added the ability to link from redfish actions to the BMC/ExploredEndpoint page, allowing users to navigate directly from the redfish action table to the relevant BMC endpoint.
+- [FORGE-6102](https://jirasw.nvidia.com/browse/FORGE-6102), [MR-4618](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4618): Added the ability to serialize and deserialize `MlxConfigProfile` using both protobuf and TOML formats, enabling profiles to be defined in `carbide-api-site-config.toml`, loaded into `carbide-api`, and sent from `carbide-api` to `scout` for device configuration syncing. Also added tests for both serialization formats, including tests simulating loading from a TOML config file.
+- [FORGE-6102](https://jirasw.nvidia.com/browse/FORGE-6102), [FORGE-6256](https://jirasw.nvidia.com/browse/FORGE-6256), [MR-4601](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4601): Added the ability for `scout` to send `MlxDeviceReport` updates from the machine to `carbide-api`. This initial implementation logs and drops the data on the `carbide-api` side, laying the groundwork for future DPA management workflows. Also deduplicated client connection and `ForgeClientConfig` logic by introducing a shared `connect()` method and `create_client_config(..)` function.
+- [FORGE-6102](https://jirasw.nvidia.com/browse/FORGE-6102), [FORGE-6256](https://jirasw.nvidia.com/browse/FORGE-6256), [MR-4602](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4602): Added the ability to use `mlxconfig` and `mlxfwmanager` tools for DPA SuperNIC management on the host by installing the `mft` package in the `scout` image.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4580](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4580): Added the ability to emit a metric with SKU device type for expected machines by introducing a new metric (`forge_site_exploration_expected_machines_sku_count`) to report SKU counts based on the expected machines table, and extended the existing `forge_hosts_by_sku_count` metric to also cover explored machines without an assigned SKU.
+- [FORGE-6102](https://jirasw.nvidia.com/browse/FORGE-6102), [FORGE-6256](https://jirasw.nvidia.com/browse/FORGE-6256), [MR-4595](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4595): Added the ability to query local Mellanox device information via a new `mlx-device` subcommand in `scout`, enabling users to view device details, verify `DeviceFilter` options, and troubleshoot without requiring `--machine-interface-id`. This subcommand provides both human-readable and JSON output formats for device descriptions and reports, and relaxes the requirement for `machine_interface_id` for commands that do not need it.
+- [FORGE-6256](https://jirasw.nvidia.com/browse/FORGE-6256), [FORGE-6102](https://jirasw.nvidia.com/browse/FORGE-6102), [MR-4593](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4593): Added the ability to query Mellanox device information using `mlxfwmanager` (including support for querying a single device or all devices via the XML interface), filter devices based on any field visible through `mlxfwmanager`, and generate and send `MlxDeviceReport` updates for DPA and DPU management. Also added the ability to use device filtering to ensure profile configuration is only applied to compatible devices, replacing the previous constraints mechanism. The `mlxconfig-embedded` reference CLI was updated with new commands for interacting with the interface and additional unit tests.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4606](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4606): Added the ability for the DPA statemachine to communicate with an MQTT broker to configure DPA Agents.
+- [MR-4603](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4603): Added the ability for the rack manager to coordinate host firmware upgrades, as described in [this design document](https://gitlab-master.nvidia.com/nvmetal/designs/-/merge_requests/90).
+- [FORGE-6437](https://jirasw.nvidia.com/browse/FORGE-6437), [MR-4366](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4366): Added the ability to trim historical data from Measured Boot tables using a new `forge-admin-cli` command. The number of entries to keep is configurable (recommended at 250), and this command is typically invoked by a CronJob with the `--keep-entries` option.
+- [MR-4592](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4592): Added the ability to view how long the connection has been active in ssh-console by emitting status messages on connection, including the connection duration, the time output was last received, and the total amount of output received.
+
+### Changed
+
+- [MR-4614](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4614): Changed the behavior of the redfish action table by unifying its definition into a single template, which is now referenced by both the redfish browser and redfish actions views, eliminating duplication. Also changed some route definitions, moving them from `/redfish-browser` to `/redfish-actions` to better reflect their logical grouping.
+- [FORGE-5987](https://jirasw.nvidia.com/browse/FORGE-5987), [MR-4612](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4612): Changed the behavior of the `PublishMlxDeviceReport` endpoint to return a new `PublishMlxDeviceReportResponse` type (currently empty) instead of no response. This prepares for future enhancements where the response may include additional information.
+- [MR-4604](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4604): Changed the behavior of the redfish actions UI to label the button as "Approve" instead of "Pending" when the current user can still approve the request, render the request payload in a JSON container, and format timestamps consistently with other UI pages.
+- [FORGE-6603](https://jirasw.nvidia.com/browse/FORGE-6603), [MR-4585](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4585): Changed the behavior of DPU ingestion to reject DPUs that do not report the oob_net0 interface, preventing the ingestion of managed hosts when the DPU BMC is missing this interface.
+
+### Fixed
+
+- [MR-4645](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4645): Fixed an issue where carbide copied the wrong interface information because the comparison was based only on function id. This was correct for single DPU systems, but for multi-DPU systems, the check should be based on both function id and device locator.
+- [MR-4607](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4607): Fixed an issue where BFB support was not checked for all reprovision state transitions, by adding a check for redfish flow in every reprovision state transition.
+- [FORGE-6603](https://jirasw.nvidia.com/browse/FORGE-6603), [MR-4615](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4615): Fixed an issue where the code did not attempt to retrieve the OOB MAC address from the boot options if it was missing from the interface list, and where the "no oob" error was reported prematurely before all retrieval attempts had failed. Now, the error is only reported after all methods to obtain the OOB MAC have been exhausted, and the code will attempt to get the OOB MAC from the boot options whenever it is not found in the existing interfaces, not just when no interfaces are present.
+- [MR-4627](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4627): Fixed an issue where a missing whitespace between the date and `by username` was present in the redfish actions form.
+- [MR-4622](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4622): Fixed an issue where the generated HTML for redfish actions was unnecessarily escaped an extra level, causing incorrect rendering.
+- [MR-4609](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4609): Fixed an issue where different SMC models required either `Enabled` or `Enable` for the `SecurityDeviceSupport` BIOS setting, causing failures when the incorrect value was used. The code now dynamically assigns the correct value, resolving errors that left some SMCs stuck in YTL.
+- [MR-4599](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4599): Fixed an issue where the `attached_dpu_machine_id` field in the `machine_interfaces` table could be updated with a valid value even when the `machine_id` field was null, causing database inconsistencies when a DPU was created by site-explorer.
+- [FORGE-6102](https://jirasw.nvidia.com/browse/FORGE-6102), [MR-4605](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4605): Fixed an issue where querying a DPU from the host while the DPU was in lockdown would fail to retrieve all device information, because the code expected all fields to be present. `MlxDeviceInfo` was updated to make most fields optional, allowing partial device information (such as PCI address and device type) to be parsed and reported even when the DPU is in lockdown. Unit tests were added to ensure partial XML responses are handled correctly and protobuf translation still works for reporting.
+- [FORGE-6908](https://jirasw.nvidia.com/browse/FORGE-6908), [MR-4596](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4596): Fixed an issue where CSV files were not parsed correctly by switching to the `csv` crate for proper parsing, and added the ability to change both the description and device type.
+- [MR-4590](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4590): Fixed an issue where the IB Fabric Monitor task would only rerun if there were two or more changes, instead of rerunning immediately when there was at least a single change.
+- [FORGE-6478](https://jirasw.nvidia.com/browse/FORGE-6478), [MR-4357](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4357): Fixed an issue where machines in the `Ready` state could become unresponsive (e.g., due to being left in the BIOS menu, OS issues, or power faults) without detection, resulting in silent failures until instance creation attempts failed. Added Scout heartbeat timeout monitoring for `Ready` machines by tracking `last_scout_contact_time` from `forge_agent_control` calls, monitoring for heartbeat timeouts (default 5 minutes), and emitting a metric (`forge_hosts_with_scout_heartbeat_timeout`) to track affected hosts. For the initial rollout, only the metric is emitted to avoid alert fatigue, with plans to introduce health probe alerts in the future.
+- [FORGE-6753](https://jirasw.nvidia.com/browse/FORGE-6753), [MR-4462](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4462): Fixed an issue where a host would not automatically reboot if the inventory update did not occur within an hour, which could happen if the BIOS crashed during a previous reboot. This change adds a workaround to reboot the host in such cases to recover from BIOS crashes.
+- [5457348](https://nvbugspro.nvidia.com/bug/5457348), [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed an issue where network security groups (NSGs) were still sent for instances in the `BootingWithDiscoveryImage` state, which could block the machine from fetching the PXE boot image from the site controller. The API now only sends NSG configuration if the instance is not in this state.
+- [5323666](https://nvbugspro.nvidia.com/bug/5323666), [MR-4503](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4503): Fixed an issue where machines could get stuck in the `HostInit/WaitingForPlatformConfiguration` state if the BMC was in lockdown, causing `forge_setup` to fail with a "BMC is locked down" error. The state machine now checks the lockdown status and disables it if needed before calling `forge_setup`, preventing this failure.
+- [MR-4594](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4594): Fixed an issue where the `ipmitool` command could hang indefinitely during BFB install by adding a timeout and retry mechanism to the command execution.
+- [5507933](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/5507933), [FORGE-6978](https://jirasw.nvidia.com/browse/FORGE-6978), [MR-4588](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4588): Fixed an issue where SKU mismatches could occur due to changes in block device assignments (such as virtual or RAID devices) between host instance assignments, by updating SKU versioning to use NVMe hardware information for storage instead of block devices.
+
+### Internal Changes
+
+- [MR-4644](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4644): Internal change where documentation was added for state handling in Carbide.
+- [MR-4635](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4635): Internal change where an outdated comment was removed from `Dockerfile.build-container-x86_64` to ensure the build container is up to date and includes required tools such as mdbook-plantuml.
+- [MR-4624](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4624): Internal change where the BMC reboot step was moved to the end of the install process.
+- [MR-4621](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4621): Internal change where MlxDeviceReport publishing was moved to occur after registration and initial setup, rather than during registration, to better align with its intended use in the Action feedback loop.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4623](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4623): Internal change where the timeout for unzip during firmware downgrade in MLT was increased.
+- [MR-4620](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4620): Internal change where publishing an MlxDeviceReport no longer returns an error if it fails; instead, the failure is logged and processing continues.
+- [MR-4608](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4608): Internal change where a retry mechanism was added to the auto-deploy script for ArgoCD sync, allowing up to 6 minutes of retries when another operation is already in progress.
+
+- [MR-4565](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4565): Internal change where the password reset check in MLT was made more robust by requiring 3 consecutive successful responses (instead of 1) and increasing the per-request timeout to 10 seconds in `wait_for_redfish_endpoint`. The `check_dpu_password_reset` function was also updated to use a longer timeout to handle temporary delays.
+- [MR-4638](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4638): Internal change where an explicit wildcard was added to the carbide section of CODEOWNERS to test if it triggers enforcement within that section.
+- [FORGE-6905](https://jirasw.nvidia.com/browse/FORGE-6905), [MR-4634](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4634): Internal change where the CODEOWNERS file was updated to reflect new group paths by updating the targets of the main rules to their new locations in the `nvmetal` group namespace.
+- [MR-4632](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4632): Internal change where the mlxconfig build script output is now gated behind the DEBUG_MLXCONFIG environment variable, so output is only shown if this variable is set to a value other than "0".
+- [MR-4626](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4626): Internal change where comprehensive documentation was added for the breakfix integration, including a complete user guide for the Release Instance API enhancements, a visual workflow diagram, an FAQ covering common operational scenarios, CLI command references for troubleshooting, and configuration guidance for auto-repair settings. Documentation files were added to the book, including a new entry in `SUMMARY.md`, a dedicated documentation page, and a workflow diagram image.
+- [FORGE-6905](https://jirasw.nvidia.com/browse/FORGE-6905), [MR-4616](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4616): Internal change where the CODEOWNERS file was updated to use the new GitLab group syntax, since the `@@role` syntax is not available in GitLab 17.x.
+
 ## [v2025.09.12-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...v2025.09.12-rc2-0)
 
 ### Added
 
-- [MR-4354](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4354): Adds BMC actions to Carbide RPC interface, allowing for RBAC to be added later. Includes logging and running of commands
-- [MR-4568](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4568): Allow tenants to configure their own IB configuration, sends the instance out of ready and then back into ready
-- [MR-4575](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4575): Adds ability to configure instance's IB configuration via CLI
-- [MR-4574](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4574): Adds mlxconfig-runner crate, finishes infrastructure for being able to use mlxconfig in Carbide
+- [MR-4354](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4354): Adds BMC actions to Carbide RPC interface, allowing for RBAC to be added later. Includes logging and running of commands.
+- [MR-4568](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4568): Allow tenants to configure their own IB configuration, sends the instance out of ready and then back into ready.
+- [MR-4575](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4575): Adds ability to configure instance's IB configuration via CLI.
+- [MR-4574](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4574): Adds mlxconfig-runner crate, finishes infrastructure for being able to use mlxconfig in Carbide.
 - [MR-4561](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4561): Added  support for an unused feature still in development. The `mqttea` client isn't in use anywhere yet, and the MR to actually integrate with it is still in development. And even though it's not in use yet, it's still backwards compatible just in case.
 - [FORGE-6424](https://jirasw.nvidia.com/browse/FORGE-6424), [MR-4546](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4546): Added the ability to monitor the amount of changes applied via UFM APIs via a new `forge_ib_monitor_machine_ufm_changes_applied_total` metric.
 - [MR-4415](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4415): Added the ability to supress external alerts by matching the new `forge_alerts_suppressed_count` metric with hosts with the SuppressAlerts classification.
@@ -40,13 +93,13 @@
 
 ### Changed 
 
-- [MR-4558](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4558): Prevent instance configuration changes while an instance is terminating to avoid side effets
-- [MR-4462](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4462): Add TPM EK cert for cloud instances, needed for VMaaS
+- [MR-4558](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4558): Prevent instance configuration changes while an instance is terminating to avoid side effets.
+- [MR-4462](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4462): Add TPM EK cert for cloud instances, needed for VMaaS.
 
 ### Fixed
 
-- [MR-4578](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4578): Fix GetMachine permission set to allow for SSH console to get machine information
-- [MR-4571](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4571): Version bump of libredfish to track changed API
+- [MR-4578](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4578): Fix GetMachine permission set to allow for SSH console to get machine information.
+- [MR-4571](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4571): Version bump of libredfish to track changed API.
 - [5504750](https://nvbugspro.nvidia.com/bug/5504750), [MR-4559](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4559): Disables reboot in fw-check routine.
 - [5472630](https://nvbugspro.nvidia.com/bug/5472630), [MR-4549](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4549), [MR-4544](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4544): Ensured that site explorer, expected machines, and Nautobot align on the serial numbers assigned to GB200s, preventing `SerialNumberMismatch` health alerts. GB200 serial numbers can also be sourced from `/redfish/v1/Chassis/Chassis0/Assembly` now, and this MR now allows site explorer to recognize this. Previously, this chassis was ignored because it had no network adaptors.
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4538](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4538): Bump libredfish to 0.29.71 to pull in a fix to setting the boot order on Lenovo SR 675 V3s.
@@ -58,16 +111,16 @@
 
 ### Internal Changes
 
-- [MR-4572](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4572): Update measured_boot to use new UUID type
-- [MR-4581](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4581): Rerun IBFabricMonitor state more often if fabric changes were applied previously
-- [MR-4566](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4566): Update UUID wrapper type representation, continued refactoring
+- [MR-4572](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4572): Update measured_boot to use new UUID type.
+- [MR-4581](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4581): Rerun IBFabricMonitor state more often if fabric changes were applied previously.
+- [MR-4566](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4566): Update UUID wrapper type representation, continued refactoring.
 - [MR-4535](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4535): Fix auto-deploy script so it pushes direct to forged/main.
 - [MR-4553](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4553): chore: Zero initialize forge_ib_monitor_ufm_changes_applied_total metric.
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4537](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4537): refactor: database error handling unification in the Carbide API: errors with transactions.
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4540](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4540): refactor: database error handling unification in the Carbide API: errors with transactions part 2.
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4541](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4541): refactor: database error handling unification in the Carbide API: tracking file / line using track_caller Rust feature.
 - [MR-4548](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4548): refactor: remove unnecessary explicit conversions to CarbideError.
-- [MR-4594](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4594): Added retry and timeout logic to ipmitool in an attempt to fix hanging installs of the bfb
+- [MR-4594](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4594): Added retry and timeout logic to ipmitool in an attempt to fix hanging installs of the bfb.
 
 - [FORGE-6905](https://jirasw.nvidia.com/browse/FORGE-6905), [MR-4539](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4539): chore: Add CODEOWNERS file.
 - [MR-4555](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4555): chore: Unify to a single MachineId type.
