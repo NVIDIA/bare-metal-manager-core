@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use askama::Template;
+use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse};
 use hyper::http::StatusCode;
@@ -28,9 +29,10 @@ struct DpuVersions {
     machines: Vec<Row>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 struct Row {
-    id: String,
+    host_machine_id: String,
+    dpu_machine_id: String,
     state: String,
     dpu_type: String,
     dpu_agent_version: String,
@@ -48,7 +50,11 @@ impl From<forgerpc::Machine> for Row {
         };
 
         Row {
-            id: machine.id.map(|id| id.to_string()).unwrap_or_default(),
+            dpu_machine_id: machine.id.map(|id| id.to_string()).unwrap_or_default(),
+            host_machine_id: machine
+                .associated_host_machine_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             dpu_type: machine
                 .discovery_info
                 .as_ref()
@@ -97,20 +103,38 @@ impl From<forgerpc::Machine> for Row {
     }
 }
 
-pub async fn list_html(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
-    let mut machines = match machine::fetch_machines(state, true, false).await {
-        Ok(m) => m,
-        Err(err) => {
-            tracing::error!(%err, "find_machines");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
-        }
-    };
+async fn fetch_dpus(api: &Arc<Api>) -> Result<Vec<Row>, tonic::Status> {
+    let mut machines = machine::fetch_machines(api.clone(), true, false).await?;
     machines
         .machines
         .retain(|m| m.machine_type == forgerpc::MachineType::Dpu as i32);
 
-    let tmpl = DpuVersions {
-        machines: machines.machines.into_iter().map(Row::from).collect(),
+    let machines = machines.machines.into_iter().map(Row::from).collect();
+
+    Ok(machines)
+}
+
+pub async fn list_html(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
+    let machines = match fetch_dpus(&state).await {
+        Ok(m) => m,
+        Err(err) => {
+            tracing::error!(%err, "fetch_dpus");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading DPUs").into_response();
+        }
     };
-    (StatusCode::OK, Html(tmpl.render().unwrap()))
+
+    let tmpl = DpuVersions { machines };
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+pub async fn list_json(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
+    let machines = match fetch_dpus(&state).await {
+        Ok(m) => m,
+        Err(err) => {
+            tracing::error!(%err, "fetch_dpus");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading DPUs").into_response();
+        }
+    };
+
+    (StatusCode::OK, Json(machines)).into_response()
 }

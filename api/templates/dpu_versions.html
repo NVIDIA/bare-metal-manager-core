@@ -3,13 +3,14 @@
 {% block title %}DPU Versions{% endblock %}
 
 {% block content %}
-<!-- <div id="json"><a id="json-link" href="">JSON</a></div> -->
+<div id="json"><a id="json-link" href="">JSON</a></div>
 <h1>DPU Versions</h1>
 
 <table class="sortable overview">
 	<thead>
 	<tr>
-		<th>ID</th>
+		<th>DPU ID</th>
+		<th>Host ID</th>
 		<th>State</th>
 		<th>DPU Type</th>
 		<th>DPU Agent</th>
@@ -22,7 +23,8 @@
 	<tbody>
 	{% for m in machines %}
 		<tr>
-			<td>{{ m.id|machine_id_link|safe }}</td>
+			<td>{{ m.dpu_machine_id|machine_id_link|safe }}</td>
+			<td>{{ m.host_machine_id|machine_id_link|safe }}</td>
 			<td>
 				{% if m.state == "Ready" || m.state == "Assigned/Ready" %}
 					<span class="bubble success">{{ m.state }}</span>
