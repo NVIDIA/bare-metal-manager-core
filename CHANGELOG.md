@@ -31,6 +31,7 @@
 - [MR-4603](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4603): Added the ability for the rack manager to coordinate host firmware upgrades, as described in [this design document](https://gitlab-master.nvidia.com/nvmetal/designs/-/merge_requests/90).
 - [FORGE-6437](https://jirasw.nvidia.com/browse/FORGE-6437), [MR-4366](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4366): Added the ability to trim historical data from Measured Boot tables using a new `forge-admin-cli` command. The number of entries to keep is configurable (recommended at 250), and this command is typically invoked by a CronJob with the `--keep-entries` option.
 - [MR-4592](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4592): Added the ability to view how long the connection has been active in ssh-console by emitting status messages on connection, including the connection duration, the time output was last received, and the total amount of output received.
+- [MR-4651](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4651): Added the ability to see the host machine ID on the /admin/dpu/versions page, and added the ability to to return the same data in json format.
 
 ### Changed
 
