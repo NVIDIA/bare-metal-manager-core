@@ -236,6 +236,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/dpu", get(machine::show_dpus_html))
             .route("/dpu.json", get(machine::show_dpus_json))
             .route("/dpu/versions", get(dpu_versions::list_html))
+            .route("/dpu/versions.json", get(dpu_versions::list_json))
             .route(
                 "/explored-endpoint.json",
                 get(explored_endpoint::show_all_json),
