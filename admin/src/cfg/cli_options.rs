@@ -1998,6 +1998,8 @@ pub struct ShowDomain {
 pub enum NetworkSegment {
     #[clap(about = "Display Network Segment information")]
     Show(ShowNetwork),
+    #[clap(about = "Delete Network Segment")]
+    Delete(DeleteNetworkSegment),
 }
 
 #[derive(Parser, Debug)]
@@ -2013,6 +2015,12 @@ pub struct ShowNetwork {
 
     #[clap(short, long, help = "The VPC name to query")]
     pub name: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct DeleteNetworkSegment {
+    #[clap(long, help = "Id of the network segment")]
+    pub id: NetworkSegmentId,
 }
 
 impl CliOptions {

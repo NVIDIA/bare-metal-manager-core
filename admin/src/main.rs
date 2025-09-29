@@ -643,6 +643,17 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?
             }
+            NetworkSegment::Delete(delete_network_segment) => {
+                if config.cloud_unsafe_op.is_none() {
+                    return Err(CarbideCliError::GenericError(
+                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
+                    )
+                    .into());
+                }
+                api_client
+                    .delete_network_segment(delete_network_segment.id)
+                    .await?;
+            }
         },
         CliCommand::Domain(domain) => match domain {
             Domain::Show(domain) => domain::handle_show(domain, config.format, &api_client).await?,

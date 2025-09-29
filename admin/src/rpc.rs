@@ -25,10 +25,11 @@ use ::rpc::{
         GetNetworkSecurityGroupPropagationStatusRequest, IdentifySerialRequest,
         IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
         MachineHardwareInfoUpdateType, Metadata, NetworkPrefix, NetworkSecurityGroupAttributes,
-        NetworkSegmentCreationRequest, NetworkSegmentType, PowerState, Remediation,
-        RemediationIdList, RemediationList, RevokeRemediationRequest, SshRequest,
-        UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
-        VpcSearchQuery, VpcVirtualizationType, instance_interface_config::NetworkDetails,
+        NetworkSegmentCreationRequest, NetworkSegmentDeletionRequest, NetworkSegmentDeletionResult,
+        NetworkSegmentType, PowerState, Remediation, RemediationIdList, RemediationList,
+        RevokeRemediationRequest, SshRequest, UpdateMachineHardwareInfoRequest,
+        UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchQuery,
+        VpcVirtualizationType, instance_interface_config::NetworkDetails,
     },
     forge_api_client::ForgeApiClient,
 };
@@ -926,6 +927,17 @@ impl ApiClient {
         };
         self.0
             .create_network_segment(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn delete_network_segment(
+        &self,
+        id: NetworkSegmentId,
+    ) -> CarbideCliResult<NetworkSegmentDeletionResult> {
+        let request = NetworkSegmentDeletionRequest { id: Some(id) };
+        self.0
+            .delete_network_segment(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }
