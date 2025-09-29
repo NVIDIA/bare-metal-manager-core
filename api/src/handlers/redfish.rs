@@ -154,7 +154,12 @@ pub async fn redfish_approve_action(
         );
     }
 
-    approve_request(approver, request, &mut txn).await?;
+    let is_approved = approve_request(approver, request, &mut txn).await?;
+    if !is_approved {
+        return Err(
+            CarbideError::InvalidArgument("user already approved request".to_owned()).into(),
+        );
+    }
     txn.commit()
         .await
         .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
@@ -194,7 +199,10 @@ pub async fn redfish_apply_action(
 
     let ip_to_serial = find_serials(&action_request.machine_ips, &mut txn).await?;
 
-    set_applied(applier, request, &mut txn).await?;
+    let is_applied = set_applied(applier, request, &mut txn).await?;
+    if !is_applied {
+        return Err(CarbideError::InvalidArgument("Request was already applied".to_owned()).into());
+    }
 
     for (index, (machine_ip, original_serial)) in action_request
         .machine_ips

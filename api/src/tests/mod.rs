@@ -60,6 +60,7 @@ mod network_segment;
 mod network_segment_find;
 mod network_segment_lifecycle;
 mod prevent_duplicate_mac_addresses;
+mod redfish_actions;
 mod resource_pool;
 mod route_servers;
 mod service_health_metrics;
