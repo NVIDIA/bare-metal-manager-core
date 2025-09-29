@@ -166,17 +166,19 @@ pub async fn approve_request(
     approver: String,
     request: rpc::forge::RedfishActionId,
     txn: &mut PgConnection,
-) -> Result<(), DatabaseError> {
+) -> Result<bool, DatabaseError> {
     let query = r#"UPDATE redfish_bmc_actions
     SET approvers = array_prepend($1, approvers), approver_dates = array_prepend(now(), approver_dates)
-    WHERE request_id = $2"#;
-    sqlx::query(query)
+    WHERE request_id = $2 AND NOT approvers @> ARRAY[$1]"#;
+    let is_approved = sqlx::query(query)
         .bind(approver)
         .bind(request.request_id)
         .execute(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(query, e))?;
-    Ok(())
+        .map_err(|e| DatabaseError::new(query, e))?
+        .rows_affected()
+        == 1;
+    Ok(is_approved)
 }
 
 pub async fn update_response(
@@ -200,16 +202,17 @@ pub async fn set_applied(
     applied_by: String,
     request: rpc::forge::RedfishActionId,
     txn: &mut PgConnection,
-) -> Result<(), DatabaseError> {
-    let query =
-        r#"UPDATE redfish_bmc_actions SET applied_at = now(), applier = $1 WHERE request_id = $2"#;
-    sqlx::query(query)
+) -> Result<bool, DatabaseError> {
+    let query = r#"UPDATE redfish_bmc_actions SET applied_at = now(), applier = $1 WHERE request_id = $2 AND applied_at IS NULL"#;
+    let is_applied = sqlx::query(query)
         .bind(applied_by)
         .bind(request.request_id)
         .execute(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(query, e))?;
-    Ok(())
+        .map_err(|e| DatabaseError::new(query, e))?
+        .rows_affected()
+        == 1;
+    Ok(is_applied)
 }
 
 pub async fn delete_request(
