@@ -1257,13 +1257,17 @@ async fn main() -> color_eyre::Result<()> {
                         expected_machine_data.fallback_dpu_serial_numbers,
                         metadata,
                         expected_machine_data.sku_id,
+                        expected_machine_data.id,
                     )
                     .await?;
             }
             cfg::cli_options::ExpectedMachineAction::Delete(expected_machine_query) => {
                 api_client
                     .0
-                    .delete_expected_machine(expected_machine_query.bmc_mac_address.to_string())
+                    .delete_expected_machine(::rpc::forge::ExpectedMachineRequest {
+                        bmc_mac_address: expected_machine_query.bmc_mac_address.to_string(),
+                        id: None,
+                    })
                     .await?;
             }
             cfg::cli_options::ExpectedMachineAction::Update(expected_machine_data) => {

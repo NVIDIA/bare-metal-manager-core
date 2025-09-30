@@ -562,6 +562,13 @@ pub struct ExpectedMachine {
         help = "A SKU ID that will be added for the newly created Machine."
     )]
     pub sku_id: Option<String>,
+
+    #[clap(
+        long = "id",
+        value_name = "UUID",
+        help = "Optional unique ID to assign to the ExpectedMachine on create"
+    )]
+    pub id: Option<String>,
 }
 
 impl ExpectedMachine {
@@ -593,6 +600,8 @@ impl ExpectedMachine {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExpectedMachineJson {
+    #[serde(default)]
+    pub id: Option<String>,
     pub bmc_mac_address: MacAddress,
     pub bmc_username: String,
     pub bmc_password: String,

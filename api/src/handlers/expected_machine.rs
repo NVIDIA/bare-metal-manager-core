@@ -16,6 +16,7 @@ use mac_address::MacAddress;
 use regex::Regex;
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
+use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
@@ -41,6 +42,22 @@ pub(crate) async fn get(
         .map_err(|e| DatabaseError::txn_begin("get_expected_machine", e))?;
 
     let request = request.into_inner();
+
+    // If id was provided, fetch by id; else fetch by MAC
+    if let Some(uuid_val) = request.id.clone() {
+        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
+            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+        })?;
+        let maybe: Option<ExpectedMachine> = ExpectedMachine::find_by_id(&mut txn, id).await?;
+        return match maybe {
+            Some(expected_machine) => Ok(tonic::Response::new(expected_machine.into())),
+            None => Err(CarbideError::NotFoundError {
+                kind: "expected_machine",
+                id: uuid_val.value,
+            }
+            .into()),
+        };
+    }
 
     let parsed_mac: MacAddress = request
         .bmc_mac_address
@@ -91,7 +108,11 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let db_data = request.try_into()?;
+    let mut db_data: ExpectedMachineData = request.try_into()?;
+    // Ensure an id is always supplied by the server if the client omitted it
+    if db_data.override_id.is_none() {
+        db_data.override_id = Some(Uuid::new_v4());
+    }
 
     const DB_TXN_NAME: &str = "add_expected_machines";
     let mut txn = api
@@ -115,13 +136,7 @@ pub(crate) async fn delete(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    // We parse the MAC in order to detect formatting errors before
-    // handing it off to the database
-    let parsed_mac: MacAddress = request
-        .into_inner()
-        .bmc_mac_address
-        .parse::<MacAddress>()
-        .map_err(CarbideError::from)?;
+    let request = request.into_inner();
 
     const DB_TXN_NAME: &str = "delete_expected_machines";
     let mut txn = api
@@ -130,7 +145,19 @@ pub(crate) async fn delete(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    ExpectedMachine::delete(parsed_mac, &mut txn).await?;
+    if let Some(uuid_val) = request.id.clone() {
+        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
+            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+        })?;
+        ExpectedMachine::delete_by_id(id, &mut txn).await?;
+    } else {
+        // We parse the MAC in order to detect formatting errors before handing it off to the database
+        let parsed_mac: MacAddress = request
+            .bmc_mac_address
+            .parse::<MacAddress>()
+            .map_err(CarbideError::from)?;
+        ExpectedMachine::delete(parsed_mac, &mut txn).await?;
+    }
 
     txn.commit()
         .await
@@ -151,17 +178,10 @@ pub(crate) async fn update(
             CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
         );
     }
-    let parsed_mac: MacAddress = request
-        .bmc_mac_address
-        .parse::<MacAddress>()
-        .map_err(CarbideError::from)?;
-
+    // Save fields needed later before moving `request` into data conversion
+    let request_id = request.id.clone();
+    let request_mac = request.bmc_mac_address.clone();
     let data: ExpectedMachineData = request.try_into()?;
-
-    let mut expected_machine = ExpectedMachine {
-        bmc_mac_address: parsed_mac,
-        data: data.clone(),
-    };
 
     const DB_TXN_NAME: &str = "update_expected_machine";
     let mut txn = api
@@ -170,7 +190,22 @@ pub(crate) async fn update(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    expected_machine.update(&mut txn, data).await?;
+    if let Some(uuid_val) = request_id.clone() {
+        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
+            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+        })?;
+        ExpectedMachine::update_by_id(&mut txn, id, data).await?;
+    } else {
+        let parsed_mac: MacAddress = request_mac
+            .parse::<MacAddress>()
+            .map_err(CarbideError::from)?;
+        let mut expected_machine = ExpectedMachine {
+            id: Some(Uuid::new_v4()),
+            bmc_mac_address: parsed_mac,
+            data: data.clone(),
+        };
+        expected_machine.update(&mut txn, data).await?;
+    }
 
     txn.commit()
         .await
