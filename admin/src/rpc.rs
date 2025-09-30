@@ -725,6 +725,7 @@ impl ApiClient {
         fallback_dpu_serial_numbers: Option<Vec<String>>,
         metadata: ::rpc::forge::Metadata,
         sku_id: Option<String>,
+        id: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
@@ -734,6 +735,7 @@ impl ApiClient {
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers.unwrap_or_default(),
             metadata: Some(metadata),
             sku_id,
+            id: id.map(|s| ::rpc::common::Uuid { value: s }),
         };
 
         self.0
@@ -755,7 +757,10 @@ impl ApiClient {
     ) -> Result<(), CarbideCliError> {
         let expected_machine = self
             .0
-            .get_expected_machine(bmc_mac_address.to_string())
+            .get_expected_machine(::rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: bmc_mac_address.to_string(),
+                id: None,
+            })
             .await?;
         let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
@@ -767,6 +772,7 @@ impl ApiClient {
                 .unwrap_or(expected_machine.fallback_dpu_serial_numbers),
             metadata: Some(metadata),
             sku_id,
+            id: expected_machine.id,
         };
 
         self.0
@@ -783,6 +789,7 @@ impl ApiClient {
             expected_machines: expected_machine_list
                 .into_iter()
                 .map(|machine| rpc::ExpectedMachine {
+                    id: machine.id.map(|s| ::rpc::common::Uuid { value: s }),
                     bmc_mac_address: machine.bmc_mac_address.to_string(),
                     bmc_username: machine.bmc_username,
                     bmc_password: machine.bmc_password,

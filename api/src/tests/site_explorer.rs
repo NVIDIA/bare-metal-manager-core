@@ -1895,7 +1895,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     };
     crate::db::sku::create(&mut txn, &test_sku).await?;
 
-    let mut host1_expected_machine = ExpectedMachine::create(
+    ExpectedMachine::create(
         &mut txn,
         HOST1_MAC.to_string().parse().unwrap(),
         ExpectedMachineData {
@@ -1905,6 +1905,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             fallback_dpu_serial_numbers: vec![],
             metadata: Metadata::new_with_default_name(),
             sku_id: Some("Sku1".to_string()),
+            override_id: None,
         },
     )
     .await?;
@@ -1938,6 +1939,10 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     // Now update expected_machine entry with fallback_dpu_serial
     let mut txn = env.pool.begin().await?;
+    let mut host1_expected_machine =
+        ExpectedMachine::find_by_bmc_mac_address(&mut txn, HOST1_MAC.parse().unwrap())
+            .await?
+            .expect("Expected machine not found");
     host1_expected_machine
         .update(
             &mut txn,
@@ -1948,6 +1953,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 fallback_dpu_serial_numbers: vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
                 metadata: Metadata::new_with_default_name(),
                 sku_id: None,
+                override_id: None,
             },
         )
         .await?;
@@ -3151,9 +3157,10 @@ async fn test_machine_creation_with_sku(
             bmc_username: "user1".to_string(),
             bmc_password: "pw".to_string(),
             serial_number: "host1".to_string(),
-            fallback_dpu_serial_numbers: vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
+            fallback_dpu_serial_numbers: vec![],
             metadata: Metadata::new_with_default_name(),
             sku_id: Some("Sku1".to_string()),
+            override_id: None,
         },
     )
     .await?;
@@ -3287,6 +3294,7 @@ async fn test_expected_machine_device_type_metrics(
             fallback_dpu_serial_numbers: vec![],
             metadata: Metadata::new_with_default_name(),
             sku_id: Some(test_sku_gpu_id.clone()),
+            override_id: None,
         },
     )
     .await?;
@@ -3301,6 +3309,7 @@ async fn test_expected_machine_device_type_metrics(
             fallback_dpu_serial_numbers: vec![],
             metadata: Metadata::new_with_default_name(),
             sku_id: Some(test_sku_no_type_id.clone()),
+            override_id: None,
         },
     )
     .await?;
@@ -3315,6 +3324,7 @@ async fn test_expected_machine_device_type_metrics(
             fallback_dpu_serial_numbers: vec![],
             metadata: Metadata::new_with_default_name(),
             sku_id: None, // No SKU
+            override_id: None,
         },
     )
     .await?;

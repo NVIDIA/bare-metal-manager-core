@@ -22,6 +22,7 @@ use mac_address::MacAddress;
 use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest, forge_server::Forge};
 use sqlx::PgConnection;
 use std::default::Default;
+use uuid::Uuid;
 
 use crate::tests::common;
 
@@ -73,6 +74,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             fallback_dpu_serial_numbers: vec![],
             metadata: Metadata::new_with_default_name(),
             sku_id: None,
+            override_id: None,
         },
     )
     .await;
@@ -164,6 +166,9 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             chassis_serial_number: "VVG121GI".into(),
             metadata: None,
             sku_id: None,
+            id: Some(::rpc::common::Uuid {
+                value: Uuid::new_v4().to_string(),
+            }),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -173,6 +178,9 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             chassis_serial_number: "VVG121GI".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             sku_id: Some("sku_id".to_string()),
+            id: Some(::rpc::common::Uuid {
+                value: Uuid::new_v4().to_string(),
+            }),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -194,6 +202,9 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
                     },
                 ],
             }),
+            id: Some(::rpc::common::Uuid {
+                value: Uuid::new_v4().to_string(),
+            }),
             sku_id: Some("sku_id".to_string()),
             ..Default::default()
         },
@@ -205,6 +216,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
 
         let expected_machine_query = rpc::forge::ExpectedMachineRequest {
             bmc_mac_address: expected_machine.bmc_mac_address.clone(),
+            id: None,
         };
 
         let mut retrieved_expected_machine = env
@@ -222,7 +234,6 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
         if expected_machine.metadata.is_none() {
             expected_machine.metadata = Some(Default::default());
         }
-
         assert_eq!(retrieved_expected_machine, expected_machine);
     }
 }
@@ -242,6 +253,7 @@ async fn test_delete_expected_machine(pool: sqlx::PgPool) {
 
     let expected_machine_query = rpc::forge::ExpectedMachineRequest {
         bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+        id: None,
     };
     env.api
         .delete_expected_machine(tonic::Request::new(expected_machine_query))
@@ -267,6 +279,7 @@ async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_machine_request = rpc::forge::ExpectedMachineRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
+        id: None,
     };
 
     let err = env
@@ -329,6 +342,8 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             ..Default::default()
         },
     ] {
+        // ensure MAC-based update; id is ignored by update path
+        updated_machine.id = None;
         env.api
             .update_expected_machine(tonic::Request::new(updated_machine.clone()))
             .await
@@ -339,6 +354,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             .api
             .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
                 bmc_mac_address: bmc_mac_address.to_string(),
+                id: None,
             }))
             .await
             .expect("unable to fetch expected machine ")
@@ -349,6 +365,8 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             .unwrap()
             .labels
             .sort_by(|l1, l2| l1.key.cmp(&l2.key));
+        // Ignore id field in comparison; MAC-based update path doesn't care about id
+        retrieved_expected_machine.id = None;
         if updated_machine.metadata.is_none() {
             updated_machine.metadata = Some(Default::default());
         }
@@ -466,17 +484,22 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         .expect("unable to get all expected machines")
         .into_inner();
 
-    let expected_machines = env
+    let mut expected_machines = env
         .api
         .get_all_expected_machines(tonic::Request::new(()))
         .await
         .expect("unable to get all expected machines")
         .into_inner()
         .expected_machines;
+    expected_machines.sort_by_key(|e| e.bmc_mac_address.clone());
 
     assert_eq!(expected_machines.len(), 2);
-    assert!(expected_machines.contains(&expected_machine_1));
-    assert!(expected_machines.contains(&expected_machine_2));
+    let mut resulting_machine_1 = expected_machines[0].clone();
+    resulting_machine_1.id = None;
+    let mut resulting_machine_2 = expected_machines[1].clone();
+    resulting_machine_2.id = None;
+    assert_eq!(expected_machine_1, resulting_machine_1);
+    assert_eq!(expected_machine_2, resulting_machine_2);
 }
 
 #[crate::sqlx_test()]
@@ -485,6 +508,7 @@ async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_machine_query = rpc::forge::ExpectedMachineRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
+        id: None,
     };
 
     let err = env
@@ -604,6 +628,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         fallback_dpu_serial_numbers: vec!["dpu_serial1".to_string()],
         metadata: Some(rpc::Metadata::default()),
         sku_id: None,
+        id: None,
     };
 
     env.api
@@ -613,15 +638,17 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
 
     let expected_machine_query = rpc::forge::ExpectedMachineRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
+        id: None,
     };
 
-    let retrieved_expected_machine = env
+    let mut retrieved_expected_machine = env
         .api
         .get_expected_machine(tonic::Request::new(expected_machine_query))
         .await
         .expect("unable to retrieve expected machine ")
         .into_inner();
-
+    // Zero id for equality test
+    retrieved_expected_machine.id = None;
     assert_eq!(retrieved_expected_machine, expected_machine);
 }
 
@@ -639,6 +666,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             fallback_dpu_serial_numbers: vec![],
             metadata: Some(invalid_metadata.clone()),
             sku_id: None,
+            id: None,
         };
 
         let err = env
@@ -667,6 +695,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
         fallback_dpu_serial_numbers: vec![],
         metadata: None,
         sku_id: None,
+        id: None,
     };
 
     env.api
@@ -683,6 +712,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             fallback_dpu_serial_numbers: vec![],
             metadata: Some(invalid_metadata.clone()),
             sku_id: None,
+            id: None,
         };
 
         let err = env
@@ -753,6 +783,7 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         fallback_dpu_serial_numbers: vec!["dpu_serial1".to_string(), "dpu_serial1".to_string()],
         metadata: None,
         sku_id: None,
+        id: None,
     };
 
     assert!(
@@ -771,6 +802,7 @@ async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
         .api
         .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+            id: None,
         }))
         .await
         .expect("unable to get")
@@ -788,6 +820,7 @@ async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
         .api
         .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+            id: None,
         }))
         .await
         .expect("unable to get")
@@ -803,6 +836,7 @@ async fn test_update_expected_machine_add_duplicate_dpu_serial(pool: sqlx::PgPoo
         .api
         .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+            id: None,
         }))
         .await
         .expect("unable to get")
@@ -830,6 +864,7 @@ async fn test_update_expected_machine_add_sku(pool: sqlx::PgPool) {
         .api
         .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+            id: None,
         }))
         .await
         .expect("unable to get")
@@ -847,10 +882,162 @@ async fn test_update_expected_machine_add_sku(pool: sqlx::PgPool) {
         .api
         .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
             bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+            id: None,
         }))
         .await
         .expect("unable to get")
         .into_inner();
 
     assert_eq!(ee1, ee2);
+}
+
+#[crate::sqlx_test()]
+async fn test_add_expected_machine_with_id_and_get_by_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let provided_id = Uuid::new_v4().to_string();
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "AA:BB:CC:DD:EE:01".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "SERIAL-ID".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("unable to add expected machine with id");
+
+    // Get by id
+    let get_req = rpc::forge::ExpectedMachineRequest {
+        bmc_mac_address: "".to_string(),
+        id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+    };
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(get_req))
+        .await
+        .expect("unable to retrieve by id")
+        .into_inner();
+
+    assert_eq!(
+        retrieved.id,
+        Some(::rpc::common::Uuid { value: provided_id })
+    );
+    assert_eq!(retrieved.bmc_mac_address, "AA:BB:CC:DD:EE:01");
+}
+
+#[crate::sqlx_test()]
+async fn test_update_expected_machine_by_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // Create with id
+    let provided_id = Uuid::new_v4().to_string();
+    let mut expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "AA:BB:CC:DD:EE:02".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "SERIAL-1".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("add with id");
+
+    // Update by id (change username)
+    expected_machine.bmc_username = "ADMIN_UPDATED".into();
+    env.api
+        .update_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("update by id");
+
+    // Fetch by id and verify
+    let get_req = rpc::forge::ExpectedMachineRequest {
+        bmc_mac_address: "".to_string(),
+        id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+    };
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(get_req))
+        .await
+        .expect("get after update by id")
+        .into_inner();
+
+    assert_eq!(
+        retrieved.id,
+        Some(::rpc::common::Uuid { value: provided_id })
+    );
+    assert_eq!(retrieved.bmc_username, "ADMIN_UPDATED");
+}
+
+#[crate::sqlx_test()]
+async fn test_delete_expected_machine_by_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // Create with id
+    let provided_id = Uuid::new_v4().to_string();
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "AA:BB:CC:DD:EE:03".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "SERIAL-DEL".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("add with id");
+
+    // Delete by id
+    let del_req = rpc::forge::ExpectedMachineRequest {
+        bmc_mac_address: "".to_string(),
+        id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+    };
+    env.api
+        .delete_expected_machine(tonic::Request::new(del_req))
+        .await
+        .expect("delete by id");
+
+    // Verify NotFound by id
+    let get_req = rpc::forge::ExpectedMachineRequest {
+        bmc_mac_address: "".to_string(),
+        id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+    };
+    let err = env
+        .api
+        .get_expected_machine(tonic::Request::new(get_req))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.message().to_string(),
+        CarbideError::NotFoundError {
+            kind: "expected_machine",
+            id: provided_id
+        }
+        .to_string()
+    );
 }

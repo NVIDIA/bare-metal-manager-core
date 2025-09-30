@@ -15,10 +15,11 @@ pub async fn show_expected_machines(
     output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
 ) -> CarbideCliResult<()> {
     if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
-        let expected_machine = api_client
-            .0
-            .get_expected_machine(bmc_mac_address.to_string())
-            .await?;
+        let req = ::rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            id: None,
+        };
+        let expected_machine = api_client.0.get_expected_machine(req).await?;
         if output_format == OutputFormat::Json {
             async_write!(
                 output,

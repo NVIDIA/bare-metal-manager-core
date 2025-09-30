@@ -903,6 +903,7 @@ pub mod tests {
                 fallback_dpu_serial_numbers: vec![],
                 metadata: Metadata::new_with_default_name(),
                 sku_id: Some("no-sku".to_string()),
+                override_id: None,
             },
         )
         .await?;
@@ -981,6 +982,7 @@ pub mod tests {
                 fallback_dpu_serial_numbers: vec![],
                 metadata: Metadata::new_with_default_name(),
                 sku_id: Some("no-sku".to_string()),
+                override_id: None,
             },
         )
         .await?;

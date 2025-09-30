@@ -3952,10 +3952,15 @@ message ExpectedMachine {
   // Metadata that will automatically get associated with a newly created Machine
   Metadata metadata = 6;
   optional string sku_id =  7;
+  // Unique identifier for the expected machine. When omitted, server generates one.
+  optional common.UUID id = 8;
 }
 
 message ExpectedMachineRequest {
   string bmc_mac_address = 1;
+  // Optional unique identifier for selecting an expected machine.
+  // If provided, server will use this to select the record.
+  optional common.UUID id = 2;
 }
 
 message ExpectedMachineList {

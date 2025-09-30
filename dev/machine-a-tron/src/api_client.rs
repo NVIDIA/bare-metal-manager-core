@@ -534,6 +534,7 @@ impl ApiClient {
                 fallback_dpu_serial_numbers: Vec::new(),
                 metadata: None,
                 sku_id: None,
+                id: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)
