@@ -111,12 +111,6 @@ write_files:
       chmod a+x /opt/forge/forge-scout
       echo "starting forge-scout"
       ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} --machine-interface-id={{ interface_id }} --mode="standalone" auto-detect > /var/log/forge/forge-scout.log 2>&1
-  - path: /etc/rc.local
-    permissions: '0755'
-    content: |
-      #!/bin/bash
-      # Hack for dhcp until this is resolved: https://redmine.mellanox.com/issues/3531747
-      dhclient oob_net0
   - path: /etc/bf.cfg
     permissions: '0644'
     content: |
