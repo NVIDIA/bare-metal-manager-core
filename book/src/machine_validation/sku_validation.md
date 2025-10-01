@@ -26,9 +26,6 @@ SKU Validation can be enabled or disabled for a site, however, when it is enable
 apply to a given machine. For a machine to have SKU Validation enforced, it must have an assigned SKU,
 however, note that SKUs will automatically be assigned to machines that match a given SKU, if they are in ready state.
 
-If the flag `ignore_unassigned_machines` is set in the site configuration, then machines that do not have an
-assigned SKU will still be usable and assignable.
-
 If a machine has an assigned SKU, and Forge (when the machine changes state and is not assigned) detects that
 the hardware configuration does not match, the machine will have a SKU mismatch health alert placed on it, and it
 will be prevented from having allocations assigned to it.
@@ -37,15 +34,30 @@ Generally, SKUs must be manually added a site to configure its SKUs. At some poi
 bring-up process. However, for now, SKUs are only manually added to sites. It is also expected that, generally,
 the SKU assignments for individual machines are added automatically by Forge as those machines are reconfigured.
 
+### BOM Validation States
+Verifying a SKU against a machine goes through several steps to aquire updated machine inventory and perform the validation.  Depending on the inventory of the machine and the SKU configuration, the state machine needs to handle several situations.  The bom validation process is broken down into the following sub-states:
+- `MatchingSku` - The state machine will attempt to find an existing SKU that matches the machine inventory.
+- `UpdatingInventory` - Carbide is requesting that scout re-inventory the machine.  This ensures that other operations are using a recent version of the machine inventory
+- `VerifyingSku` - Carbide is comparing the machine inventory against the SKU
+- `SkuVerificationFailed` - The machine did not match the SKU.  Manual intervention is required.  The `sku verify` command may be used to retry the verification
+- `WaitingForSkuAssignment` - The machine does not have a SKU assigned and the configuration requires one.
+- `SkuMissing` - The machine has a SKU assigned, but the SKU does not exist.  This happens when a SKU is specified in the expected machines, but was not created.  If configured, Carbide will attempt to generate a SKU
+
+### Versions
+Carbide maintains a version of the SKU schema used when a SKU is created.  This ensures that the same comparison is used during the lifetime of a SKU and ensures that the behavior of BOM validation does not change between carbide versions.  When new components are added, or new data sources are used during validation, existing SKUs will not be updated with the change and continue to behave as the did in previous Carbide versions.  In order to use the new version, a new SKU must be created.
+
 ### Configuration
 
 SKU validation is enabled or disabled for an entire site at once, using the forge configuration file.
-The block that defines it is called `bom_validation`, and it currently has two options:
+The block that defines it is called `bom_validation`:
 
 ```toml
 [bom_validation]
 enabled = false
 ignore_unassigned_machines = false
+find_match_interval = "300s"
+auto_generate_missing_sku = false,  
+auto_generate_missing_sku_interval = "300s"
 ```
 
  - `enabled` - Enables or disables the entire bom validation process.  When disabled, machines
@@ -53,7 +65,13 @@ ignore_unassigned_machines = false
  - `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
   it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
   existing sites to be upgraded and BOM Validation enabled as SKUs are added to the system without impacting site operation.
-
+  machines that do not have an assigned SKU will still be usable and assignable
+ - `find_match_interval` - determines how often carbide will attempt to find a matching SKU for a machine.  Carbide will only
+  attempt to find a SKU when the machine is in the `Ready` state.
+ - `auto_generate_missing_sku` - enable or disable generation of a SKU from a machine.  This only applies to a machine with a SKU
+  specified in the expected machine configuration and in the `SkuMissing` state.
+ - `auto_generate_missing_sku_interval` - determines how often carbide will attempt to generate a sku from the machine data.
+  
 ### Hardware Validated
 
 Machines will (currently) have the following hardware validated against the SKU:
@@ -102,12 +120,103 @@ e.g. [https://api-pdx01.frg.nvidia.com/admin/sku](https://api-pdx01.frg.nvidia.c
 
 ### Viewing SKU information
 
-For a given machine ID to show the SKU information (note this has no effect on the site and is safe to run):
+There are 2 commands for showing information related to SKUS:
+- `sku show` lists SKUs or shows information related to an existing SKU.
+- `sku generate` shows what a SKU would look like for a machine.
+
+Both commands honor the JSON format flag `-f json` to change the output to JSON.  JSON is used by other commands.
+
+The `sku show` command can be used to list all SKUs, or show the details of a single SKU (Note that the cli configuration is left as an exercise for the reader):
+```sh
+forge-admin-cli sku show [<sku id>]
+
+> forge-admin-cli sku show
++----------------------------------------------------------------+---------------------------------------------------------+------------------------------+-----------------------------+
+| ID                                                             | Description                                             | Model                        | Created                     |
++================================================================+=========================================================+==============================+=============================+
+| PowerEdge R750 1xGPU 1xIB                                      | PowerEdge R750; 2xCPU; 1xGPU; 128 GiB                   | PowerEdge R750               | 2025-02-27T13:57:19.435162Z |
++----------------------------------------------------------------+---------------------------------------------------------+------------------------------+-----------------------------+
+
+> forge-admin-cli sku show 'PowerEdge R750 1xGPU 1xIB'
+ID:              PowerEdge R750 1xGPU 1xIB
+Schema Version:  0
+Description:     PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
+Device Type:     
+Model:           PowerEdge R750
+Architecture:    x86_64
+Created At:      2025-02-27T13:57:19.435162Z
+CPUs:
+          +--------------+------------------------------------------+---------+-------+
+          | Vendor       | Model                                    | Threads | Count |
+          +==============+==========================================+=========+=======+
+          | GenuineIntel | Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz | 36      | 2     |
+          +--------------+------------------------------------------+---------+-------+
+GPUs:
+          +--------+--------------+------------------+-------+
+          | Vendor | Total Memory | Model            | Count |
+          +========+==============+==================+=======+
+          | NVIDIA | 81559 MiB    | NVIDIA H100 PCIe | 1     |
+          +--------+--------------+------------------+-------+
+Memory (128 GiB): 
+          +------+----------+-------+
+          | Type | Capacity | Count |
+          +======+==========+=======+
+          | DDR4 | 16 GiB   | 8     |
+          +------+----------+-------+
+IB Devices:
+          +-----------------------+-----------------------------+-------+------------------+
+          | Vendor                | Model                       | Count | Inactive Devices |
+          +=======================+=============================+=======+==================+
+          | Mellanox Technologies | MT28908 Family [ConnectX-6] | 2     | [0,1]            |
+          +-----------------------+-----------------------------+-------+------------------+
+
+
+```
+
+The `sku generate` command can be used to show what would match a given machine.
 
 ```sh
-export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
-
 forge-admin-cli sku generate <machineid>
+
+> forge-admin-cli sku generate fm100hts7tqfqtgn3imi7ipd2jk7r37idk5r4aa41krpcelg498hasoqtkg
+ID:              PowerEdge R760 2025-10-01 12:18:49.401800487 UTC
+Schema Version:  3
+Description:     PowerEdge R760; 2xCPU; 0xGPU; 256 GiB
+Device Type:     
+Model:           PowerEdge R760
+Architecture:    x86_64
+Created At:      2025-10-01T12:18:49.401670767Z
+CPUs:
+          +--------------+-------------------------------+---------+-------+
+          | Vendor       | Model                         | Threads | Count |
+          +==============+===============================+=========+=======+
+          | GenuineIntel | Intel(R) Xeon(R) Silver 4416+ | 40      | 2     |
+          +--------------+-------------------------------+---------+-------+
+GPUs:
+          +--------+--------------+-------+-------+
+          | Vendor | Total Memory | Model | Count |
+          +========+==============+=======+=======+
+          +--------+--------------+-------+-------+
+Memory (256 GiB): 
+          +------+----------+-------+
+          | Type | Capacity | Count |
+          +======+==========+=======+
+          | DDR5 | 16 GiB   | 16    |
+          +------+----------+-------+
+IB Devices:
+          +--------+-------+-------+------------------+
+          | Vendor | Model | Count | Inactive Devices |
+          +========+=======+=======+==================+
+          +--------+-------+-------+------------------+
+Storage Devices:
+          +----------------------------+-------+
+          | Model                      | Count |
+          +============================+=======+
+          | Dell DC NVMe CD7 U.2 960GB | 1     |
+          +----------------------------+-------+
+          | KIOXIA KCD8DRUG7T68        | 8     |
+          +----------------------------+-------+
+
 ```
 
 ### Creating SKUs for a Site
@@ -122,8 +231,6 @@ site controller.
 Create the SKU information (on your local machine, written to an output file):
 
 ```sh
-export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
-
 forge-admin-cli -f json -o <sku_name>.json sku generate <machineid> --id <sku_name>
 ```
 
@@ -140,8 +247,6 @@ Note that generally, you do not need to assign a SKU to a machine, since the SKU
 machine goes to ready (not assigned) state, or goes through a machine validation workflow.
 
 ```sh
-export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
-
 forge-admin-cli sku assign <sku_name> <machineid>
 ```
 
@@ -152,10 +257,15 @@ a SKU in the given site, and it is not in an assigned state, it will likely be q
 the site controller after this command is run.
 
 ```sh
-export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
-
 forge-admin-cli sku unassign <machineid>
 ```
+
+### Replacing an existing SKU
+If a SKU has a set of components that do not work for a set of machines (either due to bugs, or carbide software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when unassigned.
+
+```sh
+forge-acmin-cli sku replace <sku_name>.json
+
 
 ### Remove a SKU from a site
 
@@ -165,33 +275,176 @@ machines have a given SKU using the command below, `sku show-machines` then foll
 following command to remove the SKU:
 
 ```sh
-export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
-
 forge-admin-cli sku delete <sku_name>
 ```
+
+#### Upgrading a SKU to the current version example
+When a new version of carbide is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the the `sku replace` command.
+
+The existing SKU is below.  Note that the "Storage Devices" include a device with a model of "NO_MODEL".  This device is created by the raid card and may not always exist and should not have been included in the SKU.  In addition the new SKU now includes the RAID card.
+```sh
+forge-admin-cli sku show XE9680
+ID:              XE9680
+Schema Version:  2
+Description:     PowerEdge XE9680; 2xCPU; 8xGPU; 2 TiB
+Device Type:     
+Model:           PowerEdge XE9680
+Architecture:    x86_64
+Created At:      2025-04-18T16:30:58.748991Z
+CPUs:
+          +--------------+---------------------------------+---------+-------+
+          | Vendor       | Model                           | Threads | Count |
+          +==============+=================================+=========+=======+
+          | GenuineIntel | Intel(R) Xeon(R) Platinum 8480+ | 56      | 2     |
+          +--------------+---------------------------------+---------+-------+
+GPUs:
+          +--------+--------------+-----------------------+-------+
+          | Vendor | Total Memory | Model                 | Count |
+          +========+==============+=======================+=======+
+          | NVIDIA | 81559 MiB    | NVIDIA H100 80GB HBM3 | 8     |
+          +--------+--------------+-----------------------+-------+
+Memory (2 TiB): 
+          +------+----------+-------+
+          | Type | Capacity | Count |
+          +======+==========+=======+
+          | DDR5 | 64 GiB   | 32    |
+          +------+----------+-------+
+IB Devices:
+          +--------+-------+-------+------------------+
+          | Vendor | Model | Count | Inactive Devices |
+          +========+=======+=======+==================+
+          +--------+-------+-------+------------------+
+Storage Devices:
+          +----------------------------------+-------+
+          | Model                            | Count |
+          +==================================+=======+
+          | Dell Ent NVMe FIPS CM6 RI 3.84TB | 8     |
+          +----------------------------------+-------+
+          | NO_MODEL                         | 1     |
+          +----------------------------------+-------+
+```
+
+Using the `sku generate` command we can see what the updated SKU looks like for a machine with the updated SKU.  This is the same machine that generated the older SKU in a previous release.  Note that the "NO_MODEL" device is gone and the RAID controller is now shown.
+``` sh
+forge-admin-cli sku generate fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0
+ID:              PowerEdge XE9680 2025-10-01 12:33:48.862927272 UTC
+Schema Version:  3
+Description:     PowerEdge XE9680; 2xCPU; 8xGPU; 2 TiB
+Device Type:     
+Model:           PowerEdge XE9680
+Architecture:    x86_64
+Created At:      2025-10-01T12:33:48.862757524Z
+CPUs:
+          +--------------+---------------------------------+---------+-------+
+          | Vendor       | Model                           | Threads | Count |
+          +==============+=================================+=========+=======+
+          | GenuineIntel | Intel(R) Xeon(R) Platinum 8480+ | 56      | 2     |
+          +--------------+---------------------------------+---------+-------+
+GPUs:
+          +--------+--------------+-----------------------+-------+
+          | Vendor | Total Memory | Model                 | Count |
+          +========+==============+=======================+=======+
+          | NVIDIA | 81559 MiB    | NVIDIA H100 80GB HBM3 | 8     |
+          +--------+--------------+-----------------------+-------+
+Memory (2 TiB): 
+          +------+----------+-------+
+          | Type | Capacity | Count |
+          +======+==========+=======+
+          | DDR5 | 64 GiB   | 32    |
+          +------+----------+-------+
+IB Devices:
+          +--------+-------+-------+------------------+
+          | Vendor | Model | Count | Inactive Devices |
+          +========+=======+=======+==================+
+          +--------+-------+-------+------------------+
+Storage Devices:
+          +----------------------------------+-------+
+          | Model                            | Count |
+          +==================================+=======+
+          | Dell BOSS-N1                     | 1     |
+          +----------------------------------+-------+
+          | Dell Ent NVMe FIPS CM6 RI 3.84TB | 8     |
+          +----------------------------------+-------+
+
+```
+
+Create a new SKU file using the generate command again, but create a json file.  Note that the same ID needs to be specified as the existing SKU in order for the replace command to find the old SKU.
+```sh
+forge-admin-cli -f json -o /tmp/xe9680.json sku g fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0 --id XE9680
+
+```
+
+Then replace the old SKU
+```sh
+forge-admin-clisku replace /tmp/xe9680.json 
++--------+---------------------------------------+------------------+-----------------------------+
+| ID     | Description                           | Model            | Created                     |
++========+=======================================+==================+=============================+
+| XE9680 | PowerEdge XE9680; 2xCPU; 8xGPU; 2 TiB | PowerEdge XE9680 | 2025-04-18T16:30:58.748991Z |
++--------+---------------------------------------+------------------+-----------------------------+
+
+```
+
+The `show sku` command now shows the updated components (and version)
+```sh
+forge-admin-cli sku show XE9680
+ID:              XE9680
+Schema Version:  3
+Description:     PowerEdge XE9680; 2xCPU; 8xGPU; 2 TiB
+Device Type:     
+Model:           PowerEdge XE9680
+Architecture:    x86_64
+Created At:      2025-04-18T16:30:58.748991Z
+CPUs:
+          +--------------+---------------------------------+---------+-------+
+          | Vendor       | Model                           | Threads | Count |
+          +==============+=================================+=========+=======+
+          | GenuineIntel | Intel(R) Xeon(R) Platinum 8480+ | 56      | 2     |
+          +--------------+---------------------------------+---------+-------+
+GPUs:
+          +--------+--------------+-----------------------+-------+
+          | Vendor | Total Memory | Model                 | Count |
+          +========+==============+=======================+=======+
+          | NVIDIA | 81559 MiB    | NVIDIA H100 80GB HBM3 | 8     |
+          +--------+--------------+-----------------------+-------+
+Memory (2 TiB): 
+          +------+----------+-------+
+          | Type | Capacity | Count |
+          +======+==========+=======+
+          | DDR5 | 64 GiB   | 32    |
+          +------+----------+-------+
+IB Devices:
+          +--------+-------+-------+------------------+
+          | Vendor | Model | Count | Inactive Devices |
+          +========+=======+=======+==================+
+          +--------+-------+-------+------------------+
+Storage Devices:
+          +----------------------------------+-------+
+          | Model                            | Count |
+          +==================================+=======+
+          | Dell BOSS-N1                     | 1     |
+          +----------------------------------+-------+
+          | Dell Ent NVMe FIPS CM6 RI 3.84TB | 8     |
+          +----------------------------------+-------+
+```
+
 
 ### Finding assigned machines for a SKU
 
 To find all the assigned machines for a given SKU:
 
 ```sh
-export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
-
 forge-admin-cli sku show-machines <sku_name>
 ```
 
 ### Force SKU revalidation
 
-It may be beneficial when diagnosing a machine to force Forge to revalidate a SKU on a machine, if the machine is suspected
+It may be beneficial when diagnosing a machine to force Carbide to revalidate a SKU on a machine, if the machine is suspected
 of issues, or if you believe that the validation may be out of date. You can force a revalidation with the command below,
-it will be validated the next time the machine is unreserved. Note that you cannot validate a reserved machine, and Forge
+it will be validated the next time the machine is unassigned. Note that you cannot validate an assigned machine, and Carbide
 will refrain from doing so automatically.
 
-NOTE: SKU Validation may have bugs that require a machine reboot to reconcile.
-
 ```sh
-export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
-
 forge-admin-cli sku verify <sku_name>
 ```
 
