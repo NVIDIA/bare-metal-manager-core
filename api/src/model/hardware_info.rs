@@ -83,6 +83,8 @@ struct HardwareInfoDeserialized {
     memory_devices: Vec<MemoryDevice>,
     #[serde(default)]
     cpus: Vec<Cpu>, // Deprecated in favor of `cpu_info`
+    #[serde(default)]
+    tpm_description: Option<TpmDescription>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +112,8 @@ pub struct HardwareInfo {
     pub gpus: Vec<Gpu>,
     #[serde(default)]
     pub memory_devices: Vec<MemoryDevice>,
+    #[serde(default)]
+    pub tpm_description: Option<TpmDescription>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -316,6 +320,33 @@ impl<'de> Deserialize<'de> for TpmEkCertificate {
             .decode(str_value)
             .map_err(|err| Error::custom(err.to_string()))?;
         Ok(Self(bytes))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TpmDescription {
+    vendor: String,
+    firmware_version: String,
+    tpm_spec: String,
+}
+
+impl From<rpc::machine_discovery::TpmDescription> for TpmDescription {
+    fn from(value: rpc::machine_discovery::TpmDescription) -> Self {
+        TpmDescription {
+            vendor: value.vendor.trim_matches('\0').to_string(),
+            firmware_version: value.firmware_version.trim_matches('\0').to_string(),
+            tpm_spec: value.tpm_spec.trim_matches('\0').to_string(),
+        }
+    }
+}
+
+impl From<TpmDescription> for rpc::machine_discovery::TpmDescription {
+    fn from(value: TpmDescription) -> Self {
+        rpc::machine_discovery::TpmDescription {
+            vendor: value.vendor,
+            firmware_version: value.firmware_version,
+            tpm_spec: value.tpm_spec,
+        }
     }
 }
 
@@ -725,6 +756,7 @@ impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
             dpu_info: info.dpu_info,
             gpus: info.gpus,
             memory_devices: info.memory_devices,
+            tpm_description: info.tpm_description,
         })
     }
 }
@@ -789,6 +821,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
                 .into_iter()
                 .map(MemoryDevice::from)
                 .collect(),
+            tpm_description: info.tpm_description.map(std::convert::Into::into),
         })
     }
 }
@@ -828,7 +861,7 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .into_iter()
                 .map(rpc::machine_discovery::MemoryDevice::from)
                 .collect(),
-            tpm_description: None,
+            tpm_description: info.tpm_description.map(std::convert::Into::into),
             attest_key_info: None,
             // TODO: Remove cpus when there's no longer a need to handle the old topology format
             cpus: vec![],
