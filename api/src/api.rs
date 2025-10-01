@@ -2838,7 +2838,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
             machine_id,
@@ -2888,7 +2888,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request =
+        let (bmc_endpoint_request, _) =
             validate_and_complete_bmc_endpoint_request(&mut txn, Some(req), None).await?;
 
         txn.commit()
@@ -2931,7 +2931,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
             machine_id,
@@ -2978,7 +2978,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
             machine_id,
@@ -3028,7 +3028,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
             machine_id,
@@ -3079,7 +3079,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
             machine_id,
@@ -4550,16 +4550,12 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+        let (bmc_endpoint_request, machine_id) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
             machine_id,
         )
         .await?;
-
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         let action = match action {
             ::rpc::forge::admin_power_control_request::SystemPowerControl::On => {
@@ -4582,6 +4578,43 @@ impl Forge for Api {
             }
         };
 
+        let mut msg: Option<String> = None;
+        if let Some(machine_id) = machine_id {
+            let power_manager_enabled = self.runtime_config.power_manager_options.enabled;
+            if power_manager_enabled {
+                let snapshot = db::managed_host::load_snapshot(
+                    &mut txn,
+                    &machine_id,
+                    LoadSnapshotOptions {
+                        include_history: true,
+                        include_instance_data: false,
+                        host_health_config: self.runtime_config.host_health,
+                    },
+                )
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: machine_id.to_string(),
+                })?;
+
+                if let Some(power_state) = snapshot
+                    .host_snapshot
+                    .power_options
+                    .map(|x| x.desired_power_state)
+                    && power_state == crate::model::power_manager::PowerState::On
+                    && action == libredfish::SystemPowerControl::ForceOff
+                {
+                    msg = Some(
+                        "!!WARNING!! Desired power state for the host is set as On while the requested action is Off. Carbide will attempt to bring the host online after some time.".to_string(),
+                    )
+                }
+            }
+        }
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+
         crate::handlers::bmc_endpoint_explorer::redfish_power_control(
             self,
             bmc_endpoint_request,
@@ -4589,7 +4622,7 @@ impl Forge for Api {
         )
         .await?;
 
-        Ok(Response::new(rpc::AdminPowerControlResponse {}))
+        Ok(Response::new(rpc::AdminPowerControlResponse { msg }))
     }
 
     async fn on_demand_machine_validation(
@@ -5177,7 +5210,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
             machine_id,
@@ -5246,7 +5279,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
             machine_id,
@@ -5536,7 +5569,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<MachineId>,
-) -> Result<rpc::BmcEndpointRequest, tonic::Status> {
+) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), tonic::Status> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
             let interface = db::machine_interface::find_by_ip(
@@ -5572,10 +5605,13 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                 }
             };
 
-            Ok(BmcEndpointRequest {
-                ip_address: bmc_endpoint_request.ip_address,
-                mac_address: Some(bmc_mac),
-            })
+            Ok((
+                BmcEndpointRequest {
+                    ip_address: bmc_endpoint_request.ip_address,
+                    mac_address: Some(bmc_mac),
+                },
+                interface.machine_id,
+            ))
         }
         // User provided machine_id
         (_, Some(machine_id)) => {
@@ -5602,10 +5638,13 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                 CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
             })?;
 
-            Ok(BmcEndpointRequest {
-                ip_address: bmc_ip.to_owned(),
-                mac_address: Some(bmc_mac_address.to_string()),
-            })
+            Ok((
+                BmcEndpointRequest {
+                    ip_address: bmc_ip.to_owned(),
+                    mac_address: Some(bmc_mac_address.to_string()),
+                },
+                Some(machine_id),
+            ))
         }
 
         _ => Err(Status::invalid_argument(

@@ -49,7 +49,7 @@ pub(crate) async fn get(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let bmc_endpoint_request = crate::api::validate_and_complete_bmc_endpoint_request(
+    let (bmc_endpoint_request, _) = crate::api::validate_and_complete_bmc_endpoint_request(
         &mut txn,
         request.bmc_endpoint_request,
         request.machine_id,

@@ -4150,6 +4150,7 @@ message AdminPowerControlRequest {
 }
 
 message AdminPowerControlResponse {
+  optional string msg = 1;
 }
 
 message GetRedfishJobStateRequest {
