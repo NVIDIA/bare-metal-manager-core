@@ -1,4 +1,4 @@
-use crate::duppet::{self, SyncOptions};
+use crate::duppet::{self, FileEnsure, SyncOptions};
 use crate::periodic_config_fetcher::PeriodicConfigFetcher;
 use forge_uuid::machine::MachineId;
 use std::borrow::Cow;
@@ -23,24 +23,46 @@ pub fn main_sync(
     let duppet_files: HashMap<PathBuf, duppet::FileSpec> = HashMap::from([
         (
             "/etc/cron.daily/apt-clean".into(),
-            duppet::FileSpec::new_with_perms(include_str!("../templates/apt-clean"), 0o755),
+            duppet::FileSpec::new()
+                .with_content(include_str!("../templates/apt-clean"))
+                .with_perms(0o755),
         ),
         (
             "/etc/dhcp/dhclient-exit-hooks.d/ntpsec".into(),
-            duppet::FileSpec::new_with_perms(include_str!("../templates/ntpsec"), 0o644),
+            duppet::FileSpec::new()
+                .with_content(include_str!("../templates/ntpsec"))
+                .with_perms(0o644),
         ),
         (
             "/run/otelcol-contrib/machine-id".into(),
-            duppet::FileSpec::new_with_content(build_otel_machine_id_file(machine_id)),
+            duppet::FileSpec::new().with_content(build_otel_machine_id_file(machine_id)),
         ),
         (
             "/run/otelcol-contrib/host-machine-id".into(),
-            duppet::FileSpec::new_with_content(build_otel_host_machine_id_file(
+            duppet::FileSpec::new().with_content(build_otel_host_machine_id_file(
                 periodic_config_fetcher
                     .get_host_machine_id()
                     .map(|id| Cow::Owned(id.to_string()))
                     .unwrap_or(Cow::Borrowed("")),
             )),
+        ),
+        // September 30, 2025.
+        //
+        // /etc/rc.local was added as a workaround for a bug pre-HBN 1.5,
+        // which was fixed a couple of years ago. Having this hanging around
+        // wasn't a problem until now: as of DOCA 2.9.3, the DPU now uses
+        // networkd to manage DHCP leases, meaning we need to stop running
+        // dhclient -- both are managing leases at the same time. Kind of a
+        // creative way to have redundancy, but not quite what we want!
+        //
+        // This itself can go in some number of weeks, once the build
+        // this is a part of gets deployed everywhere, and this file is
+        // cleaned up.
+        //
+        // https://jirasw.nvidia.com/browse/FORGE-7062
+        (
+            "/etc/rc.local".into(),
+            duppet::FileSpec::new().with_ensure(FileEnsure::Absent),
         ),
     ]);
     if let Err(e) = duppet::sync(duppet_files, sync_options) {

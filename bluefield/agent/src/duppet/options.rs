@@ -19,6 +19,18 @@ pub enum SummaryFormat {
     Yaml,
 }
 
+/// FileEnsure specifies whether a file should be present
+/// or absent on the filesystem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileEnsure {
+    /// Present indicates the file should exist with the
+    /// specified content and attributes.
+    Present,
+    /// Absent indicates the file should not exist and
+    /// should be deleted if present.
+    Absent,
+}
+
 /// SyncOptions allows the caller to control various
 /// aspects of the duppet sync.
 #[derive(Debug)]
@@ -64,30 +76,57 @@ pub struct FileSpec {
     /// default will be used, and no attempts to keep the group
     /// in sync will occur.
     pub group: Option<String>,
+    /// ensure specifies whether the file should be present
+    /// or absent on the filesystem.
+    pub ensure: FileEnsure,
 }
 
 impl FileSpec {
-    /// new_with_content is a small helper to create a new FileSpec
-    /// with some content, with explicit permissions of 0o644, but
-    /// no owner/group management.
-    pub fn new_with_content(content: impl Into<String>) -> Self {
+    /// new creates a new FileSpec with default values: empty content,
+    /// permissions set to 0o644, no owner/group management, and
+    /// ensure set to Present.
+    pub fn new() -> Self {
         FileSpec {
-            content: content.into(),
+            content: String::new(),
             permissions: Some(0o644),
             owner: None,
             group: None,
+            ensure: FileEnsure::Present,
         }
     }
 
-    /// new_with_perms is a small helper to create a new FileSpec
-    /// with some content and explicit permissions, but no owner
-    /// or group management.
-    pub fn new_with_perms(content: impl Into<String>, permissions: u32) -> Self {
-        FileSpec {
-            content: content.into(),
-            permissions: Some(permissions),
-            owner: None,
-            group: None,
-        }
+    /// with_content is a builder method that sets the content
+    /// field on an existing FileSpec.
+    pub fn with_content(mut self, content: impl Into<String>) -> Self {
+        self.content = content.into();
+        self
+    }
+
+    /// with_perms is a builder method that sets the permissions
+    /// field on an existing FileSpec.
+    pub fn with_perms(mut self, permissions: u32) -> Self {
+        self.permissions = Some(permissions);
+        self
+    }
+
+    /// with_ownership is a builder method that sets the owner
+    /// and group fields on an existing FileSpec.
+    pub fn with_ownership(mut self, owner: Option<String>, group: Option<String>) -> Self {
+        self.owner = owner;
+        self.group = group;
+        self
+    }
+
+    /// with_ensure is a builder method that sets the ensure
+    /// field on an existing FileSpec.
+    pub fn with_ensure(mut self, ensure: FileEnsure) -> Self {
+        self.ensure = ensure;
+        self
+    }
+}
+
+impl Default for FileSpec {
+    fn default() -> Self {
+        Self::new()
     }
 }
