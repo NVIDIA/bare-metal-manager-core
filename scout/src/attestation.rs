@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::ffi::CString;
 use std::str::FromStr;
 
 use ::rpc::machine_discovery::TpmDescription;
@@ -390,16 +391,31 @@ pub fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
         match tagged_property.property() {
             // this is spec version
             PropertyTag::FamilyIndicator => {
-                spec_version = String::from_utf8(tagged_property.value().to_be_bytes().to_vec())
-                    .unwrap_or("Could not convert spec_version".to_string())
+                spec_version =
+                    CString::from_vec_with_nul(tagged_property.value().to_be_bytes().to_vec())
+                        .map(|s| {
+                            s.into_string()
+                                .unwrap_or("Could not convert spec_version".to_string())
+                        })
+                        .unwrap_or("Could not convert spec_version".to_string());
             }
             PropertyTag::VendorString1 => {
-                vendor_1 = String::from_utf8(tagged_property.value().to_be_bytes().to_vec())
-                    .unwrap_or("Could not convert vendor_1".to_string())
+                vendor_1 =
+                    CString::from_vec_with_nul(tagged_property.value().to_be_bytes().to_vec())
+                        .map(|s| {
+                            s.into_string()
+                                .unwrap_or("Could not convert spec_version".to_string())
+                        })
+                        .unwrap_or("Could not convert spec_version".to_string());
             }
             PropertyTag::VendorString2 => {
-                vendor_2 = String::from_utf8(tagged_property.value().to_be_bytes().to_vec())
-                    .unwrap_or("Could not convert vendor_2".to_string())
+                vendor_2 =
+                    CString::from_vec_with_nul(tagged_property.value().to_be_bytes().to_vec())
+                        .map(|s| {
+                            s.into_string()
+                                .unwrap_or("Could not convert spec_version".to_string())
+                        })
+                        .unwrap_or("Could not convert spec_version".to_string());
             }
             PropertyTag::FirmwareVersion1 => firmware_version_1 = tagged_property.value(),
             PropertyTag::FirmwareVersion2 => firmware_version_2 = tagged_property.value(),
