@@ -139,7 +139,7 @@ async fn generate_missing_sku_for_machine(
                     .auto_generate_missing_sku_interval)
         })
     }) {
-        tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, "Last generation attempt is too recent");
+        tracing::debug!(machine_id=%mh_snapshot.host_snapshot.id, "Last generation attempt is too recent");
         return false;
     }
 
