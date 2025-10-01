@@ -25,14 +25,14 @@ pub fn build() {
     );
     println!(
         "cargo:rustc-env=FORGE_BUILD_DATE={}",
-        run("date", &["--iso-8601=seconds", "--utc"])
+        run("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]) // like 'date --iso-8601=seconds --utc' but portable across GNU/BSD
     );
     println!(
         "cargo:rustc-env=FORGE_BUILD_RUSTC_VERSION={}",
         run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
     );
 
-    // In a a git worktree in a container (local dev) none of the git commands will work because
+    // In a git worktree in a container (local dev) none of the git commands will work because
     // the real git directory isn't mounted.
     let can_git = Command::new("git")
         .args(["rev-parse"])
