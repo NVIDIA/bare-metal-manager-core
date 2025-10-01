@@ -19,7 +19,9 @@ use tempfile::tempdir;
 use uzers::get_current_username;
 
 use crate::duppet::sync::maybe_update_file;
-use crate::duppet::{FileSpec, SummaryFormat, SyncOptions, SyncStatus, sync, sync_file};
+use crate::duppet::{
+    FileEnsure, FileSpec, SummaryFormat, SyncOptions, SyncStatus, sync, sync_file,
+};
 
 // default_test_options are the default
 // SyncOptions used for testing.
@@ -40,7 +42,7 @@ fn test_create_file() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("new-file.lolz");
     let content = "gibletts saaaaaaaaank";
-    let file_spec = FileSpec::new_with_content(content);
+    let file_spec = FileSpec::new().with_content(content);
 
     let status = sync_file(&path, &file_spec, &default_test_options()).unwrap();
     assert_eq!(status, SyncStatus::Created);
@@ -61,7 +63,7 @@ fn test_no_change() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("no-changes-heeeeah");
     let content = "frostycup=1";
-    let file_spec = FileSpec::new_with_content(content);
+    let file_spec = FileSpec::new().with_content(content);
 
     // First sync to get it written.
     sync_file(&path, &file_spec, &default_test_options()).unwrap();
@@ -78,8 +80,8 @@ fn test_no_change() {
 fn test_update_file_content() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("updated-file-party");
-    let original_spec = FileSpec::new_with_content("we started like this this this this this");
-    let updated_spec = FileSpec::new_with_content("and we ended like that that that that that");
+    let original_spec = FileSpec::new().with_content("we started like this this this this this");
+    let updated_spec = FileSpec::new().with_content("and we ended like that that that that that");
 
     sync_file(&path, &original_spec, &default_test_options()).unwrap();
 
@@ -101,7 +103,7 @@ fn test_fix_permissions_only() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("fixin-perms.dat");
     let content = "snooooze";
-    let file_spec = FileSpec::new_with_perms(content, 0o644);
+    let file_spec = FileSpec::new().with_content(content).with_perms(0o644);
 
     // Make a file and set its permissions to 0600.
     sync_file(&path, &file_spec, &default_test_options()).unwrap();
@@ -129,7 +131,7 @@ fn test_dry_run_is_so_dry() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("dry-created.file");
     let content = "thats some pretty dry content for open mic night";
-    let file_spec = FileSpec::new_with_content(content);
+    let file_spec = FileSpec::new().with_content(content);
     let opts = SyncOptions {
         dry_run: true,
         ..default_test_options()
@@ -150,7 +152,7 @@ fn test_sync() {
     let path = dir.path().join("some-file");
     let content = "this is my file";
     let mut files = HashMap::new();
-    files.insert(path.clone(), FileSpec::new_with_content(content));
+    files.insert(path.clone(), FileSpec::new().with_content(content));
     let result = sync(files, default_test_options());
     assert!(result.is_ok());
 
@@ -182,12 +184,9 @@ fn test_ownership_noop_with_current_user() {
         .unwrap()
         .to_string();
 
-    let file_spec = FileSpec {
-        content: "i like to eat aye-ples and ba-naye-nayes".to_string(),
-        permissions: None,
-        owner: Some(current_user),
-        group: None,
-    };
+    let file_spec = FileSpec::new()
+        .with_content("i like to eat aye-ples and ba-naye-nayes")
+        .with_ownership(Some(current_user), None);
 
     // First sync to create the file (and apply ownership).
     let status = sync_file(&path, &file_spec, &default_test_options()).unwrap();
@@ -196,4 +195,68 @@ fn test_ownership_noop_with_current_user() {
     // Second sync should be a noop.
     let status = sync_file(&path, &file_spec, &default_test_options()).unwrap();
     assert_eq!(status, SyncStatus::Unchanged);
+}
+
+#[test]
+// test_delete_file ensures that when we run sync_file
+// with FileEnsure::Absent on an existing file, that the
+// file gets deleted and we get back SyncStatus::Updated.
+fn test_delete_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("file-to-delete.txt");
+    let content = "goodbye cruel world";
+
+    // First create the file.
+    let create_spec = FileSpec::new().with_content(content);
+    sync_file(&path, &create_spec, &default_test_options()).unwrap();
+    assert!(path.exists());
+
+    // Now sync with FileEnsure::Absent to delete it.
+    let delete_spec = FileSpec::new().with_ensure(FileEnsure::Absent);
+    let status = sync_file(&path, &delete_spec, &default_test_options()).unwrap();
+    assert_eq!(status, SyncStatus::Updated);
+    assert!(!path.exists());
+}
+
+#[test]
+// test_delete_nonexistent_file ensures that when we run
+// sync_file with FileEnsure::Absent on a file that doesn't
+// exist, we get back SyncStatus::Unchanged and no error.
+fn test_delete_nonexistent_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("never-existed.txt");
+
+    // Try to delete a file that doesn't exist.
+    let delete_spec = FileSpec::new().with_ensure(FileEnsure::Absent);
+    let status = sync_file(&path, &delete_spec, &default_test_options()).unwrap();
+    assert_eq!(status, SyncStatus::Unchanged);
+    assert!(!path.exists());
+}
+
+#[test]
+// test_dry_run_delete ensures that dry run mode doesn't
+// actually delete files when FileEnsure::Absent is set.
+fn test_dry_run_delete() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("dry-delete.txt");
+    let content = "still here in dry run";
+
+    // First create the file.
+    let create_spec = FileSpec::new().with_content(content);
+    sync_file(&path, &create_spec, &default_test_options()).unwrap();
+    assert!(path.exists());
+
+    // Now try to delete with dry run enabled.
+    let opts = SyncOptions {
+        dry_run: true,
+        ..default_test_options()
+    };
+    let delete_spec = FileSpec::new().with_ensure(FileEnsure::Absent);
+    let status = sync_file(&path, &delete_spec, &opts).unwrap();
+
+    // It will report as updated.
+    assert_eq!(status, SyncStatus::Updated);
+
+    // But the file should still exist.
+    assert!(path.exists());
 }

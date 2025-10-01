@@ -20,6 +20,6 @@ pub mod options;
 mod status;
 mod sync;
 
-pub use options::{FileSpec, SummaryFormat, SyncOptions};
+pub use options::{FileEnsure, FileSpec, SummaryFormat, SyncOptions};
 pub use status::SyncStatus;
 pub use sync::{sync, sync_file};

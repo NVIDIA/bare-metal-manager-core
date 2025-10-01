@@ -18,7 +18,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::log::{build_diff, maybe_colorize};
-use super::{FileSpec, SummaryFormat, SyncOptions, SyncStatus};
+use super::{FileEnsure, FileSpec, SummaryFormat, SyncOptions, SyncStatus};
 use crate::logln;
 use colored::Colorize;
 use nix::unistd::{Gid, Uid, chown};
@@ -88,9 +88,10 @@ pub fn sync_files(
     Ok(results)
 }
 
-/// sync_file singles a single file, ensuring it has
+/// sync_file syncs a single file, ensuring it has
 /// the expected content. It will either create or update
-/// the file as needed.
+/// the file as needed, or delete it if FileEnsure::Absent
+/// is specified.
 ///
 /// NOTE: If --dry-run is set, it won't actually apply
 /// a change (if a change is needed).
@@ -99,26 +100,49 @@ pub fn sync_file(
     file_spec: &FileSpec,
     options: &SyncOptions,
 ) -> io::Result<SyncStatus> {
-    // If the file doesn't exist, create it, making sure
-    // to create any parent directories along the way.
+    // If the file doesn't exist, lets see if it needs to,
+    // or if our work here is done!
     if !dest_path.exists() {
-        create_file(dest_path, file_spec, options)?;
-        return Ok(SyncStatus::Created);
+        return match file_spec.ensure {
+            // The file doesn't exist, and we don't want it to exist,
+            // so our work here is done! Very much excite.
+            FileEnsure::Absent => {
+                logln!(
+                    options,
+                    "{}: {}",
+                    maybe_colorize("File already absent", |s| s.blue().bold(), options),
+                    dest_path.display()
+                );
+                Ok(SyncStatus::Unchanged)
+            }
+            // The file doesn't exist, but it needs to be, so create it,
+            // making sure to create any parent directories along the way.
+            FileEnsure::Present => {
+                create_file(dest_path, file_spec, options)?;
+                Ok(SyncStatus::Created)
+            }
+        };
     }
 
-    // And if it does exist, maybe update it,
-    // if it needs to be updated.
+    // And if it does exist, maybe update it or delete it,
+    // depending on the ensure setting.
     maybe_update_file(dest_path, file_spec, options)
 }
 
 /// maybe_update_file is called when it is determined
 /// the file already exists, and now we check to see if
-/// it needs to be updated, or if it's good to go.
+/// it needs to be updated, deleted, or if it's good to go.
 pub fn maybe_update_file(
     dest_path: &Path,
     file_spec: &FileSpec,
     options: &SyncOptions,
 ) -> io::Result<SyncStatus> {
+    // If the file exists but should be absent, delete it.
+    if file_spec.ensure == FileEnsure::Absent {
+        delete_file(dest_path, options)?;
+        return Ok(SyncStatus::Updated);
+    }
+
     let mut updated = false;
     let mut existing = String::new();
     File::open(dest_path)?.read_to_string(&mut existing)?;
@@ -220,6 +244,23 @@ pub fn update_file(
     );
 
     write_file_content(dest_path, source_content, options)?;
+    Ok(())
+}
+
+/// delete_file deletes an existing file when FileEnsure::Absent
+/// is specified.
+pub fn delete_file(dest_path: &Path, options: &SyncOptions) -> io::Result<()> {
+    logln!(
+        options,
+        "{}: {}",
+        maybe_colorize("Deleting file", |s| s.red().bold(), options),
+        dest_path.display()
+    );
+
+    if !options.dry_run {
+        fs::remove_file(dest_path)?;
+    }
+
     Ok(())
 }
 
