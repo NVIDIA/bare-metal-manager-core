@@ -50,10 +50,15 @@ DOF
     set +exE
 }
 
+ # this command moves when we reboot the bmc to the end of the installation, hopefully capturing more of the logs we need
 bfb_post_install() {
-    # this command moves when we reboot the bmc to the end of the installation, hopefully capturing more of the logs we need
-    if [[ "$BMC_FIRMWARE_UPDATED" == "yes" ]]; then
-        bmc_reboot
+    # the BF2 needs a graceful reboot in order to update itself
+    # This bit of magic is taken from - https://github.com/Mellanox/bfb-build/blob/c6a1e6a42f5e31d8c27556250092853346e8327b/common/install.env/common#L522C5-L523C17
+    # and we can possibly remove this reboot if this ever gets fixed - https://nvbugspro.nvidia.com/bug/5544636
+    if (lspci -n -d 15b3: | grep -wq 'a2d6'); then
+        if [[ "$BMC_FIRMWARE_UPDATED" == "yes" ]]; then
+            bmc_reboot
+        fi
     fi
     # move this to after the post install commands
     remove_bmc_user
