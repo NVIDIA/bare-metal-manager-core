@@ -423,13 +423,17 @@ async fn main() -> color_eyre::Result<()> {
                 machine::handle_override(command, config.format, &api_client).await?;
             }
             Machine::Reboot(c) => {
-                api_client
+                let res = api_client
                     .admin_power_control(
                         None,
                         Some(c.machine),
                         ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart,
                     )
                     .await?;
+
+                if let Some(msg) = res.msg {
+                    println!("{msg}");
+                }
             }
             Machine::ForceDelete(query) => machine::force_delete(query, &api_client).await?,
             Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, &api_client).await?,
