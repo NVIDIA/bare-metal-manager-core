@@ -427,7 +427,8 @@ unsafe fn discovery_fetch_machine_at(
                                 startup_time.to_rfc3339(),
                                 last_invalidation.to_rfc3339()
                             );
-                            std::process::exit(99);
+                            // Try to gracefully shutdown dhcp server, this would call all webhooks and properly shutdown hook library
+                            libc::kill(libc::getpid(), libc::SIGTERM);
                         }
                     }
 
