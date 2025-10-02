@@ -1058,7 +1058,7 @@ fn default_max_database_connections() -> u32 {
 }
 
 /// DpuConfig related internal configuration
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct DpuConfig {
     /// Enable dpu firmware updates on initial discovery
     #[serde(default)]
@@ -1094,6 +1094,47 @@ impl DpuConfig {
             f.components
                 .get(&FirmwareComponentType::Bmc)
                 .and_then(|fc| fc.known_firmware.first())
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for DpuConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Create a temporary struct for partial deserialization
+        #[derive(Deserialize)]
+        struct PartialDpuConfig {
+            #[serde(default)]
+            dpu_nic_firmware_initial_update_enabled: Option<bool>,
+            #[serde(default)]
+            dpu_nic_firmware_reprovision_update_enabled: Option<bool>,
+            #[serde(default)]
+            dpu_models: Option<HashMap<String, Firmware>>,
+            #[serde(default)]
+            dpu_nic_firmware_update_versions: Option<Vec<String>>,
+            #[serde(default)]
+            dpu_enable_secure_boot: Option<bool>,
+        }
+
+        let partial = PartialDpuConfig::deserialize(deserializer)?;
+        let default = DpuConfig::default();
+
+        Ok(DpuConfig {
+            dpu_nic_firmware_initial_update_enabled: partial
+                .dpu_nic_firmware_initial_update_enabled
+                .unwrap_or(default.dpu_nic_firmware_initial_update_enabled),
+            dpu_nic_firmware_reprovision_update_enabled: partial
+                .dpu_nic_firmware_reprovision_update_enabled
+                .unwrap_or(default.dpu_nic_firmware_reprovision_update_enabled),
+            dpu_models: partial.dpu_models.unwrap_or(default.dpu_models),
+            dpu_nic_firmware_update_versions: partial
+                .dpu_nic_firmware_update_versions
+                .unwrap_or(default.dpu_nic_firmware_update_versions),
+            dpu_enable_secure_boot: partial
+                .dpu_enable_secure_boot
+                .unwrap_or(default.dpu_enable_secure_boot),
         })
     }
 }
@@ -3234,6 +3275,23 @@ mqtt_endpoint = "mqtt.forge"
                 hb_interval: Duration::minutes(2),
             }
         );
+    }
+
+    #[test]
+    fn deserialize_dpu_config() {
+        let toml = r#"
+[dpu_config]
+dpu_enable_secure_boot = true
+"#;
+
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .merge(Toml::string(toml))
+            .extract()
+            .unwrap();
+
+        assert!(config.dpu_config.dpu_enable_secure_boot);
+        assert!(!config.dpu_config.dpu_models.is_empty());
     }
 
     #[test]

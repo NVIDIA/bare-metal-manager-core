@@ -122,6 +122,8 @@ pub fn parse_carbide_config(
                 .max_concurrent_machine_updates_absolute = config.max_concurrent_machine_updates
         }
     }
+
+    tracing::trace!("Carbide config: {:#?}", config);
     Ok(Arc::new(config))
 }
 
