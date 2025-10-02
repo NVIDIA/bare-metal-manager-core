@@ -44,7 +44,7 @@ Verifying a SKU against a machine goes through several steps to aquire updated m
 - `SkuMissing` - The machine has a SKU assigned, but the SKU does not exist.  This happens when a SKU is specified in the expected machines, but was not created.  If configured, Carbide will attempt to generate a SKU
 
 ### Versions
-Carbide maintains a version of the SKU schema used when a SKU is created.  This ensures that the same comparison is used during the lifetime of a SKU and ensures that the behavior of BOM validation does not change between carbide versions.  When new components are added, or new data sources are used during validation, existing SKUs will not be updated with the change and continue to behave as the did in previous Carbide versions.  In order to use the new version, a new SKU must be created.
+Carbide maintains a version of the SKU schema used when a SKU is created.  This ensures that the same comparison is used during the lifetime of a SKU and ensures that the behavior of BOM validation does not change between Carbide versions.  When new components are added, or new data sources are used during validation, existing SKUs will not be updated with the change and continue to behave as they did in previous Carbide versions.  In order to use the new version, a new SKU must be created.
 
 ### Configuration
 
@@ -66,11 +66,11 @@ auto_generate_missing_sku_interval = "300s"
   it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
   existing sites to be upgraded and BOM Validation enabled as SKUs are added to the system without impacting site operation.
   machines that do not have an assigned SKU will still be usable and assignable
- - `find_match_interval` - determines how often carbide will attempt to find a matching SKU for a machine.  Carbide will only
+ - `find_match_interval` - determines how often Carbide will attempt to find a matching SKU for a machine.  Carbide will only
   attempt to find a SKU when the machine is in the `Ready` state.
  - `auto_generate_missing_sku` - enable or disable generation of a SKU from a machine.  This only applies to a machine with a SKU
   specified in the expected machine configuration and in the `SkuMissing` state.
- - `auto_generate_missing_sku_interval` - determines how often carbide will attempt to generate a sku from the machine data.
+ - `auto_generate_missing_sku_interval` - determines how often Carbide will attempt to generate a sku from the machine data.
   
 ### Hardware Validated
 
@@ -120,13 +120,13 @@ e.g. [https://api-pdx01.frg.nvidia.com/admin/sku](https://api-pdx01.frg.nvidia.c
 
 ### Viewing SKU information
 
-There are 2 commands for showing information related to SKUS:
+There are 2 commands for showing information related to SKUs:
 - `sku show` lists SKUs or shows information related to an existing SKU.
-- `sku generate` shows what a SKU would look like for a machine.
+- `sku generate` shows what a SKU would look like for a machine.  The generate command does not create the SKU or assign the SKU to the machine.
 
 Both commands honor the JSON format flag `-f json` to change the output to JSON.  JSON is used by other commands.
 
-The `sku show` command can be used to list all SKUs, or show the details of a single SKU (Note that the cli configuration is left as an exercise for the reader):
+The `sku show` command can be used to list all SKUs, or show the details of a single SKU:
 ```sh
 forge-admin-cli sku show [<sku id>]
 
@@ -228,7 +228,7 @@ Using information from the viewed SKU information above (vendor, model, and node
 create the `sku_name`, and using the example machine, then create the SKU config and upload it to the
 site controller.
 
-Create the SKU information (on your local machine, written to an output file):
+Save the SKU information (on your local machine, written to an output file):
 
 ```sh
 forge-admin-cli -f json -o <sku_name>.json sku generate <machineid> --id <sku_name>
@@ -261,7 +261,7 @@ forge-admin-cli sku unassign <machineid>
 ```
 
 ### Replacing an existing SKU
-If a SKU has a set of components that do not work for a set of machines (either due to bugs, or carbide software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when unassigned.
+If a SKU has a set of components that do not work for a set of machines (either due to bugs, or Carbide software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when no instance is allocated to the machine (all machines are verified when an instance is released).
 
 ```sh
 forge-acmin-cli sku replace <sku_name>.json
@@ -279,9 +279,10 @@ forge-admin-cli sku delete <sku_name>
 ```
 
 #### Upgrading a SKU to the current version example
-When a new version of carbide is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the the `sku replace` command.
+When a new version of Carbide is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the the `sku replace` command.
 
-The existing SKU is below.  Note that the "Storage Devices" include a device with a model of "NO_MODEL".  This device is created by the raid card and may not always exist and should not have been included in the SKU.  In addition the new SKU now includes the RAID card.
+The existing SKU is below.  Note that the "Storage Devices" section includes a device with a model of "NO_MODEL".  This device is created by the raid card and may not always exist and should not have been included in the SKU.
+
 ```sh
 forge-admin-cli sku show XE9680
 ID:              XE9680
@@ -324,7 +325,8 @@ Storage Devices:
           +----------------------------------+-------+
 ```
 
-Using the `sku generate` command we can see what the updated SKU looks like for a machine with the updated SKU.  This is the same machine that generated the older SKU in a previous release.  Note that the "NO_MODEL" device is gone and the RAID controller is now shown.
+Using the `sku generate` command, we can see what the updated SKU looks like for the same machine.  This is the same machine that generated the older SKU in a previous release.  Note that the "NO_MODEL" device is gone and the RAID controller is now shown as `Dell BOSS-N1`.
+
 ``` sh
 forge-admin-cli sku generate fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0
 ID:              PowerEdge XE9680 2025-10-01 12:33:48.862927272 UTC
