@@ -12,7 +12,7 @@
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::db::{
     self, DatabaseError,
-    ib_partition::{self, IBPartition},
+    ib_partition::IBPartition,
     instance::{DeleteInstance, Instance},
     machine::MachineSearchConfig,
     managed_host::LoadSnapshotOptions,
@@ -23,7 +23,7 @@ use crate::{
     handlers::utils::convert_and_log_machine_id,
     ib::IBFabricManager,
     instance::{
-        InstanceAllocationRequest, allocate_instance, allocate_network,
+        InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
         validate_ib_partition_ownership,
     },
     model::{
@@ -1228,9 +1228,7 @@ async fn update_instance_infiniband_config(
     .await?;
 
     // Allocate GUID for infiniband interfaces/ports.
-    let ib_config_with_ports =
-        ib_partition::allocate_port_guid(txn, instance.id, ib_config, &mh_snapshot.host_snapshot)
-            .await?;
+    let ib_config_with_ports = allocate_ib_port_guid(ib_config, &mh_snapshot.host_snapshot).await?;
 
     *ib_config = ib_config_with_ports;
 
