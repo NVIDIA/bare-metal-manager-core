@@ -1,5 +1,4 @@
 use crate::db::DatabaseError;
-use crate::db::explored_managed_host::DbExploredManagedHost;
 use sqlx::PgConnection;
 use std::net::IpAddr;
 /*
@@ -13,6 +12,7 @@ use std::net::IpAddr;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::db;
 use crate::model::site_explorer::ExploredManagedHost;
 use forge_uuid::machine::MachineId;
 
@@ -45,5 +45,5 @@ pub async fn is_endpoint_in_managed_host(
     bmc_ip_address: IpAddr,
     txn: &mut PgConnection,
 ) -> Result<bool, DatabaseError> {
-    DbExploredManagedHost::is_managed_host_created_for_endpoint(txn, bmc_ip_address).await
+    db::explored_managed_host::is_managed_host_created_for_endpoint(txn, bmc_ip_address).await
 }

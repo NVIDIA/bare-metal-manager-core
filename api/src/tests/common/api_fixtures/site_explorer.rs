@@ -22,7 +22,6 @@ use crate::tests::common::api_fixtures::{
 };
 use crate::{
     db,
-    db::explored_endpoints::DbExploredEndpoint,
     model::{
         hardware_info::HardwareInfo,
         machine::{
@@ -717,7 +716,7 @@ impl<'a> MockExploredHost<'a> {
             .collect::<Vec<_>>();
         let mut txn = self.test_env.pool.begin().await?;
         for ip in ips {
-            DbExploredEndpoint::set_preingestion_complete(ip, &mut txn).await?;
+            db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
         }
         txn.commit().await?;
         Ok(self)
@@ -857,7 +856,7 @@ impl<'a> MockExploredHost<'a> {
                 let machine = db::machine::find_one(
                     &mut txn,
                     &self.dpu_machine_ids[&0],
-                    crate::db::machine::MachineSearchConfig::default(),
+                    crate::model::machine::machine_search_config::MachineSearchConfig::default(),
                 )
                 .await
                 .unwrap()

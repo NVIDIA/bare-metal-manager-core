@@ -12,14 +12,11 @@
 
 //! State Handler implementation for Network Segments
 
+use crate::model::network_segment::{NetworkSegment, NetworkSegmentType};
+use crate::model::resource_pool::ResourcePool;
 use crate::{
-    db::{
-        self,
-        instance_address::InstanceAddress,
-        network_segment::{NetworkSegment, NetworkSegmentType},
-    },
+    db::{self},
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
-    resource_pool::DbResourcePool,
     state_controller::{
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
         state_handler::{
@@ -39,15 +36,15 @@ pub struct NetworkSegmentStateHandler {
     /// need to be zero until the segment is deleted
     drain_period: chrono::Duration,
 
-    pool_vlan_id: Arc<DbResourcePool<i16>>,
-    pool_vni: Arc<DbResourcePool<i32>>,
+    pool_vlan_id: Arc<ResourcePool<i16>>,
+    pool_vni: Arc<ResourcePool<i32>>,
 }
 
 impl NetworkSegmentStateHandler {
     pub fn new(
         drain_period: chrono::Duration,
-        pool_vlan_id: Arc<DbResourcePool<i16>>,
-        pool_vni: Arc<DbResourcePool<i32>>,
+        pool_vlan_id: Arc<ResourcePool<i16>>,
+        pool_vni: Arc<ResourcePool<i32>>,
     ) -> Self {
         Self {
             drain_period,
@@ -132,9 +129,9 @@ impl StateHandler for NetworkSegmentStateHandler {
                         // If ones are still allocated, we can not delete and have to
                         // update the `delete_at` timestamp.
                         let num_machine_interfaces =
-                            db::machine_interface::count_by_segment_id(txn, state.id()).await?;
+                            db::machine_interface::count_by_segment_id(txn, &state.id).await?;
                         let num_instance_addresses =
-                            InstanceAddress::count_by_segment_id(txn, state.id()).await?;
+                            db::instance_address::count_by_segment_id(txn, &state.id).await?;
                         if num_machine_interfaces + num_instance_addresses > 0 {
                             let delete_at = chrono::Utc::now()
                                 .checked_add_signed(self.drain_period)
@@ -169,16 +166,16 @@ impl StateHandler for NetworkSegmentStateHandler {
                     }
                     NetworkSegmentDeletionState::DBDelete => {
                         if let Some(vni) = state.vni.take() {
-                            self.pool_vni.release(txn, vni).await?;
+                            db::resource_pool::release(&self.pool_vni, txn, vni).await?;
                         }
                         if let Some(vlan_id) = state.vlan_id.take() {
-                            self.pool_vlan_id.release(txn, vlan_id).await?;
+                            db::resource_pool::release(&self.pool_vlan_id, txn, vlan_id).await?;
                         }
                         tracing::info!(
                             %segment_id,
                             "Network Segment getting removed from the database",
                         );
-                        NetworkSegment::final_delete(*segment_id, txn).await?;
+                        db::network_segment::final_delete(*segment_id, txn).await?;
                         Ok(deleted!())
                     }
                 }

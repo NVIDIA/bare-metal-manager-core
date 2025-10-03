@@ -21,7 +21,7 @@ use forge_uuid::machine::MachineId;
 
 /// History of Machine states for a single Machine
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct DbMachineStateHistory {
+struct DbMachineStateHistory {
     /// The ID of the machine that experienced the state change
     pub machine_id: MachineId,
 

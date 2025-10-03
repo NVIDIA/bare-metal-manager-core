@@ -15,11 +15,9 @@ mod metrics;
 use std::{default::Default, sync::Arc};
 
 use self::metrics::MachineValidationMetrics;
-use crate::CarbideResult;
 use crate::cfg::file::MachineValidationConfig;
-use crate::db::machine_validation::MachineValidation;
-use crate::db::machine_validation_suites::MachineValidationTest;
 use crate::db::{DatabaseError, ObjectFilter};
+use crate::{CarbideResult, db};
 use tokio::sync::oneshot;
 
 pub struct MachineValidationManager {
@@ -86,7 +84,7 @@ impl MachineValidationManager {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        metrics.completed_validation = MachineValidation::find_by(
+        metrics.completed_validation = db::machine_validation::find_by(
             &mut txn,
             ObjectFilter::List(&["Success".to_string()]),
             "state",
@@ -94,14 +92,14 @@ impl MachineValidationManager {
         .await?
         .len();
 
-        metrics.failed_validation = MachineValidation::find_by(
+        metrics.failed_validation = db::machine_validation::find_by(
             &mut txn,
             ObjectFilter::List(&["Failed".to_string()]),
             "state",
         )
         .await?
         .len();
-        metrics.in_progress_validation = MachineValidation::find_by(
+        metrics.in_progress_validation = db::machine_validation::find_by(
             &mut txn,
             ObjectFilter::List(&["InProgress".to_string()]),
             "state",
@@ -109,7 +107,7 @@ impl MachineValidationManager {
         .await?
         .len();
 
-        metrics.tests = MachineValidationTest::find(
+        metrics.tests = db::machine_validation_suites::find(
             &mut txn,
             rpc::forge::MachineValidationTestsGetRequest::default(),
         )

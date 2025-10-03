@@ -48,7 +48,7 @@ pub(crate) async fn lookup_record(
         return Err(CarbideError::InvalidArgument("q_type must be 1".to_string()).into());
     }
 
-    let resource_record = db::resource_record::find_record(&mut txn, &q_name)
+    let resource_record = db::resource_record::find(&mut txn, &q_name)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "dns_record",

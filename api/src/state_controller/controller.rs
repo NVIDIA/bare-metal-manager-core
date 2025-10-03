@@ -19,6 +19,7 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
+    db,
     db::DatabaseError,
     logging::sqlx_query_tracing,
     state_controller::{
@@ -396,7 +397,7 @@ impl<IO: StateControllerIO> StateController<IO> {
 
                             if let Some(power_options) = ctx.power_options {
                                 let mut txn = services.pool.begin().await?;
-                                crate::model::power_manager::PowerOptions::persist(&power_options, &mut txn).await?;
+                                db::power_options::persist(&power_options, &mut txn).await?;
                                 txn.commit()
                                     .await
                                     .map_err(StateHandlerError::TransactionError)?;

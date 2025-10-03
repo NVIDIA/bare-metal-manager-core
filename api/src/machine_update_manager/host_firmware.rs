@@ -14,7 +14,7 @@ use super::machine_update_module::{HOST_FW_UPDATE_HEALTH_REPORT_SOURCE, MachineU
 use crate::{
     CarbideResult,
     cfg::file::{CarbideConfig, FirmwareConfig},
-    db::{self, desired_firmware, host_machine_update::HostMachineUpdate},
+    db::{self, desired_firmware},
     model::machine::ManagedHostStateSnapshot,
 };
 use async_trait::async_trait;
@@ -96,7 +96,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     }
 
     async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
-        let completed = HostMachineUpdate::find_completed_updates(txn).await?;
+        let completed = db::host_machine_update::find_completed_updates(txn).await?;
 
         if !completed.is_empty() {
             tracing::info!("Completed host firmware updates: {completed:?}");
@@ -119,7 +119,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         txn: &mut PgConnection,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) {
-        match HostMachineUpdate::find_upgrade_needed(
+        match db::host_machine_update::find_upgrade_needed(
             txn,
             self.config.firmware_global.autoupdate,
             self.config.firmware_global.instance_updates_manual_tagging,
@@ -133,7 +133,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             }
             Err(e) => tracing::warn!(error=%e, "Error geting host upgrade needed for metrics"),
         };
-        match HostMachineUpdate::find_upgrade_in_progress(txn).await {
+        match db::host_machine_update::find_upgrade_in_progress(txn).await {
             Ok(upgrade_in_progress) => {
                 self.metrics
                     .active_firmware_updates
@@ -173,7 +173,7 @@ impl HostFirmwareUpdate {
             return Ok(machines);
         };
         // find_upgrade_needed filters for just things that need upgrades
-        for update_needed in HostMachineUpdate::find_upgrade_needed(
+        for update_needed in db::host_machine_update::find_upgrade_needed(
             txn,
             self.config.firmware_global.autoupdate,
             self.config.firmware_global.instance_updates_manual_tagging,

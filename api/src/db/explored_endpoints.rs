@@ -26,7 +26,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct DbExploredEndpoint {
+struct DbExploredEndpoint {
     /// The IP address of the node we explored
     address: std::net::IpAddr,
     /// The data we gathered about the endpoint
@@ -94,365 +94,365 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
     }
 }
 
-impl DbExploredEndpoint {
-    pub async fn find_ips(
-        txn: &mut PgConnection,
-        // filter is currently is empty, so it is a placeholder for the future
-        _filter: ::rpc::site_explorer::ExploredEndpointSearchFilter,
-    ) -> Result<Vec<IpAddr>, DatabaseError> {
-        #[derive(Debug, Clone, Copy, FromRow)]
-        pub struct ExploredEndpointIp(IpAddr);
-        // grab list of IPs
-        let mut builder = sqlx::QueryBuilder::new("SELECT address FROM explored_endpoints");
-        let query = builder.build_query_as();
-        let ids: Vec<ExploredEndpointIp> = query
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::new("explored_endpoints::find_ips", e))?;
-        // Convert to Vec<IpAddr> and return.
-        Ok(ids.iter().map(|id| id.0).collect())
-    }
+pub async fn find_ips(
+    txn: &mut PgConnection,
+    // filter is currently is empty, so it is a placeholder for the future
+    _filter: ::rpc::site_explorer::ExploredEndpointSearchFilter,
+) -> Result<Vec<IpAddr>, DatabaseError> {
+    #[derive(Debug, Clone, Copy, FromRow)]
+    pub struct ExploredEndpointIp(IpAddr);
+    // grab list of IPs
+    let mut builder = sqlx::QueryBuilder::new("SELECT address FROM explored_endpoints");
+    let query = builder.build_query_as();
+    let ids: Vec<ExploredEndpointIp> = query
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("explored_endpoints::find_ips", e))?;
+    // Convert to Vec<IpAddr> and return.
+    Ok(ids.iter().map(|id| id.0).collect())
+}
 
-    pub async fn find_by_ips(
-        txn: &mut PgConnection,
-        ips: Vec<IpAddr>,
-    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints WHERE address=ANY($1)";
+pub async fn find_by_ips(
+    txn: &mut PgConnection,
+    ips: Vec<IpAddr>,
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query = "SELECT * FROM explored_endpoints WHERE address=ANY($1)";
 
-        sqlx::query_as::<_, Self>(query)
-            .bind(ips)
-            .fetch_all(txn)
-            .await
-            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_endpoints::find_by_ips", e))
-    }
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .bind(ips)
+        .fetch_all(txn)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints::find_by_ips", e))
+}
 
-    /// find_all returns all explored endpoints that site explorer has been able to probe
-    pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints";
+/// find_all returns all explored endpoints that site explorer has been able to probe
+pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query = "SELECT * FROM explored_endpoints";
 
-        sqlx::query_as::<_, Self>(query)
-            .fetch_all(txn)
-            .await
-            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_endpoints find_all", e))
-    }
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .fetch_all(txn)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints find_all", e))
+}
 
-    /// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again and isn't in an error state.
-    pub async fn find_preingest_not_waiting_not_error(
-        txn: &mut PgConnection,
-    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints
+/// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again and isn't in an error state.
+pub async fn find_preingest_not_waiting_not_error(
+    txn: &mut PgConnection,
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query = "SELECT * FROM explored_endpoints
                         WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"')
                             AND waiting_for_explorer_refresh = false
                             AND (exploration_report->'LastExplorationError' IS NULL OR exploration_report->'LastExplorationError' = 'null')"; // If LastExplorationError is completely notexistant it is NULL, if it is there and indicates a null value it is 'null'.
 
-        sqlx::query_as::<_, Self>(query)
-            .fetch_all(txn)
-            .await
-            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_not_waiting", e))
-    }
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .fetch_all(txn)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_not_waiting", e))
+}
 
-    /// find_preingest_installing returns the endpoints where wew are waiting for firmware installs
-    pub async fn find_preingest_installing(
-        txn: &mut PgConnection,
-    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"upgradefirmwarewait\"'";
+/// find_preingest_installing returns the endpoints where wew are waiting for firmware installs
+pub async fn find_preingest_installing(
+    txn: &mut PgConnection,
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query = "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"upgradefirmwarewait\"'";
 
-        sqlx::query_as::<_, Self>(query)
-            .fetch_all(txn)
-            .await
-            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_not_waiting", e))
-    }
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .fetch_all(txn)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_not_waiting", e))
+}
 
-    /// find_all_no_upgrades returns all explored endpoints that site explorer has been able to probe, but ignores anything currently undergoing an upgrade
-    pub async fn find_all_preingestion_complete(
-        txn: &mut PgConnection,
-    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query =
-            "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"complete\"'";
+/// find_all_no_upgrades returns all explored endpoints that site explorer has been able to probe, but ignores anything currently undergoing an upgrade
+pub async fn find_all_preingestion_complete(
+    txn: &mut PgConnection,
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query =
+        "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"complete\"'";
 
-        sqlx::query_as::<_, Self>(query)
-            .fetch_all(txn)
-            .await
-            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_endpoints find_all_preingestion_complete", e))
-    }
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .fetch_all(txn)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints find_all_preingestion_complete", e))
+}
 
-    /// find_all_by_ip returns a list of explored endpoints that match the ip (should be a list of one)
-    pub async fn find_all_by_ip(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints WHERE address = $1";
+/// find_all_by_ip returns a list of explored endpoints that match the ip (should be a list of one)
+pub async fn find_all_by_ip(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query = "SELECT * FROM explored_endpoints WHERE address = $1";
 
-        sqlx::query_as::<_, Self>(query)
-            .bind(address)
-            .fetch_all(txn)
-            .await
-            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_endpoints find_all_by_ip", e))
-    }
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .bind(address)
+        .fetch_all(txn)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints find_all_by_ip", e))
+}
 
-    /// Updates the explored information about a node
-    ///
-    /// This operation will return `Ok(false)` if the entry had been deleted in
-    /// the meantime or otherwise modified. It will not fail.
-    pub async fn try_update(
-        address: IpAddr,
-        old_version: ConfigVersion,
-        exploration_report: &EndpointExplorationReport,
-        waiting_for_explorer_refresh: bool,
-        txn: &mut PgConnection,
-    ) -> Result<bool, DatabaseError> {
-        let new_version = old_version.increment();
-        let query = "
+/// Updates the explored information about a node
+///
+/// This operation will return `Ok(false)` if the entry had been deleted in
+/// the meantime or otherwise modified. It will not fail.
+pub async fn try_update(
+    address: IpAddr,
+    old_version: ConfigVersion,
+    exploration_report: &EndpointExplorationReport,
+    waiting_for_explorer_refresh: bool,
+    txn: &mut PgConnection,
+) -> Result<bool, DatabaseError> {
+    let new_version = old_version.increment();
+    let query = "
 UPDATE explored_endpoints SET version=$1, exploration_report=$2, waiting_for_explorer_refresh=$3, exploration_requested = false
 WHERE address=$4 AND version=$5";
-        let query_result = sqlx::query(query)
-            .bind(new_version)
-            .bind(sqlx::types::Json(exploration_report))
-            .bind(waiting_for_explorer_refresh)
-            .bind(address)
-            .bind(old_version)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
+    let query_result = sqlx::query(query)
+        .bind(new_version)
+        .bind(sqlx::types::Json(exploration_report))
+        .bind(waiting_for_explorer_refresh)
+        .bind(address)
+        .bind(old_version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-        Ok(query_result.rows_affected() > 0)
+    Ok(query_result.rows_affected() > 0)
+}
+
+/// clear_last_known_error clears the last known error in explored_endpoints for the BMC identified by IP
+pub async fn clear_last_known_error(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    for row in find_all_by_ip(address, txn).await? {
+        let mut report = row.report;
+        report.last_exploration_error = None;
+        try_update(address, row.report_version, &report, true, txn).await?;
     }
 
-    /// clear_last_known_error clears the last known error in explored_endpoints for the BMC identified by IP
-    pub async fn clear_last_known_error(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        for row in Self::find_all_by_ip(address, txn).await? {
-            let mut report = row.report;
-            report.last_exploration_error = None;
-            Self::try_update(address, row.report_version, &report, true, txn).await?;
-        }
+    Ok(())
+}
 
-        Ok(())
+/// Sets the `exploration_requested` flag on an explored_endpoint
+///
+/// Returns Ok(`true`) if the endpoint record is updated and Ok(`false`) if no
+/// record with the given version exists.
+pub async fn re_explore_if_version_matches(
+    address: IpAddr,
+    version: ConfigVersion,
+    txn: &mut PgConnection,
+) -> Result<bool, DatabaseError> {
+    let query = "UPDATE explored_endpoints SET exploration_requested = true WHERE address = $1 AND version = $2 RETURNING address";
+    let query_result: Result<(IpAddr,), _> = sqlx::query_as(query)
+        .bind(address)
+        .bind(version)
+        .fetch_one(txn)
+        .await;
+
+    match query_result {
+        Ok((_address,)) => Ok(true),
+        Err(e) => match e {
+            sqlx::Error::RowNotFound => Ok(false),
+            e => Err(DatabaseError::query(query, e)),
+        },
     }
+}
 
-    /// Sets the `exploration_requested` flag on an explored_endpoint
-    ///
-    /// Returns Ok(`true`) if the endpoint record is updated and Ok(`false`) if no
-    /// record with the given version exists.
-    pub async fn re_explore_if_version_matches(
-        address: IpAddr,
-        version: ConfigVersion,
-        txn: &mut PgConnection,
-    ) -> Result<bool, DatabaseError> {
-        let query = "UPDATE explored_endpoints SET exploration_requested = true WHERE address = $1 AND version = $2 RETURNING address";
-        let query_result: Result<(IpAddr,), _> = sqlx::query_as(query)
-            .bind(address)
-            .bind(version)
-            .fetch_one(txn)
-            .await;
+/// set_waiting_for_explorer_refresh sets a flag that will be cleared next time try_update runs.
+pub async fn set_waiting_for_explorer_refresh(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query =
+        "UPDATE explored_endpoints SET waiting_for_explorer_refresh = true WHERE address = $1";
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
 
-        match query_result {
-            Ok((_address,)) => Ok(true),
-            Err(e) => match e {
-                sqlx::Error::RowNotFound => Ok(false),
-                e => Err(DatabaseError::query(query, e)),
-            },
-        }
-    }
+async fn set_preingestion(
+    address: IpAddr,
+    state: PreingestionState,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE explored_endpoints SET preingestion_state = $1 WHERE address = $2";
+    sqlx::query(query)
+        .bind(sqlx::types::Json(&state))
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
 
-    /// set_waiting_for_explorer_refresh sets a flag that will be cleared next time try_update runs.
-    pub async fn set_waiting_for_explorer_refresh(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let query =
-            "UPDATE explored_endpoints SET waiting_for_explorer_refresh = true WHERE address = $1";
-        sqlx::query(query)
-            .bind(address)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
+pub async fn set_preingestion_recheck_versions(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::RecheckVersions;
+    set_preingestion(address, state, txn).await
+}
 
-    async fn set_preingestion(
-        address: IpAddr,
-        state: PreingestionState,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let query = "UPDATE explored_endpoints SET preingestion_state = $1 WHERE address = $2";
-        sqlx::query(query)
-            .bind(sqlx::types::Json(&state))
-            .bind(address)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
+pub async fn set_preingestion_initial_reset(
+    address: IpAddr,
+    phase: InitialResetPhase,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::InitialReset {
+        phase,
+        last_time: Utc::now(),
+    };
+    set_preingestion(address, state, txn).await
+}
 
-    pub async fn set_preingestion_recheck_versions(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::RecheckVersions;
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
+pub async fn set_preingestion_recheck_versions_reason(
+    address: IpAddr,
+    reason: String,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::RecheckVersionsAfterFailure { reason };
+    set_preingestion(address, state, txn).await
+}
 
-    pub async fn set_preingestion_initial_reset(
-        address: IpAddr,
-        phase: InitialResetPhase,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::InitialReset {
-            phase,
-            last_time: Utc::now(),
-        };
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
+pub async fn set_preingestion_waittask(
+    address: IpAddr,
+    task_id: String,
+    final_version: &str,
+    upgrade_type: &FirmwareComponentType,
+    power_drains_needed: Option<u32>,
+    firmware_number: u32,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::UpgradeFirmwareWait {
+        task_id,
+        final_version: final_version.to_owned(),
+        upgrade_type: *upgrade_type,
+        power_drains_needed,
+        firmware_number: Some(firmware_number),
+    };
+    set_preingestion(address, state, txn).await
+}
 
-    pub async fn set_preingestion_recheck_versions_reason(
-        address: IpAddr,
-        reason: String,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::RecheckVersionsAfterFailure { reason };
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
+pub async fn set_preingestion_reset_for_new_firmware(
+    address: IpAddr,
+    final_version: &str,
+    upgrade_type: &FirmwareComponentType,
+    power_drains_needed: Option<u32>,
+    delay_until: Option<time::Duration>,
+    last_power_drain_operation: Option<PowerDrainState>,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::ResetForNewFirmware {
+        final_version: final_version.to_owned(),
+        upgrade_type: *upgrade_type,
+        power_drains_needed,
+        delay_until: delay_until.map(|x| chrono::Utc::now().timestamp() + x.whole_seconds()),
+        last_power_drain_operation,
+    };
+    set_preingestion(address, state, txn).await
+}
 
-    pub async fn set_preingestion_waittask(
-        address: IpAddr,
-        task_id: String,
-        final_version: &str,
-        upgrade_type: &FirmwareComponentType,
-        power_drains_needed: Option<u32>,
-        firmware_number: u32,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::UpgradeFirmwareWait {
-            task_id,
-            final_version: final_version.to_owned(),
-            upgrade_type: *upgrade_type,
-            power_drains_needed,
-            firmware_number: Some(firmware_number),
-        };
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
+pub async fn set_preingestion_new_reported_wait(
+    address: IpAddr,
+    final_version: &str,
+    upgrade_type: &FirmwareComponentType,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::NewFirmwareReportedWait {
+        final_version: final_version.to_owned(),
+        upgrade_type: *upgrade_type,
+        previous_reset_time: Some(Utc::now().timestamp()),
+    };
+    set_preingestion(address, state, txn).await
+}
 
-    pub async fn set_preingestion_reset_for_new_firmware(
-        address: IpAddr,
-        final_version: &str,
-        upgrade_type: &FirmwareComponentType,
-        power_drains_needed: Option<u32>,
-        delay_until: Option<time::Duration>,
-        last_power_drain_operation: Option<PowerDrainState>,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::ResetForNewFirmware {
-            final_version: final_version.to_owned(),
-            upgrade_type: *upgrade_type,
-            power_drains_needed,
-            delay_until: delay_until.map(|x| chrono::Utc::now().timestamp() + x.whole_seconds()),
-            last_power_drain_operation,
-        };
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
+pub async fn set_preingestion_complete(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::Complete;
+    set_preingestion(address, state, txn).await
+}
 
-    pub async fn set_preingestion_new_reported_wait(
-        address: IpAddr,
-        final_version: &str,
-        upgrade_type: &FirmwareComponentType,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::NewFirmwareReportedWait {
-            final_version: final_version.to_owned(),
-            upgrade_type: *upgrade_type,
-            previous_reset_time: Some(Utc::now().timestamp()),
-        };
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
+#[cfg(test)]
+pub async fn pregestion_hostboot_time_test(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = r#"UPDATE explored_endpoints SET preingestion_state = jsonb_set(preingestion_state, '{last_time}', '"2020-06-13T00:37:52.150893548Z"') WHERE address = $1"#;
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
 
-    pub async fn set_preingestion_complete(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::Complete;
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
+pub async fn set_preingestion_script_running(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::ScriptRunning;
+    set_preingestion(address, state, txn).await
+}
 
-    pub async fn pregestion_hostboot_time_test(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let query = r#"UPDATE explored_endpoints SET preingestion_state = jsonb_set(preingestion_state, '{last_time}', '"2020-06-13T00:37:52.150893548Z"') WHERE address = $1"#;
-        sqlx::query(query)
-            .bind(address)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
+pub async fn set_preingestion_failed(
+    address: IpAddr,
+    reason: String,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::Failed { reason };
+    set_preingestion(address, state, txn).await
+}
 
-    pub async fn set_preingestion_script_running(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::ScriptRunning;
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
-
-    pub async fn set_preingestion_failed(
-        address: IpAddr,
-        reason: String,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::Failed { reason };
-        DbExploredEndpoint::set_preingestion(address, state, txn).await
-    }
-
-    pub async fn insert(
-        address: IpAddr,
-        exploration_report: &EndpointExplorationReport,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let query = "
+pub async fn insert(
+    address: IpAddr,
+    exploration_report: &EndpointExplorationReport,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "
         INSERT INTO explored_endpoints (address, exploration_report, version, exploration_requested, preingestion_state)
         VALUES ($1, $2::json, $3, false, '{\"state\":\"initial\"}')
         ON CONFLICT DO NOTHING";
-        sqlx::query(query)
-            .bind(address)
-            .bind(sqlx::types::Json(&exploration_report))
-            .bind(ConfigVersion::initial())
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
+    sqlx::query(query)
+        .bind(address)
+        .bind(sqlx::types::Json(&exploration_report))
+        .bind(ConfigVersion::initial())
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-        Ok(())
-    }
+    Ok(())
+}
 
-    pub async fn delete(txn: &mut PgConnection, address: IpAddr) -> Result<(), DatabaseError> {
-        let query = r#"DELETE FROM explored_endpoints WHERE address=$1"#;
-        sqlx::query(query)
-            .bind(address)
-            .execute(txn)
-            .await
-            .map(|_| ())
-            .map_err(|e| DatabaseError::query(query, e))
-    }
+pub async fn delete(txn: &mut PgConnection, address: IpAddr) -> Result<(), DatabaseError> {
+    let query = r#"DELETE FROM explored_endpoints WHERE address=$1"#;
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
 
-    /// Search the exploration report for any explored endpoint with a manager or system interface
-    /// matching the given MAC address.
-    ///
-    /// NOTE: This function's query is designed to exactly match with the GIN index
-    /// explored_endpoints_mac_addresses_idx, to avoid a full scan of all endpoint reports. Do NOT
-    /// change this query without changing the index to match!
-    pub async fn find_by_mac_address(
-        txn: &mut PgConnection,
-        mac: MacAddress,
-    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = r#"
+/// Search the exploration report for any explored endpoint with a manager or system interface
+/// matching the given MAC address.
+///
+/// NOTE: This function's query is designed to exactly match with the GIN index
+/// explored_endpoints_mac_addresses_idx, to avoid a full scan of all endpoint reports. Do NOT
+/// change this query without changing the index to match!
+pub async fn find_by_mac_address(
+    txn: &mut PgConnection,
+    mac: MacAddress,
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query = r#"
             SELECT * FROM explored_endpoints
             WHERE (
                 jsonb_path_query_array(exploration_report, '$.Systems[*].EthernetInterfaces[*].MACAddress')
@@ -460,69 +460,65 @@ WHERE address=$4 AND version=$5";
                 jsonb_path_query_array(exploration_report, '$.Managers[*].EthernetInterfaces[*].MACAddress')
             ) @> to_jsonb(ARRAY[$1]);
         "#;
-        sqlx::query_as::<_, Self>(query)
-            // NOTE: Don't just pass mac here, do our own string conversion. Postgres's string
-            // conversion will omit zero-padding of the hex values (:1 instead of :01) and the
-            // jsonb comparison breaks.
-            .bind(mac.to_string())
-            .fetch_all(txn)
-            .await
-            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_endpoints find_freetext_in_report", e))
-    }
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        // NOTE: Don't just pass mac here, do our own string conversion. Postgres's string
+        // conversion will omit zero-padding of the hex values (:1 instead of :01) and the
+        // jsonb comparison breaks.
+        .bind(mac.to_string())
+        .fetch_all(txn)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints find_freetext_in_report", e))
+}
 
-    pub async fn set_last_redfish_bmc_reset(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let query =
-            "UPDATE explored_endpoints SET last_redfish_bmc_reset=NOW() WHERE address = $1;";
-        sqlx::query(query)
-            .bind(address)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
+pub async fn set_last_redfish_bmc_reset(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE explored_endpoints SET last_redfish_bmc_reset=NOW() WHERE address = $1;";
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
 
-    pub async fn set_last_ipmitool_bmc_reset(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let query =
-            "UPDATE explored_endpoints SET last_ipmitool_bmc_reset=NOW() WHERE address = $1;";
-        sqlx::query(query)
-            .bind(address)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
+pub async fn set_last_ipmitool_bmc_reset(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE explored_endpoints SET last_ipmitool_bmc_reset=NOW() WHERE address = $1;";
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
 
-    pub async fn set_last_redfish_reboot(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let query = "UPDATE explored_endpoints SET last_redfish_reboot=NOW() WHERE address = $1;";
-        sqlx::query(query)
-            .bind(address)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
+pub async fn set_last_redfish_reboot(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE explored_endpoints SET last_redfish_reboot=NOW() WHERE address = $1;";
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
 
-    pub async fn set_last_redfish_powercycle(
-        address: IpAddr,
-        txn: &mut PgConnection,
-    ) -> Result<(), DatabaseError> {
-        let query =
-            "UPDATE explored_endpoints SET last_redfish_powercycle=NOW() WHERE address = $1;";
-        sqlx::query(query)
-            .bind(address)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
+pub async fn set_last_redfish_powercycle(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE explored_endpoints SET last_redfish_powercycle=NOW() WHERE address = $1;";
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
 }

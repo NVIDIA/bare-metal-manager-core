@@ -11,10 +11,7 @@
  */
 
 #[cfg(feature = "linux-build")]
-pub mod measured_boot;
-#[cfg(feature = "linux-build")]
-pub use measured_boot::SecretAkPub;
+pub mod secret_ak_pub;
 
+pub mod ek_cert_verification_status;
 pub mod tpm_ca_certs;
-pub use tpm_ca_certs::EkCertVerificationStatus;
-pub use tpm_ca_certs::TpmCaCert;

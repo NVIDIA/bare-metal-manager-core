@@ -14,9 +14,8 @@
 
 use crate::db::dpa_interface::get_dpa_vni;
 use crate::{
-    db::dpa_interface::DpaInterface,
+    db,
     model::dpa_interface::DpaInterfaceControllerState,
-    resource_pool::DbResourcePool,
     state_controller::{
         dpa_interface::context::DpaInterfaceStateHandlerContextObjects,
         state_handler::{
@@ -31,16 +30,18 @@ use mqttea::MqtteaClient;
 use sqlx::PgConnection;
 use std::sync::Arc;
 
+use crate::model::dpa_interface::DpaInterface;
+use crate::model::resource_pool::ResourcePool;
 use eyre::eyre;
 
 /// The actual Dpa Interface State handler
 #[derive(Debug, Clone)]
 pub struct DpaInterfaceStateHandler {
-    _pool_vni: Arc<DbResourcePool<i32>>,
+    _pool_vni: Arc<ResourcePool<i32>>,
 }
 
 impl DpaInterfaceStateHandler {
-    pub fn new(pool_vni: Arc<DbResourcePool<i32>>) -> Self {
+    pub fn new(pool_vni: Arc<ResourcePool<i32>>) -> Self {
         Self {
             _pool_vni: pool_vni,
         }
@@ -261,7 +262,7 @@ async fn send_set_vni_command(
     {
         Ok(()) => {
             if heart_beat {
-                let res = state.update_last_hb_time(txn).await;
+                let res = db::dpa_interface::update_last_hb_time(state, txn).await;
                 if res.is_err() {
                     tracing::error!(
                         "Error updating last_hb_time for dpa id: {} res: {:#?}",

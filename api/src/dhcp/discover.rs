@@ -16,10 +16,10 @@ use ::rpc::forge as rpc;
 use mac_address::MacAddress;
 use tonic::{Request, Response};
 
-use crate::db::{machine_interface, predicted_machine_interface::PredictedMachineInterface};
+use crate::db::machine_interface;
 use crate::{
     CarbideError,
-    db::{self, DatabaseError, dhcp_entry::DhcpEntry, dhcp_record::DhcpRecord, instance::Instance},
+    db::{self, DatabaseError, dhcp_entry::DhcpEntry},
 };
 
 pub async fn discover_dhcp(
@@ -53,7 +53,8 @@ pub async fn discover_dhcp(
             Some(existing_machine) => Some(existing_machine),
             None => {
                 if let Some(expected_interface) =
-                    PredictedMachineInterface::find_by_mac_address(&mut txn, parsed_mac).await?
+                    db::predicted_machine_interface::find_by_mac_address(&mut txn, parsed_mac)
+                        .await?
                 {
                     machine_interface::move_predicted_machine_interface_to_machine(
                         &mut txn,
@@ -80,7 +81,7 @@ pub async fn discover_dhcp(
         // Can't block host's DHCP handling completely to support Zero-DPU.
         if machine_id.machine_type().is_host()
             && let Some(instance_id) =
-                Instance::find_id_by_machine_id(&mut txn, &machine_id).await?
+                db::instance::find_id_by_machine_id(&mut txn, &machine_id).await?
         {
             // An instance is associated with machine id. DPU must process it.
             return Err(CarbideError::internal(format!(
@@ -91,11 +92,13 @@ pub async fn discover_dhcp(
 
     // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
     if let Some(vendor) = vendor_string {
-        let res = DhcpEntry {
-            machine_interface_id: machine_interface.id,
-            vendor_string: vendor,
-        }
-        .persist(&mut txn)
+        let res = db::dhcp_entry::persist(
+            DhcpEntry {
+                machine_interface_id: machine_interface.id,
+                vendor_string: vendor,
+            },
+            &mut txn,
+        )
         .await;
         match res {
             Ok(()) => {} // do nothing on ok result
@@ -118,7 +121,7 @@ pub async fn discover_dhcp(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
 
     let record: rpc::DhcpRecord =
-        DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)
+        db::dhcp_record::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)
             .await?
             .into();
 

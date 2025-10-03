@@ -1,7 +1,7 @@
 use crate::model::machine::ManagedHostStateSnapshot;
 use crate::{
     CarbideError, CarbideResult, cfg::file::CarbideConfig,
-    db::dpu_machine_update::DpuMachineUpdate, machine_update_manager::MachineUpdateManager,
+    machine_update_manager::MachineUpdateManager,
 };
 use async_trait::async_trait;
 use sqlx::PgConnection;
@@ -14,6 +14,8 @@ use std::{
 
 use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
 use super::machine_update_module::MachineUpdateModule;
+use crate::db::dpu_machine_update;
+use crate::model::dpu_machine_update::DpuMachineUpdate;
 use forge_uuid::machine::MachineId;
 
 /// DpuNicFirmwareUpdate is a module used [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager)
@@ -35,7 +37,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         txn: &mut PgConnection,
     ) -> CarbideResult<HashSet<MachineId>> {
         let current_updating_machines =
-            match DpuMachineUpdate::get_reprovisioning_machines(txn).await {
+            match dpu_machine_update::get_reprovisioning_machines(txn).await {
                 Ok(current_updating_machines) => current_updating_machines,
                 Err(e) => {
                     tracing::warn!("Error getting outstanding reprovisioning count: {}", e);
@@ -94,7 +96,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             // given {dpu,host}_machine_id, log it as a warning and don't
             // add it to updates_started.
             if let Err(reprovisioning_err) =
-                DpuMachineUpdate::trigger_reprovisioning_for_managed_host(txn, &machine_updates)
+                dpu_machine_update::trigger_reprovisioning_for_managed_host(txn, &machine_updates)
                     .await
             {
                 match reprovisioning_err {
@@ -119,7 +121,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     }
 
     async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
-        let updated_machines = DpuMachineUpdate::get_updated_machines(txn, &self.config).await?;
+        let updated_machines = dpu_machine_update::get_updated_machines(txn, &self.config).await?;
         tracing::debug!("found {} updated machines", updated_machines.len());
         for updated_machine in updated_machines {
             if self
@@ -171,7 +173,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 .store(outdated_dpus.len() as u64, Ordering::Relaxed);
         }
 
-        match DpuMachineUpdate::get_fw_updates_running_count(txn).await {
+        match dpu_machine_update::get_fw_updates_running_count(txn).await {
             Ok(count) => {
                 if let Some(metrics) = &self.metrics {
                     metrics

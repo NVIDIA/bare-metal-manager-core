@@ -1,6 +1,6 @@
 use crate::db::managed_host;
-use crate::db::managed_host::LoadSnapshotOptions;
 use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::LoadSnapshotOptions;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer;

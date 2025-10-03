@@ -13,11 +13,11 @@
 use std::str::FromStr;
 
 use crate::db;
-use crate::db::address_selection_strategy::AddressSelectionStrategy;
-use crate::db::machine_interface_address::MachineInterfaceAddress;
-use crate::db::network_prefix::NewNetworkPrefix;
-use crate::db::network_segment::{NetworkSegmentType, NewNetworkSegment};
-use crate::model::network_segment::NetworkSegmentControllerState;
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
+use crate::model::network_prefix::NewNetworkPrefix;
+use crate::model::network_segment::{
+    NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
+};
 use ipnetwork::IpNetwork;
 use std::net::IpAddr;
 
@@ -28,7 +28,7 @@ use mac_address::MacAddress;
 async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let domain = crate::db::domain::Domain::find_by_name(&mut txn, "dwrt1.com")
+    let domain = crate::db::domain::find_by_name(&mut txn, "dwrt1.com")
         .await?
         .into_iter()
         .next()
@@ -51,9 +51,9 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         id: uuid::uuid!("f9860f19-37d5-44f6-b637-84de4648cd39").into(),
         can_stretch: None,
     };
-    let network_segment = new_ns
-        .persist(&mut txn, NetworkSegmentControllerState::Ready)
-        .await?;
+    let network_segment =
+        db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
+            .await?;
     // An interface that isn't attached to a Machine. This is what BMC interfaces are.
     let interface = db::machine_interface::create(
         &mut txn,
@@ -66,7 +66,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     .await?;
     let bmc_ip = interface.addresses.iter().find(|x| x.is_ipv4()).copied();
     assert!(bmc_ip.is_some());
-    let res = MachineInterfaceAddress::find_by_address(&mut txn, bmc_ip.unwrap()).await?;
+    let res = db::machine_interface_address::find_by_address(&mut txn, bmc_ip.unwrap()).await?;
     assert!(res.is_some());
     assert_eq!(res.unwrap().id, interface.id);
 

@@ -18,8 +18,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, DpuInfo};
+use ::rpc::forge::DpuInfo;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use forge_uuid::{
@@ -37,74 +36,22 @@ use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, queries};
 use crate::db;
-use crate::db::machine_topology::MachineTopology;
-use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::MachineInventory;
-use crate::model::machine::health_override::HealthReportOverrides;
 use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine::network::{
     MachineNetworkStatusObservation, ManagedHostNetworkConfig, ManagedHostQuarantineState,
 };
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    FailureDetails, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineStateHistory,
-    ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::model::metadata::Metadata;
-use crate::model::power_manager::PowerOptions;
-use crate::model::sku::SkuStatus;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{CarbideError, CarbideResult, resource_pool};
-
-/// MachineSearchConfig: Search parameters
-#[derive(Default, Debug, Clone)]
-pub struct MachineSearchConfig {
-    pub include_dpus: bool,
-    pub include_history: bool,
-    pub include_predicted_host: bool,
-    /// Only include machines in maintenance mode
-    pub only_maintenance: bool,
-    /// Only include quarantined machines
-    pub only_quarantine: bool,
-    pub exclude_hosts: bool,
-    pub instance_type_id: Option<InstanceTypeId>,
-
-    /// Whether the query results will be later
-    /// used for updates in the same transaction.
-    ///
-    /// Triggers one or more locking behaviors in the DB.
-    ///
-    /// This applies *only* to the immediate machines records
-    /// and any joined tables.  The value is *not*
-    /// propagated to any additional underlying queries.
-    pub for_update: bool,
-}
-
-impl TryFrom<rpc::MachineSearchConfig> for MachineSearchConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: rpc::MachineSearchConfig) -> Result<Self, Self::Error> {
-        Ok(MachineSearchConfig {
-            include_dpus: value.include_dpus,
-            include_history: value.include_history,
-            include_predicted_host: value.include_predicted_host,
-            only_maintenance: value.only_maintenance,
-            only_quarantine: value.only_quarantine,
-            exclude_hosts: value.exclude_hosts,
-            instance_type_id: value
-                .instance_type_id
-                .map(|t| {
-                    t.parse::<InstanceTypeId>()
-                        .map_err(|_| RpcDataConversionError::InvalidInstanceTypeId(t.clone()))
-                })
-                .transpose()?,
-            for_update: false, // This isn't exposed to API callers
-        })
-    }
-}
 
 #[derive(Serialize)]
 struct ReprovisionRequestRestart {
@@ -121,189 +68,6 @@ lazy_static! {
         "SELECT row_to_json(m.*) FROM ({}) m INNER JOIN machines ON machines.id = m.id",
         queries::MACHINE_SNAPSHOTS_NO_HISTORY.as_str(),
     );
-}
-
-/// This represents the structure of a machine we get from postgres via the row_to_json or
-/// JSONB_AGG functions. Its fields need to match the column names of the machine_snapshots query
-/// exactly. It's expected that we read this directly from the JSON returned by the query, and then
-/// convert it into a Machine.
-#[derive(Serialize, Deserialize)]
-pub struct MachineSnapshotPgJson {
-    id: MachineId,
-    created: DateTime<Utc>,
-    updated: DateTime<Utc>,
-    deployed: Option<DateTime<Utc>>,
-    agent_reported_inventory: Option<MachineInventory>,
-    network_config_version: String,
-    network_config: ManagedHostNetworkConfig,
-    network_status_observation: Option<MachineNetworkStatusObservation>,
-    infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
-    controller_state_version: String,
-    controller_state: ManagedHostState,
-    last_discovery_time: Option<DateTime<Utc>>,
-    last_scout_contact_time: Option<DateTime<Utc>>,
-    last_reboot_time: Option<DateTime<Utc>>,
-    last_reboot_requested: Option<MachineLastRebootRequested>,
-    last_cleanup_time: Option<DateTime<Utc>>,
-    failure_details: FailureDetails,
-    reprovisioning_requested: Option<ReprovisionRequest>,
-    host_reprovisioning_requested: Option<HostReprovisionRequest>,
-    bios_password_set_time: Option<DateTime<Utc>>,
-    last_machine_validation_time: Option<DateTime<Utc>>,
-    discovery_machine_validation_id: Option<uuid::Uuid>,
-    cleanup_machine_validation_id: Option<uuid::Uuid>,
-    dpu_agent_health_report: Option<HealthReport>,
-    dpu_agent_upgrade_requested: Option<UpgradeDecision>,
-    machine_validation_health_report: HealthReport,
-    site_explorer_health_report: Option<HealthReport>,
-    firmware_autoupdate: Option<bool>,
-    hardware_health_report: Option<HealthReport>,
-    health_report_overrides: Option<HealthReportOverrides>,
-    on_demand_machine_validation_id: Option<uuid::Uuid>,
-    on_demand_machine_validation_request: Option<bool>,
-    asn: Option<u32>,
-    controller_state_outcome: Option<PersistentStateHandlerOutcome>,
-    current_machine_validation_id: Option<uuid::Uuid>,
-    machine_state_model_version: i32,
-    instance_type_id: Option<InstanceTypeId>,
-    interfaces: Vec<MachineInterfaceSnapshot>,
-    topology: Vec<MachineTopology>,
-    log_parser_health_report: Option<HealthReport>,
-    labels: HashMap<String, String>,
-    name: String,
-    description: String,
-    #[serde(default)] // History is only brought in if the search config requested it
-    history: Vec<MachineStateHistory>,
-    version: String,
-    hw_sku: Option<String>,
-    hw_sku_status: Option<SkuStatus>,
-    sku_validation_health_report: Option<HealthReport>,
-    #[serde(default)] // Power options are valid only for host, not for DPUs.
-    power_options: Option<PowerOptions>,
-    hw_sku_device_type: Option<String>,
-    update_complete: bool,
-}
-
-// We need to implement FromRow because we can't associate dependent tables with the default derive
-// (i.e. it can't default unknown fields)
-impl<'r> FromRow<'r, PgRow> for Machine {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        MachineSnapshotPgJson::deserialize(json)
-            .map_err(|err| sqlx::Error::Decode(err.into()))?
-            .try_into()
-    }
-}
-
-impl TryFrom<MachineSnapshotPgJson> for Machine {
-    type Error = sqlx::Error;
-
-    fn try_from(value: MachineSnapshotPgJson) -> sqlx::Result<Self> {
-        let (hardware_info, bmc_info) = value
-            .topology
-            .into_iter()
-            .map(|t| {
-                let topology = t.into_topology();
-                (
-                    Some(topology.discovery_data.info.clone()),
-                    topology.bmc_info,
-                )
-            })
-            .next()
-            .unwrap_or((None, BmcInfo::default()));
-
-        let metadata = Metadata {
-            name: value.name,
-            description: value.description,
-            labels: value.labels,
-        };
-
-        let version: ConfigVersion =
-            value
-                .version
-                .parse()
-                .map_err(|e| sqlx::error::Error::ColumnDecode {
-                    index: "version".to_string(),
-                    source: Box::new(e),
-                })?;
-
-        let history = value
-            .history
-            .into_iter()
-            .sorted_by(
-                |s1: &crate::model::machine::MachineStateHistory,
-                 s2: &crate::model::machine::MachineStateHistory| {
-                    Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
-                },
-            )
-            .collect();
-
-        Ok(Self {
-            id: value.id,
-            state: Versioned {
-                value: value.controller_state,
-                version: value.controller_state_version.parse().map_err(|e| {
-                    sqlx::error::Error::ColumnDecode {
-                        index: "controller_state_version".to_string(),
-                        source: Box::new(e),
-                    }
-                })?,
-            },
-            network_config: Versioned {
-                value: value.network_config,
-                version: value.network_config_version.parse().map_err(|e| {
-                    sqlx::error::Error::ColumnDecode {
-                        index: "network_config_version".to_string(),
-                        source: Box::new(e),
-                    }
-                })?,
-            },
-            network_status_observation: value.network_status_observation,
-            infiniband_status_observation: value.infiniband_status_observation,
-            history,
-            interfaces: value.interfaces,
-            hardware_info,
-            bmc_info,
-            last_reboot_time: value.last_reboot_time,
-            last_cleanup_time: value.last_cleanup_time,
-            last_discovery_time: value.last_discovery_time,
-            last_scout_contact_time: value.last_scout_contact_time,
-            failure_details: value.failure_details,
-            reprovision_requested: value.reprovisioning_requested,
-            host_reprovision_requested: value.host_reprovisioning_requested,
-            dpu_agent_upgrade_requested: value.dpu_agent_upgrade_requested,
-            dpu_agent_health_report: value.dpu_agent_health_report,
-            hardware_health_report: value.hardware_health_report,
-            machine_validation_health_report: value.machine_validation_health_report,
-            site_explorer_health_report: value.site_explorer_health_report,
-            health_report_overrides: value.health_report_overrides.unwrap_or_default(),
-            inventory: value.agent_reported_inventory,
-            last_reboot_requested: value.last_reboot_requested,
-            controller_state_outcome: value.controller_state_outcome,
-            bios_password_set_time: value.bios_password_set_time,
-            last_machine_validation_time: value.last_machine_validation_time,
-            discovery_machine_validation_id: value.discovery_machine_validation_id,
-            cleanup_machine_validation_id: value.cleanup_machine_validation_id,
-            firmware_autoupdate: value.firmware_autoupdate,
-            on_demand_machine_validation_id: value.on_demand_machine_validation_id,
-            on_demand_machine_validation_request: value.on_demand_machine_validation_request,
-            asn: value.asn,
-            metadata,
-            instance_type_id: value.instance_type_id,
-            log_parser_health_report: value.log_parser_health_report,
-            version,
-            // Columns for these exist, but are unused in rust code
-            // deployed: value.deployed,
-            // created: value.created,
-            // updated: value.updated,
-            hw_sku: value.hw_sku,
-            hw_sku_status: value.hw_sku_status,
-            sku_validation_health_report: value.sku_validation_health_report,
-            power_options: value.power_options,
-            hw_sku_device_type: value.hw_sku_device_type,
-            update_complete: value.update_complete,
-        })
-    }
 }
 
 /// Load a Machine object matching an interface, creating it if not already present.
@@ -542,7 +306,7 @@ pub async fn find_id_by_bmc_ip(
     txn: &mut PgConnection,
     bmc_ip: &IpAddr,
 ) -> Result<Option<MachineId>, DatabaseError> {
-    MachineTopology::find_machine_id_by_bmc_ip(txn, &bmc_ip.to_string()).await
+    db::machine_topology::find_machine_id_by_bmc_ip(txn, &bmc_ip.to_string()).await
 }
 
 /// Finds machines associated with a specified instance type
@@ -1434,15 +1198,13 @@ pub async fn create(
     let network_config = ManagedHostNetworkConfig::default();
     let asn: Option<i64> = if stable_machine_id.machine_type() == MachineType::Dpu {
         if let Some(common_pools) = common_pools {
-            match common_pools
-                .ethernet
-                .pool_fnn_asn
-                .allocate(
-                    txn,
-                    resource_pool::OwnerType::Machine,
-                    &stable_machine_id_string,
-                )
-                .await
+            match db::resource_pool::allocate(
+                &common_pools.ethernet.pool_fnn_asn,
+                txn,
+                resource_pool::OwnerType::Machine,
+                &stable_machine_id_string,
+            )
+            .await
             {
                 Ok(asn) => Some(asn as i64),
                 Err(e) => {
@@ -1493,7 +1255,7 @@ pub async fn create(
 
     // Create a entry in power_options table as well.
     if !machine.is_dpu() {
-        PowerOptions::create(&machine.id, txn).await?;
+        db::power_options::create(&machine.id, txn).await?;
     }
     Ok(machine)
 }
@@ -1994,11 +1756,13 @@ pub async fn allocate_loopback_ip(
     txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<Ipv4Addr, CarbideError> {
-    match common_pools
-        .ethernet
-        .pool_loopback_ip
-        .allocate(txn, resource_pool::OwnerType::Machine, owner_id)
-        .await
+    match db::resource_pool::allocate(
+        &common_pools.ethernet.pool_loopback_ip,
+        txn,
+        resource_pool::OwnerType::Machine,
+        owner_id,
+    )
+    .await
     {
         Ok(val) => Ok(val),
         Err(resource_pool::ResourcePoolError::Empty) => {
@@ -2020,11 +1784,13 @@ pub async fn allocate_vpc_dpu_loopback(
     txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<Ipv4Addr, CarbideError> {
-    match common_pools
-        .ethernet
-        .pool_vpc_dpu_loopback_ip
-        .allocate(txn, resource_pool::OwnerType::Machine, owner_id)
-        .await
+    match db::resource_pool::allocate(
+        &common_pools.ethernet.pool_vpc_dpu_loopback_ip,
+        txn,
+        resource_pool::OwnerType::Machine,
+        owner_id,
+    )
+    .await
     {
         Ok(val) => Ok(val),
         Err(resource_pool::ResourcePoolError::Empty) => {
@@ -2108,10 +1874,7 @@ pub async fn update_dpu_asns(
         .await
         .map_err(|e| DatabaseError::txn_begin("agent upgrade policy", e))?;
 
-    if common_pools
-        .ethernet
-        .pool_fnn_asn
-        .stats(db_pool)
+    if db::resource_pool::stats(db_pool, common_pools.ethernet.pool_fnn_asn.name())
         .await?
         .free
         == 0
@@ -2137,15 +1900,13 @@ pub async fn update_dpu_asns(
     }
 
     for dpu_machine_id in dpu_ids.iter() {
-        let asn: i64 = common_pools
-            .ethernet
-            .pool_fnn_asn
-            .allocate(
-                &mut txn,
-                resource_pool::OwnerType::Machine,
-                &dpu_machine_id.to_string(),
-            )
-            .await? as i64;
+        let asn: i64 = db::resource_pool::allocate(
+            &common_pools.ethernet.pool_fnn_asn,
+            &mut txn,
+            resource_pool::OwnerType::Machine,
+            &dpu_machine_id.to_string(),
+        )
+        .await? as i64;
 
         let query = "UPDATE machines set asn=$1 WHERE id=$2 and asn is null";
 
@@ -2366,10 +2127,8 @@ pub async fn count_healthy_unhealthy_host_machines(
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        db::machine::MachineSearchConfig, model::machine::ManagedHostState,
-        model::metadata::Metadata,
-    };
+    use crate::model::machine::machine_search_config::MachineSearchConfig;
+    use crate::{model::machine::ManagedHostState, model::metadata::Metadata};
     use forge_uuid::machine::MachineId;
     use std::str::FromStr;
 

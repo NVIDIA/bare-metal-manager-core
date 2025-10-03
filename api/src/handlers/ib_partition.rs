@@ -13,10 +13,10 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::ib_partition::{self, IBPartition, IBPartitionSearchConfig, NewIBPartition};
+use crate::db::ib_partition::{self, IBPartitionSearchConfig, NewIBPartition};
 use crate::db::{DatabaseError, ObjectColumnFilter};
+use crate::{CarbideError, db};
 
 pub(crate) async fn create(
     api: &Api,
@@ -41,8 +41,7 @@ pub(crate) async fn create(
     resp.config.service_level = Some(fabric_config.service_level.clone());
 
     resp.config.pkey = api.allocate_pkey(&mut txn, &resp.config.name).await?;
-    let resp = resp
-        .create(&mut txn, &fabric_config)
+    let resp = db::ib_partition::create(resp, &mut txn, &fabric_config)
         .await
         .map_err(|e| match e.source {
             // During IB paritiont creation, it will check the existing partition by a 'select' query.
@@ -77,7 +76,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::IbPartitionSearchFilter = request.into_inner();
 
-    let ib_partition_ids = IBPartition::find_ids(&mut txn, filter).await?;
+    let ib_partition_ids = db::ib_partition::find_ids(&mut txn, filter).await?;
 
     Ok(Response::new(rpc::IbPartitionIdList { ib_partition_ids }))
 }
@@ -111,7 +110,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = IBPartition::find_by(
+    let partitions = db::ib_partition::find_by(
         &mut txn,
         ObjectColumnFilter::List(ib_partition::IdColumn, &ib_partition_ids),
         IBPartitionSearchConfig {},
@@ -154,7 +153,7 @@ pub(crate) async fn find(
     let search_config = search_config
         .map(IBPartitionSearchConfig::from)
         .unwrap_or(IBPartitionSearchConfig::default());
-    let results = IBPartition::find_by(&mut txn, uuid_filter, search_config).await?;
+    let results = db::ib_partition::find_by(&mut txn, uuid_filter, search_config).await?;
     let mut ib_partitions = Vec::with_capacity(results.len());
     for result in results {
         ib_partitions.push(result.try_into()?);
@@ -181,7 +180,7 @@ pub(crate) async fn delete(
 
     let uuid = id.ok_or(CarbideError::MissingArgument("id"))?;
 
-    let mut segments = IBPartition::find_by(
+    let mut segments = db::ib_partition::find_by(
         &mut txn,
         ObjectColumnFilter::One(ib_partition::IdColumn, &uuid),
         IBPartitionSearchConfig::default(),
@@ -199,8 +198,7 @@ pub(crate) async fn delete(
         }
     };
 
-    let resp = segment
-        .mark_as_deleted(&mut txn)
+    let resp = db::ib_partition::mark_as_deleted(&segment, &mut txn)
         .await
         .map(|_| rpc::IbPartitionDeletionResult {})
         .map(Response::new)?;
@@ -237,7 +235,7 @@ pub(crate) async fn for_tenant(
         }
     };
 
-    let results = IBPartition::for_tenant(&mut txn, _tenant_organization_id).await?;
+    let results = db::ib_partition::for_tenant(&mut txn, _tenant_organization_id).await?;
 
     let mut ib_partitions = Vec::with_capacity(results.len());
 

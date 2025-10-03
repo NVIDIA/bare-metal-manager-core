@@ -13,10 +13,10 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
 use crate::api::Api;
 use crate::db::DatabaseError;
-use crate::model::{ConfigValidationError, metadata::Metadata, tenant::Tenant};
+use crate::model::{ConfigValidationError, metadata::Metadata};
+use crate::{CarbideError, db};
 
 /// Ensures that fields unsupported by the tenant DB model are rejected early.
 fn metadata_to_valid_tenant_metadata(metadata: Option<rpc::Metadata>) -> Result<Metadata, Status> {
@@ -69,7 +69,7 @@ pub(crate) async fn create(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let response = Tenant::create_and_persist(organization_id, metadata, &mut txn)
+    let response = db::tenant::create_and_persist(organization_id, metadata, &mut txn)
         .await?
         .try_into()
         .map(Response::new)
@@ -100,7 +100,7 @@ pub(crate) async fn find(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let response = match Tenant::find(tenant_organization_id, &mut txn)
+    let response = match db::tenant::find(tenant_organization_id, &mut txn)
         .await
         .map(Response::new)?
         .into_inner()
@@ -147,7 +147,7 @@ pub(crate) async fn update(
             None
         };
 
-    let response = Tenant::update(organization_id, metadata, if_version_match, &mut txn)
+    let response = db::tenant::update(organization_id, metadata, if_version_match, &mut txn)
         .await?
         .try_into()
         .map(Response::new)

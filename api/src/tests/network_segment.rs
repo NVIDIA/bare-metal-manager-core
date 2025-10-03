@@ -15,18 +15,15 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
-use crate::db::address_selection_strategy::AddressSelectionStrategy;
-use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::db::network_segment::{
-    NetworkSegment, NetworkSegmentType, NewNetworkSegment, VpcColumn,
-};
-use crate::db::vpc::{IdColumn, UpdateVpcVirtualization, Vpc};
+use crate::db::network_segment::VpcColumn;
+use crate::db::vpc::IdColumn;
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
+use crate::model::network_prefix::NewNetworkPrefix;
 use crate::model::network_segment::{
-    NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegmentControllerState,
-    NetworkSegmentDeletionState,
+    NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegment, NetworkSegmentControllerState,
+    NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
 };
 use crate::resource_pool::common::VLANID;
-use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::{db, db_init};
 use common::network_segment::{
@@ -37,7 +34,10 @@ use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
 
-use crate::db::{ObjectColumnFilter, network_segment};
+use crate::db::ObjectColumnFilter;
+use crate::model::network_segment;
+use crate::model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
+use crate::model::vpc::UpdateVpcVirtualization;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
@@ -73,44 +73,47 @@ async fn test_advance_network_prefix_state(
     let vpc_id = vpc.id.unwrap();
 
     let id: NetworkSegmentId = uuid::Uuid::new_v4().into();
-    let segment: NetworkSegment = NewNetworkSegment {
-        id,
-        name: "integration_test".to_string(),
-        subdomain_id: None,
-        mtu: 1500i32,
-        vpc_id: Some(vpc_id),
-        segment_type: NetworkSegmentType::Admin,
+    let segment: NetworkSegment = db::network_segment::persist(
+        NewNetworkSegment {
+            id,
+            name: "integration_test".to_string(),
+            subdomain_id: None,
+            mtu: 1500i32,
+            vpc_id: Some(vpc_id),
+            segment_type: NetworkSegmentType::Admin,
 
-        prefixes: vec![
-            NewNetworkPrefix {
-                prefix: "192.0.2.1/24".parse().expect("can't parse network"),
-                gateway: "192.0.2.1".parse().ok(),
-                num_reserved: 1,
-            },
-            NewNetworkPrefix {
-                prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
-                gateway: None,
-                num_reserved: 100,
-            },
-        ],
+            prefixes: vec![
+                NewNetworkPrefix {
+                    prefix: "192.0.2.1/24".parse().expect("can't parse network"),
+                    gateway: "192.0.2.1".parse().ok(),
+                    num_reserved: 1,
+                },
+                NewNetworkPrefix {
+                    prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
+                    gateway: None,
+                    num_reserved: 100,
+                },
+            ],
 
-        vlan_id: None,
-        vni: None,
-        can_stretch: None,
-    }
-    .persist(&mut txn, NetworkSegmentControllerState::Provisioning)
+            vlan_id: None,
+            vni: None,
+            can_stretch: None,
+        },
+        &mut txn,
+        NetworkSegmentControllerState::Provisioning,
+    )
     .await?;
 
     txn.commit().await?;
     let mut txn = pool.begin().await?;
-    let ns = NetworkSegment::find_by_name(&mut txn, "integration_test")
+    let ns = db::network_segment::find_by_name(&mut txn, "integration_test")
         .await
         .unwrap();
 
     assert_eq!(ns.id, id);
 
     assert!(
-        NetworkPrefix::find(&mut txn, segment.prefixes[0].id)
+        db::network_prefix::find(&mut txn, segment.prefixes[0].id)
             .await
             .is_ok()
     );
@@ -135,9 +138,9 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     .await;
 
     let mut txn = env.pool.begin().await?;
-    let db_segment = NetworkSegment::find_by(
+    let db_segment = db::network_segment::find_by(
         &mut txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &segment.id.unwrap()),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment.id.unwrap()),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -293,9 +296,9 @@ async fn test_network_segment_max_history_length(
     const HISTORY_LIMIT: usize = 250;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let mut version = NetworkSegment::find_by(
+    let mut version = db::network_segment::find_by(
         &mut txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -307,7 +310,7 @@ async fn test_network_segment_max_history_length(
     for _ in 0..HISTORY_LIMIT + 50 {
         let mut txn = env.pool.begin().await.unwrap();
         assert!(
-            NetworkSegment::try_update_controller_state(
+            db::network_segment::try_update_controller_state(
                 &mut txn,
                 segment_id,
                 version,
@@ -318,9 +321,9 @@ async fn test_network_segment_max_history_length(
             .await
             .unwrap()
         );
-        version = NetworkSegment::find_by(
+        version = db::network_segment::find_by(
             &mut txn,
-            ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+            ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -364,8 +367,8 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Only one vlan-id available
     let mut txn = db_pool.begin().await?;
-    let vlan_pool = DbResourcePool::new(VLANID.to_string(), ValueType::Integer);
-    vlan_pool.populate(&mut txn, vec!["1".to_string()]).await?;
+    let vlan_pool = ResourcePool::new(VLANID.to_string(), ValueType::Integer);
+    db::resource_pool::populate(&vlan_pool, &mut txn, vec!["1".to_string()]).await?;
     txn.commit().await?;
 
     // Create a network segment rpc call
@@ -382,7 +385,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value is allocated
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vlan_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
         ResourcePoolStats { used: 1, free: 0 }
     );
     txn.commit().await?;
@@ -407,7 +410,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value is free
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vlan_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
         ResourcePoolStats { used: 0, free: 1 }
     );
     txn.commit().await?;
@@ -426,7 +429,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value allocated again
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vlan_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
         ResourcePoolStats { used: 1, free: 0 }
     );
     txn.commit().await?;
@@ -466,22 +469,22 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
 
     let mut txn = db_pool.begin().await?;
-    let admin = NetworkSegment::find_by_name(&mut txn, "admin").await?;
+    let admin = db::network_segment::find_by_name(&mut txn, "admin").await?;
     assert_eq!(admin.mtu, 9000);
     assert_eq!(admin.segment_type, NetworkSegmentType::Admin);
 
-    let underlay = NetworkSegment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
+    let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
     assert_eq!(underlay.mtu, 1500);
     assert_eq!(underlay.segment_type, NetworkSegmentType::Underlay);
     txn.commit().await?;
 
     // Now create them again. It should succeed but not create any more
-    use network_segment::NetworkSegmentSearchConfig; // override global rpc one
+    use crate::model::network_segment::NetworkSegmentSearchConfig; // override global rpc one
     let search_cfg = NetworkSegmentSearchConfig::default();
     let mut txn = db_pool.begin().await?;
-    let num_before = NetworkSegment::find_by(
+    let num_before = db::network_segment::find_by(
         &mut txn,
-        ObjectColumnFilter::<network_segment::IdColumn>::All,
+        ObjectColumnFilter::<db::network_segment::IdColumn>::All,
         search_cfg,
     )
     .await?
@@ -489,9 +492,9 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     txn.commit().await?;
     crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
     let mut txn = db_pool.begin().await?;
-    let num_after = NetworkSegment::find_by(
+    let num_after = db::network_segment::find_by(
         &mut txn,
-        ObjectColumnFilter::<network_segment::IdColumn>::All,
+        ObjectColumnFilter::<db::network_segment::IdColumn>::All,
         search_cfg,
     )
     .await?
@@ -520,20 +523,20 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let segment_id: NetworkSegmentId = segment.id.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let mut segments = NetworkSegment::list_segment_ids(&mut txn, None).await?;
+    let mut segments = db::network_segment::list_segment_ids(&mut txn, None).await?;
     assert_eq!(segments.len(), 1);
     assert_eq!(segments.remove(0), segment_id);
 
     let mut segments =
-        NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Admin)).await?;
+        db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Admin)).await?;
     assert_eq!(segments.len(), 1);
     assert_eq!(segments.remove(0), segment_id);
 
     let segments =
-        NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay)).await?;
+        db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay)).await?;
     assert_eq!(segments.len(), 0);
     let segments =
-        NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Tenant)).await?;
+        db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Tenant)).await?;
     assert_eq!(segments.len(), 0);
 
     Ok(())
@@ -879,7 +882,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let vpc_id = get_vpc_fixture_id(&env).await;
 
     let mut txn = env.pool.begin().await?;
-    let segments = NetworkSegment::find_by(
+    let segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
@@ -899,12 +902,12 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         if_version_match: None,
         network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
     };
-    update_request.update(&mut txn).await?;
+    db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
 
     // Already created segments must have SVI allocated.
     let mut txn = env.pool.begin().await?;
-    let segments = NetworkSegment::find_by(
+    let segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
@@ -932,7 +935,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     env.run_network_segment_controller_iteration().await;
 
     let mut txn = env.pool.begin().await?;
-    let segments = NetworkSegment::find_by(
+    let segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
@@ -958,9 +961,9 @@ async fn test_update_svi_ip_admin_segment(
     db_init::create_admin_vpc(&env.pool, Some(10600)).await?;
 
     let mut txn = env.pool.begin().await?;
-    let admin_segment = NetworkSegment::admin(&mut txn).await?;
+    let admin_segment = db::network_segment::admin(&mut txn).await?;
     assert!(admin_segment.vpc_id.is_some());
-    let admin_vpc = Vpc::find_by(
+    let admin_vpc = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
     )
@@ -970,7 +973,7 @@ async fn test_update_svi_ip_admin_segment(
         VpcVirtualizationType::Fnn
     );
     db_init::update_network_segments_svi_ip(&env.pool).await?;
-    let admin_segment = NetworkSegment::admin(&mut txn).await?;
+    let admin_segment = db::network_segment::admin(&mut txn).await?;
     for prefix in admin_segment.prefixes {
         assert!(prefix.svi_ip.is_some());
     }
@@ -987,9 +990,9 @@ async fn test_update_svi_ip_post_instance_allocation(
     let query = "UPDATE network_prefixes SET num_reserved = 2 WHERE id=$1";
 
     let mut txn = env.pool.begin().await?;
-    let segments = NetworkSegment::find_by(
+    let segments = db::network_segment::find_by(
         &mut txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
@@ -1012,7 +1015,7 @@ async fn test_update_svi_ip_post_instance_allocation(
         .await
         .expect("Unable to create transaction on database pool");
     assert_eq!(
-        db::instance_address::InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -1026,9 +1029,9 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     // At this moment, the third IP is taken from the tenant subnet for the instance.
     let mut txn = env.pool.begin().await?;
-    let mut segment = NetworkSegment::find_by(
+    let mut segment = db::network_segment::find_by(
         &mut txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
@@ -1038,13 +1041,13 @@ async fn test_update_svi_ip_post_instance_allocation(
         if_version_match: None,
         network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
     };
-    update_request.update(&mut txn).await?;
+    db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let mut segment = NetworkSegment::find_by(
+    let mut segment = db::network_segment::find_by(
         &mut txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;

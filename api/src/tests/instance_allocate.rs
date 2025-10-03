@@ -194,11 +194,9 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     // Ingest zero DPU host
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
-    let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
-        env.pool.begin().await?.deref_mut(),
-        "HOST_INBAND",
-    )
-    .await?;
+    let host_inband_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
+            .await?;
 
     // Allocate an instance by explicitly specifying an interface that is on the HOST_INBAND network
     let instance = crate::handlers::instance::allocate(
@@ -286,11 +284,9 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
     // Ingest zero DPU host
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
-    let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
-        env.pool.begin().await?.deref_mut(),
-        "HOST_INBAND",
-    )
-    .await?;
+    let host_inband_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
+            .await?;
 
     // Allocate an instance without specifying a network config
     let instance = crate::handlers::instance::allocate(
@@ -413,16 +409,10 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
     .into_inner();
 
     let (host_inband_segment_1, host_inband_segment_2) = (
-        db::network_segment::NetworkSegment::find_by_name(
-            env.pool.begin().await?.deref_mut(),
-            "HOST_INBAND",
-        )
-        .await?,
-        db::network_segment::NetworkSegment::find_by_name(
-            env.pool.begin().await?.deref_mut(),
-            "HOST_INBAND_2",
-        )
-        .await?,
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
+            .await?,
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND_2")
+            .await?,
     );
 
     let interfaces = instance.config.unwrap().network.unwrap().interfaces;
@@ -555,11 +545,9 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
     // Create single DPU host
     let single_dpu_host = api_fixtures::site_explorer::new_host(&env, Default::default()).await?;
 
-    let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
-        env.pool.begin().await?.deref_mut(),
-        "HOST_INBAND",
-    )
-    .await?;
+    let host_inband_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
+            .await?;
 
     // Create an instance on a host with DPUs, but try to configure it on a host_inband network,
     // which is not allowed
@@ -664,16 +652,12 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
 
     let host_snapshot_rpc: forge::Machine = zero_dpu_host.host_snapshot.clone().into();
 
-    let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
-        env.pool.begin().await?.deref_mut(),
-        "HOST_INBAND",
-    )
-    .await?;
-    let host_inband_2_segment = db::network_segment::NetworkSegment::find_by_name(
-        env.pool.begin().await?.deref_mut(),
-        "HOST_INBAND_2",
-    )
-    .await?;
+    let host_inband_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
+            .await?;
+    let host_inband_2_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND_2")
+            .await?;
 
     let instance_network_restrictions = host_snapshot_rpc.instance_network_restrictions.unwrap();
     assert_eq!(
@@ -754,11 +738,8 @@ async fn test_single_dpu_instance_allocation(
     // Create single DPU host
     let single_dpu_host = api_fixtures::site_explorer::new_host(&env, Default::default()).await?;
 
-    let tenant_segment = db::network_segment::NetworkSegment::find_by_name(
-        env.pool.begin().await?.deref_mut(),
-        "TENANT",
-    )
-    .await?;
+    let tenant_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "TENANT").await?;
 
     // Create an instance on a host with DPUs, without specifying a network config, which is not allowed
     let result = crate::handlers::instance::allocate(

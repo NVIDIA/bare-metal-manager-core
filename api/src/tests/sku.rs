@@ -4,13 +4,10 @@ pub mod tests {
     use forge_uuid::machine::MachineId;
     use sqlx::PgConnection;
 
+    use crate::model::expected_machine::ExpectedMachineData;
+    use crate::model::machine::machine_search_config::MachineSearchConfig;
     use crate::{
-        db::{
-            self, DatabaseError, ObjectFilter,
-            expected_machine::{ExpectedMachine, ExpectedMachineData},
-            machine::MachineSearchConfig,
-            sku::CURRENT_SKU_VERSION,
-        },
+        db::{self, DatabaseError, ObjectFilter, sku::CURRENT_SKU_VERSION},
         model::{
             machine::{
                 BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
@@ -893,7 +890,7 @@ pub mod tests {
             });
 
         let mut txn = pool.begin().await?;
-        ExpectedMachine::create(
+        db::expected_machine::create(
             &mut txn,
             managed_host_config.bmc_mac_address,
             ExpectedMachineData {
@@ -972,7 +969,7 @@ pub mod tests {
             });
 
         let mut txn = pool.begin().await?;
-        ExpectedMachine::create(
+        db::expected_machine::create(
             &mut txn,
             managed_host_config.bmc_mac_address,
             ExpectedMachineData {

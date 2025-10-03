@@ -17,18 +17,15 @@ use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use sqlx::postgres::PgRow;
-use sqlx::{Acquire, FromRow, PgConnection, Row};
+use sqlx::{Acquire, FromRow, PgConnection};
 
-use super::dhcp_entry::DhcpEntry;
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::db::address_selection_strategy::AddressSelectionStrategy;
-use crate::db::machine_interface_address::MachineInterfaceAddress;
-use crate::db::network_segment::NetworkSegment;
-use crate::db::predicted_machine_interface::PredictedMachineInterface;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::MachineInterfaceSnapshot;
+use crate::model::network_segment::NetworkSegment;
+use crate::model::predicted_machine_interface::PredictedMachineInterface;
 use crate::{CarbideError, CarbideResult, db};
 use forge_uuid::machine::MachineId;
 use forge_uuid::network::NetworkPrefixId;
@@ -101,31 +98,6 @@ pub const MACHINE_INTERFACE_SNAPSHOT_QUERY: &str = r#"
         GROUP BY d.machine_interface_id
     ) AS vendors_agg ON true
 "#;
-
-impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        // Note: Make sure to use the MACHINE_INTERFACE_SNAPSHOT_QUERY when querying, or these
-        // columns will not be present in the result.
-        let addrs_json: sqlx::types::Json<Vec<Option<IpAddr>>> = row.try_get("addresses")?;
-        let vendors_json: sqlx::types::Json<Vec<Option<String>>> = row.try_get("vendors")?;
-
-        Ok(MachineInterfaceSnapshot {
-            id: row.try_get("id")?,
-            attached_dpu_machine_id: row.try_get("attached_dpu_machine_id")?,
-            machine_id: row.try_get("machine_id")?,
-            segment_id: row.try_get("segment_id")?,
-            domain_id: row.try_get("domain_id")?,
-            hostname: row.try_get("hostname")?,
-            mac_address: row.try_get("mac_address")?,
-            primary_interface: row.try_get("primary_interface")?,
-            created: row.try_get("created")?,
-            last_dhcp: row.try_get("last_dhcp")?,
-            network_segment_type: row.try_get("network_segment_type")?,
-            addresses: addrs_json.0.into_iter().flatten().collect(),
-            vendors: vendors_json.0.into_iter().flatten().collect(),
-        })
-    }
-}
 
 /// Sets current machine interface primary attribute to provided value.
 pub async fn set_primary_interface(
@@ -303,7 +275,7 @@ pub async fn validate_existing_mac_and_create(
                 %mac_address,
                 "No existing machine_interface with mac address exists yet, creating one",
             );
-            match NetworkSegment::for_relay(txn, relay).await? {
+            match db::network_segment::for_relay(txn, relay).await? {
                 None => Err(CarbideError::internal(format!(
                     "No network segment defined for relay address: {relay}"
                 ))),
@@ -329,7 +301,7 @@ pub async fn validate_existing_mac_and_create(
             );
             let mac = existing_mac.remove(0);
             // Ensure the relay segment exists before blindly giving the mac address back out
-            match NetworkSegment::for_relay(txn, relay).await? {
+            match db::network_segment::for_relay(txn, relay).await? {
                 Some(ifc) if ifc.id == mac.segment_id => Ok(mac),
                 Some(ifc) => Err(CarbideError::internal(format!(
                     "Network segment mismatch for existing mac address: {0} expected: {1} actual from network switch: {2}",
@@ -424,7 +396,7 @@ pub async fn create(
 
     let interface_id = insert_machine_interface(
         &mut inner_txn,
-        segment.id(),
+        &segment.id,
         macaddr,
         hostname,
         domain_id,
@@ -631,7 +603,7 @@ pub async fn move_predicted_machine_interface_to_machine(
         %relay_ip,
         "Got DHCP from predicted machine interface, moving to machine"
     );
-    let Some(network_segment) = NetworkSegment::for_relay(txn, relay_ip).await? else {
+    let Some(network_segment) = db::network_segment::for_relay(txn, relay_ip).await? else {
         return Err(CarbideError::internal(format!(
             "No network segment defined for relay address: {relay_ip}"
         )));
@@ -704,7 +676,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     )
     .await?;
 
-    predicted_machine_interface.delete(txn).await?;
+    db::predicted_machine_interface::delete(predicted_machine_interface, txn).await?;
     Ok(())
 }
 
@@ -718,7 +690,7 @@ pub async fn create_host_machine_dpu_interface_proactively(
     hardware_info: Option<&HardwareInfo>,
     dpu_id: &MachineId,
 ) -> Result<MachineInterfaceSnapshot, CarbideError> {
-    let admin_network = NetworkSegment::admin(txn).await?;
+    let admin_network = db::network_segment::admin(txn).await?;
 
     // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
     // segment.
@@ -795,8 +767,8 @@ pub async fn delete(
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = "DELETE FROM machine_interfaces WHERE id=$1";
-    MachineInterfaceAddress::delete(txn, interface_id).await?;
-    DhcpEntry::delete(txn, interface_id).await?;
+    db::machine_interface_address::delete(txn, interface_id).await?;
+    db::dhcp_entry::delete(txn, interface_id).await?;
     sqlx::query(query)
         .bind(*interface_id)
         .execute(&mut *txn)

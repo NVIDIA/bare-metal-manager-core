@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::model::machine::{DpuInitState, ManagedHostState, ManagedHostStateSnapshot};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
-
-use crate::model::machine::{DpuInitState, ManagedHostState, ManagedHostStateSnapshot};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
 
 // If power state is Paused and Reset, state machine can't take any decision on it.
 // Ignore power manager with a log and moved to state machine.
@@ -220,4 +221,41 @@ pub fn are_all_dpus_up_after_power_operation(
         }
     }
     None
+}
+
+impl<'r> FromRow<'r, PgRow> for PowerOptions {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let host_id: MachineId = row.try_get("host_id")?;
+        let last_fetched_updated_at = row.try_get("last_fetched_updated_at")?;
+        let last_fetched_next_try_at = row.try_get("last_fetched_next_try_at")?;
+        let last_fetched_power_state = row.try_get("last_fetched_power_state")?;
+        let last_fetched_off_counter = row.try_get("last_fetched_off_counter")?;
+        let desired_state_version: String = row.try_get("desired_power_state_version")?;
+        let desired_power_state_version =
+            desired_state_version
+                .parse()
+                .map_err(|e| sqlx::error::Error::ColumnDecode {
+                    index: "version".to_string(),
+                    source: Box::new(e),
+                })?;
+        let desired_power_state = row.try_get("desired_power_state")?;
+        let wait_until_time_before_performing_next_power_action =
+            row.try_get("wait_until_time_before_performing_next_power_action")?;
+        let tried_triggering_on_at: Option<DateTime<Utc>> =
+            row.try_get("tried_triggering_on_at").ok();
+        let tried_triggering_on_counter = row.try_get("tried_triggering_on_counter")?;
+
+        Ok(Self {
+            host_id,
+            last_fetched_updated_at,
+            last_fetched_next_try_at,
+            last_fetched_power_state,
+            last_fetched_off_counter,
+            desired_power_state_version,
+            desired_power_state,
+            wait_until_time_before_performing_next_power_action,
+            tried_triggering_on_at,
+            tried_triggering_on_counter,
+        })
+    }
 }

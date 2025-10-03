@@ -11,11 +11,9 @@
  */
 
 use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
+use crate::model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use crate::{
-    db::{
-        self,
-        machine_validation::{MachineValidation, MachineValidationState, MachineValidationStatus},
-    },
+    db::{self},
     model::machine::{
         FailureCause, MachineState, MachineValidatingState, ManagedHostState,
         ManagedHostStateSnapshot, ValidationState,
@@ -51,7 +49,7 @@ pub(crate) async fn handle_machine_validation_state(
                 txn,
             )
             .await?;
-            let machine_validation = MachineValidation::find_by_id(txn, validation_id)
+            let machine_validation = db::machine_validation::find_by_id(txn, validation_id)
                 .await
                 .map_err(|err| StateHandlerError::GenericError(err.into()))?;
             let next_state = ManagedHostState::Validation {
@@ -96,7 +94,7 @@ pub(crate) async fn handle_machine_validation_state(
             }
             if !host_handler_params.machine_validation_config.enabled {
                 tracing::info!("Skipping Machine Validation");
-                let _ = MachineValidation::mark_machine_validation_complete(
+                let _ = db::machine_validation::mark_machine_validation_complete(
                     txn,
                     &mh_snapshot.host_snapshot.id,
                     id,
@@ -106,7 +104,7 @@ pub(crate) async fn handle_machine_validation_state(
                     },
                 )
                 .await;
-                let machine_validation = MachineValidation::find_by_id(txn, id)
+                let machine_validation = db::machine_validation::find_by_id(txn, id)
                     .await
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
                 *ctx.metrics
@@ -133,7 +131,7 @@ pub(crate) async fn handle_machine_validation_state(
                         "{} machine validation completed",
                         mh_snapshot.host_snapshot.id
                     );
-                    let machine_validation = MachineValidation::find_by_id(txn, id)
+                    let machine_validation = db::machine_validation::find_by_id(txn, id)
                         .await
                         .map_err(|err| StateHandlerError::GenericError(err.into()))?;
                     let status = machine_validation.status.clone().unwrap_or_default();
@@ -183,7 +181,7 @@ pub(crate) async fn handle_machine_validation_requested(
                 .map_err(StateHandlerError::from)?;
         }
         let machine_validation =
-            match MachineValidation::find_active_machine_validation_by_machine_id(
+            match db::machine_validation::find_active_machine_validation_by_machine_id(
                 txn,
                 &mh_snapshot.host_snapshot.id,
             )

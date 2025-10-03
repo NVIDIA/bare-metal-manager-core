@@ -14,7 +14,7 @@ pub use ::rpc::forge as rpc_forge;
 pub use ::rpc::machine_discovery as rpc_md;
 
 use crate::CarbideError;
-use crate::{attestation as attest, db::attestation::SecretAkPub};
+use crate::{attestation as attest, db::attestation::secret_ak_pub};
 use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tonic::Status;
@@ -39,7 +39,7 @@ pub(crate) async fn create_attest_key_bind_challenge(
     let (cli_cred_blob, cli_secret) =
         attest::cli_make_cred(ek_pub_rsa, &attest_key_info.ak_name, &secret_bytes)?;
 
-    SecretAkPub::insert(txn, &Vec::from(secret_bytes), &attest_key_info.ak_pub).await?;
+    secret_ak_pub::insert(txn, &Vec::from(secret_bytes), &attest_key_info.ak_pub).await?;
 
     Ok(rpc_forge::AttestKeyBindChallenge {
         cred_blob: cli_cred_blob,

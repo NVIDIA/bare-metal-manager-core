@@ -303,24 +303,24 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         },
     };
     let mut txn = pool.begin().await?;
-    let mut partition: IBPartition = new_partition
-        .create(
-            &mut txn,
-            &IBFabricManagerConfig {
-                endpoints: HashMap::new(),
-                manager_type: IBFabricManagerType::Disable,
-                max_partition_per_tenant: 10,
-                mtu: IBMtu::default(),
-                rate_limit: IBRateLimit::default(),
-                service_level: IBServiceLevel::default(),
-                ..Default::default()
-            },
-        )
-        .await?;
+    let mut partition: IBPartition = db::ib_partition::create(
+        new_partition,
+        &mut txn,
+        &IBFabricManagerConfig {
+            endpoints: HashMap::new(),
+            manager_type: IBFabricManagerType::Disable,
+            max_partition_per_tenant: 10,
+            mtu: IBMtu::default(),
+            rate_limit: IBRateLimit::default(),
+            service_level: IBServiceLevel::default(),
+            ..Default::default()
+        },
+    )
+    .await?;
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-    let results = IBPartition::for_tenant(&mut txn, FIXTURE_TENANT_ORG_ID.to_string()).await?;
+    let results = db::ib_partition::for_tenant(&mut txn, FIXTURE_TENANT_ORG_ID.to_string()).await?;
 
     assert_eq!(results.len(), 1);
     assert_eq!(partition.config, results[0].config);
@@ -349,11 +349,11 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     });
     // What we're testing
     let mut txn = pool.begin().await?;
-    partition.update(&mut txn).await?;
+    db::ib_partition::update(&partition, &mut txn).await?;
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-    let partition2 = IBPartition::find_by(
+    let partition2 = db::ib_partition::find_by(
         &mut txn,
         ObjectColumnFilter::One(db::ib_partition::IdColumn, &partition.id),
         IBPartitionSearchConfig::default(),

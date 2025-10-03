@@ -13,12 +13,12 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::db::{DatabaseError, ObjectFilter};
 use crate::model::tenant::{
     TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
+use crate::{CarbideError, db};
 
 pub(crate) async fn create(
     api: &Api,
@@ -39,7 +39,7 @@ pub(crate) async fn create(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let keyset = keyset_request.create(&mut txn).await?;
+    let keyset = db::tenant_keyset::create(&keyset_request, &mut txn).await?;
 
     txn.commit()
         .await
@@ -66,7 +66,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
-    let keyset_ids = TenantKeyset::find_ids(&mut txn, filter).await?;
+    let keyset_ids = db::tenant_keyset::find_ids(&mut txn, filter).await?;
 
     Ok(Response::new(rpc::TenantKeysetIdList {
         keyset_ids: keyset_ids
@@ -107,7 +107,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let keysets = TenantKeyset::find_by_ids(&mut txn, keyset_ids, include_key_data).await;
+    let keysets = db::tenant_keyset::find_by_ids(&mut txn, keyset_ids, include_key_data).await;
 
     let result = keysets
         .map(|vpc| rpc::TenantKeySetList {
@@ -153,7 +153,7 @@ pub(crate) async fn find(
     };
 
     let keyset =
-        TenantKeyset::find(organization_id, keyset_ids, include_key_data, &mut txn).await?;
+        db::tenant_keyset::find(organization_id, keyset_ids, include_key_data, &mut txn).await?;
 
     txn.commit()
         .await
@@ -183,7 +183,7 @@ pub(crate) async fn update(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    update_request.update(&mut txn).await?;
+    db::tenant_keyset::update(&update_request, &mut txn).await?;
 
     txn.commit()
         .await
@@ -215,7 +215,7 @@ pub(crate) async fn delete(
     let keyset_identifier: TenantKeysetIdentifier =
         keyset_identifier.try_into().map_err(CarbideError::from)?;
 
-    if !TenantKeyset::delete(&keyset_identifier, &mut txn).await? {
+    if !db::tenant_keyset::delete(&keyset_identifier, &mut txn).await? {
         return Err(CarbideError::NotFoundError {
             kind: "keyset",
             id: format!("{keyset_identifier:?}"),
@@ -244,7 +244,7 @@ pub(crate) async fn validate_public_key(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    request.validate(&mut txn).await?;
+    db::tenant::validate_public_key(&request, &mut txn).await?;
 
     txn.commit()
         .await

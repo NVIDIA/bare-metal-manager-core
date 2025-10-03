@@ -12,7 +12,6 @@
 use crate::db::{self};
 use crate::model::machine::MachineStateHistory;
 use crate::model::machine::ManagedHostState;
-use crate::model::power_manager::PowerOptions;
 use common::api_fixtures::create_managed_host;
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
@@ -61,7 +60,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let machine = db::machine::find_one(
             &mut txn,
             &dpu_machine_id,
-            crate::db::machine::MachineSearchConfig {
+            crate::model::machine::machine_search_config::MachineSearchConfig {
                 include_history: true,
                 ..Default::default()
             },
@@ -77,7 +76,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let machine = db::machine::find_one(
             &mut txn,
             &dpu_machine_id,
-            crate::db::machine::MachineSearchConfig::default(),
+            crate::model::machine::machine_search_config::MachineSearchConfig::default(),
         )
         .await?
         .unwrap();
@@ -184,7 +183,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
-        crate::db::machine::MachineSearchConfig {
+        crate::model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },
@@ -211,7 +210,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
-        crate::db::machine::MachineSearchConfig {
+        crate::model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },
@@ -220,7 +219,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
 
     assert_eq!(machine.history.len(), 250);
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert!(!power_entry.is_empty());
 
     // Test whether history is retrievable for a forced deleted Machine
@@ -245,7 +244,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     );
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
 
     let mut rpc_histories = env
@@ -291,7 +290,7 @@ async fn test_old_machine_state_history(
     let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
-        crate::db::machine::MachineSearchConfig {
+        crate::model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },

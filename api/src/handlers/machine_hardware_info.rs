@@ -12,7 +12,8 @@
 use crate::{
     CarbideError,
     api::{Api, log_request_data},
-    db::{DatabaseError, machine_topology::MachineTopology},
+    db,
+    db::DatabaseError,
     handlers::utils::convert_and_log_machine_id,
 };
 use ::rpc::forge::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
@@ -52,7 +53,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let machine_topology =
-        MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id]).await?;
+        db::machine_topology::find_latest_by_machine_ids(&mut txn, &[machine_id]).await?;
 
     let machine_topology =
         machine_topology
@@ -78,12 +79,12 @@ pub(crate) async fn handle_machine_hardware_info_update(
         }
     }
 
-    // This is kinda messy, but it's this or make MachineTopology::update public.
-    MachineTopology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
-    MachineTopology::create_or_update(&mut txn, &machine_id, &new_hardware_info).await?;
+    // This is kinda messy, but it's this or make db::machine_topology::update public.
+    db::machine_topology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
+    db::machine_topology::create_or_update(&mut txn, &machine_id, &new_hardware_info).await?;
 
     // Set this so the next machine discovery overwrites the data?
-    MachineTopology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
+    db::machine_topology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
 
     txn.commit()
         .await

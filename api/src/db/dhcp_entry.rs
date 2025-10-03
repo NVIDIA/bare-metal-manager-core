@@ -14,7 +14,6 @@ use sqlx::{FromRow, PgConnection};
 use super::DatabaseError;
 use forge_uuid::machine::MachineInterfaceId;
 
-///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
 /// (not implemented) that returns the network information for that interface on that node, and
 /// contains everything necessary to return a DHCP response
@@ -39,48 +38,46 @@ impl super::ColumnInfo<'_> for MachineInterfaceIdColumn {
     }
 }
 
-impl DhcpEntry {
-    #[cfg(test)] // only used in tests
-    pub async fn find_by<'a, C: super::ColumnInfo<'a, TableType = DhcpEntry>>(
-        txn: &mut PgConnection,
-        filter: super::ObjectColumnFilter<'a, C>,
-    ) -> Result<Vec<DhcpEntry>, DatabaseError> {
-        let mut query =
-            super::FilterableQueryBuilder::new("SELECT * FROM dhcp_entries").filter(&filter);
+#[cfg(test)] // only used in tests
+pub async fn find_by<'a, C: super::ColumnInfo<'a, TableType = DhcpEntry>>(
+    txn: &mut PgConnection,
+    filter: super::ObjectColumnFilter<'a, C>,
+) -> Result<Vec<DhcpEntry>, DatabaseError> {
+    let mut query =
+        super::FilterableQueryBuilder::new("SELECT * FROM dhcp_entries").filter(&filter);
 
-        query
-            .build_query_as()
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query.sql(), e))
-    }
+    query
+        .build_query_as()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query.sql(), e))
+}
 
-    pub async fn persist(&self, txn: &mut PgConnection) -> Result<(), DatabaseError> {
-        let query = "
+pub async fn persist(value: DhcpEntry, txn: &mut PgConnection) -> Result<(), DatabaseError> {
+    let query = "
 INSERT INTO dhcp_entries (machine_interface_id, vendor_string)
 VALUES ($1::uuid, $2::varchar)
 ON CONFLICT DO NOTHING";
-        let _result = sqlx::query(query)
-            .bind(self.machine_interface_id)
-            .bind(&self.vendor_string)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
+    let _result = sqlx::query(query)
+        .bind(value.machine_interface_id)
+        .bind(&value.vendor_string)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-        Ok(())
-    }
+    Ok(())
+}
 
-    pub async fn delete(
-        txn: &mut PgConnection,
-        machine_interface_id: &MachineInterfaceId,
-    ) -> Result<(), DatabaseError> {
-        let query = "
+pub async fn delete(
+    txn: &mut PgConnection,
+    machine_interface_id: &MachineInterfaceId,
+) -> Result<(), DatabaseError> {
+    let query = "
 DELETE FROM dhcp_entries WHERE machine_interface_id=$1::uuid";
-        sqlx::query(query)
-            .bind(machine_interface_id)
-            .execute(txn)
-            .await
-            .map(|_| ())
-            .map_err(|e| DatabaseError::query(query, e))
-    }
+    sqlx::query(query)
+        .bind(machine_interface_id)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
 }

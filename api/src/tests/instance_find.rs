@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::db::network_segment::NetworkSegment;
+use crate::db;
 use crate::tests::common::api_fixtures::{
     create_managed_host, create_test_env, instance::default_tenant_config,
 };
@@ -73,7 +73,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         }
     }
     let mut txn = env.pool.begin().await.unwrap();
-    let vpc_id = NetworkSegment::find_by_name(&mut txn, "TENANT")
+    let vpc_id = db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap()
         .vpc_id

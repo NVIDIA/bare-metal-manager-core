@@ -27,26 +27,47 @@ use instance::config::network::InterfaceFunctionId;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+pub mod address_selection_strategy;
+pub mod attestation;
 pub mod bmc_info;
 pub mod controller_outcome;
+pub mod desired_firmware;
+pub mod dhcp_entry;
+pub mod dhcp_record;
+pub mod domain;
 pub mod dpa_interface;
+pub mod dpu_machine_update;
+pub mod dpu_remediation;
+pub mod expected_machine;
 pub mod hardware_info;
+pub mod host_machine_update;
 pub mod ib_partition;
 pub mod instance;
+pub mod instance_address;
 pub mod instance_type;
 pub mod machine;
+pub mod machine_boot_override;
+pub mod machine_interface_address;
+pub mod machine_validation;
 pub mod metadata;
 pub mod network_devices;
+pub mod network_prefix;
 pub mod network_security_group;
 pub mod network_segment;
+pub mod network_segment_state_history;
 pub mod os;
 pub mod power_manager;
+pub mod predicted_machine_interface;
 pub mod redfish;
 pub mod resource_pool;
+pub mod resource_record;
+pub mod route_server;
 pub mod site_explorer;
 pub mod sku;
 pub mod storage;
 pub mod tenant;
+pub mod vpc;
+pub mod vpc_prefix;
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
 /// into a `Vec<R>`.

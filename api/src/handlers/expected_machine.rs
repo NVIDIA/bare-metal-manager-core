@@ -18,11 +18,11 @@ use sqlx::{Postgres, Transaction};
 use tonic::Status;
 use uuid::Uuid;
 
-use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
-use crate::db::expected_machine::ExpectedMachine;
-use crate::db::expected_machine::ExpectedMachineData;
+use crate::model::expected_machine::ExpectedMachine;
+use crate::model::expected_machine::ExpectedMachineData;
+use crate::{CarbideError, db};
 
 lazy_static! {
     // Verify what serial is alphanumeric string with, allows dashes '-' and underscores '_'
@@ -48,7 +48,7 @@ pub(crate) async fn get(
         let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
             CarbideError::InvalidArgument("invalid expected_machine id".to_string())
         })?;
-        let maybe: Option<ExpectedMachine> = ExpectedMachine::find_by_id(&mut txn, id).await?;
+        let maybe: Option<ExpectedMachine> = db::expected_machine::find_by_id(&mut txn, id).await?;
         return match maybe {
             Some(expected_machine) => Ok(tonic::Response::new(expected_machine.into())),
             None => Err(CarbideError::NotFoundError {
@@ -64,7 +64,7 @@ pub(crate) async fn get(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    match ExpectedMachine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
+    match db::expected_machine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
         Some(expected_machine) => {
             if expected_machine.bmc_mac_address != parsed_mac {
                 return Err(Status::invalid_argument(format!(
@@ -121,7 +121,7 @@ pub(crate) async fn add(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    ExpectedMachine::create(&mut txn, parsed_mac, db_data).await?;
+    db::expected_machine::create(&mut txn, parsed_mac, db_data).await?;
 
     txn.commit()
         .await
@@ -149,14 +149,14 @@ pub(crate) async fn delete(
         let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
             CarbideError::InvalidArgument("invalid expected_machine id".to_string())
         })?;
-        ExpectedMachine::delete_by_id(id, &mut txn).await?;
+        db::expected_machine::delete_by_id(id, &mut txn).await?;
     } else {
         // We parse the MAC in order to detect formatting errors before handing it off to the database
         let parsed_mac: MacAddress = request
             .bmc_mac_address
             .parse::<MacAddress>()
             .map_err(CarbideError::from)?;
-        ExpectedMachine::delete(parsed_mac, &mut txn).await?;
+        db::expected_machine::delete(parsed_mac, &mut txn).await?;
     }
 
     txn.commit()
@@ -194,7 +194,7 @@ pub(crate) async fn update(
         let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
             CarbideError::InvalidArgument("invalid expected_machine id".to_string())
         })?;
-        ExpectedMachine::update_by_id(&mut txn, id, data).await?;
+        db::expected_machine::update_by_id(&mut txn, id, data).await?;
     } else {
         let parsed_mac: MacAddress = request_mac
             .parse::<MacAddress>()
@@ -204,7 +204,7 @@ pub(crate) async fn update(
             bmc_mac_address: parsed_mac,
             data: data.clone(),
         };
-        expected_machine.update(&mut txn, data).await?;
+        db::expected_machine::update(&mut expected_machine, &mut txn, data).await?;
     }
 
     txn.commit()
@@ -228,7 +228,7 @@ pub(crate) async fn replace_all(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    ExpectedMachine::clear(&mut txn).await?;
+    db::expected_machine::clear(&mut txn).await?;
 
     txn.commit()
         .await
@@ -252,7 +252,8 @@ pub(crate) async fn get_all(
         .await
         .map_err(|e| DatabaseError::txn_begin("get_all_expected_machines", e))?;
 
-    let expected_machine_list: Vec<ExpectedMachine> = ExpectedMachine::find_all(&mut txn).await?;
+    let expected_machine_list: Vec<ExpectedMachine> =
+        db::expected_machine::find_all(&mut txn).await?;
 
     Ok(tonic::Response::new(rpc::ExpectedMachineList {
         expected_machines: expected_machine_list.into_iter().map(Into::into).collect(),
@@ -270,7 +271,7 @@ pub(crate) async fn get_linked(
         .await
         .map_err(|e| DatabaseError::txn_begin("get_linked", e))?;
 
-    let out = ExpectedMachine::find_all_linked(&mut txn).await?;
+    let out = db::expected_machine::find_all_linked(&mut txn).await?;
     let list = rpc::LinkedExpectedMachineList {
         expected_machines: out.into_iter().map(|m| m.into()).collect(),
     };
@@ -290,7 +291,7 @@ pub(crate) async fn delete_all(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    ExpectedMachine::clear(&mut txn).await?;
+    db::expected_machine::clear(&mut txn).await?;
 
     txn.commit()
         .await
@@ -311,7 +312,7 @@ pub(crate) async fn query(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let mut expected = ExpectedMachine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
+    let mut expected = db::expected_machine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
 
     txn.commit()
         .await

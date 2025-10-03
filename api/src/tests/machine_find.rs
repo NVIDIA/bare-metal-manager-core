@@ -15,17 +15,14 @@ use std::net::IpAddr;
 
 use crate::model::hardware_info::HardwareInfo;
 use crate::tests::sku::tests::FULL_SKU_DATA;
-use crate::{
-    db,
-    db::{ObjectFilter, machine::MachineSearchConfig},
-    model::machine::machine_id::host_id_from_dpu_hardware_info,
-};
+use crate::{db, db::ObjectFilter, model::machine::machine_id::host_id_from_dpu_hardware_info};
 use forge_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use sha2::{Digest, Sha256};
 use tonic::Request;
 
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host_multi_dpu;
 use common::{
@@ -298,7 +295,7 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
     let machines = db::machine::find(
         &mut txn,
         ObjectFilter::All,
-        crate::db::machine::MachineSearchConfig {
+        crate::tests::machine_find::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },
@@ -311,7 +308,7 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_machine_ids(pool: sqlx::PgPool) {
-    let config = crate::db::machine::MachineSearchConfig {
+    let config = crate::tests::machine_find::MachineSearchConfig {
         include_dpus: true,
         include_predicted_host: true,
         ..Default::default()
@@ -362,7 +359,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
         .unwrap();
 
     // Create a config to test searching by instance type id
-    let config = crate::db::machine::MachineSearchConfig {
+    let config = crate::tests::machine_find::MachineSearchConfig {
         instance_type_id: Some(instance_type_id.parse().unwrap()),
         ..Default::default()
     };
@@ -378,7 +375,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
-    let config = crate::db::machine::MachineSearchConfig {
+    let config = crate::tests::machine_find::MachineSearchConfig {
         include_dpus: true,
         exclude_hosts: true,
         ..Default::default()
@@ -404,7 +401,7 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
-    let config = crate::db::machine::MachineSearchConfig {
+    let config = crate::tests::machine_find::MachineSearchConfig {
         include_predicted_host: true,
         ..Default::default()
     };
@@ -429,7 +426,7 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
-    let config = crate::db::machine::MachineSearchConfig::default();
+    let config = crate::tests::machine_find::MachineSearchConfig::default();
 
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
@@ -445,7 +442,7 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
-    let config = crate::db::machine::MachineSearchConfig::default();
+    let config = crate::tests::machine_find::MachineSearchConfig::default();
 
     let env = create_test_env(pool).await;
     let (host_machine_id, _) = create_managed_host(&env).await.into();
@@ -462,7 +459,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
-    let config = crate::db::machine::MachineSearchConfig {
+    let config = crate::tests::machine_find::MachineSearchConfig {
         include_predicted_host: true,
         ..Default::default()
     };

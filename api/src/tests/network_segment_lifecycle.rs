@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use crate::db::network_segment::NetworkSegment;
+use crate::db;
 
 use crate::tests::common;
 use common::{
@@ -213,7 +213,7 @@ async fn test_admin_network_exists(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let segments = NetworkSegment::admin(&mut txn).await?;
+    let segments = db::network_segment::admin(&mut txn).await?;
 
     assert_eq!(segments.id, env.admin_segment.unwrap());
 

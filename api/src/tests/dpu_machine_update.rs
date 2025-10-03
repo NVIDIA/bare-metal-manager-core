@@ -1,22 +1,19 @@
 use std::collections::HashMap;
 
 use crate::db::DatabaseError;
-use crate::db::machine::MachineSearchConfig;
-use crate::db::managed_host::LoadSnapshotOptions;
+use crate::model::machine::LoadSnapshotOptions;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::tests::common;
 
+use super::common::api_fixtures::TestEnv;
 use crate::CarbideResult;
+use crate::model::dpu_machine_update::DpuMachineUpdate;
 use crate::model::machine::{Machine, ManagedHostStateSnapshot};
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
-use crate::{
-    db, db::dpu_machine_update::DpuMachineUpdate,
-    model::machine::network::MachineNetworkStatusObservation,
-};
+use crate::{db, model::machine::network::MachineNetworkStatusObservation};
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
-
-use super::common::api_fixtures::TestEnv;
 
 pub async fn update_nic_firmware_version(
     txn: &mut PgConnection,
@@ -257,7 +254,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     let mh = create_managed_host_multi_dpu(&env, 2).await;
 
     let mut txn = env.pool.begin().await?;
-    DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
+    db::dpu_machine_update::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &[DpuMachineUpdate {
             host_machine_id: mh.host().id,
@@ -310,7 +307,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     let mut txn = env.pool.begin().await?;
     let all_dpus = mh.dpu_db_machines(&mut txn).await;
-    DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
+    db::dpu_machine_update::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &[
             DpuMachineUpdate {

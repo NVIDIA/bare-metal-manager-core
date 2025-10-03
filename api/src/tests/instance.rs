@@ -20,13 +20,8 @@ use std::{
 use crate::{
     cfg::file::VmaasConfig,
     db::{
-        self, ObjectColumnFilter,
-        dpu_machine_update::DpuMachineUpdate,
-        instance::Instance,
-        instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
-        network_prefix::NetworkPrefix,
-        network_segment::{IdColumn, NetworkSegment, NetworkSegmentSearchConfig},
-        vpc::{UpdateVpcVirtualization, Vpc},
+        self, ObjectColumnFilter, instance_address::UsedOverlayNetworkIpResolver,
+        network_segment::IdColumn,
     },
     dhcp::allocation::UsedIpResolver,
     instance::{InstanceAllocationRequest, allocate_instance, allocate_network},
@@ -86,6 +81,9 @@ use rpc::{
 };
 use tonic::Request;
 
+use crate::model::dpu_machine_update::DpuMachineUpdate;
+use crate::model::network_segment::NetworkSegmentSearchConfig;
+use crate::model::vpc::UpdateVpcVirtualization;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host_with_ek, update_time_params,
@@ -140,7 +138,7 @@ async fn test_allocate_and_release_instance_impl(
     let mut txn = env.db_txn().await;
     for segment_id in &segment_ids {
         assert_eq!(
-            InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+            db::instance_address::count_by_segment_id(&mut txn, segment_id)
                 .await
                 .unwrap(),
             0
@@ -208,7 +206,7 @@ async fn test_allocate_and_release_instance_impl(
             0
         };
         assert_eq!(
-            InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+            db::instance_address::count_by_segment_id(&mut txn, segment_id)
                 .await
                 .unwrap(),
             expected_count
@@ -233,14 +231,14 @@ async fn test_allocate_and_release_instance_impl(
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = Instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
+    let _ = db::instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
     let snapshot = mh.snapshot(&mut txn).await;
     let fetched_instance = snapshot.instance.unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;
     // TODO: The MAC here doesn't matter. It's not used for lookup
-    let record = InstanceAddress::find_by_instance_id_and_segment_id(
+    let record = db::instance_address::find_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         segment_ids.first().unwrap(),
@@ -291,7 +289,7 @@ async fn test_allocate_and_release_instance_impl(
     ));
     for segment_id in &segment_ids {
         assert_eq!(
-            InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+            db::instance_address::count_by_segment_id(&mut txn, segment_id)
                 .await
                 .unwrap(),
             0
@@ -328,7 +326,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let mut txn = env.db_txn().await;
     //let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -383,7 +381,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, mh.host().id);
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         1
@@ -408,7 +406,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = Instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
+    let _ = db::instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -418,13 +416,13 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let mut txn = env.db_txn().await;
     // TODO: The MAC here doesn't matter. It's not used for lookup
-    let segment = NetworkSegment::find_by_name(&mut txn, "TENANT")
+    let segment = db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap();
-    let record = InstanceAddress::find_by_instance_id_and_segment_id(
+    let record = db::instance_address::find_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
-        segment.id(),
+        &segment.id,
     )
     .await
     .unwrap()
@@ -672,7 +670,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -1403,7 +1401,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .get(pf_segment)
         .expect("Could not find matching interface_prefixes entry for pf_segment from ip_addrs.");
 
-    let pf_gw = NetworkPrefix::find(&mut txn, *pf_segment)
+    let pf_gw = db::network_prefix::find(&mut txn, *pf_segment)
         .await
         .ok()
         .and_then(|pfx| pfx.gateway_cidr())
@@ -1678,13 +1676,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id_1)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id_1)
             .await
             .unwrap(),
         0
     );
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id_2)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id_2)
             .await
             .unwrap(),
         0
@@ -1716,13 +1714,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id_1)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id_1)
             .await
             .unwrap(),
         1
     );
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id_2)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id_2)
             .await
             .unwrap(),
         1
@@ -1757,7 +1755,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     // And make sure find_by_prefix works -- just leverage
     // the last used_prefixes prefix and make sure it matches
     // the allocated instance ID.
-    let address_by_prefix = InstanceAddress::find_by_prefix(&mut txn, used_prefixes[0])
+    let address_by_prefix = db::instance_address::find_by_prefix(&mut txn, used_prefixes[0])
         .await
         .unwrap()
         .unwrap();
@@ -2250,7 +2248,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let vpc = Vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+    let vpc = db::vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
         .await
         .unwrap()
         .into_iter()
@@ -2311,7 +2309,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     assert!(config.network.interfaces[0].network_segment_id.is_some());
 
     let mut txn = env.db_txn().await;
-    let network_segment = NetworkSegment::find_by(
+    let network_segment = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(
             IdColumn,
@@ -2344,7 +2342,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -2353,7 +2351,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
-    let mut vpc = Vpc::find_by_name(&mut txn, "test vpc 1").await.unwrap();
+    let mut vpc = db::vpc::find_by_name(&mut txn, "test vpc 1").await.unwrap();
     let vpc = vpc.remove(0);
 
     let update_vpc = UpdateVpcVirtualization {
@@ -2361,7 +2359,9 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         if_version_match: None,
         network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
     };
-    update_vpc.update(&mut txn).await.unwrap();
+    db::vpc::update_virtualization(&update_vpc, &mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
@@ -2431,7 +2431,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, mh.id);
     assert_eq!(
-        InstanceAddress::count_by_segment_id(
+        db::instance_address::count_by_segment_id(
             &mut txn,
             &fetched_instance.config.network.interfaces[0]
                 .network_segment_id
@@ -2446,7 +2446,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .network_segment_id
         .unwrap();
 
-    let ns = NetworkSegment::find_by(
+    let ns = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2478,7 +2478,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = Instance::use_custom_ipxe_on_next_boot(&mh.id, false, &mut txn).await;
+    let _ = db::instance::use_custom_ipxe_on_next_boot(&mh.id, false, &mut txn).await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -2487,7 +2487,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;
-    let mut ns = NetworkSegment::find_by(
+    let mut ns = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(
             IdColumn,
@@ -2502,10 +2502,10 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let ns = ns.remove(0);
 
-    let record = InstanceAddress::find_by_instance_id_and_segment_id(
+    let record = db::instance_address::find_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
-        ns.id(),
+        &ns.id,
     )
     .await
     .unwrap()
@@ -2558,7 +2558,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     // Address is freed during delete
     let mut txn = env.db_txn().await;
-    let network_segments = NetworkSegment::find_by(
+    let network_segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::List(IdColumn, &segment_ids),
         NetworkSegmentSearchConfig::default(),
@@ -2573,7 +2573,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(
+        db::instance_address::count_by_segment_id(
             &mut txn,
             &fetched_instance.config.network.interfaces[0]
                 .network_segment_id
@@ -2643,7 +2643,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns1 = NetworkSegment::find_by(
+    let ns1 = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2672,7 +2672,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns2 = NetworkSegment::find_by(
+    let ns2 = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2700,7 +2700,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns3 = NetworkSegment::find_by(
+    let ns3 = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2735,7 +2735,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns4 = NetworkSegment::find_by(
+    let ns4 = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2758,13 +2758,15 @@ async fn create_tenant_overlay_prefix(
     vpc_id: forge_uuid::vpc::VpcId,
 ) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
-    let vpc_prefix_id = crate::db::vpc_prefix::NewVpcPrefix {
-        id: uuid::Uuid::new_v4().into(),
-        prefix: IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
-        name: "vpc_prefix_1".to_string(),
-        vpc_id,
-    }
-    .persist(&mut txn)
+    let vpc_prefix_id = crate::db::vpc_prefix::persist(
+        crate::model::vpc_prefix::NewVpcPrefix {
+            id: uuid::Uuid::new_v4().into(),
+            prefix: IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
+            name: "vpc_prefix_1".to_string(),
+            vpc_id,
+        },
+        &mut txn,
+    )
     .await
     .unwrap()
     .id;
@@ -3413,7 +3415,7 @@ async fn test_allocate_and_update_network_config_instance(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -3513,7 +3515,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -3913,7 +3915,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -4140,7 +4142,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     };
 
     let mut txn = env.db_txn().await;
-    let segments = NetworkSegment::find_ids(&mut txn, NetworkSegmentSearchFilter::default())
+    let segments = db::network_segment::find_ids(&mut txn, NetworkSegmentSearchFilter::default())
         .await
         .unwrap();
 
@@ -4167,7 +4169,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let segments = NetworkSegment::find_ids(&mut txn, NetworkSegmentSearchFilter::default())
+    let segments = db::network_segment::find_ids(&mut txn, NetworkSegmentSearchFilter::default())
         .await
         .unwrap();
 
@@ -4236,7 +4238,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let vpc = Vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+    let vpc = db::vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
         .await
         .unwrap()
         .into_iter()
@@ -4332,7 +4334,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
     let mut expected_ips_iter = expected_ips.iter();
 
     for iface in config.network.interfaces {
-        let network_segment = NetworkSegment::find_by(
+        let network_segment = db::network_segment::find_by(
             &mut txn,
             ObjectColumnFilter::One(IdColumn, &iface.network_segment_id.unwrap()),
             NetworkSegmentSearchConfig::default(),
@@ -4980,7 +4982,7 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
         firmware_version: "test".to_string(),
     };
 
-    DpuMachineUpdate::trigger_reprovisioning_for_managed_host(&mut txn, &[machine_update])
+    db::dpu_machine_update::trigger_reprovisioning_for_managed_host(&mut txn, &[machine_update])
         .await
         .unwrap();
     txn.commit().await.unwrap();

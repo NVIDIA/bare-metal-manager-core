@@ -10,92 +10,47 @@
  * its affiliates is strictly prohibited.
  */
 
-use chrono::prelude::*;
 use config_version::ConfigVersion;
-use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
+use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use forge_uuid::network::NetworkSegmentId;
 
-/// A record of a past state of a NetworkSegment
-///
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkSegmentStateHistory {
-    /// The numeric identifier of the state change. This is a global change number
-    /// for all states, and therefore not important for consumers
-    #[serde(skip)]
-    _id: i64,
-
-    /// The UUID of the network segment that experienced the state change
-    segment_id: NetworkSegmentId,
-
-    /// The state that was entered
-    pub state: String,
-    pub state_version: ConfigVersion,
-
-    /// The timestamp of the state change
-    timestamp: DateTime<Utc>,
-}
-
-impl TryFrom<NetworkSegmentStateHistory> for rpc::forge::NetworkSegmentStateHistory {
-    fn try_from(value: NetworkSegmentStateHistory) -> Result<Self, Self::Error> {
-        Ok(rpc::forge::NetworkSegmentStateHistory {
-            state: value.state,
-            version: value.state_version.version_string(),
-            time: Some(value.timestamp.into()),
-        })
-    }
-
-    type Error = serde_json::Error;
-}
-
-impl<'r> FromRow<'r, PgRow> for NetworkSegmentStateHistory {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(NetworkSegmentStateHistory {
-            _id: row.try_get("id")?,
-            segment_id: row.try_get("segment_id")?,
-            state: row.try_get("state")?,
-            state_version: row.try_get("state_version")?,
-            timestamp: row.try_get("timestamp")?,
-        })
-    }
-}
-
-impl NetworkSegmentStateHistory {
-    #[cfg(test)]
-    pub async fn for_segment(
-        txn: &mut PgConnection,
-        segment_id: &NetworkSegmentId,
-    ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
+#[cfg(test)]
+pub async fn for_segment(
+    txn: &mut PgConnection,
+    segment_id: &NetworkSegmentId,
+) -> Result<
+    Vec<crate::model::network_segment_state_history::NetworkSegmentStateHistory>,
+    DatabaseError,
+> {
+    let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
             FROM network_segment_state_history
             WHERE segment_id=$1
             ORDER BY ID asc";
-        sqlx::query_as(query)
-            .bind(segment_id)
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))
-    }
+    sqlx::query_as(query)
+        .bind(segment_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
 
-    /// Store each state for debugging purpose.
-    pub async fn persist(
-        txn: &mut PgConnection,
-        segment_id: NetworkSegmentId,
-        state: &NetworkSegmentControllerState,
-        state_version: ConfigVersion,
-    ) -> Result<(), DatabaseError> {
-        let query = "INSERT INTO network_segment_state_history (segment_id, state, state_version)
+/// Store each state for debugging purpose.
+pub async fn persist(
+    txn: &mut PgConnection,
+    segment_id: NetworkSegmentId,
+    state: &NetworkSegmentControllerState,
+    state_version: ConfigVersion,
+) -> Result<(), DatabaseError> {
+    let query = "INSERT INTO network_segment_state_history (segment_id, state, state_version)
             VALUES ($1, $2, $3)";
-        sqlx::query(query)
-            .bind(segment_id)
-            .bind(sqlx::types::Json(state))
-            .bind(state_version)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
+    sqlx::query(query)
+        .bind(segment_id)
+        .bind(sqlx::types::Json(state))
+        .bind(state_version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
 }

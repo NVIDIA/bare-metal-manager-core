@@ -27,8 +27,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
-use crate::db::expected_machine::ExpectedMachine;
 use crate::ipmitool::IPMITool;
+use crate::model::expected_machine::ExpectedMachine;
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{
     model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},

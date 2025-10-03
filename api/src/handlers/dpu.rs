@@ -17,21 +17,19 @@ use std::str::FromStr;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::db;
-use crate::db::domain::Domain;
-use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
-use crate::db::machine::MachineSearchConfig;
-use crate::db::managed_host::LoadSnapshotOptions;
+use crate::db::domain;
+use crate::db::dpu_agent_upgrade_policy;
 use crate::db::network_security_group;
-use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
-use crate::db::route_servers::RouteServer;
-use crate::db::vpc::{Vpc, VpcDpuLoopback};
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use crate::model::hardware_info::MachineInventory;
+use crate::model::machine::LoadSnapshotOptions;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{InstanceState, ManagedHostState};
+use crate::model::network_segment::NetworkSegmentSearchConfig;
 use crate::{CarbideError, ethernet_virtualization};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
@@ -178,7 +176,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 // network segment is empty, return error.
                 return Err(CarbideError::NetworkSegmentNotAllocated.into());
             };
-            let vpc = Vpc::find_by_segment(txn, network_segment_id)
+            let vpc = db::vpc::find_by_segment(txn, network_segment_id)
                 .await?;
 
             // So the network_virtualization_type historically didn't come from the VPC table,
@@ -304,7 +302,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             // All interfaces have the segment id allocated. It is already validated during
             // instance creation.
             let segment_ids = interfaces.iter().filter_map(|x|x.network_segment_id).collect_vec();
-            let segment_details = NetworkSegment::find_by(
+            let segment_details = db::network_segment::find_by(
                 txn,
                 ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
                 NetworkSegmentSearchConfig::default(),
@@ -320,7 +318,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let domain = match segment.subdomain_id {
                 Some(domain_id) => {
-                    Domain::find_by_uuid(txn, domain_id)
+                    domain::find_by_uuid(txn, domain_id)
                         .await?
                         .ok_or_else(|| CarbideError::NotFoundError {
                             kind: "domain",
@@ -346,7 +344,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             }
 
             let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
-                let tenant_loopback_ip = VpcDpuLoopback::get_or_allocate_loopback_ip_for_vpc(
+                let tenant_loopback_ip = db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
                     &api.common_pools,
                     txn,
                     &dpu_machine_id,
@@ -465,7 +463,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         //
         // Only pass them on if route servers are enabled.
         route_servers: if api.runtime_config.enable_route_servers {
-            RouteServer::get(txn)
+            db::route_servers::get(txn)
                 .await?
                 .into_iter()
                 .map(|rs| rs.address.to_string())
@@ -745,7 +743,7 @@ pub(crate) async fn record_dpu_network_status(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
 
-    if let Some(policy) = DpuAgentUpgradePolicy::get(&mut txn).await? {
+    if let Some(policy) = dpu_agent_upgrade_policy::get(&mut txn).await? {
         let _needs_upgrade =
             db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id).await?;
     }
@@ -888,11 +886,11 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
     if let Some(new_policy) = req.new_policy {
         let policy: AgentUpgradePolicy = new_policy.into();
 
-        DpuAgentUpgradePolicy::set(&mut txn, policy).await?;
+        dpu_agent_upgrade_policy::set(&mut txn, policy).await?;
         did_change = true;
     }
 
-    let Some(active_policy) = DpuAgentUpgradePolicy::get(&mut txn).await? else {
+    let Some(active_policy) = dpu_agent_upgrade_policy::get(&mut txn).await? else {
         return Err(tonic::Status::not_found("No agent upgrade policy"));
     };
     txn.commit()

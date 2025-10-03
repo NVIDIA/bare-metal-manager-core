@@ -14,9 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 
+use super::stats;
+use crate::model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
 use tokio::sync::oneshot;
-
-use super::{DbResourcePool, ResourcePoolStats, ValueType, stats};
 
 /// DPU VPC loopback IP pool
 /// Must match a pool defined in dev/resource_pools.toml
@@ -66,24 +66,24 @@ pub struct CommonPools {
 
 #[derive(Debug)]
 pub struct DpaPools {
-    pub pool_dpa_vni: Arc<DbResourcePool<i32>>,
+    pub pool_dpa_vni: Arc<ResourcePool<i32>>,
 }
 
 /// ResourcePools that are used for ethernet virtualization
 #[derive(Debug)]
 pub struct EthernetPools {
-    pub pool_loopback_ip: Arc<DbResourcePool<Ipv4Addr>>,
-    pub pool_vlan_id: Arc<DbResourcePool<i16>>,
-    pub pool_vni: Arc<DbResourcePool<i32>>,
-    pub pool_vpc_vni: Arc<DbResourcePool<i32>>,
-    pub pool_fnn_asn: Arc<DbResourcePool<u32>>,
-    pub pool_vpc_dpu_loopback_ip: Arc<DbResourcePool<Ipv4Addr>>,
+    pub pool_loopback_ip: Arc<ResourcePool<Ipv4Addr>>,
+    pub pool_vlan_id: Arc<ResourcePool<i16>>,
+    pub pool_vni: Arc<ResourcePool<i32>>,
+    pub pool_vpc_vni: Arc<ResourcePool<i32>>,
+    pub pool_fnn_asn: Arc<ResourcePool<u32>>,
+    pub pool_vpc_dpu_loopback_ip: Arc<ResourcePool<Ipv4Addr>>,
 }
 
 /// ResourcePools that are used for infiniband
 #[derive(Clone, Debug, Default)]
 pub struct IbPools {
-    pub pkey_pools: Arc<HashMap<String, DbResourcePool<u16>>>,
+    pub pkey_pools: Arc<HashMap<String, ResourcePool<u16>>>,
 }
 
 impl CommonPools {
@@ -94,27 +94,26 @@ impl CommonPools {
         let mut pool_names = Vec::new();
         let mut optional_pool_names = Vec::new();
 
-        let pool_loopback_ip: Arc<DbResourcePool<Ipv4Addr>> = Arc::new(DbResourcePool::new(
-            LOOPBACK_IP.to_string(),
-            ValueType::Ipv4,
-        ));
+        let pool_loopback_ip: Arc<ResourcePool<Ipv4Addr>> =
+            Arc::new(ResourcePool::new(LOOPBACK_IP.to_string(), ValueType::Ipv4));
         pool_names.push(pool_loopback_ip.name().to_string());
-        let pool_vlan_id: Arc<DbResourcePool<i16>> =
-            Arc::new(DbResourcePool::new(VLANID.to_string(), ValueType::Integer));
+        let pool_vlan_id: Arc<ResourcePool<i16>> =
+            Arc::new(ResourcePool::new(VLANID.to_string(), ValueType::Integer));
         pool_names.push(pool_vlan_id.name().to_string());
-        let pool_vni: Arc<DbResourcePool<i32>> =
-            Arc::new(DbResourcePool::new(VNI.to_string(), ValueType::Integer));
+        let pool_vni: Arc<ResourcePool<i32>> =
+            Arc::new(ResourcePool::new(VNI.to_string(), ValueType::Integer));
         pool_names.push(pool_vni.name().to_string());
-        let pool_vpc_vni: Arc<DbResourcePool<i32>> =
-            Arc::new(DbResourcePool::new(VPC_VNI.to_string(), ValueType::Integer));
+        let pool_vpc_vni: Arc<ResourcePool<i32>> =
+            Arc::new(ResourcePool::new(VPC_VNI.to_string(), ValueType::Integer));
         pool_names.push(pool_vpc_vni.name().to_string());
-        let pool_fnn_asn: Arc<DbResourcePool<u32>> =
-            Arc::new(DbResourcePool::new(FNN_ASN.to_string(), ValueType::Integer));
+        let pool_fnn_asn: Arc<ResourcePool<u32>> =
+            Arc::new(ResourcePool::new(FNN_ASN.to_string(), ValueType::Integer));
         optional_pool_names.push(pool_fnn_asn.name().to_string());
 
-        let pool_vpc_dpu_loopback_ip: Arc<DbResourcePool<Ipv4Addr>> = Arc::new(
-            DbResourcePool::new(VPC_DPU_LOOPBACK.to_string(), ValueType::Ipv4),
-        );
+        let pool_vpc_dpu_loopback_ip: Arc<ResourcePool<Ipv4Addr>> = Arc::new(ResourcePool::new(
+            VPC_DPU_LOOPBACK.to_string(),
+            ValueType::Ipv4,
+        ));
         //  TODO: This should be removed from optional once FNN become mandatory.
         optional_pool_names.push(pool_vpc_dpu_loopback_ip.name().to_string());
 
@@ -130,21 +129,21 @@ impl CommonPools {
         pool_names.extend(optional_pool_names);
 
         // It's ok for IB partition pools to be missing or full - as long as nobody tries to use partitions
-        let pkey_pools: Arc<HashMap<String, DbResourcePool<u16>>> = Arc::new(
+        let pkey_pools: Arc<HashMap<String, ResourcePool<u16>>> = Arc::new(
             ib_fabric_ids
                 .into_iter()
                 .map(|fabric_id| {
                     (
                         fabric_id.clone(),
-                        DbResourcePool::new(ib_pkey_pool_name(&fabric_id), ValueType::Integer),
+                        ResourcePool::new(ib_pkey_pool_name(&fabric_id), ValueType::Integer),
                     )
                 })
                 .collect(),
         );
         pool_names.extend(pkey_pools.values().map(|pool| pool.name().to_string()));
 
-        let pool_dpa_vni: Arc<DbResourcePool<i32>> =
-            Arc::new(DbResourcePool::new(DPA_VNI.to_string(), ValueType::Integer));
+        let pool_dpa_vni: Arc<ResourcePool<i32>> =
+            Arc::new(ResourcePool::new(DPA_VNI.to_string(), ValueType::Integer));
 
         pool_names.extend(vec![pool_dpa_vni.name().to_string()]);
 

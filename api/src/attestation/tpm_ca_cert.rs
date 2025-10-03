@@ -12,7 +12,7 @@
 
 use crate::attestation::get_ek_cert_by_machine_id;
 use crate::db::attestation as db_attest;
-use crate::db::attestation::tpm_ca_certs::EkCertVerificationStatus;
+use crate::db::attestation::ek_cert_verification_status;
 use crate::model::hardware_info::TpmEkCertificate;
 use crate::{CarbideError, CarbideResult};
 use chrono::{DateTime, Utc};
@@ -57,7 +57,7 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
     // try obtaining the relevant CA cert from the DB and check the signature
     let mut found_signing_ca = false;
     let mut ca_id: Option<i32> = None;
-    match db_attest::TpmCaCert::get_by_subject(txn, ek_issuer_bytes.as_slice()).await? {
+    match db_attest::tpm_ca_certs::get_by_subject(txn, ek_issuer_bytes.as_slice()).await? {
         Some(ca_cert_db_entry) => {
             let ca_cert = X509Certificate::from_der(ca_cert_db_entry.ca_cert_der.as_slice())
                 .map_err(|e| {
@@ -91,12 +91,12 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
     hasher.update(tpm_ek_cert.as_bytes());
     let tpm_ek_cert_sha256 = hasher.finalize();
 
-    if EkCertVerificationStatus::get_by_ek_sha256(txn, &tpm_ek_cert_sha256)
+    if ek_cert_verification_status::get_by_ek_sha256(txn, &tpm_ek_cert_sha256)
         .await?
         .is_some()
     {
         // the entry exists, we just need to update if it was CA verified or not
-        EkCertVerificationStatus::update_ca_verification_status(
+        ek_cert_verification_status::update_ca_verification_status(
             txn,
             &tpm_ek_cert_sha256,
             found_signing_ca,
@@ -135,7 +135,7 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
             }
         }
 
-        let _inserted = EkCertVerificationStatus::insert(
+        let _inserted = ek_cert_verification_status::insert(
             txn,
             &tpm_ek_cert_sha256,
             &ek_cert.raw_serial_as_string(),
@@ -192,11 +192,21 @@ pub async fn match_update_existing_ek_cert_status_against_ca(
     }
 
     // update the DB
-    EkCertVerificationStatus::update_ca_verification_status(txn, ek_cert_sha256, true, Some(ca_id))
-            .await.map_err(|e|CarbideError::internal(format!("Could not update CA verification status for EK serial - {}, issuer - {}, error: {}",
+    ek_cert_verification_status::update_ca_verification_status(
+        txn,
+        ek_cert_sha256,
+        true,
+        Some(ca_id),
+    )
+    .await
+    .map_err(|e| {
+        CarbideError::internal(format!(
+            "Could not update CA verification status for EK serial - {}, issuer - {}, error: {}",
             ek_cert.raw_serial_as_string(),
             ek_cert.issuer,
-            e)))?;
+            e
+        ))
+    })?;
 
     tracing::info!(
         "Set CA verification status to true for EK serial - {}, issuer - {}",

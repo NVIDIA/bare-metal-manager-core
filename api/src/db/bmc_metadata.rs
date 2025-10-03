@@ -9,11 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgConnection;
 
@@ -22,65 +18,6 @@ use crate::db;
 use crate::model::bmc_info::BmcInfo;
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
-#[sqlx(type_name = "user_roles")]
-#[sqlx(rename_all = "lowercase")]
-pub enum UserRoles {
-    User,
-    Administrator,
-    Operator,
-    Noaccess,
-}
-
-impl Display for UserRoles {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let string = match self {
-            UserRoles::User => "user",
-            UserRoles::Administrator => "administrator",
-            UserRoles::Operator => "operator",
-            UserRoles::Noaccess => "noaccess",
-        };
-
-        write!(f, "{string}")
-    }
-}
-
-impl From<rpc::UserRoles> for UserRoles {
-    fn from(action: rpc::UserRoles) -> Self {
-        match action {
-            rpc::UserRoles::User => UserRoles::User,
-            rpc::UserRoles::Administrator => UserRoles::Administrator,
-            rpc::UserRoles::Operator => UserRoles::Operator,
-            rpc::UserRoles::Noaccess => UserRoles::Noaccess,
-        }
-    }
-}
-
-impl From<UserRoles> for rpc::UserRoles {
-    fn from(action: UserRoles) -> Self {
-        match action {
-            UserRoles::User => rpc::UserRoles::User,
-            UserRoles::Administrator => rpc::UserRoles::Administrator,
-            UserRoles::Operator => rpc::UserRoles::Operator,
-            UserRoles::Noaccess => rpc::UserRoles::Noaccess,
-        }
-    }
-}
-
-impl FromStr for UserRoles {
-    type Err = CarbideError;
-
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        match input {
-            "user" => Ok(UserRoles::User),
-            "administrator" => Ok(UserRoles::Administrator),
-            "operator" => Ok(UserRoles::Operator),
-            "noaccess" => Ok(UserRoles::Noaccess),
-            x => Err(CarbideError::internal(format!("Unknown role found: {x}"))),
-        }
-    }
-}
 
 pub async fn update_bmc_network_into_topologies(
     txn: &mut PgConnection,

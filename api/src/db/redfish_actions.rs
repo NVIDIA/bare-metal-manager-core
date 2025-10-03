@@ -4,7 +4,7 @@ use sqlx::{PgConnection, types::Json};
 
 use crate::{
     CarbideError,
-    db::{DatabaseError, machine_topology::MachineTopology},
+    db::{self, DatabaseError},
     model::redfish::{ActionRequest, BMCResponse},
 };
 
@@ -84,7 +84,7 @@ pub async fn find_serials(
     ips: &[String],
     txn: &mut PgConnection,
 ) -> Result<HashMap<String, String>, CarbideError> {
-    let pairs = MachineTopology::find_machine_bmc_pairs(txn, ips.to_vec())
+    let pairs = db::machine_topology::find_machine_bmc_pairs(txn, ips.to_vec())
         .await
         .map_err(CarbideError::from)?;
     if pairs.len() != ips.len() {
@@ -99,7 +99,7 @@ pub async fn find_serials(
                 .join(", "),
         });
     }
-    let topologies = MachineTopology::find_by_machine_ids(
+    let topologies = db::machine_topology::find_by_machine_ids(
         txn,
         pairs.iter().map(|p| p.0).collect::<Vec<_>>().as_slice(),
     )

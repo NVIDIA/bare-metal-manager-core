@@ -18,10 +18,7 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::db;
-use crate::db::domain::{self, Domain};
-use crate::db::instance::Instance;
-use crate::db::instance_address::InstanceAddress;
-use crate::db::machine_boot_override::MachineBootOverride;
+use crate::db::domain;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::ipxe::PxeInstructions;
 
@@ -81,7 +78,7 @@ pub(crate) async fn get_cloud_init_instructions(
         return Err(CarbideError::internal("IPv6 not supported".to_string()).into());
     }
 
-    let instructions = match InstanceAddress::find_by_address(&mut txn, ip).await? {
+    let instructions = match db::instance_address::find_by_address(&mut txn, ip).await? {
         None => {
             // assume there is no instance associated with this IP and check if there is an interface associated with it
             let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip)
@@ -97,7 +94,7 @@ pub(crate) async fn get_cloud_init_instructions(
                 ))
             })?;
 
-            let domain = Domain::find_by(
+            let domain = domain::find_by(
                 &mut txn,
                 ObjectColumnFilter::One(domain::IdColumn, &domain_id),
             )
@@ -113,7 +110,9 @@ pub(crate) async fn get_cloud_init_instructions(
             // It is possible for the user data to be null if we are only trying to test the pxe, and this will
             // follow the same code path and retrieve the non custom user data
             let custom_cloud_init =
-                match MachineBootOverride::find_optional(&mut txn, machine_interface.id).await? {
+                match db::machine_boot_override::find_optional(&mut txn, machine_interface.id)
+                    .await?
+                {
                     Some(machine_boot_override) => machine_boot_override.custom_user_data,
                     None => None,
                 };
@@ -143,7 +142,7 @@ pub(crate) async fn get_cloud_init_instructions(
         }
 
         Some(instance_address) => {
-            let instance = Instance::find_by_id(&mut txn, instance_address.instance_id)
+            let instance = db::instance::find_by_id(&mut txn, instance_address.instance_id)
                 .await?
                 .ok_or_else(|| {
                     // Note that this isn't a NotFound error since it indicates an

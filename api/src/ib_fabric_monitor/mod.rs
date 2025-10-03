@@ -28,8 +28,6 @@ use crate::{
     db::{
         self, DatabaseError,
         ib_partition::{IBPartition, IBPartitionSearchConfig},
-        machine::MachineSearchConfig,
-        managed_host::LoadSnapshotOptions,
     },
     ib::{
         GetPartitionOptions, IBFabricManager, IBFabricManagerType,
@@ -45,6 +43,8 @@ use crate::{
 };
 
 mod metrics;
+use crate::model::machine::LoadSnapshotOptions;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
@@ -604,7 +604,7 @@ async fn get_partition_information(
 async fn get_tenant_partitions(
     txn: &mut PgConnection,
 ) -> Result<HashMap<IBPartitionId, IBPartition>, CarbideError> {
-    let partition_ids = db::ib_partition::IBPartition::find_ids(
+    let partition_ids = db::ib_partition::find_ids(
         txn,
         IbPartitionSearchFilter {
             tenant_org_id: None,
@@ -619,7 +619,7 @@ async fn get_tenant_partitions(
     while offset != partition_ids.len() {
         let page_size = PAGE_SIZE.min(partition_ids.len() - offset);
         let next_ids = &partition_ids[offset..offset + page_size];
-        let partition_data = db::ib_partition::IBPartition::find_by(
+        let partition_data = db::ib_partition::find_by(
             txn,
             db::ObjectColumnFilter::List(db::ib_partition::IdColumn, next_ids),
             IBPartitionSearchConfig {},

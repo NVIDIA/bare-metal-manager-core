@@ -39,7 +39,8 @@ use forge_uuid::{
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
-use sqlx::{Column, Row};
+use sqlx::postgres::PgRow;
+use sqlx::{Column, FromRow, Row};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -50,18 +51,22 @@ mod slas;
 pub mod capabilities;
 pub mod health_override;
 pub mod infiniband;
+pub mod json;
 pub mod machine_id;
+pub mod machine_search_config;
 pub mod network;
 pub mod storage;
+pub mod topology;
 pub mod upgrade_policy;
+
 use crate::cfg::file::HostHealthConfig;
-use crate::db::dpa_interface::DpaInterface;
-use crate::db::instance::InstanceSnapshotPgJson;
-use crate::db::machine::MachineSnapshotPgJson;
-use crate::db::network_segment::NetworkSegmentType;
+use crate::model::dpa_interface::DpaInterface;
+use crate::model::instance::snapshot::InstanceSnapshotPgJson;
 use crate::model::machine::health_override::HealthReportOverrides;
+use crate::model::network_segment::NetworkSegmentType;
 use forge_uuid::machine::MachineType;
 use health_report::HealthReport;
+use json::MachineSnapshotPgJson;
 use rpc::forge::HealthOverrideOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use strum_macros::EnumIter;
@@ -657,6 +662,17 @@ pub struct Machine {
 
     /// If host upgrades have been completed since the last start explicit start request or actual start
     pub update_complete: bool,
+}
+
+// We need to implement FromRow because we can't associate dependent tables with the default derive
+// (i.e. it can't default unknown fields)
+impl<'r> FromRow<'r, PgRow> for Machine {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let json: serde_json::value::Value = row.try_get(0)?;
+        MachineSnapshotPgJson::deserialize(json)
+            .map_err(|err| sqlx::Error::Decode(err.into()))?
+            .try_into()
+    }
 }
 
 impl Machine {
@@ -2780,6 +2796,57 @@ pub struct MachineValidationFilter {
 impl Display for MachineValidationFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
+    }
+}
+
+pub struct LoadSnapshotOptions {
+    /// Whether to also load the Machines history
+    pub include_history: bool,
+    /// Whether to load instance details
+    pub include_instance_data: bool,
+    /// How to use hardware health for health report aggregation
+    pub host_health_config: HostHealthConfig,
+}
+
+impl Default for LoadSnapshotOptions {
+    fn default() -> Self {
+        Self {
+            include_history: false,
+            include_instance_data: true,
+            host_health_config: Default::default(),
+        }
+    }
+}
+
+impl LoadSnapshotOptions {
+    pub fn with_host_health(mut self, value: HostHealthConfig) -> Self {
+        self.host_health_config = value;
+        self
+    }
+}
+
+impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        // Note: Make sure to use the MACHINE_INTERFACE_SNAPSHOT_QUERY when querying, or these
+        // columns will not be present in the result.
+        let addrs_json: sqlx::types::Json<Vec<Option<IpAddr>>> = row.try_get("addresses")?;
+        let vendors_json: sqlx::types::Json<Vec<Option<String>>> = row.try_get("vendors")?;
+
+        Ok(MachineInterfaceSnapshot {
+            id: row.try_get("id")?,
+            attached_dpu_machine_id: row.try_get("attached_dpu_machine_id")?,
+            machine_id: row.try_get("machine_id")?,
+            segment_id: row.try_get("segment_id")?,
+            domain_id: row.try_get("domain_id")?,
+            hostname: row.try_get("hostname")?,
+            mac_address: row.try_get("mac_address")?,
+            primary_interface: row.try_get("primary_interface")?,
+            created: row.try_get("created")?,
+            last_dhcp: row.try_get("last_dhcp")?,
+            network_segment_type: row.try_get("network_segment_type")?,
+            addresses: addrs_json.0.into_iter().flatten().collect(),
+            vendors: vendors_json.0.into_iter().flatten().collect(),
+        })
     }
 }
 

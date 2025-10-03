@@ -9,14 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use crate::{CarbideError, model::metadata::Metadata};
 use ::rpc::{common as rpc_common, errors::RpcDataConversionError, forge as rpc};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
 use serde::{Deserialize, Serialize};
-
-use crate::{CarbideError, model::metadata::Metadata};
+use sqlx::Row;
+use sqlx::postgres::PgRow;
+use std::collections::HashMap;
 
 use super::machine::capabilities::{
     self as machine_caps, MachineCapabilitiesSet, MachineCapabilityDeviceType,
@@ -273,11 +274,34 @@ pub struct InstanceType {
     pub metadata: Metadata,
 }
 
+impl<'r> sqlx::FromRow<'r, PgRow> for InstanceType {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: labels.0,
+        };
+
+        let desired_capabilities: sqlx::types::Json<Vec<InstanceTypeMachineCapabilityFilter>> =
+            row.try_get("desired_capabilities")?;
+
+        Ok(InstanceType {
+            id: row.try_get("id")?,
+            version: row.try_get("version")?,
+            created: row.try_get("created")?,
+            deleted: row.try_get("deleted")?,
+            metadata,
+            desired_capabilities: desired_capabilities.0,
+        })
+    }
+}
+
 impl InstanceType {
     /// Check whether a set of capabilities satisfies the
     /// requirements of an InstanceType
     ///
-    /// * `txn`          - A reference to an active DB transaction
     /// * `machine_caps` - A reference to a MachineCapabilitiesSet struct with the capabilities to check
     pub fn matches_capability_set(&self, machine_caps: &MachineCapabilitiesSet) -> bool {
         for cap in self.desired_capabilities.iter() {

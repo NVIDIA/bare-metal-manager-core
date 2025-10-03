@@ -11,7 +11,7 @@
  */
 
 use crate::api::Api;
-use crate::db::dpa_interface;
+use crate::db;
 use crate::model::dpa_interface::DpaInterfaceNetworkStatusObservation;
 use ::rpc::protos::dpa_rpc::{Metadata, Pfvni, SetVni};
 use config_version::ConfigVersion;
@@ -61,8 +61,7 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
         }
     };
 
-    let mut dpa_ifs = match dpa_interface::DpaInterface::find_by_mac_addr(&mut txn, &macaddr).await
-    {
+    let mut dpa_ifs = match crate::db::dpa_interface::find_by_mac_addr(&mut txn, &macaddr).await {
         Ok(ifs) => ifs,
         Err(e) => {
             error!("handle_dpa_message -  Error from find_by_mac_addr {e}");
@@ -93,17 +92,14 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
         }
     };
 
-    let mut dpa_if = dpa_ifs.remove(0);
+    let dpa_if = dpa_ifs.remove(0);
 
     let observation = DpaInterfaceNetworkStatusObservation {
         observed_at: chrono::Utc::now(),
         network_config_version: Some(ncv),
     };
 
-    match dpa_if
-        .update_network_observation(&mut txn, &observation)
-        .await
-    {
+    match db::dpa_interface::update_network_observation(&dpa_if, &mut txn, &observation).await {
         Ok(_r) => {
             let res = txn.commit().await;
             if res.is_err() {

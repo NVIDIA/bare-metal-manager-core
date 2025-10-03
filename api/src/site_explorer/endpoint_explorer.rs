@@ -14,12 +14,10 @@ use forge_ssh::ssh::SshConfig;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 
 use super::metrics::SiteExplorationMetrics;
-use crate::{
-    db::expected_machine::ExpectedMachine,
-    model::{
-        machine::MachineInterfaceSnapshot,
-        site_explorer::{EndpointExplorationError, EndpointExplorationReport},
-    },
+use crate::model::expected_machine::ExpectedMachine;
+use crate::model::{
+    machine::MachineInterfaceSnapshot,
+    site_explorer::{EndpointExplorationError, EndpointExplorationReport},
 };
 use libredfish::RoleId;
 use std::net::SocketAddr;

@@ -14,9 +14,12 @@ use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use crate::resource_pool::ResourcePoolStats as St;
+use crate::db;
+use crate::model::resource_pool::{
+    OwnerType, ResourcePool, ResourcePoolError, ResourcePoolStats as St, ValueType,
+};
+use crate::resource_pool::all;
 use crate::resource_pool::common::VPC_VNI;
-use crate::resource_pool::{DbResourcePool, OwnerType, ResourcePoolError, ValueType, all};
 use crate::tests;
 use crate::tests::common;
 use common::api_fixtures::create_test_env;
@@ -40,11 +43,14 @@ ranges = [{ start = "172.0.1.0", end = "172.0.1.255" }]
         .await
         .unwrap();
 
-    let pool: DbResourcePool<Ipv4Addr> =
-        DbResourcePool::new("test_define_range".to_string(), ValueType::Ipv4);
+    let pool: ResourcePool<Ipv4Addr> =
+        ResourcePool::new("test_define_range".to_string(), ValueType::Ipv4);
 
     let mut txn = db_pool.begin().await?;
-    assert_eq!(pool.stats(&mut *txn).await?, St { used: 0, free: 255 });
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        St { used: 0, free: 255 }
+    );
 
     Ok(())
 }
@@ -66,11 +72,14 @@ prefix = "172.0.1.0/24"
         .await
         .unwrap();
 
-    let pool: DbResourcePool<Ipv4Addr> =
-        DbResourcePool::new("test_define_range".to_string(), ValueType::Ipv4);
+    let pool: ResourcePool<Ipv4Addr> =
+        ResourcePool::new("test_define_range".to_string(), ValueType::Ipv4);
 
     let mut txn = db_pool.begin().await?;
-    assert_eq!(pool.stats(&mut *txn).await?, St { used: 0, free: 255 });
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        St { used: 0, free: 255 }
+    );
 
     Ok(())
 }
@@ -78,28 +87,34 @@ prefix = "172.0.1.0/24"
 #[crate::sqlx_test]
 async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mut txn = db_pool.begin().await?;
-    let pool = DbResourcePool::new("test_simple".to_string(), ValueType::Integer);
+    let pool = ResourcePool::new("test_simple".to_string(), ValueType::Integer);
 
     // one value in the pool
-    pool.populate(&mut txn, vec!["1".to_string()]).await?;
+    db::resource_pool::populate(&pool, &mut txn, vec!["1".to_string()]).await?;
 
     // which we get
-    let allocated = pool.allocate(&mut txn, OwnerType::Machine, "123").await?;
+    let allocated = db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "123").await?;
     assert_eq!(allocated, "1");
-    assert_eq!(pool.stats(&mut *txn).await?, St { used: 1, free: 0 });
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        St { used: 1, free: 0 }
+    );
 
     // no more values
-    match pool.allocate(&mut txn, OwnerType::Machine, "id456").await {
+    match db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "id456").await {
         Err(ResourcePoolError::Empty) => {} // expected
         Err(err) => panic!("Unexpected err: {err}"),
         Ok(_) => panic!("Pool should be empty"),
     }
 
     // return the value
-    pool.release(&mut txn, allocated).await?;
+    db::resource_pool::release(&pool, &mut txn, allocated).await?;
 
     // and then there was one
-    assert_eq!(pool.stats(&mut *txn).await?, St { used: 0, free: 1 });
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        St { used: 0, free: 1 }
+    );
 
     txn.rollback().await?;
     Ok(())
@@ -108,45 +123,65 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 #[crate::sqlx_test]
 async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mut txn = db_pool.begin().await?;
-    let pool1 = DbResourcePool::new("test_multiple_1".to_string(), ValueType::Integer);
-    let pool2 = DbResourcePool::new("test_multiple_2".to_string(), ValueType::Integer);
-    let pool3 = DbResourcePool::new("test_multiple_3".to_string(), ValueType::Integer);
+    let pool1 = ResourcePool::new("test_multiple_1".to_string(), ValueType::Integer);
+    let pool2 = ResourcePool::new("test_multiple_2".to_string(), ValueType::Integer);
+    let pool3 = ResourcePool::new("test_multiple_3".to_string(), ValueType::Integer);
 
-    pool1
-        .populate(&mut txn, (1..=10).collect::<Vec<_>>())
-        .await?;
-    pool2
-        .populate(&mut txn, (1..=100).collect::<Vec<_>>())
-        .await?;
-    pool3
-        .populate(&mut txn, (1..=500).collect::<Vec<_>>())
-        .await?;
+    db::resource_pool::populate(&pool1, &mut txn, (1..=10).collect::<Vec<_>>()).await?;
+    db::resource_pool::populate(&pool2, &mut txn, (1..=100).collect::<Vec<_>>()).await?;
+    db::resource_pool::populate(&pool3, &mut txn, (1..=500).collect::<Vec<_>>()).await?;
 
-    assert_eq!(pool1.stats(&mut *txn).await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats(&mut *txn).await?, St { used: 0, free: 100 });
-    assert_eq!(pool3.stats(&mut *txn).await?, St { used: 0, free: 500 });
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool1.name()).await?,
+        St { used: 0, free: 10 }
+    );
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool2.name()).await?,
+        St { used: 0, free: 100 }
+    );
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool3.name()).await?,
+        St { used: 0, free: 500 }
+    );
 
     let mut got = Vec::with_capacity(10);
     for _ in 1..=10 {
         got.push(
-            pool2
-                .allocate(&mut txn, OwnerType::Machine, "my_id")
+            db::resource_pool::allocate(&pool2, &mut txn, OwnerType::Machine, "my_id")
                 .await
                 .unwrap(),
         );
     }
 
-    assert_eq!(pool1.stats(&mut *txn).await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats(&mut *txn).await?, St { used: 10, free: 90 });
-    assert_eq!(pool3.stats(&mut *txn).await?, St { used: 0, free: 500 });
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool1.name()).await?,
+        St { used: 0, free: 10 }
+    );
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool2.name()).await?,
+        St { used: 10, free: 90 }
+    );
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool3.name()).await?,
+        St { used: 0, free: 500 }
+    );
 
     for val in got {
-        pool2.release(&mut txn, val).await?;
+        db::resource_pool::release(&pool2, &mut txn, val).await?;
     }
 
-    assert_eq!(pool1.stats(&mut *txn).await?, St { used: 0, free: 10 });
-    assert_eq!(pool2.stats(&mut *txn).await?, St { used: 0, free: 100 });
-    assert_eq!(pool3.stats(&mut *txn).await?, St { used: 0, free: 500 });
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool1.name()).await?,
+        St { used: 0, free: 10 }
+    );
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool2.name()).await?,
+        St { used: 0, free: 100 }
+    );
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool3.name()).await?,
+        St { used: 0, free: 500 }
+    );
 
     txn.rollback().await?;
     Ok(())
@@ -154,27 +189,36 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
 #[crate::sqlx_test]
 async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let pool = DbResourcePool::new("test_rollback".to_string(), ValueType::Integer);
+    let pool = ResourcePool::new("test_rollback".to_string(), ValueType::Integer);
 
     // Pool has a single value
     let mut txn = db_pool.begin().await?;
-    pool.populate(&mut txn, vec![1]).await?;
+    db::resource_pool::populate(&pool, &mut txn, vec![1]).await?;
     txn.commit().await?;
 
     // Which we allocate then rollback
     let mut txn = db_pool.begin().await?;
-    pool.allocate(&mut txn, OwnerType::Machine, "my_id").await?;
-    assert_eq!(pool.stats(&mut *txn).await?, St { used: 1, free: 0 });
+    db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "my_id").await?;
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        St { used: 1, free: 0 }
+    );
     txn.rollback().await?;
 
     // The single value should be available
-    assert_eq!(pool.stats(&db_pool).await?, St { used: 0, free: 1 });
+    assert_eq!(
+        db::resource_pool::stats(&db_pool, pool.name()).await?,
+        St { used: 0, free: 1 }
+    );
     let mut txn = db_pool.begin().await?;
-    pool.allocate(&mut txn, OwnerType::Machine, "my_id").await?;
+    db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "my_id").await?;
     txn.commit().await?;
 
     // And now it's really allocated
-    assert_eq!(pool.stats(&db_pool).await?, St { used: 1, free: 0 });
+    assert_eq!(
+        db::resource_pool::stats(&db_pool, pool.name()).await?,
+        St { used: 1, free: 0 }
+    );
 
     Ok(())
 }
@@ -193,10 +237,8 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // Only one vpc-vni available
     let mut txn = db_pool.begin().await?;
-    let vpc_vni_pool = DbResourcePool::new(VPC_VNI.to_string(), ValueType::Integer);
-    vpc_vni_pool
-        .populate(&mut txn, vec!["1".to_string()])
-        .await?;
+    let vpc_vni_pool = ResourcePool::new(VPC_VNI.to_string(), ValueType::Integer);
+    db::resource_pool::populate(&vpc_vni_pool, &mut txn, vec!["1".to_string()]).await?;
     txn.commit().await?;
 
     // CreateVpc rpc call
@@ -221,7 +263,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // Value is allocated
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vpc_vni_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St { used: 1, free: 0 }
     );
     txn.commit().await?;
@@ -236,7 +278,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // Value is free
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vpc_vni_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St { used: 0, free: 1 }
     );
     txn.commit().await?;
@@ -263,7 +305,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // Value allocated again
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vpc_vni_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St { used: 1, free: 0 }
     );
     txn.commit().await?;
@@ -277,17 +319,16 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // Value is free
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vpc_vni_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St { used: 0, free: 1 }
     );
 
     // Allocate the value for something else. Deleting the already deleted VPC again
     // shouldn't free the VNI another time
-    let _vni = vpc_vni_pool
-        .allocate(&mut txn, OwnerType::Vpc, "testalloc")
-        .await?;
+    let _vni =
+        db::resource_pool::allocate(&vpc_vni_pool, &mut txn, OwnerType::Vpc, "testalloc").await?;
     assert_eq!(
-        vpc_vni_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St { used: 1, free: 0 }
     );
     txn.commit().await?;
@@ -305,7 +346,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // The VNI isn't freed
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        vpc_vni_pool.stats(&mut *txn).await?,
+        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St { used: 1, free: 0 }
     );
     txn.commit().await?;
@@ -320,21 +361,14 @@ async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let max = &[10, 100, 500];
 
     // Setup
-    let pool1 = DbResourcePool::new(names[0].to_string(), ValueType::Integer);
-    let pool2 = DbResourcePool::new(names[1].to_string(), ValueType::Integer);
-    let pool3 = DbResourcePool::new(names[2].to_string(), ValueType::Integer);
-    pool1
-        .populate(&mut txn, (1..=max[0]).collect::<Vec<_>>())
-        .await?;
-    pool2
-        .populate(&mut txn, (1..=max[1]).collect::<Vec<_>>())
-        .await?;
-    pool3
-        .populate(&mut txn, (1..=max[2]).collect::<Vec<_>>())
-        .await?;
+    let pool1 = ResourcePool::new(names[0].to_string(), ValueType::Integer);
+    let pool2 = ResourcePool::new(names[1].to_string(), ValueType::Integer);
+    let pool3 = ResourcePool::new(names[2].to_string(), ValueType::Integer);
+    db::resource_pool::populate(&pool1, &mut txn, (1..=max[0]).collect::<Vec<_>>()).await?;
+    db::resource_pool::populate(&pool2, &mut txn, (1..=max[1]).collect::<Vec<_>>()).await?;
+    db::resource_pool::populate(&pool3, &mut txn, (1..=max[2]).collect::<Vec<_>>()).await?;
     for _ in 1..=5 {
-        let _ = pool1
-            .allocate(&mut txn, OwnerType::Machine, "my_id")
+        let _ = db::resource_pool::allocate(&pool1, &mut txn, OwnerType::Machine, "my_id")
             .await
             .unwrap();
     }
@@ -371,12 +405,16 @@ async fn test_parallel() -> Result<(), eyre::Report> {
     tests::MIGRATOR.run(&db_pool).await?;
 
     let mut txn = db_pool.begin().await?;
-    let pool = Arc::new(DbResourcePool::new(
+    let pool = Arc::new(ResourcePool::new(
         "test_parallel".to_string(),
         ValueType::Integer,
     ));
-    pool.populate(&mut txn, (1..=5_000).map(|i| i.to_string()).collect())
-        .await?;
+    db::resource_pool::populate(
+        &pool,
+        &mut txn,
+        (1..=5_000).map(|i| i.to_string()).collect(),
+    )
+    .await?;
     txn.commit().await?;
 
     let mut handles = Vec::with_capacity(50);
@@ -390,7 +428,7 @@ async fn test_parallel() -> Result<(), eyre::Report> {
             for _ in 0..100 {
                 let mut txn = db_pool_c.begin().await.unwrap();
                 got.push(
-                    p.allocate(&mut txn, OwnerType::Machine, &i.to_string())
+                    db::resource_pool::allocate(&p, &mut txn, OwnerType::Machine, &i.to_string())
                         .await
                         .unwrap(),
                 );
@@ -413,30 +451,35 @@ async fn test_parallel() -> Result<(), eyre::Report> {
 
 #[crate::sqlx_test]
 async fn test_allocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let pool = DbResourcePool::new("test_rollback".to_string(), ValueType::Integer);
+    let pool = ResourcePool::new("test_rollback".to_string(), ValueType::Integer);
 
     let mut txn = db_pool.begin().await?;
-    pool.populate(&mut txn, vec![1, 2]).await?;
+    db::resource_pool::populate(&pool, &mut txn, vec![1, 2]).await?;
     txn.commit().await?;
 
     // allocate in one transaction
     let mut txn1 = db_pool.begin().await?;
-    let v1 = pool
-        .allocate(&mut txn1, OwnerType::Machine, "my_id")
-        .await?;
-    assert_eq!(pool.stats(&mut *txn1).await?, St { used: 1, free: 1 });
+    let v1 = db::resource_pool::allocate(&pool, &mut txn1, OwnerType::Machine, "my_id").await?;
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn1, pool.name()).await?,
+        St { used: 1, free: 1 }
+    );
 
     // allocate in second transaction
     let mut txn2 = db_pool.begin().await?;
-    let v2 = pool
-        .allocate(&mut txn2, OwnerType::Machine, "my_id")
-        .await?;
-    assert_eq!(pool.stats(&mut *txn2).await?, St { used: 1, free: 1 });
+    let v2 = db::resource_pool::allocate(&pool, &mut txn2, OwnerType::Machine, "my_id").await?;
+    assert_eq!(
+        db::resource_pool::stats(&mut *txn2, pool.name()).await?,
+        St { used: 1, free: 1 }
+    );
     // commit second transaction
     txn2.commit().await.expect("txn2 commit failed");
     txn1.commit().await.expect("txn1 commit failed");
 
-    assert_eq!(pool.stats(&db_pool).await?, St { used: 2, free: 0 });
+    assert_eq!(
+        db::resource_pool::stats(&db_pool, pool.name()).await?,
+        St { used: 2, free: 0 }
+    );
     assert_ne!(v1, v2);
     Ok(())
 }

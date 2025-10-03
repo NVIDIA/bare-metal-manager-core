@@ -21,11 +21,11 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::api::Api;
+use crate::db;
 use crate::db::DatabaseError;
 use crate::model::storage::{
-    OsImage, OsImageAttributes, OsImageStatus, StorageCluster, StorageClusterAttributes,
-    StoragePool, StoragePoolAttributes, StorageVolume, StorageVolumeAttributes,
-    StorageVolumeFilter,
+    OsImageAttributes, OsImageStatus, StorageClusterAttributes, StoragePoolAttributes,
+    StorageVolume, StorageVolumeAttributes, StorageVolumeFilter,
 };
 use crate::model::tenant::TenantOrganizationId;
 use forge_uuid::instance::InstanceId;
@@ -150,7 +150,7 @@ pub async fn create_volume(
     let response = match attrs.source_id {
         // snapshot volume
         Some(source_id) => {
-            let source_vol = StorageVolume::get(txn, source_id)
+            let source_vol = db::storage_volume::get(txn, source_id)
                 .await
                 .map_err(StorageError::DbError)?;
             nvmesh_api
@@ -182,7 +182,7 @@ pub async fn create_volume(
             "newly created storage volume".to_string(),
         ));
     }
-    StorageVolume::create(txn, attrs, None, None, &nvmesh_vol[0])
+    db::storage_volume::create(txn, attrs, None, None, &nvmesh_vol[0])
         .await
         .map_err(StorageError::DbError)
 }
@@ -194,7 +194,7 @@ pub async fn attach_volume_to_client(
     dpu_machine_id: &MachineId,
     nvmesh_api: &dyn Nvmesh,
 ) -> Result<StorageVolume, StorageError> {
-    let mut volume = StorageVolume::get(txn, volume_id)
+    let mut volume = db::storage_volume::get(txn, volume_id)
         .await
         .map_err(StorageError::DbError)?;
     // snapshots are not multi-attach
@@ -214,8 +214,7 @@ pub async fn attach_volume_to_client(
         )
         .await
         .map_err(StorageError::NvmeshApiError)?;
-    volume
-        .attach(txn, &instance_id, dpu_machine_id)
+    db::storage_volume::attach(&mut volume, txn, &instance_id, dpu_machine_id)
         .await
         .map_err(StorageError::DbError)
 }
@@ -227,7 +226,7 @@ pub async fn detach_volume_from_client(
     dpu_machine_id: &MachineId,
     nvmesh_api: &dyn Nvmesh,
 ) -> Result<StorageVolume, StorageError> {
-    let mut volume = StorageVolume::get(txn, volume_id)
+    let mut volume = db::storage_volume::get(txn, volume_id)
         .await
         .map_err(StorageError::DbError)?;
 
@@ -244,8 +243,7 @@ pub async fn detach_volume_from_client(
         )
         .await
         .map_err(StorageError::NvmeshApiError)?;
-    volume
-        .detach(txn, &instance_id, dpu_machine_id)
+    db::storage_volume::detach(&mut volume, txn, &instance_id, dpu_machine_id)
         .await
         .map_err(StorageError::DbError)
 }
@@ -285,9 +283,10 @@ pub(crate) async fn import_storage_cluster(
         .cluster_get_capacity()
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
-    let cluster = StorageCluster::import(&mut txn, &attrs.clone(), cluster_id, cluster_capacity)
-        .await
-        .map_err(|e| Status::internal(e.to_string()))?;
+    let cluster =
+        db::storage_cluster::import(&mut txn, &attrs.clone(), cluster_id, cluster_capacity)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
@@ -306,7 +305,7 @@ pub(crate) async fn list_storage_cluster(
         .begin()
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
-    let clusters_internal = StorageCluster::list(&mut txn)
+    let clusters_internal = db::storage_cluster::list(&mut txn)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -335,7 +334,7 @@ pub(crate) async fn get_storage_cluster(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let cluster_id = Uuid::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let cluster = StorageCluster::get(&mut txn, cluster_id)
+    let cluster = db::storage_cluster::get(&mut txn, cluster_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -363,14 +362,13 @@ pub(crate) async fn delete_storage_cluster(
     }
     let cluster_id: Uuid = Uuid::try_from(cluster_name_id.id.unwrap())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let cluster = StorageCluster::get(&mut txn, cluster_id)
+    let cluster = db::storage_cluster::get(&mut txn, cluster_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if cluster.name != cluster_name_id.name {
         return Err(Status::invalid_argument("storage cluster name"));
     }
-    cluster
-        .delete(&mut txn)
+    db::storage_cluster::delete(&cluster, &mut txn)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -400,7 +398,7 @@ pub(crate) async fn update_storage_cluster(
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     let new_attrs = StorageClusterAttributes::try_from(req.attributes.unwrap())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let cluster = StorageCluster::get(&mut txn, cluster_id)
+    let cluster = db::storage_cluster::get(&mut txn, cluster_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     // use new attrs to connect to cluster
@@ -433,10 +431,14 @@ pub(crate) async fn update_storage_cluster(
         )));
     }
 
-    let updated = cluster
-        .update(&mut txn, &new_attrs.clone(), updated_cluster_capacity)
-        .await
-        .map_err(|e| Status::internal(e.to_string()))?;
+    let updated = db::storage_cluster::update(
+        &cluster,
+        &mut txn,
+        &new_attrs.clone(),
+        updated_cluster_capacity,
+    )
+    .await
+    .map_err(|e| Status::internal(e.to_string()))?;
 
     txn.commit()
         .await
@@ -461,7 +463,7 @@ pub(crate) async fn create_storage_pool(
 
     let attrs = StoragePoolAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let cluster = StorageCluster::get(&mut txn, attrs.cluster_id)
+    let cluster = db::storage_cluster::get(&mut txn, attrs.cluster_id)
         .await
         .map_err(|e| Status::not_found(e.to_string()))?;
     if !cluster.healthy {
@@ -503,7 +505,7 @@ pub(crate) async fn create_storage_pool(
         ));
     }
 
-    let pool = StoragePool::create(&mut txn, &attrs, &nvmesh_pool[0])
+    let pool = db::storage_pool::create(&mut txn, &attrs, &nvmesh_pool[0])
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -540,7 +542,7 @@ pub(crate) async fn list_storage_pool(
                 .map_err(|e| Status::invalid_argument(e.to_string()))?,
         );
     }
-    let pools_internal = StoragePool::list(&mut txn, cluster_id, org_id)
+    let pools_internal = db::storage_pool::list(&mut txn, cluster_id, org_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -569,7 +571,7 @@ pub(crate) async fn get_storage_pool(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let pool_id: Uuid = Uuid::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let pool = StoragePool::get(&mut txn, pool_id)
+    let pool = db::storage_pool::get(&mut txn, pool_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -606,13 +608,13 @@ pub(crate) async fn delete_storage_pool(
         .unwrap()
         .try_into()
         .map_err(|_e| Status::invalid_argument("pool id"))?;
-    let pool = StoragePool::get(&mut txn, pool_id)
+    let pool = db::storage_pool::get(&mut txn, pool_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if pool.attributes.cluster_id != cluster_id {
         return Err(Status::invalid_argument("storage cluster id for pool"));
     }
-    let cluster = StorageCluster::get(&mut txn, cluster_id)
+    let cluster = db::storage_cluster::get(&mut txn, cluster_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     let nvmesh_api = api
@@ -638,7 +640,7 @@ pub(crate) async fn delete_storage_pool(
         os_images: None,
         exclude_snapshots: None,
     };
-    let volumes = StorageVolume::list(&mut txn, filter)
+    let volumes = db::storage_volume::list(&mut txn, filter)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if !volumes.is_empty() {
@@ -650,7 +652,7 @@ pub(crate) async fn delete_storage_pool(
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
 
-    pool.delete(&mut txn)
+    db::storage_pool::delete(&pool, &mut txn)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -673,10 +675,10 @@ pub(crate) async fn update_storage_pool(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let new_attrs: StoragePoolAttributes = StoragePoolAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let pool = StoragePool::get(&mut txn, new_attrs.id)
+    let pool = db::storage_pool::get(&mut txn, new_attrs.id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
-    let cluster = StorageCluster::get(&mut txn, pool.attributes.cluster_id)
+    let cluster = db::storage_cluster::get(&mut txn, pool.attributes.cluster_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if !cluster.healthy {
@@ -735,8 +737,7 @@ pub(crate) async fn update_storage_pool(
         }
         Ordering::Equal => {}
     }
-    let updated = pool
-        .update(&mut txn, &new_attrs, modified_at)
+    let updated = db::storage_pool::update(&pool, &mut txn, &new_attrs, modified_at)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -761,7 +762,7 @@ pub(crate) async fn create_storage_volume(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let attrs: StorageVolumeAttributes = StorageVolumeAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let cluster = StorageCluster::get(&mut txn, attrs.cluster_id)
+    let cluster = db::storage_cluster::get(&mut txn, attrs.cluster_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if !cluster.healthy {
@@ -804,7 +805,7 @@ pub(crate) async fn list_storage_volume(
     let filter = request.into_inner();
     let volume_filter: StorageVolumeFilter = StorageVolumeFilter::try_from(filter)
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let vols = StorageVolume::list(&mut txn, volume_filter)
+    let vols = db::storage_volume::list(&mut txn, volume_filter)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -835,7 +836,7 @@ pub(crate) async fn get_storage_volume(
         .into_inner()
         .try_into()
         .map_err(|_e| Status::invalid_argument("volume id"))?;
-    let volume = StorageVolume::get(&mut txn, volume_id)
+    let volume = db::storage_volume::get(&mut txn, volume_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -878,7 +879,7 @@ pub(crate) async fn delete_storage_volume(
         .unwrap()
         .try_into()
         .map_err(|_e| Status::invalid_argument("cluster id"))?;
-    let volume = StorageVolume::get(&mut txn, volume_id)
+    let volume = db::storage_volume::get(&mut txn, volume_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if volume.status.attached || !volume.dpu_machine_id.is_empty() {
@@ -889,7 +890,7 @@ pub(crate) async fn delete_storage_volume(
             "volume cluster_id or pool_id invalid",
         ));
     }
-    let cluster = StorageCluster::get(&mut txn, cluster_id)
+    let cluster = db::storage_cluster::get(&mut txn, cluster_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     let nvmesh_api = api
@@ -911,8 +912,7 @@ pub(crate) async fn delete_storage_volume(
         )
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
-    volume
-        .delete(&mut txn)
+    db::storage_volume::delete(&volume, &mut txn)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -937,7 +937,7 @@ pub(crate) async fn update_storage_volume(
     let new_attrs: StorageVolumeAttributes =
         StorageVolumeAttributes::try_from(request.into_inner())
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let volume = StorageVolume::get(&mut txn, new_attrs.id)
+    let volume = db::storage_volume::get(&mut txn, new_attrs.id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if new_attrs.id != volume.attributes.id
@@ -957,7 +957,7 @@ pub(crate) async fn update_storage_volume(
             return Err(Status::invalid_argument("volume cannot be shrunk"));
         }
         Ordering::Greater => {
-            let cluster = StorageCluster::get(&mut txn, volume.attributes.cluster_id)
+            let cluster = db::storage_cluster::get(&mut txn, volume.attributes.cluster_id)
                 .await
                 .map_err(|e| Status::internal(e.to_string()))?;
             if !cluster.healthy {
@@ -993,8 +993,7 @@ pub(crate) async fn update_storage_volume(
         }
         Ordering::Equal => {}
     }
-    let updated = volume
-        .update(&mut txn, new_attrs, modified_at)
+    let updated = db::storage_volume::update(&volume, &mut txn, new_attrs, modified_at)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -1027,9 +1026,10 @@ pub(crate) async fn create_os_image(
     // it will have the actual size of the qcow image disk to create the volume
     if attrs.create_volume && attrs.capacity.is_some() {
         // get storage pool for this tenant with boot_volumes set
-        let pools = StoragePool::list(&mut txn, None, Some(attrs.tenant_organization_id.clone()))
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+        let pools =
+            db::storage_pool::list(&mut txn, None, Some(attrs.tenant_organization_id.clone()))
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
         if pools.is_empty() {
             return Err(Status::not_found("storage pool for tenant"));
         }
@@ -1056,7 +1056,7 @@ pub(crate) async fn create_os_image(
             name: attrs.name.clone(),
             description: attrs.description.clone(),
         };
-        let cluster = StorageCluster::get(&mut txn, p.attributes.cluster_id)
+        let cluster = db::storage_cluster::get(&mut txn, p.attributes.cluster_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -1077,7 +1077,7 @@ pub(crate) async fn create_os_image(
             .map_err(|e| Status::internal(e.to_string()))?;
         volume_id = Some(volume.attributes.id);
     }
-    let image = OsImage::create(&mut txn, &attrs, volume_id)
+    let image = db::os_image::create(&mut txn, &attrs, volume_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -1106,7 +1106,7 @@ pub(crate) async fn list_os_image(
         ),
         None => None,
     };
-    let os_images = OsImage::list(&mut txn, tenant)
+    let os_images = db::os_image::list(&mut txn, tenant)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -1135,7 +1135,7 @@ pub(crate) async fn get_os_image(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let image_id: Uuid = Uuid::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let image = OsImage::get(&mut txn, image_id)
+    let image = db::os_image::get(&mut txn, image_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -1165,7 +1165,7 @@ pub(crate) async fn delete_os_image(
         Uuid::try_from(req.id.unwrap()).map_err(|e| Status::invalid_argument(e.to_string()))?;
     let tenant: TenantOrganizationId = TenantOrganizationId::try_from(req.tenant_organization_id)
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let image = OsImage::get(&mut txn, image_id)
+    let image = db::os_image::get(&mut txn, image_id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if image.attributes.tenant_organization_id != tenant {
@@ -1187,7 +1187,7 @@ pub(crate) async fn delete_os_image(
             os_images: None,
             exclude_snapshots: None,
         };
-        let snapshots = StorageVolume::list(&mut txn, filter)
+        let snapshots = db::storage_volume::list(&mut txn, filter)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         if !snapshots.is_empty() {
@@ -1195,10 +1195,10 @@ pub(crate) async fn delete_os_image(
                 "os image volume snapshots exist",
             ));
         }
-        let volume = StorageVolume::get(&mut txn, image.volume_id.unwrap())
+        let volume = db::storage_volume::get(&mut txn, image.volume_id.unwrap())
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
-        let cluster = StorageCluster::get(&mut txn, volume.attributes.cluster_id)
+        let cluster = db::storage_cluster::get(&mut txn, volume.attributes.cluster_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         let nvmesh_api = api
@@ -1222,8 +1222,7 @@ pub(crate) async fn delete_os_image(
             .map_err(|e| Status::internal(e.to_string()))?;
     }
 
-    image
-        .delete(&mut txn)
+    db::os_image::delete(&image, &mut txn)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -1247,7 +1246,7 @@ pub(crate) async fn update_os_image(
 
     let new_attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
-    let image = OsImage::get(&mut txn, new_attrs.id)
+    let image = db::os_image::get(&mut txn, new_attrs.id)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     if new_attrs.source_url != image.attributes.source_url
@@ -1262,8 +1261,7 @@ pub(crate) async fn update_os_image(
             "os_image update read-only attributes changed",
         ));
     }
-    let updated = image
-        .update(&mut txn, new_attrs)
+    let updated = db::os_image::update(&image, &mut txn, new_attrs)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
 

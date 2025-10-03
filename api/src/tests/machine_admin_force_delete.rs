@@ -13,10 +13,7 @@
 use crate::{
     api::Api,
     cfg::file::IBFabricConfig,
-    db::{
-        self, explored_endpoints::DbExploredEndpoint, machine::MachineSearchConfig,
-        machine_topology::MachineTopology,
-    },
+    db,
     ib::{self, DEFAULT_IB_FABRIC_NAME, IBFabricManager},
     model::{
         hardware_info::TpmEkCertificate,
@@ -34,6 +31,7 @@ use std::{collections::HashSet, net::IpAddr, str::FromStr};
 use tonic::Request;
 
 use crate::attestation as attest;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::tests::common;
 use common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu, create_test_env,
@@ -81,7 +79,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
             .is_empty()
     );
     assert!(
-        !MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        !db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine_id])
             .await
             .unwrap()
             .is_empty()
@@ -180,13 +178,13 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 
     // Fake some explored endpoints
     for addr in &bmc_addrs {
-        DbExploredEndpoint::insert(*addr, &Default::default(), &mut txn)
+        db::explored_endpoints::insert(*addr, &Default::default(), &mut txn)
             .await
             .unwrap();
     }
 
     assert!(
-        !DbExploredEndpoint::find_all_by_ip(bmc_addrs[0], &mut txn)
+        !db::explored_endpoints::find_all_by_ip(bmc_addrs[0], &mut txn)
             .await
             .unwrap()
             .is_empty()
@@ -362,7 +360,7 @@ async fn validate_machine_deletion(
             .is_none()
     );
     assert!(
-        MachineTopology::find_by_machine_ids(&mut txn, &[*machine_id])
+        db::machine_topology::find_by_machine_ids(&mut txn, &[*machine_id])
             .await
             .unwrap()
             .is_empty()
@@ -379,7 +377,7 @@ async fn validate_machine_deletion(
     if let Some(bmc_addrs) = bmc_addrs {
         for bmc_addr in bmc_addrs {
             assert!(
-                DbExploredEndpoint::find_all_by_ip(*bmc_addr, &mut txn)
+                db::explored_endpoints::find_all_by_ip(*bmc_addr, &mut txn)
                     .await
                     .unwrap()
                     .is_empty()

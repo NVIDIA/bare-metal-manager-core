@@ -8,13 +8,9 @@ use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use sqlx::PgConnection;
 
-use crate::{
-    CarbideError, CarbideResult,
-    db::{
-        network_prefix::{NetworkPrefix, NewNetworkPrefix},
-        network_segment::NewNetworkSegment,
-    },
-};
+use crate::model::network_prefix::NewNetworkPrefix;
+use crate::model::network_segment::NewNetworkSegment;
+use crate::{CarbideError, CarbideResult, db};
 
 /// Ipv4PrefixAllocator to allocate a prefix of given length from given vpc_prefix field.
 #[derive(Debug)]
@@ -112,25 +108,25 @@ impl Ipv4PrefixAllocator {
             }],
             vlan_id: None,
             vni: None,
-            segment_type: crate::db::network_segment::NetworkSegmentType::Tenant,
+            segment_type: crate::model::network_segment::NetworkSegmentType::Tenant,
             can_stretch: Some(false), // All segments allocated here are FNN linknets.
         };
 
-        let mut segment = ns
-            .persist(
-                txn,
-                crate::model::network_segment::NetworkSegmentControllerState::Provisioning,
-            )
-            .await?;
+        let mut segment = db::network_segment::persist(
+            ns,
+            txn,
+            crate::model::network_segment::NetworkSegmentControllerState::Provisioning,
+        )
+        .await?;
 
         for prefix in &mut segment.prefixes {
-            prefix
-                .set_vpc_prefix(
-                    txn,
-                    &self.vpc_prefix_id,
-                    &ipnetwork::IpNetwork::V4(self.vpc_prefix),
-                )
-                .await?;
+            db::network_prefix::set_vpc_prefix(
+                prefix,
+                txn,
+                &self.vpc_prefix_id,
+                &ipnetwork::IpNetwork::V4(self.vpc_prefix),
+            )
+            .await?;
         }
 
         Ok((segment.id, prefix))
@@ -138,7 +134,7 @@ impl Ipv4PrefixAllocator {
 
     pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<Ipv4Network> {
         let vpc_str = self.vpc_prefix.to_string();
-        let used_prefixes = NetworkPrefix::containing_prefix(txn, vpc_str.as_str())
+        let used_prefixes = db::network_prefix::containing_prefix(txn, vpc_str.as_str())
             .await?
             .iter()
             .filter_map(|x| match x.prefix {

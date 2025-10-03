@@ -11,7 +11,7 @@
  */
 use super::api_fixtures::TestEnv;
 use crate::api::Api;
-use crate::db::network_segment_state_history::NetworkSegmentStateHistory;
+use crate::db;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
@@ -143,7 +143,7 @@ pub async fn get_segments(
 
 #[cfg(test)]
 pub async fn text_history(txn: &mut PgConnection, segment_id: NetworkSegmentId) -> Vec<String> {
-    let entries = NetworkSegmentStateHistory::for_segment(txn, &segment_id)
+    let entries = db::network_segment_state_history::for_segment(txn, &segment_id)
         .await
         .unwrap();
 

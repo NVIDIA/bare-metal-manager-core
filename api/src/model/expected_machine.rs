@@ -1,0 +1,133 @@
+use crate::errors::CarbideError;
+use crate::model::metadata::Metadata;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use mac_address::MacAddress;
+use serde::Deserialize;
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
+use std::collections::HashMap;
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExpectedMachine {
+    pub id: Option<Uuid>,
+    pub bmc_mac_address: MacAddress,
+    #[serde(flatten)]
+    pub data: ExpectedMachineData,
+}
+
+impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("metadata_labels")?;
+        let metadata = Metadata {
+            name: row.try_get("metadata_name")?,
+            description: row.try_get("metadata_description")?,
+            labels: labels.0,
+        };
+
+        Ok(ExpectedMachine {
+            id: row.try_get("id")?,
+            bmc_mac_address: row.try_get("bmc_mac_address")?,
+            data: ExpectedMachineData {
+                bmc_username: row.try_get("bmc_username")?,
+                serial_number: row.try_get("serial_number")?,
+                bmc_password: row.try_get("bmc_password")?,
+                fallback_dpu_serial_numbers: row.try_get("fallback_dpu_serial_numbers")?,
+                metadata,
+                sku_id: row.try_get("sku_id")?,
+                override_id: None,
+            },
+        })
+    }
+}
+
+impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
+    fn from(expected_machine: ExpectedMachine) -> Self {
+        rpc::forge::ExpectedMachine {
+            id: expected_machine.id.map(|u| ::rpc::common::Uuid {
+                value: u.to_string(),
+            }),
+            bmc_mac_address: expected_machine.bmc_mac_address.to_string(),
+            bmc_username: expected_machine.data.bmc_username,
+            bmc_password: expected_machine.data.bmc_password,
+            chassis_serial_number: expected_machine.data.serial_number,
+            fallback_dpu_serial_numbers: expected_machine.data.fallback_dpu_serial_numbers,
+            metadata: Some(expected_machine.data.metadata.into()),
+            sku_id: expected_machine.data.sku_id,
+        }
+    }
+}
+
+#[derive(FromRow)]
+pub struct LinkedExpectedMachine {
+    pub serial_number: String,
+    pub bmc_mac_address: MacAddress, // from expected_machines table
+    pub interface_id: Option<MachineInterfaceId>, // from machine_interfaces table
+    pub address: Option<String>,     // The explored endpoint
+    pub machine_id: Option<MachineId>, // The machine
+}
+
+impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
+    fn from(m: LinkedExpectedMachine) -> rpc::forge::LinkedExpectedMachine {
+        rpc::forge::LinkedExpectedMachine {
+            chassis_serial_number: m.serial_number,
+            bmc_mac_address: m.bmc_mac_address.to_string(),
+            interface_id: m.interface_id.map(|u| u.to_string()),
+            explored_endpoint_address: m.address,
+            machine_id: m.machine_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExpectedMachineData {
+    pub bmc_username: String,
+    pub bmc_password: String,
+    pub serial_number: String,
+    #[serde(default)]
+    pub fallback_dpu_serial_numbers: Vec<String>,
+    pub sku_id: Option<String>,
+    #[serde(default)]
+    pub metadata: Metadata,
+    #[serde(skip)]
+    pub override_id: Option<Uuid>,
+}
+
+impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
+    type Error = CarbideError;
+
+    fn try_from(em: rpc::forge::ExpectedMachine) -> Result<Self, Self::Error> {
+        Ok(Self {
+            bmc_username: em.bmc_username,
+            bmc_password: em.bmc_password,
+            serial_number: em.chassis_serial_number,
+            fallback_dpu_serial_numbers: em.fallback_dpu_serial_numbers,
+            sku_id: em.sku_id,
+            metadata: metadata_from_request(em.metadata)?,
+            override_id: em.id.and_then(|u| Uuid::parse_str(&u.value).ok()),
+        })
+    }
+}
+
+/// If Metadata is retrieved as part of the ExpectedMachine creation, validate and use the Metadata
+/// Otherwise assume empty Metadata
+fn metadata_from_request(
+    opt_metadata: Option<::rpc::forge::Metadata>,
+) -> Result<Metadata, CarbideError> {
+    Ok(match opt_metadata {
+        None => Metadata {
+            name: "".to_string(),
+            description: "".to_string(),
+            labels: Default::default(),
+        },
+        Some(m) => {
+            // Note that this is unvalidated Metadata. It can contain non-ASCII names
+            // and
+            let m: Metadata = m.try_into()?;
+            m.validate(false)?;
+            m
+        }
+    })
+}
+
+// default_uuid removed; ids are optional to support legacy rows with NULL ids

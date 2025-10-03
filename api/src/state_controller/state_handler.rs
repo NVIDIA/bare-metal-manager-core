@@ -22,7 +22,6 @@ use crate::{
     ipmitool::IPMITool,
     model::machine::ManagedHostState,
     redfish::{RedfishClientCreationError, RedfishClientPool},
-    resource_pool::ResourcePoolError,
     storage::NvmeshClientPool,
 };
 use forge_uuid::machine::MachineId;
@@ -169,6 +168,7 @@ macro_rules! deleted {
     };
 }
 
+use crate::model::resource_pool::ResourcePoolError;
 pub(crate) use deleted;
 pub(crate) use do_nothing;
 pub(crate) use transition;

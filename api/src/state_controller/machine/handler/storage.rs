@@ -15,13 +15,10 @@ use forge_uuid::{instance::InstanceId, machine::MachineId};
 use sqlx::PgConnection;
 
 use crate::{
-    db::instance::Instance,
-    model::{
-        instance::{
-            config::storage::InstanceStorageConfig, snapshot::InstanceSnapshot,
-            status::storage::InstanceStorageStatusObservation,
-        },
-        storage::StorageCluster,
+    db,
+    model::instance::{
+        config::storage::InstanceStorageConfig, snapshot::InstanceSnapshot,
+        status::storage::InstanceStorageStatusObservation,
     },
     state_controller::state_handler::{StateHandlerError, StateHandlerServices},
     storage::{attach_volume_to_client, detach_volume_from_client},
@@ -39,7 +36,7 @@ pub(crate) async fn attach_storage_volumes(
         return Ok(());
     }
     let cluster_id = config.volumes[0].cluster_id;
-    let cluster = StorageCluster::get(txn, cluster_id)
+    let cluster = db::storage_cluster::get(txn, cluster_id)
         .await
         .map_err(StateHandlerError::DBError)?;
     let nvmesh_api = services
@@ -92,6 +89,6 @@ pub(crate) async fn record_storage_status_observation(
         volumes: vec![],
         observed_at: Utc::now(),
     };
-    Instance::update_storage_status_observation(txn, instance.id, &status).await?;
+    db::instance::update_storage_status_observation(txn, instance.id, &status).await?;
     Ok(())
 }

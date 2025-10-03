@@ -20,21 +20,19 @@ use sqlx::{PgConnection, PgPool};
 
 use crate::api::Api;
 use crate::cfg::file::HostHealthConfig;
-use crate::db::vpc::Vpc;
-use crate::db::vpc_prefix::VpcPrefix;
 use crate::db::{ObjectColumnFilter, dpa_interface};
 use crate::model::hardware_info::InfinibandInterface;
+use crate::model::instance::NewInstance;
 use crate::model::instance::config::network::{InterfaceFunctionId, NetworkDetails};
-use crate::model::machine::{Machine, NotAllocatableReason};
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::{LoadSnapshotOptions, Machine, NotAllocatableReason};
+use crate::model::vpc_prefix::VpcPrefix;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::{
     CarbideError, CarbideResult,
     db::{
         self, DatabaseError, ObjectFilter,
-        ib_partition::{self, IBPartition, IBPartitionSearchConfig},
-        instance::{Instance, NewInstance},
-        machine::MachineSearchConfig,
-        managed_host::LoadSnapshotOptions,
+        ib_partition::{self, IBPartitionSearchConfig},
         network_security_group,
     },
     model::{
@@ -45,7 +43,6 @@ use crate::{
         machine::ManagedHostStateSnapshot,
         metadata::Metadata,
         os::OperatingSystemVariant,
-        storage::OsImage,
         tenant::TenantOrganizationId,
     },
 };
@@ -133,11 +130,11 @@ pub async fn allocate_dpa_vni(
         ));
     };
 
-    let vpc = Vpc::find_by_segment(txn, network_segment_id)
+    let vpc = db::vpc::find_by_segment(txn, network_segment_id)
         .await
         .map_err(CarbideError::DBError)?;
 
-    vpc.allocate_dpa_vni(txn, api).await?;
+    db::vpc::allocate_dpa_vni(vpc, txn, api).await?;
 
     Ok(())
 }
@@ -172,7 +169,7 @@ pub async fn allocate_network(
     }
 
     let mut vpc_prefixes: HashMap<VpcPrefixId, VpcPrefix> =
-        VpcPrefix::get_by_id_with_row_lock(txn, &vpc_prefix_ids)
+        db::vpc_prefix::get_by_id_with_row_lock(txn, &vpc_prefix_ids)
             .await?
             .iter()
             .map(|x| (x.id, x.clone()))
@@ -260,7 +257,7 @@ pub async fn allocate_network(
         let Some(last_used_prefix) = vpc_prefix.last_used_prefix else {
             continue;
         };
-        VpcPrefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix).await?;
+        db::vpc_prefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix).await?;
     }
 
     Ok(())
@@ -467,7 +464,7 @@ pub async fn allocate_instance(
                 "Image ID is required for image based storage".to_string(),
             ));
         }
-        if let Err(e) = OsImage::get(&mut txn, os_image_id).await {
+        if let Err(e) = db::os_image::get(&mut txn, os_image_id).await {
             if let sqlx::Error::RowNotFound = e.source {
                 return Err(CarbideError::FailedPrecondition(format!(
                     "Image OS `{}` does not exist",
@@ -574,22 +571,28 @@ pub async fn allocate_instance(
     // because the transaction doesn't become visible until committed anyway.
     // We can't allocate IPs before creating the instance, because the IP table
     // requires the InstanceId as owner reference.
-    let instance = new_instance.persist(&mut txn).await?;
+    let instance = db::instance::persist(new_instance, &mut txn).await?;
     // TODO: Should we check that the network segment actually belongs to the
     // tenant?
 
-    let updated_network_config = request
-        .config
-        .network
-        .clone()
-        // Add any host-inband network segments to the network config. This allows tenants to omit
-        // explicit interface config for HostInband networks, because those NICs cannot be
-        // configured through carbide in the first place.
-        .with_inband_interfaces_from_machine(&mut txn, &mh_snapshot.host_snapshot.id)
-        .await?
-        // Allocate IPs and add them to the network config
-        .with_allocated_ips(&mut txn, instance.id, &mh_snapshot.host_snapshot)
-        .await?;
+    // Add any host-inband network segments to the network config. This allows tenants to omit
+    // explicit interface config for HostInband networks, because those NICs cannot be
+    // configured through carbide in the first place.
+    let updated_network_config = db::instance_network_config::with_inband_interfaces_from_machine(
+        request.config.network,
+        &mut txn,
+        &mh_snapshot.host_snapshot.id,
+    )
+    .await?;
+
+    // Allocate IPs and add them to the network config
+    let updated_network_config = db::instance_network_config::with_allocated_ips(
+        updated_network_config,
+        &mut txn,
+        instance.id,
+        &mh_snapshot.host_snapshot,
+    )
+    .await?;
 
     if updated_network_config.interfaces.is_empty() {
         return Err(CarbideError::InvalidConfiguration(
@@ -601,7 +604,7 @@ pub async fn allocate_instance(
 
     // Persist the updated `InstanceNetworkConfig`
     // We need to retain version 1
-    Instance::update_network_config(
+    db::instance::update_network_config(
         &mut txn,
         instance.id,
         network_config_version,
@@ -616,7 +619,7 @@ pub async fn allocate_instance(
 
     // Persist the GUID for Infiniband configuration.
     // We need to retain version 1.
-    Instance::update_ib_config(
+    db::instance::update_ib_config(
         &mut txn,
         instance.id,
         ib_config_version,
@@ -625,7 +628,7 @@ pub async fn allocate_instance(
     )
     .await?;
 
-    Instance::update_storage_config(
+    db::instance::update_storage_config(
         &mut txn,
         instance.id.into(),
         storage_config_version,
@@ -636,7 +639,7 @@ pub async fn allocate_instance(
 
     // Machine will be rebooted once managed resource creation is successful.
     mh_snapshot.instance = Some(
-        Instance::find_by_machine_id(&mut txn, &machine_id)
+        db::instance::find_by_machine_id(&mut txn, &machine_id)
             .await?
             .ok_or_else(|| {
                 CarbideError::internal(format!(
@@ -665,7 +668,7 @@ pub async fn validate_ib_partition_ownership(
         .collect();
 
     for partition_id in partition_ids.iter() {
-        let ib_partitions = IBPartition::find_by(
+        let ib_partitions = db::ib_partition::find_by(
             txn,
             ObjectColumnFilter::One(ib_partition::IdColumn, partition_id),
             IBPartitionSearchConfig::default(),

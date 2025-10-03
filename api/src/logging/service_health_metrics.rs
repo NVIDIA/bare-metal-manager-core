@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 
-use crate::resource_pool::ResourcePoolStats;
+use crate::model::resource_pool::ResourcePoolStats;
 
 pub struct ServiceHealthContext {
     pub meter: Meter,

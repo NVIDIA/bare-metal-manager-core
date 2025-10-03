@@ -10,10 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{
-    db::machine_validation_suites::MachineValidationTest,
-    logging::metrics_utils::SharedMetricsHolder,
-};
+use crate::logging::metrics_utils::SharedMetricsHolder;
+use crate::model::machine_validation::MachineValidationTest;
 use opentelemetry::{KeyValue, metrics::Meter};
 
 #[derive(Clone, Debug)]

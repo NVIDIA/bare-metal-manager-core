@@ -11,7 +11,6 @@
  */
 
 use crate::cfg::file::VpcPeeringPolicy;
-use crate::db::vpc::Vpc;
 use crate::db::{ObjectColumnFilter, vpc_peering as db};
 use crate::{
     CarbideError,
@@ -52,7 +51,7 @@ pub async fn create(
             return Err(CarbideError::internal("VPC Peering feature disabled.".to_string()).into());
         }
         Some(VpcPeeringPolicy::Exclusive) => {
-            let vpcs1 = Vpc::find_by(
+            let vpcs1 = crate::db::vpc::find_by(
                 &mut txn,
                 ObjectColumnFilter::One(crate::db::vpc::IdColumn, &vpc_id),
             )
@@ -61,7 +60,7 @@ pub async fn create(
                 kind: "VPC",
                 id: vpc_id.clone().to_string(),
             })?;
-            let vpcs2 = Vpc::find_by(
+            let vpcs2 = crate::db::vpc::find_by(
                 &mut txn,
                 ObjectColumnFilter::One(crate::db::vpc::IdColumn, &peer_vpc_id),
             )
@@ -87,7 +86,7 @@ pub async fn create(
         }
     }
 
-    let vpc_peering = db::VpcPeering::create(&mut txn, vpc_id, peer_vpc_id).await?;
+    let vpc_peering = db::create(&mut txn, vpc_id, peer_vpc_id).await?;
 
     txn.commit()
         .await
@@ -112,7 +111,7 @@ pub async fn find_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let vpc_peering_ids = db::VpcPeering::find_ids(&mut txn, vpc_id).await?;
+    let vpc_peering_ids = db::find_ids(&mut txn, vpc_id).await?;
 
     txn.commit()
         .await
@@ -139,7 +138,7 @@ pub async fn find_by_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let vpc_peerings = db::VpcPeering::find_by_ids(&mut txn, vpc_peering_ids).await?;
+    let vpc_peerings = db::find_by_ids(&mut txn, vpc_peering_ids).await?;
 
     txn.commit()
         .await
@@ -168,7 +167,7 @@ pub async fn delete(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let _ = db::VpcPeering::delete(&mut txn, id).await?;
+    let _ = db::delete(&mut txn, id).await?;
 
     txn.commit()
         .await

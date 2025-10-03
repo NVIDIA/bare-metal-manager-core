@@ -4,13 +4,10 @@ pub mod tests {
 
     use crate::attestation::get_ek_cert_by_machine_id;
     use crate::attestation::tpm_ca_cert::match_update_existing_ek_cert_status_against_ca;
-    use crate::db::attestation as db_attest;
-    use crate::db::attestation::EkCertVerificationStatus;
-    use crate::db::machine_topology::MachineTopology;
-    use crate::db::network_segment::NetworkSegment;
-    use crate::db::{ObjectColumnFilter, network_segment};
+    use crate::db::ObjectColumnFilter;
     use crate::model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use crate::model::machine::machine_id::from_hardware_info;
+    use crate::model::network_segment;
     use crate::tests::common;
 
     use common::api_fixtures::TestEnv;
@@ -60,10 +57,10 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        let segment = NetworkSegment::find_by(
+        let segment = db::network_segment::find_by(
             &mut txn,
-            ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-            crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
         .unwrap()
@@ -75,12 +72,12 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
         .await
         .unwrap();
 
-        // hardware_info is never inserted via MachineTopology::create_or_update thus triggering an error
+        // hardware_info is never inserted via db::machine_topology::create_or_update thus triggering an error
         let hardware_info = HardwareInfo::from(&host_config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
         let _machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
@@ -111,10 +108,10 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        let segment = NetworkSegment::find_by(
+        let segment = db::network_segment::find_by(
             &mut txn,
-            ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-            crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
         .unwrap()
@@ -126,7 +123,7 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
         .await
         .unwrap();
@@ -142,7 +139,7 @@ pub mod tests {
 
         // set ek cert to None to trigger an error
         hardware_info.tpm_ek_certificate = None;
-        MachineTopology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
+        db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
 
         txn.commit().await?;
 
@@ -174,6 +171,7 @@ pub mod tests {
     }
 
     use crate::attestation::match_insert_new_ek_cert_status_against_ca;
+    use crate::db::attestation::ek_cert_verification_status;
 
     #[crate::sqlx_test]
     async fn test_match_insert_new_ek_cert_status_against_ca_invalid_ek_cert_returns_error(
@@ -253,7 +251,7 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
 
-        let ek_cert_status = EkCertVerificationStatus::get_by_machine_id(&mut txn, host_id)
+        let ek_cert_status = ek_cert_verification_status::get_by_machine_id(&mut txn, host_id)
             .await
             .expect("Failed: could not make a look up for EkCertVerificationStatus in DB")
             .expect("Failed: could not find EkCertVerificationStatus for given machine in DB");
@@ -287,7 +285,7 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
 
-        let ek_cert_status = EkCertVerificationStatus::get_by_machine_id(&mut txn, host_id)
+        let ek_cert_status = ek_cert_verification_status::get_by_machine_id(&mut txn, host_id)
             .await
             .expect("Failed: could not make a look up for EkCertVerificationStatus in DB")
             .expect("Failed: could not find EkCertVerificationStatus for given machine in DB");
@@ -459,9 +457,10 @@ pub mod tests {
         // verify - make sql query, ek status should remain unmatched
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
-        let all_ek_cert_statuses = sqlx::query_as::<_, db_attest::EkCertVerificationStatus>(query)
-            .fetch_all(&mut *txn)
-            .await?;
+        let all_ek_cert_statuses =
+            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+                .fetch_all(&mut *txn)
+                .await?;
 
         assert_eq!(all_ek_cert_statuses.len(), 1);
         assert!(!all_ek_cert_statuses[0].signing_ca_found);
@@ -499,7 +498,7 @@ pub mod tests {
         // verify
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from tpm_ca_certs;";
-        let all_ca_certs = sqlx::query_as::<_, db_attest::TpmCaCert>(query)
+        let all_ca_certs = sqlx::query_as::<_, crate::model::attestation::TpmCaCert>(query)
             .fetch_all(&mut *txn)
             .await?;
 
@@ -554,9 +553,10 @@ pub mod tests {
         // verify
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status ORDER BY serial_num;";
-        let all_ek_cert_statuses = sqlx::query_as::<_, db_attest::EkCertVerificationStatus>(query)
-            .fetch_all(&mut *txn)
-            .await?;
+        let all_ek_cert_statuses =
+            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+                .fetch_all(&mut *txn)
+                .await?;
 
         assert_eq!(all_ek_cert_statuses.len(), 2);
 
@@ -1008,9 +1008,10 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
-        let all_ek_cert_statuses = sqlx::query_as::<_, db_attest::EkCertVerificationStatus>(query)
-            .fetch_all(&mut *txn)
-            .await?;
+        let all_ek_cert_statuses =
+            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+                .fetch_all(&mut *txn)
+                .await?;
 
         assert_eq!(all_ek_cert_statuses.len(), 1);
 
@@ -1052,9 +1053,10 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
-        let all_ek_cert_statuses = sqlx::query_as::<_, db_attest::EkCertVerificationStatus>(query)
-            .fetch_all(&mut *txn)
-            .await?;
+        let all_ek_cert_statuses =
+            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+                .fetch_all(&mut *txn)
+                .await?;
 
         assert_eq!(all_ek_cert_statuses.len(), 1);
 
@@ -1109,7 +1111,7 @@ pub mod tests {
 
         // now aftifically unmatch the ek status
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
-        EkCertVerificationStatus::unmatch_ca_verification_status(
+        ek_cert_verification_status::unmatch_ca_verification_status(
             &mut txn,
             cert_id_response.id.unwrap().ca_cert_id,
         )
@@ -1119,9 +1121,10 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
-        let all_ek_cert_statuses = sqlx::query_as::<_, db_attest::EkCertVerificationStatus>(query)
-            .fetch_all(&mut *txn)
-            .await?;
+        let all_ek_cert_statuses =
+            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+                .fetch_all(&mut *txn)
+                .await?;
 
         assert_eq!(all_ek_cert_statuses.len(), 1);
 
@@ -1144,9 +1147,10 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
-        let all_ek_cert_statuses = sqlx::query_as::<_, db_attest::EkCertVerificationStatus>(query)
-            .fetch_all(&mut *txn)
-            .await?;
+        let all_ek_cert_statuses =
+            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+                .fetch_all(&mut *txn)
+                .await?;
 
         assert_eq!(all_ek_cert_statuses.len(), 1);
 
@@ -1166,10 +1170,10 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        let segment = NetworkSegment::find_by(
+        let segment = db::network_segment::find_by(
             &mut txn,
-            ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-            crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
         .unwrap()
@@ -1181,7 +1185,7 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
         .await
         .unwrap();
@@ -1195,7 +1199,7 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        MachineTopology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
+        db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
 
         txn.commit().await?;
 

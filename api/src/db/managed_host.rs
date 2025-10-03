@@ -13,8 +13,8 @@
 //! Database access methods for manipulating the state of a ManagedHost (Host+DPUs)
 //!
 
-use crate::cfg::file::HostHealthConfig;
 use crate::db::queries;
+use crate::model::machine::LoadSnapshotOptions;
 use crate::{db::DatabaseError, model::machine::ManagedHostStateSnapshot};
 use forge_uuid::machine::MachineType;
 use forge_uuid::{instance::InstanceId, machine::MachineId};
@@ -184,32 +184,6 @@ pub async fn load_by_instance_ids(
         })
         .collect();
     Ok(result)
-}
-
-pub struct LoadSnapshotOptions {
-    /// Whether to also load the Machines history
-    pub include_history: bool,
-    /// Whether to load instance details
-    pub include_instance_data: bool,
-    /// How to use hardware health for health report aggregation
-    pub host_health_config: HostHealthConfig,
-}
-
-impl Default for LoadSnapshotOptions {
-    fn default() -> Self {
-        Self {
-            include_history: false,
-            include_instance_data: true,
-            host_health_config: Default::default(),
-        }
-    }
-}
-
-impl LoadSnapshotOptions {
-    pub fn with_host_health(mut self, value: HostHealthConfig) -> Self {
-        self.host_health_config = value;
-        self
-    }
 }
 
 // Return the appropriate query to use for finding managed hosts, depending on the options

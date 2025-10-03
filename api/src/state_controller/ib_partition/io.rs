@@ -53,7 +53,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        IBPartition::list_segment_ids(txn).await
+        db::ib_partition::list_segment_ids(txn).await
     }
 
     /// Loads a state snapshot from the database
@@ -62,7 +62,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         txn: &mut PgConnection,
         partition_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut partitions = IBPartition::find_by(
+        let mut partitions = db::ib_partition::find_by(
             txn,
             ObjectColumnFilter::One(db::ib_partition::IdColumn, partition_id),
             IBPartitionSearchConfig::default(),
@@ -103,7 +103,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
         let _updated =
-            IBPartition::try_update_controller_state(txn, *object_id, old_version, new_state)
+            db::ib_partition::try_update_controller_state(txn, *object_id, old_version, new_state)
                 .await?;
         Ok(())
     }
@@ -114,7 +114,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        IBPartition::update_controller_state_outcome(txn, *object_id, outcome).await
+        db::ib_partition::update_controller_state_outcome(txn, *object_id, outcome).await
     }
 
     fn metric_state_names(state: &IBPartitionControllerState) -> (&'static str, &'static str) {

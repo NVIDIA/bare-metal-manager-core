@@ -11,7 +11,7 @@
  */
 
 use crate::CarbideError;
-use crate::db::machine_boot_override::MachineBootOverride;
+use crate::db;
 
 use crate::tests::common;
 use common::api_fixtures::create_test_env;
@@ -32,7 +32,7 @@ async fn only_one_custom_pxe_per_interface(
     let expected_pxe = Some("custom_pxe_string".to_string());
     let expected_user_data = Some("custom_user_data_string".to_string());
 
-    MachineBootOverride::create(
+    db::machine_boot_override::create(
         &mut txn,
         new_interface_id,
         expected_pxe.clone(),
@@ -41,10 +41,11 @@ async fn only_one_custom_pxe_per_interface(
     .await?
     .expect("Could not create custom pxe");
 
-    let machine_boot_override = MachineBootOverride::find_optional(&mut txn, new_interface_id)
-        .await
-        .expect("Could not load custom boot")
-        .unwrap();
+    let machine_boot_override =
+        db::machine_boot_override::find_optional(&mut txn, new_interface_id)
+            .await
+            .expect("Could not load custom boot")
+            .unwrap();
 
     txn.commit().await.unwrap();
 
@@ -53,7 +54,7 @@ async fn only_one_custom_pxe_per_interface(
 
     let mut txn = env.pool.begin().await?;
 
-    let output = MachineBootOverride::create(
+    let output = db::machine_boot_override::create(
         &mut txn,
         new_interface_id,
         Some("custom_pxe_string".to_string()),
@@ -75,15 +76,16 @@ async fn confirm_null_fields(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
 
     let mut txn = env.pool.begin().await?;
 
-    MachineBootOverride::create(&mut txn, new_interface_id, None, None)
+    db::machine_boot_override::create(&mut txn, new_interface_id, None, None)
         .await?
         .expect("Could not create custom pxe");
 
     // ensure these stay Nones as we have code that will react to them not being None
-    let machine_boot_override = MachineBootOverride::find_optional(&mut txn, new_interface_id)
-        .await
-        .expect("Could not load custom boot")
-        .unwrap();
+    let machine_boot_override =
+        db::machine_boot_override::find_optional(&mut txn, new_interface_id)
+            .await
+            .expect("Could not load custom boot")
+            .unwrap();
 
     txn.commit().await.unwrap();
 
@@ -103,7 +105,7 @@ async fn api_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut txn = env.pool.begin().await?;
 
-    MachineBootOverride::create(
+    db::machine_boot_override::create(
         &mut txn,
         new_interface_id,
         expected_pxe.clone(),
@@ -156,10 +158,11 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut txn = env.pool.begin().await?;
 
-    let machine_boot_override = MachineBootOverride::find_optional(&mut txn, machine_interface_id)
-        .await
-        .expect("Could not load custom boot")
-        .unwrap();
+    let machine_boot_override =
+        db::machine_boot_override::find_optional(&mut txn, machine_interface_id)
+            .await
+            .expect("Could not load custom boot")
+            .unwrap();
 
     println!("{machine_boot_override:?}");
     assert_eq!(machine_boot_override.custom_pxe, expected_pxe);
@@ -178,7 +181,7 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
 
     let mut txn = env.pool.begin().await?;
 
-    MachineBootOverride::create(
+    db::machine_boot_override::create(
         &mut txn,
         new_interface_id,
         expected_pxe.clone(),
@@ -198,9 +201,10 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
     let mut txn = env.pool.begin().await?;
 
     // ensure these stay Nones as we have code that will react to them not being None
-    let machine_boot_override = MachineBootOverride::find_optional(&mut txn, new_interface_id)
-        .await
-        .expect("Could not load custom boot");
+    let machine_boot_override =
+        db::machine_boot_override::find_optional(&mut txn, new_interface_id)
+            .await
+            .expect("Could not load custom boot");
 
     assert!(machine_boot_override.is_none());
     Ok(())
@@ -241,10 +245,11 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     let mut txn = env.pool.begin().await?;
 
-    let machine_boot_override = MachineBootOverride::find_optional(&mut txn, machine_interface_id)
-        .await
-        .expect("Could not load custom boot")
-        .unwrap();
+    let machine_boot_override =
+        db::machine_boot_override::find_optional(&mut txn, machine_interface_id)
+            .await
+            .expect("Could not load custom boot")
+            .unwrap();
 
     assert_eq!(machine_boot_override.custom_pxe, expected_pxe);
     assert_eq!(machine_boot_override.custom_user_data, expected_user_data);

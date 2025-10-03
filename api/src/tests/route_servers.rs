@@ -15,7 +15,7 @@ use itertools::Itertools;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use crate::db::route_servers::{RouteServer, RouteServerSourceType};
+use crate::model::route_server::{RouteServer, RouteServerSourceType};
 use common::api_fixtures::create_test_env;
 use rpc::{
     forge::RouteServerSourceType as RouteServerSourceTypePb, forge::RouteServers,

@@ -26,19 +26,18 @@ use tokio::sync::{
     oneshot::{Receiver, Sender},
 };
 
+use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 use crate::{db, db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
-use crate::{
-    db::expected_machine::ExpectedMachine, handlers::machine_validation::apply_config_on_startup,
-};
 use crate::{ib::DEFAULT_IB_FABRIC_NAME, state_controller::machine::handler::PowerOptionConfig};
 
 use crate::cfg::file::{HostHealthConfig, ListenMode};
-use crate::db::route_servers::{RouteServer, RouteServerSourceType};
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
+use crate::model::expected_machine::ExpectedMachine;
+use crate::model::route_server::RouteServerSourceType;
 use crate::{
     api::Api,
     attestation,
@@ -241,7 +240,8 @@ pub async fn start_api(
             .map(|rs| IpAddr::from_str(rs))
             .collect::<Result<Vec<IpAddr>, _>>()
             .map_err(CarbideError::AddressParseError)?;
-        RouteServer::replace(&mut txn, &route_servers, RouteServerSourceType::ConfigFile).await?;
+        db::route_servers::replace(&mut txn, &route_servers, RouteServerSourceType::ConfigFile)
+            .await?;
 
         txn.commit()
             .await
@@ -420,7 +420,7 @@ pub async fn initialize_and_start_controllers(
                 .await
                 .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
             if let Err(err) =
-                ExpectedMachine::create_missing_from(&mut txn, &expected_machines).await
+                db::expected_machine::create_missing_from(&mut txn, &expected_machines).await
             {
                 tracing::error!(
                     "Unable to update database from expected_machines list, error: {err}"

@@ -14,13 +14,7 @@ use std::{borrow::Borrow, collections::HashSet, str::FromStr};
 
 use crate::{
     CarbideError,
-    db::{
-        self,
-        address_selection_strategy::AddressSelectionStrategy,
-        dhcp_entry::DhcpEntry,
-        domain::{self, Domain},
-        network_segment::NetworkSegment,
-    },
+    db::{self, dhcp_entry::DhcpEntry, domain},
     model::machine::{MachineInterfaceSnapshot, machine_id::from_hardware_info},
 };
 
@@ -29,6 +23,7 @@ use mac_address::MacAddress;
 use rpc::forge::{InterfaceSearchQuery, forge_server::Forge};
 
 use crate::db::ObjectColumnFilter;
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
@@ -47,7 +42,7 @@ async fn only_one_primary_interface_per_machine(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = NetworkSegment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn).await?;
 
     let new_interface = db::machine_interface::create(
         &mut txn,
@@ -98,7 +93,7 @@ async fn many_non_primary_interfaces_per_machine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let network_segment = NetworkSegment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn).await?;
 
     db::machine_interface::create(
         &mut txn,
@@ -170,8 +165,8 @@ async fn find_all_interfaces_test_cases(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = NetworkSegment::admin(&mut txn).await?;
-    let domain_ids = Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let domain_ids = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     let domain_id = domain_ids[0].id;
     let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
     for i in 0..2 {
@@ -187,17 +182,21 @@ async fn find_all_interfaces_test_cases(
             AddressSelectionStrategy::Automatic,
         )
         .await?;
-        DhcpEntry {
-            machine_interface_id: interface.id,
-            vendor_string: format!("NVIDIA {i} 1"),
-        }
-        .persist(&mut txn)
+        db::dhcp_entry::persist(
+            DhcpEntry {
+                machine_interface_id: interface.id,
+                vendor_string: format!("NVIDIA {i} 1"),
+            },
+            &mut txn,
+        )
         .await?;
-        DhcpEntry {
-            machine_interface_id: interface.id,
-            vendor_string: format!("NVIDIA {i} 2"),
-        }
-        .persist(&mut txn)
+        db::dhcp_entry::persist(
+            DhcpEntry {
+                machine_interface_id: interface.id,
+                vendor_string: format!("NVIDIA {i} 2"),
+            },
+            &mut txn,
+        )
         .await?;
         interfaces.push(interface);
         txn.commit().await.unwrap();
@@ -244,8 +243,8 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = NetworkSegment::admin(&mut txn).await?;
-    let domain_ids = Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let domain_ids = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     let domain_id = domain_ids[0].id;
     let new_interface = db::machine_interface::create(
         &mut txn,
@@ -257,17 +256,21 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await?;
 
-    DhcpEntry {
-        machine_interface_id: new_interface.id,
-        vendor_string: "NVIDIA".to_string(),
-    }
-    .persist(&mut txn)
+    db::dhcp_entry::persist(
+        DhcpEntry {
+            machine_interface_id: new_interface.id,
+            vendor_string: "NVIDIA".to_string(),
+        },
+        &mut txn,
+    )
     .await?;
-    DhcpEntry {
-        machine_interface_id: new_interface.id,
-        vendor_string: "NVIDIA New".to_string(),
-    }
-    .persist(&mut txn)
+    db::dhcp_entry::persist(
+        DhcpEntry {
+            machine_interface_id: new_interface.id,
+            vendor_string: "NVIDIA New".to_string(),
+        },
+        &mut txn,
+    )
     .await?;
     txn.commit().await?;
 
@@ -307,7 +310,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let network = NetworkSegment::admin(&mut txn).await?;
+    let network = db::network_segment::admin(&mut txn).await?;
     txn.commit().await.unwrap();
 
     let (tx, _rx1) = broadcast::channel(10);
@@ -365,7 +368,7 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = NetworkSegment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn).await?;
     let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
@@ -564,7 +567,7 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = NetworkSegment::admin(&mut txn).await?;
+    let network_segment = db::network_segment::admin(&mut txn).await?;
     let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,

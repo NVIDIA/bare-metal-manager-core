@@ -15,14 +15,12 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::vpc_peering::VpcPeering;
 use crate::db::{
-    DatabaseError, ObjectColumnFilter,
-    instance::Instance,
-    network_security_group,
-    vpc::{self, NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc},
+    self, DatabaseError, ObjectColumnFilter, network_security_group,
+    vpc::{self},
 };
 use crate::model::tenant::InvalidTenantOrg;
+use crate::model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization};
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::{network_security_group::NetworkSecurityGroupId, vpc::VpcId};
 
@@ -85,15 +83,13 @@ pub(crate) async fn create(
         }
     }
 
-    let mut vpc = NewVpc::try_from(request.into_inner())?
-        .persist(&mut txn)
-        .await?;
+    let mut vpc = db::vpc::persist(NewVpc::try_from(request.into_inner())?, &mut txn).await?;
 
     vpc.vni = Some(api.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
 
     // We will allocate an dpa_vni for this VPC when the first instance with DPA NICs gets added
     // to this VPC.
-    Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap()).await?;
+    db::vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap()).await?;
 
     let rpc_out: rpc::Vpc = vpc.into();
 
@@ -134,7 +130,7 @@ pub(crate) async fn update(
 
         // Query for the VPC because we need to do
         // some validation against the request.
-        let Some(vpc) = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
+        let Some(vpc) = db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
             .await?
             .pop()
         else {
@@ -171,9 +167,7 @@ pub(crate) async fn update(
         }
     }
 
-    let vpc = UpdateVpc::try_from(request.into_inner())?
-        .update(&mut txn)
-        .await?;
+    let vpc = db::vpc::update(&UpdateVpc::try_from(request.into_inner())?, &mut txn).await?;
 
     txn.commit()
         .await
@@ -200,7 +194,7 @@ pub(crate) async fn update_virtualization(
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
-    let instances = Instance::find_ids(
+    let instances = db::instance::find_ids(
         &mut txn,
         rpc::InstanceSearchFilter {
             label: None,
@@ -218,7 +212,7 @@ pub(crate) async fn update_virtualization(
         ))
         .into());
     }
-    updater.update(&mut txn).await?;
+    db::vpc::update_virtualization(&updater, &mut txn).await?;
 
     txn.commit()
         .await
@@ -248,7 +242,7 @@ pub(crate) async fn delete(
         .id
         .ok_or(CarbideError::MissingArgument("id"))?;
 
-    let vpc = match Vpc::try_delete(&mut txn, vpc_id).await? {
+    let vpc = match db::vpc::try_delete(&mut txn, vpc_id).await? {
         Some(vpc) => vpc,
         None => {
             // VPC didn't exist or was deleted in the past. We are not allowed
@@ -262,25 +256,19 @@ pub(crate) async fn delete(
     };
 
     if let Some(vni) = vpc.vni {
-        api.common_pools
-            .ethernet
-            .pool_vpc_vni
-            .release(&mut txn, vni)
+        db::resource_pool::release(&api.common_pools.ethernet.pool_vpc_vni, &mut txn, vni)
             .await
             .map_err(CarbideError::from)?;
     }
 
     if let Some(dpa_vni) = vpc.dpa_vni {
-        api.common_pools
-            .dpa
-            .pool_dpa_vni
-            .release(&mut txn, dpa_vni)
+        db::resource_pool::release(&api.common_pools.dpa.pool_dpa_vni, &mut txn, dpa_vni)
             .await
             .map_err(CarbideError::from)?;
     }
 
     // Delete associated VPC peerings
-    VpcPeering::delete_by_vpc_id(&mut txn, vpc_id).await?;
+    db::vpc_peering::delete_by_vpc_id(&mut txn, vpc_id).await?;
 
     txn.commit()
         .await
@@ -305,7 +293,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::VpcSearchFilter = request.into_inner();
 
-    let vpc_ids = Vpc::find_ids(&mut txn, filter).await?;
+    let vpc_ids = db::vpc::find_ids(&mut txn, filter).await?;
 
     Ok(Response::new(rpc::VpcIdList { vpc_ids }))
 }
@@ -337,7 +325,8 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let db_vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids)).await;
+    let db_vpcs =
+        db::vpc::find_by(&mut txn, ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids)).await;
 
     let result = db_vpcs
         .map(|vpc| rpc::VpcList {
@@ -366,9 +355,11 @@ pub(crate) async fn find(
     let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
 
     let vpcs = match (id, name) {
-        (Some(id), _) => Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &id)).await,
-        (None, Some(name)) => Vpc::find_by_name(&mut txn, &name).await,
-        (None, None) => Vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await,
+        (Some(id), _) => {
+            db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &id)).await
+        }
+        (None, Some(name)) => db::vpc::find_by_name(&mut txn, &name).await,
+        (None, None) => db::vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await,
     };
 
     let result = vpcs

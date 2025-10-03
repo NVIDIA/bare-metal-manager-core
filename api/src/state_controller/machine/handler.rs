@@ -41,7 +41,6 @@ use tracing::instrument;
 use version_compare::Cmp;
 
 use crate::db::host_machine_update::clear_host_reprovisioning_request;
-use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::update_restart_verification_status;
 use crate::model::instance::InstanceNetworkSyncStatus;
 use crate::model::instance::config::network::{
@@ -61,10 +60,7 @@ use crate::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
         FirmwareConfig, FirmwareEntry, MachineValidationConfig, TimePeriod,
     },
-    db::{
-        self, explored_endpoints::DbExploredEndpoint, instance::DeleteInstance,
-        machine_topology::MachineTopology, network_segment::NetworkSegment, vpc::VpcDpuLoopback,
-    },
+    db::{self},
     firmware_downloader::FirmwareDownloader,
     model::{
         instance::config::network::NetworkDetails,
@@ -2847,7 +2843,7 @@ async fn check_fw_component_version(
                     .and_then(|h| h.dmi_data.as_ref())
                     .map(|d| d.bios_version.clone());
             }
-            MachineTopology::update_firmware_version_by_bmc_address(
+            db::machine_topology::update_firmware_version_by_bmc_address(
                 txn,
                 &dpu_snapshot.bmc_addr().unwrap().ip(),
                 cur_version.as_str(),
@@ -2869,9 +2865,9 @@ async fn set_managed_host_topology_update_needed(
 ) -> Result<(), StateHandlerError> {
     //Update it for host and DPU both.
     for dpu_snapshot in dpus {
-        MachineTopology::set_topology_update_needed(txn, &dpu_snapshot.id, true).await?;
+        db::machine_topology::set_topology_update_needed(txn, &dpu_snapshot.id, true).await?;
     }
-    MachineTopology::set_topology_update_needed(txn, &host_snapshot.id, true).await?;
+    db::machine_topology::set_topology_update_needed(txn, &host_snapshot.id, true).await?;
     Ok(())
 }
 
@@ -4769,11 +4765,12 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(transition!(next_state));
                     }
 
-                    let network_segments_are_ready = NetworkSegment::are_network_segments_ready(
-                        txn,
-                        &network_segment_ids_with_vpc,
-                    )
-                    .await?;
+                    let network_segments_are_ready =
+                        db::network_segment::are_network_segments_ready(
+                            txn,
+                            &network_segment_ids_with_vpc,
+                        )
+                        .await?;
                     if !network_segments_are_ready {
                         return Ok(wait!(
                             "Waiting for all segments to come in ready state.".to_string()
@@ -5253,14 +5250,9 @@ impl StateHandler for InstanceStateHandler {
                     // details are stored in instance's network config which is deleted.
 
                     // Delete from database now. Once done, reboot and move to next state.
-                    DeleteInstance {
-                        instance_id: instance.id,
-                        issue: None,
-                        is_repair_tenant: None,
-                    }
-                    .delete(txn)
-                    .await
-                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+                    db::instance::delete(instance.id, txn)
+                        .await
+                        .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
                     release_network_segments_with_vpc_prefix(
                         &instance.config.network.interfaces,
@@ -5390,9 +5382,11 @@ async fn handle_instance_network_config_update_request(
 
             // No network segment is configured with vpc_prefix_id.
             if !network_segment_ids_with_vpc.is_empty() {
-                let network_segments_are_ready =
-                    NetworkSegment::are_network_segments_ready(txn, &network_segment_ids_with_vpc)
-                        .await?;
+                let network_segments_are_ready = db::network_segment::are_network_segments_ready(
+                    txn,
+                    &network_segment_ids_with_vpc,
+                )
+                .await?;
                 if !network_segments_are_ready {
                     return Ok(wait!(
                         "Waiting for all segments to come in ready state.".to_string()
@@ -5401,7 +5395,7 @@ async fn handle_instance_network_config_update_request(
             }
 
             // Update requested network config and increment version.
-            db::instance::Instance::update_network_config(
+            db::instance::update_network_config(
                 txn,
                 instance.id,
                 instance.network_config_version,
@@ -5476,7 +5470,7 @@ async fn handle_instance_network_config_update_request(
                     instance.id,
                     addresses,
                 );
-                InstanceAddress::delete_addresses(txn, &addresses).await?;
+                db::instance_address::delete_addresses(txn, &addresses).await?;
                 release_network_segments_with_vpc_prefix(&resources_to_be_released, txn).await?;
 
                 // TODO: This is not the best way, but will work fine. If you delete all loopback IPs
@@ -5487,7 +5481,7 @@ async fn handle_instance_network_config_update_request(
                 // completed.
                 release_vpc_dpu_loopback(mh_snapshot, common_pools, txn).await?;
             }
-            db::instance::Instance::delete_update_network_config_request(&instance.id, txn).await?;
+            db::instance::delete_update_network_config_request(&instance.id, txn).await?;
             let next_state = ManagedHostState::Assigned {
                 instance_state: InstanceState::Ready,
             };
@@ -5655,7 +5649,7 @@ pub async fn release_vpc_dpu_loopback(
 ) -> Result<(), StateHandlerError> {
     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
         if let Some(common_pools) = common_pools {
-            VpcDpuLoopback::delete_and_deallocate(common_pools, &dpu_snapshot.id, txn, false)
+            db::vpc_dpu_loopback::delete_and_deallocate(common_pools, &dpu_snapshot.id, txn, false)
                 .await
                 .map_err(|e| StateHandlerError::ResourceCleanupError {
                     resource: "VpcLoopbackIp",
@@ -5681,7 +5675,7 @@ async fn release_network_segments_with_vpc_prefix(
 
     // Mark all network ready for delete which were created for vpc_prefixes.
     if !network_segment_ids_with_vpc.is_empty() {
-        NetworkSegment::mark_as_deleted_no_validation(txn, &network_segment_ids_with_vpc)
+        db::network_segment::mark_as_deleted_no_validation(txn, &network_segment_ids_with_vpc)
             .await
             .map_err(|err| StateHandlerError::ResourceCleanupError {
                 resource: "network_segment",
@@ -6611,7 +6605,8 @@ impl HostUpgradeState {
                         );
 
                         // We need site explorer to requery the version, just in case it actually did get done
-                        DbExploredEndpoint::set_waiting_for_explorer_refresh(address, txn).await?;
+                        db::explored_endpoints::set_waiting_for_explorer_refresh(address, txn)
+                            .await?;
                         scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
                     }
                     _ => {
@@ -6933,7 +6928,7 @@ impl HostUpgradeState {
             tracing::info!(
                 "Waiting for {machine_id} {firmware_type:?} to reach version {final_version} currently {current_version}"
             );
-            DbExploredEndpoint::re_explore_if_version_matches(
+            db::explored_endpoints::re_explore_if_version_matches(
                 endpoint.address,
                 endpoint.report_version,
                 txn,
@@ -7639,14 +7634,14 @@ pub async fn find_explored_refreshed_endpoint(
         .ip_addr()
         .map_err(StateHandlerError::GenericError)?;
 
-    let endpoint = DbExploredEndpoint::find_by_ips(txn, vec![addr]).await?;
+    let endpoint = db::explored_endpoints::find_by_ips(txn, vec![addr]).await?;
     let endpoint = endpoint.first().ok_or(StateHandlerError::GenericError(
         eyre! {"Unable to find explored_endpoint for {machine_id}"},
     ))?;
 
     if endpoint.waiting_for_explorer_refresh {
         // In the cases where this was called, we care about prompt updates, so poke site explorer to revisit this endpoint next time it runs
-        DbExploredEndpoint::re_explore_if_version_matches(
+        db::explored_endpoints::re_explore_if_version_matches(
             endpoint.address,
             endpoint.report_version,
             txn,

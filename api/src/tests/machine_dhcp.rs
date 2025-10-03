@@ -13,7 +13,7 @@
 use std::str::FromStr;
 
 use crate::CarbideError;
-use crate::db::{self, ObjectColumnFilter, dhcp_entry, dhcp_entry::DhcpEntry};
+use crate::db::{self, ObjectColumnFilter, dhcp_entry};
 use forge_uuid::machine::MachineInterfaceId;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -285,7 +285,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         expected: &[&str],
     ) {
         let mut txn = pool.clone().begin().await.unwrap();
-        let entry = DhcpEntry::find_by(
+        let entry = db::dhcp_entry::find_by(
             &mut txn,
             ObjectColumnFilter::One(dhcp_entry::MachineInterfaceIdColumn, interface_id),
         )

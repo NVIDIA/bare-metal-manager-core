@@ -29,9 +29,8 @@ pub use tpm_ca_cert::match_insert_new_ek_cert_status_against_ca;
 use crate::CarbideResult;
 use crate::db::DatabaseError;
 use crate::db::ObjectFilter;
-use crate::db::machine::MachineSearchConfig;
-use crate::db::machine_topology::MachineTopology;
 use crate::model::hardware_info::TpmEkCertificate;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::{CarbideError, db};
 use forge_uuid::machine::MachineId;
 use sqlx::Postgres;
@@ -85,7 +84,8 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
             .collect();
 
     if !machines.is_empty() {
-        let topologies = MachineTopology::find_latest_by_machine_ids(&mut txn, &machines).await?;
+        let topologies =
+            db::machine_topology::find_latest_by_machine_ids(&mut txn, &machines).await?;
         for topology in topologies {
             let (machine_id, topology) = topology;
             let tpm_ek_cert = &topology.topology().discovery_data.info.tpm_ek_certificate;
