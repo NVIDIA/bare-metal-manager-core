@@ -23,8 +23,9 @@ use crate::cfg::file::HostHealthConfig;
 use crate::db::vpc::Vpc;
 use crate::db::vpc_prefix::VpcPrefix;
 use crate::db::{ObjectColumnFilter, dpa_interface};
-use crate::model::instance::config::network::NetworkDetails;
-use crate::model::machine::NotAllocatableReason;
+use crate::model::hardware_info::InfinibandInterface;
+use crate::model::instance::config::network::{InterfaceFunctionId, NetworkDetails};
+use crate::model::machine::{Machine, NotAllocatableReason};
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::{
     CarbideError, CarbideResult,
@@ -263,6 +264,106 @@ pub async fn allocate_network(
     }
 
     Ok(())
+}
+
+pub async fn allocate_ib_port_guid(
+    ib_config: &InstanceInfinibandConfig,
+    machine: &Machine,
+) -> CarbideResult<InstanceInfinibandConfig> {
+    let mut updated_ib_config = ib_config.clone();
+
+    let ib_hw_info = machine
+        .hardware_info
+        .as_ref()
+        .ok_or(CarbideError::MissingArgument("no hardware info"))?
+        .infiniband_interfaces
+        .as_ref();
+
+    // the key of ib_hw_map is device name such as "MT28908 Family [ConnectX-6]".
+    // the value of ib_hw_map is a sorted vector of InfinibandInterface by slot.
+    let ib_hw_map = sort_ib_by_slot(ib_hw_info);
+
+    let mut guids: Vec<String> = Vec::new();
+    for request in &mut updated_ib_config.ib_interfaces {
+        tracing::debug!(
+            "request IB device:{}, device_instance:{}",
+            request.device.clone(),
+            request.device_instance
+        );
+
+        // TOTO: will support VF in the future. Currently, it will return err when the function_id is not PF.
+        if let InterfaceFunctionId::Virtual { .. } = request.function_id {
+            return Err(CarbideError::InvalidArgument(format!(
+                "Not support VF {}",
+                request.device
+            )));
+        }
+
+        if let Some(sorted_ibs) = ib_hw_map.get(&request.device) {
+            if let Some(ib) = sorted_ibs.get(request.device_instance as usize) {
+                request.pf_guid = Some(ib.guid.clone());
+                request.guid = Some(ib.guid.clone());
+                guids.push(ib.guid.clone());
+                tracing::debug!("select IB device GUID {}", ib.guid.clone());
+            } else {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "not enough ib device {}",
+                    request.device
+                )));
+            }
+        } else {
+            return Err(CarbideError::InvalidArgument(format!(
+                "no ib device {}",
+                request.device
+            )));
+        }
+    }
+
+    // Do additional ib ports verification
+    if !guids.is_empty() {
+        if let Some(ib_interfaces_status) = &machine.infiniband_status_observation {
+            for guid in guids.iter() {
+                for ib_status in ib_interfaces_status.ib_interfaces.iter() {
+                    if *guid == ib_status.guid && ib_status.lid == 0xffff_u16 {
+                        return Err(CarbideError::InvalidArgument(format!(
+                            "UFM detected inactive state for GUID: {guid}"
+                        )));
+                    }
+                }
+            }
+        } else {
+            return Err(CarbideError::InvalidArgument(
+                "Infiniband status information is not found".to_string(),
+            ));
+        }
+    }
+
+    Ok(updated_ib_config)
+}
+
+/// sort ib device by slot and add devices with the same name are added to hashmap
+pub fn sort_ib_by_slot(
+    ib_hw_info_vec: &[InfinibandInterface],
+) -> HashMap<String, Vec<InfinibandInterface>> {
+    let mut ib_hw_map = HashMap::new();
+    let mut sorted_ib_hw_info_vec = ib_hw_info_vec.to_owned();
+    sorted_ib_hw_info_vec.sort_by_key(|x| match &x.pci_properties {
+        Some(pci_properties) => pci_properties.slot.clone().unwrap_or_default(),
+        None => "".to_owned(),
+    });
+
+    for ib in sorted_ib_hw_info_vec {
+        if let Some(ref pci_properties) = ib.pci_properties {
+            // description in pci_properties are the value of ID_MODEL_FROM_DATABASE, such as "MT28908 Family [ConnectX-6]"
+            if let Some(device) = &pci_properties.description {
+                let entry: &mut Vec<InfinibandInterface> =
+                    ib_hw_map.entry(device.clone()).or_default();
+                entry.push(ib);
+            }
+        }
+    }
+
+    ib_hw_map
 }
 
 /// Allocates an instance for a tenant
@@ -510,13 +611,8 @@ pub async fn allocate_instance(
     .await?;
 
     // Allocate GUID for infiniband interfaces/ports.
-    let updated_ib_config = ib_partition::allocate_port_guid(
-        &mut txn,
-        instance.id,
-        &request.config.infiniband,
-        &mh_snapshot.host_snapshot,
-    )
-    .await?;
+    let updated_ib_config =
+        allocate_ib_port_guid(&request.config.infiniband, &mh_snapshot.host_snapshot).await?;
 
     // Persist the GUID for Infiniband configuration.
     // We need to retain version 1.
@@ -588,4 +684,27 @@ pub async fn validate_ib_partition_ownership(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn test_sort_ib_by_slot() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/model/hardware_info/test_data/x86_info.json"
+    )
+    .to_string();
+
+    let data = std::fs::read(path).unwrap();
+    let hw_info =
+        serde_json::from_slice::<crate::model::hardware_info::HardwareInfo>(&data).unwrap();
+    assert!(!hw_info.infiniband_interfaces.is_empty());
+
+    let prev = sort_ib_by_slot(hw_info.infiniband_interfaces.as_ref());
+    for _ in 0..10 {
+        let cur = sort_ib_by_slot(hw_info.infiniband_interfaces.as_ref());
+        for (key, value) in cur.into_iter() {
+            assert_eq!(*prev.get(&key).unwrap(), value);
+        }
+    }
 }
