@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::model::machine::LoadSnapshotOptions;
 use crate::{
     cfg::file::{HardwareHealthReportsConfig, HostHealthConfig},
-    db::{self, machine::update_dpu_agent_health_report, managed_host::LoadSnapshotOptions},
+    db::{self, machine::update_dpu_agent_health_report},
     tests::common::api_fixtures::{
         TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
         network_configured_with_health, remove_health_report_override, send_health_report_override,
@@ -589,10 +590,10 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
     let mut txn = env.pool.begin().await?;
     let machine_ids = crate::db::machine::find_machine_ids(
         &mut txn,
-        crate::db::machine::MachineSearchConfig::default(),
+        crate::model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
-    let options = crate::db::managed_host::LoadSnapshotOptions {
+    let options = crate::model::machine::LoadSnapshotOptions {
         include_history: false,
         include_instance_data: false,
         host_health_config: HostHealthConfig {
@@ -636,10 +637,10 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
     let mut txn = env.pool.begin().await?;
     let machine_ids = crate::db::machine::find_machine_ids(
         &mut txn,
-        crate::db::machine::MachineSearchConfig::default(),
+        crate::model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
-    let options = crate::db::managed_host::LoadSnapshotOptions {
+    let options = crate::model::machine::LoadSnapshotOptions {
         include_history: false,
         include_instance_data: false,
         host_health_config: HostHealthConfig {

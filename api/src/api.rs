@@ -52,19 +52,16 @@ use tss_esapi::{
 use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
+use crate::model::desired_firmware::DesiredFirmwareVersions;
+use crate::model::machine::LoadSnapshotOptions;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use crate::{
     CarbideError, CarbideResult, attestation as attest, auth,
     cfg::file::CarbideConfig,
     db::{
         self, DatabaseError, ObjectFilter, attestation as db_attest,
-        desired_firmware::DbDesiredFirmwareVersions,
-        explored_endpoints::DbExploredEndpoint,
-        explored_managed_host::DbExploredManagedHost,
-        instance::Instance,
-        machine::{self, MachineSearchConfig},
-        machine_topology::MachineTopology,
-        machine_validation::{MachineValidation, MachineValidationState, MachineValidationStatus},
-        managed_host::LoadSnapshotOptions,
+        machine::{self},
         network_devices::NetworkDeviceSearchConfig,
     },
     dynamic_settings, ethernet_virtualization,
@@ -98,9 +95,6 @@ use crate::{
             network::ManagedHostQuarantineState,
         },
         metadata::Metadata,
-        network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData},
-        power_manager::PowerOptions,
-        tenant::Tenant,
     },
     redfish::{RedfishAuth, RedfishClientPool},
     resource_pool,
@@ -820,7 +814,7 @@ impl Forge for Api {
             .await?
         };
 
-        MachineTopology::create_or_update_with_bom_validation(
+        db::machine_topology::create_or_update_with_bom_validation(
             &mut txn,
             &stable_machine_id,
             &hardware_info,
@@ -957,7 +951,7 @@ impl Forge for Api {
 
             // Create DPU and LLDP Association.
             if let Some(dpu_info) = hardware_info.dpu_info.as_ref() {
-                DpuToNetworkDeviceMap::create_dpu_network_device_association(
+                db::network_devices::dpu_to_network_device_map::create_dpu_network_device_association(
                     &mut txn,
                     &dpu_info.switches,
                     &stable_machine_id,
@@ -1299,7 +1293,8 @@ impl Forge for Api {
 
         let search_config = request.into_inner();
 
-        let tenant_org_ids = Tenant::find_tenant_organization_ids(&mut txn, search_config).await?;
+        let tenant_org_ids =
+            db::tenant::find_tenant_organization_ids(&mut txn, search_config).await?;
 
         Ok(tonic::Response::new(rpc::TenantOrganizationIdList {
             tenant_organization_ids: tenant_org_ids.into_iter().collect(),
@@ -1457,7 +1452,7 @@ impl Forge for Api {
                         "Impossible interface.address array length",
                     ));
                 };
-                match MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
+                match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
                     Ok(Some(machine_id)) => {
                         let rpc_machine_id = Some(machine_id);
                         interface.is_bmc = Some(true);
@@ -1470,7 +1465,7 @@ impl Forge for Api {
                     }
                     Ok(None) => {} // expected, not a BMC interface
                     Err(err) => {
-                        tracing::warn!(%err, %ip, "MachineTopology::find_machine_id_by_bmc_ip error");
+                        tracing::warn!(%err, %ip, "db::machine_topology::find_machine_id_by_bmc_ip error");
                     }
                 }
             }
@@ -1509,7 +1504,8 @@ impl Forge for Api {
         // There should not be any BMC information associated with any machine.
         for address in interface.addresses.iter() {
             let machine_id =
-                MachineTopology::find_machine_id_by_bmc_ip(&mut txn, &address.to_string()).await?;
+                db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, &address.to_string())
+                    .await?;
 
             if let Some(machine_id) = machine_id {
                 return Err(Status::invalid_argument(format!(
@@ -1738,7 +1734,7 @@ impl Forge for Api {
                         total,
                     );
                     if *is_enabled {
-                        MachineValidation::update_status(
+                        db::machine_validation::update_status(
                             &mut txn,
                             id,
                             MachineValidationStatus {
@@ -1748,7 +1744,7 @@ impl Forge for Api {
                         )
                         .await?;
                         let machine_validation =
-                            MachineValidation::find_by_id(&mut txn, id).await?;
+                            db::machine_validation::find_by_id(&mut txn, id).await?;
                         (
                             Action::MachineValidation,
                             Some(
@@ -1947,7 +1943,7 @@ impl Forge for Api {
 
         let mut instance_id = None;
         if let Some(host_machine) = &host_machine {
-            instance_id = Instance::find_id_by_machine_id(&mut txn, &host_machine.id).await?;
+            instance_id = db::instance::find_id_by_machine_id(&mut txn, &host_machine.id).await?;
         }
 
         if let Some(host_machine) = &host_machine {
@@ -2153,9 +2149,9 @@ impl Forge for Api {
             {
                 tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id);
 
-                DbExploredEndpoint::delete(&mut txn, addr).await?;
+                db::explored_endpoints::delete(&mut txn, addr).await?;
 
-                DbExploredManagedHost::delete_by_host_bmc_addr(&mut txn, addr).await?;
+                db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
             }
 
             if request.delete_bmc_credentials {
@@ -2163,7 +2159,7 @@ impl Forge for Api {
             }
 
             if let Err(e) =
-                db_attest::EkCertVerificationStatus::delete_ca_verification_status_by_machine_id(
+                db_attest::ek_cert_verification_status::delete_ca_verification_status_by_machine_id(
                     &mut txn,
                     &machine.id,
                 )
@@ -2191,7 +2187,7 @@ impl Forge for Api {
                 .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
             // Free up all loopback IPs allocated for this DPU.
-            db::vpc::VpcDpuLoopback::delete_and_deallocate(
+            db::vpc_dpu_loopback::delete_and_deallocate(
                 &self.common_pools,
                 &dpu_machine.id,
                 &mut txn,
@@ -2200,14 +2196,16 @@ impl Forge for Api {
             .await?;
 
             if let Some(loopback_ip) = dpu_machine.network_config.loopback_ip {
-                self.common_pools
-                    .ethernet
-                    .pool_loopback_ip
-                    .release(&mut txn, loopback_ip)
-                    .await
-                    .map_err(CarbideError::from)?
+                db::resource_pool::release(
+                    &self.common_pools.ethernet.pool_loopback_ip,
+                    &mut txn,
+                    loopback_ip,
+                )
+                .await
+                .map_err(CarbideError::from)?
             }
-            DpuToNetworkDeviceMap::delete(&mut txn, &dpu_machine.id).await?;
+            db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id)
+                .await?;
 
             if request.delete_bmc_interfaces
                 && let Some(bmc_ip) = &dpu_machine.bmc_info.ip
@@ -2222,10 +2220,7 @@ impl Forge for Api {
                 }
             }
             if let Some(asn) = dpu_machine.asn {
-                self.common_pools
-                    .ethernet
-                    .pool_fnn_asn
-                    .release(&mut txn, asn)
+                db::resource_pool::release(&self.common_pools.ethernet.pool_fnn_asn, &mut txn, asn)
                     .await
                     .map_err(CarbideError::from)?;
             }
@@ -2243,7 +2238,7 @@ impl Forge for Api {
             {
                 tracing::info!("Cleaning up explored endpoint at {addr} {}", dpu_machine.id);
 
-                DbExploredEndpoint::delete(&mut txn, addr).await?;
+                db::explored_endpoints::delete(&mut txn, addr).await?;
             }
 
             if request.delete_bmc_credentials {
@@ -2470,9 +2465,9 @@ impl Forge for Api {
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let power_options = if req.machine_id.is_empty() {
-            PowerOptions::get_all(&mut txn).await
+            db::power_options::get_all(&mut txn).await
         } else {
-            PowerOptions::get_by_ids(&req.machine_id, &mut txn).await
+            db::power_options::get_by_ids(&req.machine_id, &mut txn).await
         }?;
 
         txn.commit()
@@ -2513,7 +2508,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let current_power_state = PowerOptions::get_by_ids(&[machine_id], &mut txn).await?;
+        let current_power_state = db::power_options::get_by_ids(&[machine_id], &mut txn).await?;
 
         // This should never happen until machine is not forced-deleted or does not exist.
         let Some(current_power_options) = current_power_state.first() else {
@@ -2566,7 +2561,7 @@ impl Forge for Api {
             )));
         }
 
-        let updated_value = crate::model::power_manager::PowerOptions::update_desired_state(
+        let updated_value = db::power_options::update_desired_state(
             &machine_id,
             desired_power_state,
             &current_power_options.desired_power_state_version,
@@ -2806,7 +2801,7 @@ impl Forge for Api {
             None => ObjectFilter::All,
         };
 
-        let data = NetworkTopologyData::get_topology(&mut txn, query)
+        let data = db::network_devices::get_topology(&mut txn, query)
             .await
             .map_err(CarbideError::from)?;
 
@@ -3475,7 +3470,9 @@ impl Forge for Api {
 
         let dpu_ids = request.into_inner().machine_ids;
 
-        let connected_devices = DpuToNetworkDeviceMap::find_by_dpu_ids(&mut txn, &dpu_ids).await?;
+        let connected_devices =
+            db::network_devices::dpu_to_network_device_map::find_by_dpu_ids(&mut txn, &dpu_ids)
+                .await?;
 
         Ok(tonic::Response::new(rpc::ConnectedDeviceList {
             connected_devices: connected_devices.into_iter().map_into().collect(),
@@ -3499,7 +3496,7 @@ impl Forge for Api {
             .iter()
             .map(|d| d.as_str())
             .collect();
-        let network_devices = NetworkDevice::find(
+        let network_devices = db::network_devices::find(
             &mut txn,
             ObjectFilter::List(&network_device_ids),
             &NetworkDeviceSearchConfig::new(false),
@@ -3524,7 +3521,8 @@ impl Forge for Api {
             .map_err(|e| DatabaseError::txn_begin("find_machine_ids_by_bmc_ips", e))?;
 
         let pairs =
-            MachineTopology::find_machine_bmc_pairs(&mut txn, request.into_inner().bmc_ips).await?;
+            db::machine_topology::find_machine_bmc_pairs(&mut txn, request.into_inner().bmc_ips)
+                .await?;
         let rpc_pairs = rpc::MachineIdBmcIpPairs {
             pairs: pairs
                 .into_iter()
@@ -3587,7 +3585,7 @@ impl Forge for Api {
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let ak_pub_bytes =
-            match db_attest::SecretAkPub::get_by_secret(&mut txn, &request.credential).await? {
+            match db_attest::secret_ak_pub::get_by_secret(&mut txn, &request.credential).await? {
                 Some(entry) => entry.ak_pub,
                 None => {
                     return Err(Status::from(CarbideError::AttestQuoteError(
@@ -3639,7 +3637,7 @@ impl Forge for Api {
         // If we've reached this point, we can now clean up
         // now ephemeral secret data from the database, and send
         // off the PCR values as a MeasurementReport.
-        db_attest::SecretAkPub::delete(&mut txn, &request.credential).await?;
+        db_attest::secret_ak_pub::delete(&mut txn, &request.credential).await?;
 
         let pcr_values: ::measured_boot::pcr::PcrRegisterValueVec = request
             .pcr_values
@@ -4854,7 +4852,7 @@ impl Forge for Api {
             .map(|firmware| {
                 let vendor = firmware.vendor;
                 let model = firmware.model.clone();
-                let component_versions = DbDesiredFirmwareVersions::from(firmware).versions;
+                let component_versions = DesiredFirmwareVersions::from(firmware).versions;
 
                 Ok::<_, serde_json::Error>(rpc::DesiredFirmwareVersionEntry {
                     vendor: vendor.to_string(),
@@ -5618,7 +5616,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             log_machine_id(&machine_id);
 
             let mut topologies =
-                MachineTopology::find_latest_by_machine_ids(txn, &[machine_id]).await?;
+                db::machine_topology::find_latest_by_machine_ids(txn, &[machine_id]).await?;
 
             let topology =
                 topologies
@@ -5692,12 +5690,13 @@ impl Api {
         txn: &mut PgConnection,
         owner_id: &str,
     ) -> Result<i32, CarbideError> {
-        match self
-            .common_pools
-            .ethernet
-            .pool_vpc_vni
-            .allocate(txn, resource_pool::OwnerType::Vpc, owner_id)
-            .await
+        match db::resource_pool::allocate(
+            &self.common_pools.ethernet.pool_vpc_vni,
+            txn,
+            resource_pool::OwnerType::Vpc,
+            owner_id,
+        )
+        .await
         {
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
@@ -5723,12 +5722,13 @@ impl Api {
         txn: &mut PgConnection,
         owner_id: &str,
     ) -> Result<i32, CarbideError> {
-        match self
-            .common_pools
-            .dpa
-            .pool_dpa_vni
-            .allocate(txn, resource_pool::OwnerType::Dpa, owner_id)
-            .await
+        match db::resource_pool::allocate(
+            &self.common_pools.dpa.pool_dpa_vni,
+            txn,
+            resource_pool::OwnerType::Dpa,
+            owner_id,
+        )
+        .await
         {
             Ok(val) => Ok(val),
             Err(resource_pool::ResourcePoolError::Empty) => {
@@ -5755,13 +5755,12 @@ impl Api {
         txn: &mut PgConnection,
         owner_id: &str,
     ) -> Result<Option<PartitionKey>, CarbideError> {
-        match self
+        match db::resource_pool::allocate(self
             .common_pools
             .infiniband
             .pkey_pools
             .get(DEFAULT_IB_FABRIC_NAME)
-            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?
-            .allocate(txn, resource_pool::OwnerType::IBPartition, owner_id)
+            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?, txn, resource_pool::OwnerType::IBPartition, owner_id)
             .await
         {
             Ok(val) => Ok(Some(

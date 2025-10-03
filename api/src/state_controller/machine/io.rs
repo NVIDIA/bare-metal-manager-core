@@ -16,9 +16,10 @@ use config_version::{ConfigVersion, Versioned};
 use sqlx::PgConnection;
 
 use crate::cfg::file::HostHealthConfig;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine::{MachineValidatingState, ValidationState};
 use crate::{
-    db::{self, DatabaseError, machine::MachineSearchConfig},
+    db::{self, DatabaseError},
     model::{
         StateSla,
         controller_outcome::PersistentStateHandlerOutcome,
@@ -78,7 +79,7 @@ impl StateControllerIO for MachineStateControllerIO {
         let mut retstate = db::managed_host::load_snapshot(
             txn,
             machine_id,
-            db::managed_host::LoadSnapshotOptions {
+            crate::model::machine::LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: true,
                 host_health_config: self.host_health,
@@ -87,8 +88,7 @@ impl StateControllerIO for MachineStateControllerIO {
         .await?;
 
         if let Some(retstate) = retstate.as_mut() {
-            let dpa_snapshots =
-                db::dpa_interface::DpaInterface::find_by_machine_id(txn, machine_id).await?;
+            let dpa_snapshots = db::dpa_interface::find_by_machine_id(txn, machine_id).await?;
             retstate.dpa_interface_snapshots = dpa_snapshots;
         };
 

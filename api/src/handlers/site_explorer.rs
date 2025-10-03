@@ -16,11 +16,10 @@ use std::{net::IpAddr, str::FromStr};
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
-use crate::db::explored_managed_host::DbExploredManagedHost;
 use crate::{
     CarbideError,
     api::{Api, log_request_data},
-    db::{self, DatabaseError, explored_endpoints::DbExploredEndpoint},
+    db::{self, DatabaseError},
 };
 
 pub(crate) async fn find_explored_endpoint_ids(
@@ -39,7 +38,7 @@ pub(crate) async fn find_explored_endpoint_ids(
 
     let filter: ::rpc::site_explorer::ExploredEndpointSearchFilter = request.into_inner();
 
-    let endpoint_ips = DbExploredEndpoint::find_ips(&mut txn, filter).await?;
+    let endpoint_ips = db::explored_endpoints::find_ips(&mut txn, filter).await?;
 
     Ok(Response::new(
         ::rpc::site_explorer::ExploredEndpointIdList {
@@ -82,7 +81,7 @@ pub(crate) async fn find_explored_endpoints_by_ids(
         );
     }
 
-    let result = DbExploredEndpoint::find_by_ips(&mut txn, ips)
+    let result = db::explored_endpoints::find_by_ips(&mut txn, ips)
         .await
         .map(|ep| ::rpc::site_explorer::ExploredEndpointList {
             endpoints: ep
@@ -110,7 +109,7 @@ pub(crate) async fn find_explored_managed_host_ids(
 
     let filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter = request.into_inner();
 
-    let host_ips = DbExploredManagedHost::find_ips(&mut txn, filter).await?;
+    let host_ips = db::explored_managed_host::find_ips(&mut txn, filter).await?;
 
     Ok(Response::new(
         ::rpc::site_explorer::ExploredManagedHostIdList {
@@ -153,7 +152,7 @@ pub(crate) async fn find_explored_managed_hosts_by_ids(
         );
     }
 
-    let result = DbExploredManagedHost::find_by_ips(&mut txn, ips)
+    let result = db::explored_managed_host::find_by_ips(&mut txn, ips)
         .await
         .map(|ep| ::rpc::site_explorer::ExploredManagedHostList {
             managed_hosts: ep
@@ -206,7 +205,7 @@ pub(crate) async fn clear_site_exploration_error(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    DbExploredEndpoint::clear_last_known_error(bmc_ip, &mut txn).await?;
+    db::explored_endpoints::clear_last_known_error(bmc_ip, &mut txn).await?;
 
     txn.commit()
         .await
@@ -237,7 +236,7 @@ pub(crate) async fn re_explore_endpoint(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let eps = DbExploredEndpoint::find_all_by_ip(bmc_ip, &mut txn).await?;
+    let eps = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     if eps.is_empty() {
         return Err(CarbideError::NotFoundError {
             kind: "explored_endpoint",
@@ -251,8 +250,12 @@ pub(crate) async fn re_explore_endpoint(
             Some(v) => v,
             None => ep.report_version,
         };
-        match DbExploredEndpoint::re_explore_if_version_matches(bmc_ip, expected_version, &mut txn)
-            .await
+        match db::explored_endpoints::re_explore_if_version_matches(
+            bmc_ip,
+            expected_version,
+            &mut txn,
+        )
+        .await
         {
             Ok(true) => {}
             Ok(false) => {
@@ -333,7 +336,7 @@ pub(crate) async fn delete_explored_endpoint(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Check if the endpoint exists
-    let endpoints = DbExploredEndpoint::find_all_by_ip(bmc_ip, &mut txn).await?;
+    let endpoints = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
 
     if endpoints.is_empty() {
         return Ok(Response::new(rpc::DeleteExploredEndpointResponse {
@@ -355,7 +358,7 @@ pub(crate) async fn delete_explored_endpoint(
     }
 
     // Delete the endpoint
-    DbExploredEndpoint::delete(&mut txn, bmc_ip).await?;
+    db::explored_endpoints::delete(&mut txn, bmc_ip).await?;
 
     txn.commit()
         .await

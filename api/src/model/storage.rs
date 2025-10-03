@@ -21,6 +21,8 @@ use crate::model::tenant::TenantOrganizationId;
 
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
+use sqlx::postgres::PgRow;
+use sqlx::{Error, Row};
 
 /// This file is just for the struct definitions and grpc proto object conversions
 /// methods are implemented in api/src/db/storage.rs and callers in api/src/storage.rs
@@ -816,6 +818,140 @@ impl TryFrom<OsImage> for rpc::forge::OsImage {
             volume_id,
             created_at: image.created_at,
             modified_at: image.modified_at,
+        })
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for StoragePool {
+    fn from_row(row: &'r PgRow) -> Result<Self, Error> {
+        let capacity: i64 = row.try_get("capacity")?;
+        let allocated: i64 = row.try_get("allocated")?;
+        let available: i64 = row.try_get("available")?;
+        let raid_level: String = row.try_get("raid_level")?;
+        let tenant_organization_id: String = row.try_get("organization_id")?;
+        Ok(StoragePool {
+            nvmesh_uuid: row.try_get("nvmesh_uuid")?,
+            allocated: allocated as u64,
+            available: available as u64,
+            attributes: StoragePoolAttributes {
+                id: row.try_get("id")?,
+                cluster_id: row.try_get("cluster_id")?,
+                raid_level: StorageRaidLevels::from_str(&raid_level)
+                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+                capacity: capacity as u64,
+                tenant_organization_id: TenantOrganizationId::from_str(&tenant_organization_id)
+                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+                use_for_boot_volumes: row.try_get("use_for_boot_volumes")?,
+                name: row.try_get("name")?,
+                description: row.try_get("description")?,
+            },
+            created_at: row.try_get("created_at")?,
+            modified_at: row.try_get("modified_at")?,
+        })
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for StorageVolume {
+    fn from_row(row: &'r PgRow) -> Result<Self, Error> {
+        let capacity: i64 = row.try_get("capacity")?;
+        let health: String = row.try_get("health")?;
+        let dpu_ids: Vec<String> = row.try_get("dpu_machine_id")?;
+        let mut dpus: Vec<MachineId> = Vec::new();
+        for id in dpu_ids.iter() {
+            let dpu: MachineId =
+                MachineId::from_str(id).map_err(|e| sqlx::error::Error::Protocol(e.to_string()))?;
+            dpus.push(dpu);
+        }
+        Ok(StorageVolume {
+            nvmesh_uuid: row.try_get("nvmesh_uuid")?,
+            attributes: StorageVolumeAttributes {
+                id: row.try_get("id")?,
+                cluster_id: row.try_get("cluster_id")?,
+                pool_id: row.try_get("pool_id")?,
+                capacity: capacity as u64,
+                delete_with_instance: row.try_get("delete_with_instance")?,
+                use_existing_volume: None,
+                boot_volume: row.try_get("boot_volume")?,
+                os_image_id: row.try_get("os_image_id")?,
+                source_id: row.try_get("source_id")?,
+                name: row.try_get("name")?,
+                description: row.try_get("description")?,
+            },
+            status: StorageVolumeStatus {
+                health: StorageVolumeHealth::from_str(&health)
+                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+                attached: row.try_get("attached")?,
+                status_message: row.try_get("status_message")?,
+            },
+            instance_id: row.try_get("instance_id")?,
+            dpu_machine_id: dpus, // todo: add dpu ids array get
+            created_at: row.try_get("created_at")?,
+            modified_at: row.try_get("modified_at")?,
+        })
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for OsImage {
+    fn from_row(row: &'r PgRow) -> Result<Self, Error> {
+        let volume_id: Option<Uuid> = row.try_get("volume_id")?;
+        let mut create_volume = false;
+        let tenant_organization_id: String = row.try_get("organization_id")?;
+        let cap: i64 = row.try_get("capacity")?;
+        let capacity = if cap == 0 { None } else { Some(cap as u64) };
+        if volume_id.is_some() {
+            create_volume = true;
+        }
+        Ok(OsImage {
+            volume_id,
+            attributes: OsImageAttributes {
+                id: row.try_get("id")?,
+                source_url: row.try_get("source_url")?,
+                digest: row.try_get("digest")?,
+                tenant_organization_id: TenantOrganizationId::from_str(&tenant_organization_id)
+                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+                create_volume,
+                name: row.try_get("name")?,
+                description: row.try_get("description")?,
+                auth_type: row.try_get("auth_type")?,
+                auth_token: row.try_get("auth_token")?,
+                rootfs_id: row.try_get("rootfs_id")?,
+                rootfs_label: row.try_get("rootfs_label")?,
+                boot_disk: row.try_get("boot_disk")?,
+                bootfs_id: row.try_get("bootfs_id")?,
+                efifs_id: row.try_get("efifs_id")?,
+                capacity,
+            },
+            status: row.try_get("status")?,
+            status_message: row.try_get("status_message")?,
+            created_at: row.try_get("created_at")?,
+            modified_at: row.try_get("modified_at")?,
+        })
+    }
+}
+
+/// sqlx helpers for db table rows to structs
+impl<'r> sqlx::FromRow<'r, PgRow> for StorageCluster {
+    fn from_row(row: &'r PgRow) -> Result<Self, Error> {
+        let capacity: i64 = row.try_get("capacity")?;
+        let allocated: i64 = row.try_get("allocated")?;
+        let available: i64 = row.try_get("available")?;
+        let port: i16 = row.try_get("port")?;
+        Ok(StorageCluster {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            capacity: capacity as u64,
+            allocated: allocated as u64,
+            available: available as u64,
+            healthy: row.try_get("healthy")?,
+            attributes: StorageClusterAttributes {
+                host: row.try_get("host")?,
+                port: port as u16,
+                username: None,
+                password: None,
+                description: row.try_get("description")?,
+            },
+            created_at: row.try_get("created_at")?,
+            modified_at: row.try_get("modified_at")?,
         })
     }
 }

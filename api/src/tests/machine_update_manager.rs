@@ -6,12 +6,12 @@ use crate::{
     tests::common,
 };
 
+use crate::model::dpu_machine_update::DpuMachineUpdate;
 use crate::tests::common::api_fixtures::create_managed_host;
 use crate::{
     CarbideResult,
     cfg::file::CarbideConfig,
     db,
-    db::dpu_machine_update::DpuMachineUpdate,
     machine_update_manager::{
         MachineUpdateManager,
         machine_update_module::{

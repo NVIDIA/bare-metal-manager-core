@@ -15,6 +15,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
 };
 
+use crate::db;
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 
@@ -127,11 +128,11 @@ async fn define_by_prefix(
     if num_values > MAX_POOL_SIZE {
         return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
     }
-    let pool = crate::resource_pool::DbResourcePool::new(
+    let pool = crate::resource_pool::ResourcePool::new(
         name.to_string(),
         crate::resource_pool::ValueType::Ipv4,
     );
-    pool.populate(txn, values).await?;
+    db::resource_pool::populate(&pool, txn, values).await?;
     tracing::debug!(
         pool_name = name,
         num_values,
@@ -156,11 +157,11 @@ async fn define_by_range(
             if num_values > MAX_POOL_SIZE {
                 return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
             }
-            let pool = crate::resource_pool::DbResourcePool::new(
+            let pool = crate::resource_pool::ResourcePool::new(
                 name.to_string(),
                 crate::resource_pool::ValueType::Ipv4,
             );
-            pool.populate(txn, values).await?;
+            db::resource_pool::populate(&pool, txn, values).await?;
             tracing::debug!(
                 pool_name = name,
                 num_values,
@@ -174,11 +175,11 @@ async fn define_by_range(
             if num_values > MAX_POOL_SIZE {
                 return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
             }
-            let pool = crate::resource_pool::DbResourcePool::new(
+            let pool = crate::resource_pool::ResourcePool::new(
                 name.to_string(),
                 crate::resource_pool::ValueType::Integer,
             );
-            pool.populate(txn, values).await?;
+            db::resource_pool::populate(&pool, txn, values).await?;
             tracing::debug!(pool_name = name, num_values, "Populated int resource pool");
         }
     }

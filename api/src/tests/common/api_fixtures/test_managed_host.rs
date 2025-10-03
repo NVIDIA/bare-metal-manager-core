@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::db::managed_host::LoadSnapshotOptions;
 use crate::handlers::measured_boot::rpc_forge::forge_agent_control_response::Action;
 use crate::model::machine::InstanceState;
+use crate::model::machine::LoadSnapshotOptions;
 use crate::model::machine::Machine;
 use crate::model::machine::ManagedHostState;
 use crate::model::machine::ManagedHostStateSnapshot;

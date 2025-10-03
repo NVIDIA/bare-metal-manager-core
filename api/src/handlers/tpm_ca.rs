@@ -38,7 +38,7 @@ pub(crate) async fn tpm_add_ca_cert(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let db_ca_cert_opt = db_attest::TpmCaCert::insert(
+    let db_ca_cert_opt = db_attest::tpm_ca_certs::insert(
         &mut txn,
         &not_valid_before,
         &not_valid_after,
@@ -59,7 +59,7 @@ pub(crate) async fn tpm_add_ca_cert(
 
     // now update all the existing EK statuses
     let ek_certs =
-        db_attest::EkCertVerificationStatus::get_by_issuer(&mut txn, subject.as_slice()).await?;
+        db_attest::ek_cert_verification_status::get_by_issuer(&mut txn, subject.as_slice()).await?;
 
     let mut ek_certs_updated: u32 = 0;
     if !ek_certs.is_empty() {
@@ -103,7 +103,7 @@ pub(crate) async fn tpm_show_ca_certs(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let ca_certs = db_attest::TpmCaCert::get_all(&mut txn).await?;
+    let ca_certs = db_attest::tpm_ca_certs::get_all(&mut txn).await?;
 
     txn.commit()
         .await
@@ -140,7 +140,7 @@ pub(crate) async fn tpm_show_unmatched_ek_certs(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let unmatched_ek_statuses =
-        db_attest::EkCertVerificationStatus::get_by_unmatched_ca(&mut txn).await?;
+        db_attest::ek_cert_verification_status::get_by_unmatched_ca(&mut txn).await?;
 
     txn.commit()
         .await
@@ -178,10 +178,10 @@ pub(crate) async fn tpm_delete_ca_cert(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    db_attest::EkCertVerificationStatus::unmatch_ca_verification_status(&mut txn, ca_cert_id)
+    db_attest::ek_cert_verification_status::unmatch_ca_verification_status(&mut txn, ca_cert_id)
         .await?;
 
-    db_attest::TpmCaCert::delete(&mut txn, ca_cert_id).await?;
+    db_attest::tpm_ca_certs::delete(&mut txn, ca_cert_id).await?;
 
     txn.commit()
         .await

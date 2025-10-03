@@ -17,33 +17,24 @@ use itertools::Itertools;
 use sqlx::{Acquire, FromRow, PgConnection, query_as};
 
 use super::{DatabaseError, ObjectColumnFilter, network_segment};
-use super::{
-    address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
+use crate::model::network_segment::{
+    NetworkSegment, NetworkSegmentSearchConfig, NetworkSegmentType,
 };
 
-use crate::db::network_prefix::NetworkPrefix;
-use crate::db::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentType};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::ConfigValidationError;
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
 use crate::model::instance::config::network::{
     InstanceInterfaceConfig, InstanceNetworkConfig, NetworkDetails,
 };
+use crate::model::instance_address::InstanceAddress;
 use crate::model::machine::Machine;
+use crate::model::network_prefix::NetworkPrefix;
 use crate::model::network_segment::NetworkSegmentControllerState;
-use crate::{CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, db};
 use forge_network::virtualization::get_host_ip;
 use forge_uuid::network::NetworkPrefixId;
 use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
-
-#[derive(Debug, FromRow, Clone)]
-pub struct InstanceAddress {
-    pub instance_id: InstanceId,
-    pub segment_id: NetworkSegmentId,
-    // pub id: Uuid,          // unused
-    #[cfg(test)]
-    pub address: IpAddr,
-    // pub prefix: IpNetwork, // unused
-}
 
 #[cfg(test)]
 #[derive(Copy, Clone)]
@@ -59,308 +50,301 @@ impl super::ColumnInfo<'_> for PrefixColumn {
     }
 }
 
-impl InstanceAddress {
-    pub async fn find_by_address(
-        txn: &mut PgConnection,
-        address: IpAddr,
-    ) -> Result<Option<Self>, DatabaseError> {
-        let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
-        sqlx::query_as(query)
-            .bind(address)
-            .fetch_optional(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))
+pub async fn find_by_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+) -> Result<Option<InstanceAddress>, DatabaseError> {
+    let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
+    sqlx::query_as(query)
+        .bind(address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+#[cfg(test)] // currently only used by tests
+pub async fn find_by_instance_id_and_segment_id(
+    txn: &mut PgConnection,
+    instance_id: &InstanceId,
+    segment_id: &NetworkSegmentId,
+) -> Result<Option<InstanceAddress>, DatabaseError> {
+    let query = "SELECT * FROM instance_addresses WHERE instance_id=$1 AND segment_id=$2";
+
+    sqlx::query_as(query)
+        .bind(instance_id)
+        .bind(segment_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+#[cfg(test)] // currently only used by tests
+pub async fn find_by_prefix(
+    txn: &mut PgConnection,
+    prefix: IpNetwork,
+) -> Result<Option<InstanceAddress>, DatabaseError> {
+    let mut query = crate::db::FilterableQueryBuilder::new("SELECT * FROM instance_addresses")
+        .filter(&ObjectColumnFilter::One(PrefixColumn, &prefix));
+
+    query
+        .build_query_as()
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query.sql(), e))
+}
+
+pub async fn delete(txn: &mut PgConnection, instance_id: InstanceId) -> Result<(), DatabaseError> {
+    // Lock MUST be taken by calling function.
+    let query = "DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id";
+    let _: Vec<(InstanceId,)> = sqlx::query_as(query)
+        .bind(instance_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+pub async fn delete_addresses(
+    txn: &mut PgConnection,
+    addresses: &[&IpAddr],
+) -> Result<(), DatabaseError> {
+    // Lock MUST be taken by calling function.
+    let query = "DELETE FROM instance_addresses WHERE address=ANY($1)";
+    sqlx::query(query)
+        .bind(addresses)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+fn validate(
+    segments: &Vec<NetworkSegment>,
+    instance_network: &InstanceNetworkConfig,
+    segment_ids_using_vpc_prefix: &[NetworkSegmentId],
+) -> CarbideResult<()> {
+    if segments.len() != instance_network.interfaces.len() {
+        // Missing at least one segment in db.
+        return Err(ConfigValidationError::UnknownSegments.into());
     }
 
-    #[cfg(test)] // currently only used by tests
-    pub async fn find_by_instance_id_and_segment_id(
-        txn: &mut PgConnection,
-        instance_id: &InstanceId,
-        segment_id: &NetworkSegmentId,
-    ) -> Result<Option<Self>, DatabaseError> {
-        let query = "SELECT * FROM instance_addresses WHERE instance_id=$1 AND segment_id=$2";
+    let mut vpc_ids = HashSet::new();
 
-        sqlx::query_as(query)
-            .bind(instance_id)
-            .bind(segment_id)
-            .fetch_optional(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))
-    }
-
-    #[cfg(test)] // currently only used by tests
-    pub async fn find_by_prefix(
-        txn: &mut PgConnection,
-        prefix: IpNetwork,
-    ) -> Result<Option<Self>, DatabaseError> {
-        let mut query = crate::db::FilterableQueryBuilder::new("SELECT * FROM instance_addresses")
-            .filter(&ObjectColumnFilter::One(PrefixColumn, &prefix));
-
-        query
-            .build_query_as()
-            .fetch_optional(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query.sql(), e))
-    }
-
-    pub async fn delete(
-        txn: &mut PgConnection,
-        instance_id: InstanceId,
-    ) -> Result<(), DatabaseError> {
-        // Lock MUST be taken by calling function.
-        let query = "DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id";
-        let _: Vec<(InstanceId,)> = sqlx::query_as(query)
-            .bind(instance_id)
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
-
-    pub async fn delete_addresses(
-        txn: &mut PgConnection,
-        addresses: &[&IpAddr],
-    ) -> Result<(), DatabaseError> {
-        // Lock MUST be taken by calling function.
-        let query = "DELETE FROM instance_addresses WHERE address=ANY($1)";
-        sqlx::query(query)
-            .bind(addresses)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
-
-    fn validate(
-        segments: &Vec<NetworkSegment>,
-        instance_network: &InstanceNetworkConfig,
-        segment_ids_using_vpc_prefix: &[NetworkSegmentId],
-    ) -> CarbideResult<()> {
-        if segments.len() != instance_network.interfaces.len() {
-            // Missing at least one segment in db.
-            return Err(ConfigValidationError::UnknownSegments.into());
+    for segment in segments {
+        if segment.is_marked_as_deleted() {
+            // TODO: Single error for not ready and deleted?
+            return Err(ConfigValidationError::NetworkSegmentToBeDeleted(segment.id).into());
         }
 
-        let mut vpc_ids = HashSet::new();
-
-        for segment in segments {
-            if segment.is_marked_as_deleted() {
-                // TODO: Single error for not ready and deleted?
-                return Err(ConfigValidationError::NetworkSegmentToBeDeleted(segment.id).into());
-            }
-
-            // If segment is created using vpc_prefix id, it will not be in Ready state by now.
-            if !segment_ids_using_vpc_prefix.contains(&segment.id) {
-                match &segment.controller_state.value {
-                    NetworkSegmentControllerState::Ready => {}
-                    _ => {
-                        return Err(ConfigValidationError::NetworkSegmentNotReady(
-                            segment.id,
-                            format!("{:?}", segment.controller_state.value),
-                        )
-                        .into());
-                    }
+        // If segment is created using vpc_prefix id, it will not be in Ready state by now.
+        if !segment_ids_using_vpc_prefix.contains(&segment.id) {
+            match &segment.controller_state.value {
+                NetworkSegmentControllerState::Ready => {}
+                _ => {
+                    return Err(ConfigValidationError::NetworkSegmentNotReady(
+                        segment.id,
+                        format!("{:?}", segment.controller_state.value),
+                    )
+                    .into());
                 }
             }
-
-            match segment.vpc_id {
-                Some(x) => {
-                    vpc_ids.insert(x);
-                }
-                None => {
-                    return Err(ConfigValidationError::VpcNotAttachedToSegment(segment.id).into());
-                }
-            };
         }
 
-        if vpc_ids.len() != 1 {
-            return Err(ConfigValidationError::MultipleVpcFound.into());
-        }
-
-        Ok(())
+        match segment.vpc_id {
+            Some(x) => {
+                vpc_ids.insert(x);
+            }
+            None => {
+                return Err(ConfigValidationError::VpcNotAttachedToSegment(segment.id).into());
+            }
+        };
     }
 
-    /// Counts the amount of addresses that have been allocated for a given segment
-    pub async fn count_by_segment_id(
-        txn: &mut PgConnection,
-        segment_id: &NetworkSegmentId,
-    ) -> Result<usize, DatabaseError> {
-        let query = "
+    if vpc_ids.len() != 1 {
+        return Err(ConfigValidationError::MultipleVpcFound.into());
+    }
+
+    Ok(())
+}
+
+/// Counts the amount of addresses that have been allocated for a given segment
+pub async fn count_by_segment_id(
+    txn: &mut PgConnection,
+    segment_id: &NetworkSegmentId,
+) -> Result<usize, DatabaseError> {
+    let query = "
 SELECT count(*)
 FROM instance_addresses
 INNER JOIN network_prefixes ON network_prefixes.segment_id = instance_addresses.segment_id
 WHERE network_prefixes.segment_id = $1::uuid";
-        let (address_count,): (i64,) = query_as(query)
-            .bind(segment_id)
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
+    let (address_count,): (i64,) = query_as(query)
+        .bind(segment_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-        Ok(address_count.max(0) as usize)
+    Ok(address_count.max(0) as usize)
+}
+
+/// Tries to allocate IP addresses for a tenant network configuration
+/// Returns the updated configuration which includes allocated addresses
+pub async fn allocate(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+    mut updated_config: InstanceNetworkConfig,
+    machine: &Machine,
+) -> CarbideResult<InstanceNetworkConfig> {
+    // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
+    // We're potentially about to insert a couple rows, so create a savepoint.
+    const DB_TXN_NAME: &str = "instance_address::allocate";
+    let mut inner_txn = txn
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
+    let segment_ids = updated_config
+        .interfaces
+        .iter()
+        .filter_map(|x| x.network_segment_id)
+        .collect_vec();
+
+    let segment_ids_using_vpc_prefix = updated_config
+        .interfaces
+        .iter()
+        .filter_map(|x| {
+            if let Some(NetworkDetails::VpcPrefixId(_)) = x.network_details {
+                x.network_segment_id
+            } else {
+                None
+            }
+        })
+        .collect_vec();
+
+    if segment_ids.len() != updated_config.interfaces.len() {
+        return Err(CarbideError::NetworkSegmentNotAllocated);
     }
 
-    /// Tries to allocate IP addresses for a tenant network configuration
-    /// Returns the updated configuration which includes allocated addresses
-    pub async fn allocate(
-        txn: &mut PgConnection,
-        instance_id: InstanceId,
-        mut updated_config: InstanceNetworkConfig,
-        machine: &Machine,
-    ) -> CarbideResult<InstanceNetworkConfig> {
-        // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
-        // We're potentially about to insert a couple rows, so create a savepoint.
-        const DB_TXN_NAME: &str = "instance_address::allocate";
-        let mut inner_txn = txn
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let segments = db::network_segment::find_by(
+        &mut inner_txn,
+        ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
 
-        let segment_ids = updated_config
-            .interfaces
-            .iter()
-            .filter_map(|x| x.network_segment_id)
-            .collect_vec();
+    validate(&segments, &updated_config, &segment_ids_using_vpc_prefix)?;
 
-        let segment_ids_using_vpc_prefix = updated_config
-            .interfaces
-            .iter()
-            .filter_map(|x| {
-                if let Some(NetworkDetails::VpcPrefixId(_)) = x.network_details {
-                    x.network_segment_id
-                } else {
-                    None
-                }
-            })
-            .collect_vec();
+    let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
+    sqlx::query(query)
+        .execute(&mut *inner_txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-        if segment_ids.len() != updated_config.interfaces.len() {
-            return Err(CarbideError::NetworkSegmentNotAllocated);
+    // Assign all addresses in one shot.
+    for iface in &mut updated_config.interfaces {
+        if !iface.ip_addrs.is_empty() {
+            // IP is already allocated. Don't assign new IP.
+            continue;
         }
 
-        let segments = NetworkSegment::find_by(
-            &mut inner_txn,
-            ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
-            NetworkSegmentSearchConfig::default(),
-        )
-        .await?;
-
-        InstanceAddress::validate(&segments, &updated_config, &segment_ids_using_vpc_prefix)?;
-
-        let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
-        sqlx::query(query)
-            .execute(&mut *inner_txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-
-        // Assign all addresses in one shot.
-        for iface in &mut updated_config.interfaces {
-            if !iface.ip_addrs.is_empty() {
-                // IP is already allocated. Don't assign new IP.
-                continue;
-            }
-
-            let segment = match segments.iter().find(|x| {
-                iface
-                    .network_segment_id
-                    .map(|a| &a == x.id())
-                    .unwrap_or(false)
-            }) {
-                Some(x) => x,
-                None => {
-                    if let Some(segment_id) = iface.network_segment_id {
-                        return Err(CarbideError::FindOneReturnedNoResultsError(
-                            segment_id.into(),
-                        ));
-                    }
-                    return Err(CarbideError::NetworkSegmentNotAllocated);
+        let segment = match segments
+            .iter()
+            .find(|x| iface.network_segment_id.map(|a| a == x.id).unwrap_or(false))
+        {
+            Some(x) => x,
+            None => {
+                if let Some(segment_id) = iface.network_segment_id {
+                    return Err(CarbideError::FindOneReturnedNoResultsError(
+                        segment_id.into(),
+                    ));
                 }
-            };
-
-            let valid_prefixes = segment
-                .prefixes
-                .iter()
-                .filter(|x| x.prefix.is_ipv4())
-                .cloned()
-                .collect_vec();
-
-            if valid_prefixes.len() > 1 {
-                return Err(CarbideError::FindOneReturnedManyResultsError(
-                    segment.id.into(),
-                ));
+                return Err(CarbideError::NetworkSegmentNotAllocated);
             }
+        };
 
-            let Some(network_prefix) = valid_prefixes.into_iter().next() else {
-                tracing::error!(
-                    segment_id = %segment.id,
-                    "No prefix is attached to segment.",
-                );
-                return Err(CarbideError::FindOneReturnedNoResultsError(
-                    segment.id.into(),
-                ));
-            };
+        let valid_prefixes = segment
+            .prefixes
+            .iter()
+            .filter(|x| x.prefix.is_ipv4())
+            .cloned()
+            .collect_vec();
 
-            // Hydrate iface with network addresses, returning the assigned addresses
-            let addresses = if segment.segment_type == NetworkSegmentType::HostInband {
-                // For host-inband network segments, the instance interface *is* the host interface,
-                // and we simply use the hosts's address.
-                iface.assign_ips_from((machine, &network_prefix))?
-            } else {
-                // Use the UsedOverlayNetworkIpResolver, which specifically looks at
-                // the instance addresses table in the database for finding
-                // the next available IP prefix allocation (with [assumed] support for
-                // allocations of varying-sized networks).
-                let busy_ips = network_prefix
-                    .svi_ip
-                    .iter()
-                    .copied()
-                    .collect::<Vec<IpAddr>>();
+        if valid_prefixes.len() > 1 {
+            return Err(CarbideError::FindOneReturnedManyResultsError(
+                segment.id.into(),
+            ));
+        }
 
-                let dhcp_handler: Box<dyn UsedIpResolver + Send> =
-                    Box::new(UsedOverlayNetworkIpResolver {
-                        segment_id: segment.id,
-                        busy_ips,
-                    });
+        let Some(network_prefix) = valid_prefixes.into_iter().next() else {
+            tracing::error!(
+                segment_id = %segment.id,
+                "No prefix is attached to segment.",
+            );
+            return Err(CarbideError::FindOneReturnedNoResultsError(
+                segment.id.into(),
+            ));
+        };
 
-                // TODO(chet): FNN will be leveraging the IpAllocator to allocate
-                // a /30 for a tenant instance (or, at least, something other than
-                // a /32). For now, hard-code 32 as the length -- the plan is to
-                // update the InstanceInterfaceConfig to request the prefix_length.
-                let ip_allocator = IpAllocator::new(
-                    &mut inner_txn,
-                    segment,
-                    dhcp_handler,
-                    AddressSelectionStrategy::Automatic,
-                    32,
-                )
-                .await?;
+        // Hydrate iface with network addresses, returning the assigned addresses
+        let addresses = if segment.segment_type == NetworkSegmentType::HostInband {
+            // For host-inband network segments, the instance interface *is* the host interface,
+            // and we simply use the hosts's address.
+            iface.assign_ips_from((machine, &network_prefix))?
+        } else {
+            // Use the UsedOverlayNetworkIpResolver, which specifically looks at
+            // the instance addresses table in the database for finding
+            // the next available IP prefix allocation (with [assumed] support for
+            // allocations of varying-sized networks).
+            let busy_ips = network_prefix
+                .svi_ip
+                .iter()
+                .copied()
+                .collect::<Vec<IpAddr>>();
 
-                iface.assign_ips_from(ip_allocator)?
-            };
+            let dhcp_handler: Box<dyn UsedIpResolver + Send> =
+                Box::new(UsedOverlayNetworkIpResolver {
+                    segment_id: segment.id,
+                    busy_ips,
+                });
 
-            let query = "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix)
+            // TODO(chet): FNN will be leveraging the IpAllocator to allocate
+            // a /30 for a tenant instance (or, at least, something other than
+            // a /32). For now, hard-code 32 as the length -- the plan is to
+            // update the InstanceInterfaceConfig to request the prefix_length.
+            let ip_allocator = IpAllocator::new(
+                &mut inner_txn,
+                segment,
+                dhcp_handler,
+                AddressSelectionStrategy::Automatic,
+                32,
+            )
+            .await?;
+
+            iface.assign_ips_from(ip_allocator)?
+        };
+
+        let query = "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix)
                          VALUES ($1::uuid, $2, $3::uuid, $4::cidr)";
 
-            for address in addresses {
-                sqlx::query(query)
-                    .bind(instance_id)
-                    // eg. 10.3.2.1/30
-                    .bind(address.ip())
-                    // eg. 10.3.2.0/30
-                    .bind(*segment.id())
-                    .bind(IpNetwork::new(address.network(), address.prefix())?)
-                    .fetch_all(&mut *inner_txn)
-                    .await
-                    .map_err(|e| DatabaseError::query(query, e))?;
-            }
+        for address in addresses {
+            sqlx::query(query)
+                .bind(instance_id)
+                // eg. 10.3.2.1/30
+                .bind(address.ip())
+                // eg. 10.3.2.0/30
+                .bind(segment.id)
+                .bind(IpNetwork::new(address.network(), address.prefix())?)
+                .fetch_all(&mut *inner_txn)
+                .await
+                .map_err(|e| DatabaseError::query(query, e))?;
         }
-
-        inner_txn
-            .commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
-
-        Ok(updated_config)
     }
+
+    inner_txn
+        .commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+
+    Ok(updated_config)
 }
 
 pub struct UsedOverlayNetworkIpResolver {
@@ -601,8 +585,8 @@ pub async fn allocate_svi_ip(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::network_segment::NetworkSegmentType;
     use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+    use crate::model::network_segment::NetworkSegmentType;
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
     use forge_uuid::vpc::VpcId;
@@ -677,7 +661,7 @@ mod tests {
     fn instance_address_segment_validation() {
         let data = create_valid_validation_data();
         let config = create_valid_network_config();
-        let x = InstanceAddress::validate(&data, &config, &[]);
+        let x = super::validate(&data, &config, &[]);
         assert!(x.is_ok());
     }
 
@@ -686,7 +670,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data.swap_remove(10);
-        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[]).is_err());
     }
 
     #[test]
@@ -694,7 +678,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[0].vpc_id = Some(uuid::Uuid::new_v4().into());
-        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[]).is_err());
     }
 
     #[test]
@@ -702,7 +686,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[2].vpc_id = None;
-        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[]).is_err());
     }
 
     #[test]
@@ -710,7 +694,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[12].deleted = Some(Utc::now());
-        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[]).is_err());
     }
 
     #[test]
@@ -718,6 +702,6 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[9].controller_state.value = NetworkSegmentControllerState::Provisioning;
-        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
+        assert!(super::validate(&data, &config, &[]).is_err());
     }
 }

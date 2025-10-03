@@ -419,7 +419,7 @@ impl TestEnv {
             let machine = db::machine::find_one(
                 &mut txn,
                 host_machine_id,
-                crate::db::machine::MachineSearchConfig::default(),
+                crate::model::machine::machine_search_config::MachineSearchConfig::default(),
             )
             .await
             .unwrap()
@@ -433,7 +433,7 @@ impl TestEnv {
         let machine = db::machine::find_one(
             &mut txn,
             host_machine_id,
-            crate::db::machine::MachineSearchConfig::default(),
+            crate::model::machine::machine_search_config::MachineSearchConfig::default(),
         )
         .await
         .unwrap()
@@ -2114,7 +2114,7 @@ pub async fn update_machine_validation_run(
 }
 
 pub async fn get_vpc_fixture_id(env: &TestEnv) -> VpcId {
-    db::vpc::Vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+    db::vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
         .await
         .unwrap()
         .into_iter()

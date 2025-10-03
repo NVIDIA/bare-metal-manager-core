@@ -15,10 +15,11 @@ use health_report::OverrideMode;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::{
     CarbideError,
     api::Api,
-    db::{self, DatabaseError, machine::MachineSearchConfig},
+    db::{self, DatabaseError},
     handlers::utils::convert_and_log_machine_id,
 };
 use forge_uuid::machine::MachineId;

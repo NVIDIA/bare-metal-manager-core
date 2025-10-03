@@ -15,8 +15,9 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
-use crate::db::domain::{self, Domain, NewDomain};
-use crate::db::{DatabaseError, ObjectColumnFilter};
+use crate::db::domain::{self};
+use crate::db::{self, DatabaseError, ObjectColumnFilter};
+use crate::model::domain::NewDomain;
 
 pub(crate) async fn create(
     api: &Api,
@@ -31,11 +32,12 @@ pub(crate) async fn create(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let response = Ok(NewDomain::try_from(request.into_inner())?
-        .persist(&mut txn)
-        .await
-        .map(rpc::Domain::from)
-        .map(Response::new)?);
+    let response = Ok(
+        db::domain::persist(NewDomain::try_from(request.into_inner())?, &mut txn)
+            .await
+            .map(rpc::Domain::from)
+            .map(Response::new)?,
+    );
 
     txn.commit()
         .await
@@ -62,7 +64,7 @@ pub(crate) async fn update(
     let uuid = id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
     let mut domains =
-        Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid)).await?;
+        db::domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid)).await?;
 
     let mut dom = match domains.len() {
         0 => {
@@ -81,8 +83,7 @@ pub(crate) async fn update(
     };
 
     dom.name = name;
-    let response = Ok(dom
-        .update(&mut txn)
+    let response = Ok(db::domain::update(&mut dom, &mut txn)
         .await
         .map(rpc::Domain::from)
         .map(Response::new)?);
@@ -113,7 +114,7 @@ pub(crate) async fn delete(
     let uuid = id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
     let mut domains =
-        Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid)).await?;
+        db::domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid)).await?;
 
     let dom = match domains.len() {
         0 => {
@@ -134,8 +135,7 @@ pub(crate) async fn delete(
     // TODO: This needs to validate that nothing references the domain anymore
     // (like NetworkSegments)
 
-    let response = Ok(dom
-        .delete(&mut txn)
+    let response = Ok(db::domain::delete(dom, &mut txn)
         .await
         .map(|_| rpc::DomainDeletionResult {})
         .map(Response::new)?);
@@ -162,11 +162,11 @@ pub(crate) async fn find(
     let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
     let domains = match (id, name) {
         (Some(id), _) => {
-            Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &id)).await
+            db::domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &id)).await
         }
-        (None, Some(name)) => Domain::find_by_name(&mut txn, &name).await,
+        (None, Some(name)) => db::domain::find_by_name(&mut txn, &name).await,
         (None, None) => {
-            Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await
+            db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await
         }
     };
 

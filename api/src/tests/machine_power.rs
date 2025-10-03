@@ -12,11 +12,12 @@
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{MaintenanceOperation, MaintenanceRequest, PowerOptionUpdateRequest};
 
-use crate::db::managed_host::{LoadSnapshotOptions, load_snapshot};
+use crate::db::{self, managed_host::load_snapshot};
+use crate::model::machine::LoadSnapshotOptions;
 use crate::redfish::RedfishClientPool;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
-use crate::model::power_manager::{PowerOptions, PowerState};
+use crate::model::power_manager::PowerState;
 
 #[crate::sqlx_test]
 async fn test_power_manager_create_entry_on_host_creation(
@@ -24,12 +25,12 @@ async fn test_power_manager_create_entry_on_host_creation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
 
     assert_eq!(power_entry.len(), 1);
     assert_eq!(power_entry[0].host_id, host_machine_id);
@@ -52,7 +53,7 @@ async fn test_power_manager_create_entry_on_host_creation(
         .await?;
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
 
     assert_eq!(power_entry.len(), 1);
     assert_eq!(power_entry[0].desired_power_state, PowerState::Off);
@@ -67,12 +68,12 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
 
     assert_eq!(power_entry.len(), 1);
     assert_eq!(power_entry[0].host_id, host_machine_id);
@@ -117,7 +118,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
     let mh_snapshot = load_snapshot(&mut txn, &host_machine_id, LoadSnapshotOptions::default())
@@ -149,7 +150,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     // Since delay is set to 0 for test, db must be updated immediately.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
@@ -157,7 +158,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     // Wait for one cycle.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
@@ -165,7 +166,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     // State machine should power on the host.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;

@@ -10,19 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 use crate::{
-    db::{
-        self,
-        machine::MachineSearchConfig,
-        machine_interface::associate_interface_with_dpu_machine,
-        machine_topology::{MachineTopology, MachineTopologyTestHelpers, TopologyDataV1},
-        network_segment::NetworkSegment,
-    },
+    db::{self, machine_interface::associate_interface_with_dpu_machine},
     model::hardware_info::{Cpu, CpuInfo, HardwareInfo, HardwareInfoV1},
     model::machine::machine_id::from_hardware_info,
 };
 use forge_uuid::machine::{MachineId, MachineType};
 
 use crate::db::{ObjectColumnFilter, network_segment};
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::topology::TopologyDataV1;
 use crate::tests::common;
 use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
 use common::api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine};
@@ -61,10 +57,10 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let segment = NetworkSegment::find_by(
+    let segment = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-        crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+        crate::model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
@@ -76,7 +72,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &dpu.host_mac_address,
         Some(env.domain.into()),
         true,
-        crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
+        crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
     )
     .await
     .unwrap();
@@ -94,13 +90,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    MachineTopology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
+    db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
 
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
 
-    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id])
+    let topos = db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);
@@ -135,7 +131,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut new_info = hardware_info.clone();
     new_info.cpu_info[0].model = "SnailSpeedCpu".to_string();
 
-    let topology = MachineTopology::create_or_update(&mut txn, &machine.id, &new_info)
+    let topology = db::machine_topology::create_or_update(&mut txn, &machine.id, &new_info)
         .await
         .unwrap();
     //
@@ -145,10 +141,10 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         topology.topology().discovery_data.info.cpu_info[0].model
     );
 
-    MachineTopology::set_topology_update_needed(&mut txn, &machine.id, true)
+    db::machine_topology::set_topology_update_needed(&mut txn, &machine.id, true)
         .await
         .unwrap();
-    let topology = MachineTopology::create_or_update(&mut txn, &machine.id, &new_info)
+    let topology = db::machine_topology::create_or_update(&mut txn, &machine.id, &new_info)
         .await
         .unwrap();
 
@@ -213,10 +209,10 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let segment = NetworkSegment::find_by(
+    let segment = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-        crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+        crate::model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
@@ -228,7 +224,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         &dpu.host_mac_address,
         Some(env.domain.into()),
         true,
-        crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
+        crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
     )
     .await
     .unwrap();
@@ -261,7 +257,12 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         memory_devices: hardware_info.memory_devices,
     };
 
-    MachineTopology::create_or_update_v1(&mut txn, &machine.id, &hardware_info_v1).await?;
+    db::machine_topology::test_helpers::create_or_update_v1(
+        &mut txn,
+        &machine.id,
+        &hardware_info_v1,
+    )
+    .await?;
 
     txn.commit().await?;
 
@@ -282,7 +283,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let mut txn = env.pool.begin().await?;
 
-    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id])
+    let topos = db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);
@@ -350,7 +351,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     // Read the topology back from the database as the expected type.
     let mut txn = env.pool.begin().await?;
-    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id])
+    let topos = db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);

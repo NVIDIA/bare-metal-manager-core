@@ -32,7 +32,8 @@ use crate::{
         CarbideConfig, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
         FirmwareGlobal,
     },
-    db::{DatabaseError, explored_endpoints::DbExploredEndpoint},
+    db,
+    db::DatabaseError,
     firmware_downloader::FirmwareDownloader,
     model::site_explorer::{
         ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState,
@@ -164,7 +165,7 @@ impl PreingestionManager {
             return Ok(());
         }
 
-        let items = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
+        let items = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
         if !items.is_empty() && items.len() < 3 {
             // Show states if a modest amount, just count otherwise
             tracing::debug!(
@@ -217,12 +218,13 @@ impl PreingestionManager {
         }
 
         metrics.machines_in_preingestion =
-            DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+            db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn)
                 .await?
                 .len();
-        metrics.waiting_for_installation = DbExploredEndpoint::find_preingest_installing(&mut txn)
-            .await?
-            .len();
+        metrics.waiting_for_installation =
+            db::explored_endpoints::find_preingest_installing(&mut txn)
+                .await?
+                .len();
 
         tracing::debug!(
             "Preingestion metrics: in_preingestion {} waiting {} delayed {}",
@@ -378,7 +380,7 @@ impl PreingestionManagerStatic {
                 );
                 // No desired firmware description found for this host, nothing to do.
                 // This is the expected path for DPUs.
-                DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
+                db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
                 return Ok(false);
             }
             Some(fw_info) => fw_info,
@@ -418,7 +420,7 @@ impl PreingestionManagerStatic {
             endpoint.address
         );
         // Good enough for now at least, proceed with ingestion.
-        DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
+        db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
         Ok(false)
     }
 
@@ -448,7 +450,7 @@ impl PreingestionManagerStatic {
                 "start_firmware_uploads_or_continue {}: Auto updates disabled",
                 endpoint.address
             );
-            DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
+            db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
             return Ok(false);
         }
 
@@ -489,7 +491,7 @@ impl PreingestionManagerStatic {
         );
 
         // Nothing needed to be updated, we're complete.
-        DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
+        db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
 
         Ok(false)
     }
@@ -637,7 +639,7 @@ impl PreingestionManagerStatic {
                             "Marking completion of Redfish task of firmware upgrade for {}",
                             &endpoint.address
                         );
-                        DbExploredEndpoint::set_preingestion_reset_for_new_firmware(
+                        db::explored_endpoints::set_preingestion_reset_for_new_firmware(
                             endpoint.address,
                             final_version,
                             upgrade_type,
@@ -679,13 +681,13 @@ impl PreingestionManagerStatic {
 
                         // Wait for site explorer to refresh it then try again after that.
                         // Someday, we should generate metrics for visiblity if something fails multiple times.
-                        DbExploredEndpoint::set_preingestion_recheck_versions_reason(
+                        db::explored_endpoints::set_preingestion_recheck_versions_reason(
                             endpoint.address,
                             msg,
                             txn,
                         )
                         .await?;
-                        DbExploredEndpoint::re_explore_if_version_matches(
+                        db::explored_endpoints::re_explore_if_version_matches(
                             endpoint.address,
                             endpoint.report_version,
                             txn,
@@ -693,8 +695,11 @@ impl PreingestionManagerStatic {
                         .await?;
 
                         // We need site explorer to requery the version
-                        DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
-                            .await?;
+                        db::explored_endpoints::set_waiting_for_explorer_refresh(
+                            endpoint.address,
+                            txn,
+                        )
+                        .await?;
                     }
                     _ => {
                         // Unexpected state
@@ -719,7 +724,7 @@ impl PreingestionManagerStatic {
                                 "Marking completion of Redfish task of firmware upgrade for {} with missing task",
                                 &endpoint.address
                             );
-                            DbExploredEndpoint::set_preingestion_recheck_versions(
+                            db::explored_endpoints::set_preingestion_recheck_versions(
                                 endpoint.address,
                                 txn,
                             )
@@ -823,7 +828,7 @@ impl PreingestionManagerStatic {
                         } else {
                             time::Duration::seconds(0)
                         };
-                        DbExploredEndpoint::set_preingestion_reset_for_new_firmware(
+                        db::explored_endpoints::set_preingestion_reset_for_new_firmware(
                             endpoint.address,
                             final_version,
                             upgrade_type,
@@ -850,7 +855,7 @@ impl PreingestionManagerStatic {
                     } else {
                         time::Duration::seconds(0)
                     };
-                    DbExploredEndpoint::set_preingestion_reset_for_new_firmware(
+                    db::explored_endpoints::set_preingestion_reset_for_new_firmware(
                         endpoint.address,
                         final_version,
                         upgrade_type,
@@ -873,7 +878,7 @@ impl PreingestionManagerStatic {
                     } else {
                         time::Duration::seconds(0)
                     };
-                    DbExploredEndpoint::set_preingestion_reset_for_new_firmware(
+                    db::explored_endpoints::set_preingestion_reset_for_new_firmware(
                         endpoint.address,
                         final_version,
                         upgrade_type,
@@ -895,7 +900,7 @@ impl PreingestionManagerStatic {
                 tracing::error!("Failed to reboot {}: {e}", &endpoint.address);
                 return Ok(());
             }
-            DbExploredEndpoint::set_preingestion_new_reported_wait(
+            db::explored_endpoints::set_preingestion_new_reported_wait(
                 endpoint.address,
                 final_version,
                 upgrade_type,
@@ -919,7 +924,7 @@ impl PreingestionManagerStatic {
                 tracing::error!("Failed to reboot {}: {e}", &endpoint.address);
                 return Ok(());
             }
-            DbExploredEndpoint::set_preingestion_new_reported_wait(
+            db::explored_endpoints::set_preingestion_new_reported_wait(
                 endpoint.address,
                 final_version,
                 upgrade_type,
@@ -952,7 +957,7 @@ impl PreingestionManagerStatic {
         }
 
         if need_wait {
-            DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+            db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
             return Ok(());
         } else if *upgrade_type == FirmwareComponentType::Cec {
             match redfish_client
@@ -972,7 +977,7 @@ impl PreingestionManagerStatic {
             }
         }
         // No need for resets or reboots, go right to waiting for the new version to show up, and we might as well check right away.
-        DbExploredEndpoint::set_preingestion_new_reported_wait(
+        db::explored_endpoints::set_preingestion_new_reported_wait(
             endpoint.address,
             final_version,
             upgrade_type,
@@ -1015,7 +1020,7 @@ impl PreingestionManagerStatic {
                         return Box::pin(self.in_reset_for_new_firmware(txn, endpoint, state))
                             .await;
                     }
-                    DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
+                    db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
                         .await?;
                     tracing::info!(
                         "Upgrade {} task has completed for {} but still reports version {current_version} (expected version: {final_version})",
@@ -1037,7 +1042,8 @@ impl PreingestionManagerStatic {
                     *upgrade_type
                 );
                 // Make sure we wait for the new version
-                DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+                db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
+                    .await?;
             }
         } else {
             // This path should only happen if something strange happened with the version definitions
@@ -1048,11 +1054,11 @@ impl PreingestionManagerStatic {
                 endpoint.report.systems
             );
             // Make sure we wait for the new version
-            DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+            db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
         }
 
         // Go back to checking versions as there may be other things that need upgrading
-        DbExploredEndpoint::set_preingestion_recheck_versions(endpoint.address, txn).await?;
+        db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn).await?;
 
         Ok(())
     }
@@ -1099,7 +1105,7 @@ impl PreingestionManagerStatic {
                 };
 
                 tracing::info!("{} initial reset BMC reset intiated", endpoint.address);
-                DbExploredEndpoint::set_preingestion_initial_reset(
+                db::explored_endpoints::set_preingestion_initial_reset(
                     endpoint.address,
                     InitialResetPhase::BMCWasReset,
                     txn,
@@ -1134,7 +1140,7 @@ impl PreingestionManagerStatic {
                     "{} initial reset BMC reset complete, started host reset",
                     endpoint.address
                 );
-                DbExploredEndpoint::set_preingestion_initial_reset(
+                db::explored_endpoints::set_preingestion_initial_reset(
                     endpoint.address,
                     InitialResetPhase::WaitHostBoot,
                     txn,
@@ -1151,7 +1157,7 @@ impl PreingestionManagerStatic {
                 }
                 // Now we can actually proceed with the upgrade.  Go back to checking firmware so we don't have to store all of that info.
                 tracing::info!("{} initial reset complete", endpoint.address);
-                DbExploredEndpoint::set_preingestion_recheck_versions(endpoint.address, txn)
+                db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
                     .await?;
                 Ok(())
             }
@@ -1279,7 +1285,7 @@ impl PreingestionManagerStatic {
             }
         });
 
-        DbExploredEndpoint::set_preingestion_script_running(endpoint.address, txn).await?;
+        db::explored_endpoints::set_preingestion_script_running(endpoint.address, txn).await?;
         Ok(())
     }
 
@@ -1297,10 +1303,11 @@ impl PreingestionManagerStatic {
         self.upgrade_script_state.clear(&address).await;
 
         if success {
-            DbExploredEndpoint::set_preingestion_recheck_versions(endpoint.address, txn).await?;
+            db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
+                .await?;
             Ok(())
         } else {
-            DbExploredEndpoint::set_preingestion_failed(endpoint.address,format!(
+            db::explored_endpoints::set_preingestion_failed(endpoint.address,format!(
                     "The upgrade script failed.  Search the log for \"Upgrade script {}\" for script output.  Force delete the explored endpoint to retry.",
                     endpoint.address
                 ), txn).await?;
@@ -1512,7 +1519,7 @@ async fn initiate_update(
         endpoint_clone.address
     );
 
-    DbExploredEndpoint::set_preingestion_waittask(
+    db::explored_endpoints::set_preingestion_waittask(
         endpoint_clone.address,
         task,
         &to_install.version,

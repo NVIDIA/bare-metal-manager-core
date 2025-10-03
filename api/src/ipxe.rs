@@ -1,14 +1,13 @@
 use ::rpc::forge as rpc;
 use sqlx::PgConnection;
 
-use crate::db::machine_boot_override::MachineBootOverride;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine::{
     DpuInitState, FailureCause, FailureDetails, MeasuringState, ReprovisionState, ValidationState,
 };
-use crate::model::storage::OsImage;
 use crate::{
     CarbideError,
-    db::{self, instance::Instance, machine::MachineSearchConfig},
+    db::{self},
     model::machine::{InstanceState, ManagedHostState},
 };
 use forge_uuid::machine::{MachineInterfaceId, MachineType};
@@ -131,7 +130,7 @@ exit ||
         // It is possible for the pxe to be null if we are only trying to test the user data, and this will
         // follow the same code path and retrieve the non customer pxe
         if let Some(machine_boot_override) =
-            MachineBootOverride::find_optional(txn, interface_id).await?
+            db::machine_boot_override::find_optional(txn, interface_id).await?
             && let Some(custom_pxe) = machine_boot_override.custom_pxe
         {
             return Ok(custom_pxe);
@@ -145,13 +144,12 @@ exit ||
             // - If it's X86 and we have an exploration report, assume it's a Host.
             // - If it's ARM and we have an exploration report, check if the report is a bluefield
             //   model.
-            let Some(endpoint) = db::explored_endpoints::DbExploredEndpoint::find_by_mac_address(
-                txn,
-                interface.mac_address,
-            )
-            .await?
-            .into_iter()
-            .next() else {
+            let Some(endpoint) =
+                db::explored_endpoints::find_by_mac_address(txn, interface.mac_address)
+                    .await?
+                    .into_iter()
+                    .next()
+            else {
                 // This only happens if someone powered on a host manually before we ingested it,
                 // which is unlikely but possible.
                 tracing::info!(interface = ?interface, "Request for PXE instructions for unknown interface, skipping PXE boot");
@@ -284,7 +282,7 @@ exit ||
             ),
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Ready => {
-                    let instance = Instance::find_by_machine_id(txn, &machine_id)
+                    let instance = db::instance::find_by_machine_id(txn, &machine_id)
                         .await?
                         .ok_or(CarbideError::NotFoundError {
                             kind: "machine",
@@ -300,7 +298,8 @@ exit ||
                         if instance.use_custom_pxe_on_boot {
                             // We don't have to reset the flag for `always_boot_with_custom_ipxe`, since
                             // it's not used in this case
-                            Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn).await?;
+                            db::instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
+                                .await?;
                         }
 
                         match instance.config.os.variant {
@@ -319,7 +318,7 @@ exit ||
                                 tenant_ipxe
                             }
                             crate::model::os::OperatingSystemVariant::OsImage(id) => {
-                                let os_image = OsImage::get(txn, id).await?;
+                                let os_image = db::os_image::get(txn, id).await?;
                                 if os_image.attributes.create_volume {
                                     // this is a block storage os image
                                     // boot will be via the block storage snapshot volume

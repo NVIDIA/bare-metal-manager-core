@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::db::network_segment::NetworkSegment;
+use crate::db;
 use common::api_fixtures::create_managed_host_with_config;
 use common::api_fixtures::dpu;
 use common::api_fixtures::managed_host::ManagedHostConfig;
@@ -193,7 +193,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let segment = NetworkSegment::find_by_name(&mut txn, "TENANT")
+    let segment = db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap();
     let req = rpc::forge::IdentifyUuidRequest {

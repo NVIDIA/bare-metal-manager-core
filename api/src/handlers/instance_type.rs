@@ -17,9 +17,8 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::api::{Api, log_request_data};
-use crate::db::{
-    DatabaseError, ObjectFilter, instance, instance_type, machine::MachineSearchConfig,
-};
+use crate::db::{DatabaseError, ObjectFilter, instance, instance_type};
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::{instance_type::InstanceTypeMachineCapabilityFilter, metadata::Metadata};
 use crate::{CarbideError, db};
 
@@ -355,7 +354,7 @@ pub(crate) async fn delete(
         db::machine::find_ids_by_instance_type_id(&mut txn, &id, true).await?;
 
     // Check that there are no associated instances for the machines.
-    let instances = instance::Instance::find_by_machine_ids(
+    let instances = instance::find_by_machine_ids(
         &mut txn,
         &existing_associated_machines
             .iter()
@@ -513,8 +512,7 @@ pub(crate) async fn associate_machines(
     // that drives that doesn't seem to get persisted until sometime in
     // the future after an instance is created in the DB.
     let instances =
-        instance::Instance::find_by_machine_ids(&mut txn, &machine_ids.iter().collect::<Vec<_>>())
-            .await?;
+        instance::find_by_machine_ids(&mut txn, &machine_ids.iter().collect::<Vec<_>>()).await?;
 
     if !instances.is_empty() {
         return Err(CarbideError::FailedPrecondition(
@@ -614,7 +612,7 @@ pub(crate) async fn remove_machine_association(
     };
 
     // Check that there are no associated instances for the machines.
-    let instances = instance::Instance::find_by_machine_ids(&mut txn, &[&machine_id]).await?;
+    let instances = instance::find_by_machine_ids(&mut txn, &[&machine_id]).await?;
 
     if let Some(instance) = instances.first()
         && instance.deleted.is_none()

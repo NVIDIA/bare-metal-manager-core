@@ -14,7 +14,6 @@
 
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use crate::db;
-use crate::db::network_prefix::NetworkPrefix;
 use crate::db::{ObjectColumnFilter, network_prefix};
 use crate::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use crate::model::{hardware_info::HardwareInfo, machine::ManagedHostState};
@@ -52,7 +51,7 @@ pub async fn host_discover_dhcp(
         .unwrap()
         .unwrap();
 
-    let prefix = NetworkPrefix::find_by(
+    let prefix = db::network_prefix::find_by(
         &mut txn,
         ObjectColumnFilter::One(
             network_prefix::SegmentIdColumn,

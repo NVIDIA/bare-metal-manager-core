@@ -15,20 +15,19 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_prefix as db;
 use crate::db::{DatabaseError, ObjectColumnFilter};
-use ::rpc::errors::RpcDataConversionError;
+use crate::model::network_prefix::NetworkPrefix;
+use crate::model::vpc_prefix;
 use ::rpc::forge as rpc;
-use forge_uuid::vpc::VpcPrefixId;
-
+use ::rpc::forge::PrefixMatchType;
 pub async fn create(
     api: &Api,
     request: Request<rpc::VpcPrefixCreationRequest>,
 ) -> Result<Response<rpc::VpcPrefix>, Status> {
     log_request_data(&request);
 
-    let new_prefix = db::NewVpcPrefix::try_from(request.into_inner())?;
+    let new_prefix = vpc_prefix::NewVpcPrefix::try_from(request.into_inner())?;
 
     // Validate that the new VPC prefix is in canonical form (no bits set to
     // 1 after the prefix).
@@ -65,7 +64,7 @@ pub async fn create(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let conflicting_vpc_prefixes = new_prefix.probe(&mut txn).await?;
+    let conflicting_vpc_prefixes = db::probe(new_prefix.prefix, &mut txn).await?;
     if !conflicting_vpc_prefixes.is_empty() {
         let conflicting_vpc_prefixes = conflicting_vpc_prefixes.into_iter().map(|p| p.prefix);
         let conflicting_vpc_prefixes = itertools::join(conflicting_vpc_prefixes, ", ");
@@ -77,7 +76,7 @@ pub async fn create(
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
-    let segment_prefixes = new_prefix.probe_segment_prefixes(&mut txn).await?;
+    let segment_prefixes = db::probe_segment_prefixes(new_prefix.prefix, &mut txn).await?;
 
     // Check that all the prefixes we found are on segments that belong to our
     // own VPC.
@@ -141,13 +140,17 @@ pub async fn create(
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
-    let vpc_prefix = new_prefix.persist(&mut txn).await?;
+    let vpc_prefix = db::persist(new_prefix, &mut txn).await?;
 
     // Associate all of the network segment prefixes with the new VPC prefix.
     for mut segment_prefix in segment_prefixes {
-        segment_prefix
-            .set_vpc_prefix(&mut txn, &vpc_prefix.id, &vpc_prefix.prefix)
-            .await?;
+        crate::db::network_prefix::set_vpc_prefix(
+            &mut segment_prefix,
+            &mut txn,
+            &vpc_prefix.id,
+            &vpc_prefix.prefix,
+        )
+        .await?;
     }
 
     txn.commit()
@@ -188,13 +191,12 @@ pub async fn search(
                 IpNetwork::try_from(prefix.as_str()).map_err(CarbideError::NetworkParseError)?;
             let prefix_match_type = prefix_match_type
                 .ok_or_else(|| CarbideError::MissingArgument("prefix_match_type"))?;
-            use rpc::PrefixMatchType;
             let prefix_match_type = PrefixMatchType::try_from(prefix_match_type).map_err(|_e| {
                 CarbideError::InvalidArgument(format!(
                     "Unknown PrefixMatchType value: {prefix_match_type}"
                 ))
             })?;
-            use db::PrefixMatch;
+            use crate::model::vpc_prefix::PrefixMatch;
             let prefix_match = match prefix_match_type {
                 PrefixMatchType::PrefixExact => PrefixMatch::Exact(prefix),
                 PrefixMatchType::PrefixContains => PrefixMatch::Contains(prefix),
@@ -212,7 +214,7 @@ pub async fn search(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let vpc_prefix_ids = db::VpcPrefix::search(&mut txn, vpc_id, name, prefix_match).await?;
+    let vpc_prefix_ids = db::search(&mut txn, vpc_id, name, prefix_match).await?;
 
     txn.commit()
         .await
@@ -246,7 +248,7 @@ pub async fn get(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let vpc_prefixes = db::VpcPrefix::get_by_id(
+    let vpc_prefixes = db::get_by_id(
         &mut txn,
         ObjectColumnFilter::List(db::IdColumn, vpc_prefix_ids.as_slice()),
     )
@@ -266,7 +268,7 @@ pub async fn update(
 ) -> Result<Response<rpc::VpcPrefix>, Status> {
     log_request_data(&request);
 
-    let update_prefix = db::UpdateVpcPrefix::try_from(request.into_inner())?;
+    let update_prefix = vpc_prefix::UpdateVpcPrefix::try_from(request.into_inner())?;
 
     const DB_TXN_NAME: &str = "vpc_prefix::update";
 
@@ -276,7 +278,7 @@ pub async fn update(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let updated = update_prefix.update(&mut txn).await?;
+    let updated = db::update(&update_prefix, &mut txn).await?;
 
     txn.commit()
         .await
@@ -291,7 +293,7 @@ pub async fn delete(
 ) -> Result<Response<rpc::VpcPrefixDeletionResult>, Status> {
     log_request_data(&request);
 
-    let delete_prefix = db::DeleteVpcPrefix::try_from(request.into_inner())?;
+    let delete_prefix = vpc_prefix::DeleteVpcPrefix::try_from(request.into_inner())?;
 
     const DB_TXN_NAME: &str = "vpc_prefix::delete";
 
@@ -306,95 +308,11 @@ pub async fn delete(
     // whatever else might be pointing at them. For now we're just relying on
     // the DB constraints and returning whatever error that results in.
 
-    delete_prefix.delete(&mut txn).await?;
+    db::delete(&delete_prefix, &mut txn).await?;
 
     txn.commit()
         .await
         .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(rpc::VpcPrefixDeletionResult {}))
-}
-
-impl TryFrom<rpc::VpcPrefixCreationRequest> for db::NewVpcPrefix {
-    type Error = CarbideError;
-
-    fn try_from(value: rpc::VpcPrefixCreationRequest) -> Result<Self, Self::Error> {
-        let rpc::VpcPrefixCreationRequest {
-            id,
-            prefix,
-            name,
-            vpc_id,
-        } = value;
-
-        let id = id.unwrap_or_else(|| VpcPrefixId::from(uuid::Uuid::new_v4()));
-        let vpc_id = vpc_id.ok_or_else(|| CarbideError::MissingArgument("vpc_id"))?;
-        let prefix =
-            IpNetwork::try_from(prefix.as_str()).map_err(CarbideError::NetworkParseError)?;
-        // let id = VpcPrefixId::from(uuid::Uuid::new_v4());
-
-        Ok(Self {
-            id,
-            prefix,
-            name,
-            vpc_id,
-        })
-    }
-}
-
-impl From<db::VpcPrefix> for rpc::VpcPrefix {
-    fn from(db_vpc_prefix: db::VpcPrefix) -> Self {
-        let db::VpcPrefix {
-            id,
-            prefix,
-            name,
-            vpc_id,
-            ..
-        } = db_vpc_prefix;
-
-        let id = Some(id);
-        let prefix = prefix.to_string();
-        let vpc_id = Some(vpc_id);
-
-        Self {
-            id,
-            prefix,
-            name,
-            vpc_id,
-            total_31_segments: db_vpc_prefix.total_31_segments,
-            available_31_segments: db_vpc_prefix.available_31_segments,
-        }
-    }
-}
-
-impl TryFrom<rpc::VpcPrefixUpdateRequest> for db::UpdateVpcPrefix {
-    type Error = CarbideError;
-
-    fn try_from(rpc_update_prefix: rpc::VpcPrefixUpdateRequest) -> Result<Self, Self::Error> {
-        let rpc::VpcPrefixUpdateRequest { id, prefix, name } = rpc_update_prefix;
-
-        prefix
-            .map(|_| -> Result<(), CarbideError> {
-                Err(CarbideError::InvalidArgument(
-                    "Resizing VPC prefixes is currently unsupported".to_owned(),
-                ))
-            })
-            .transpose()?;
-        let id = id.ok_or(RpcDataConversionError::MissingArgument("id"))?;
-        let name = name.ok_or_else(|| {
-            CarbideError::InvalidArgument("At least one updated field must be set".to_owned())
-        })?;
-
-        Ok(Self { id, name })
-    }
-}
-
-impl TryFrom<rpc::VpcPrefixDeletionRequest> for db::DeleteVpcPrefix {
-    type Error = CarbideError;
-
-    fn try_from(rpc_delete_prefix: rpc::VpcPrefixDeletionRequest) -> Result<Self, Self::Error> {
-        let id = rpc_delete_prefix
-            .id
-            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
-        Ok(Self { id })
-    }
 }

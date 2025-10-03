@@ -9,12 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use crate::tests::common;
 use crate::{
     CarbideError,
-    db::{
-        expected_machine::{ExpectedMachine, ExpectedMachineData},
-        explored_endpoints::DbExploredEndpoint,
-    },
+    db::{self},
     model::{metadata::Metadata, site_explorer::EndpointExplorationReport},
 };
 use common::api_fixtures::create_test_env;
@@ -24,13 +23,11 @@ use sqlx::PgConnection;
 use std::default::Default;
 use uuid::Uuid;
 
-use crate::tests::common;
-
 // Test DB Functionality
 async fn get_expected_machine_1(txn: &mut PgConnection) -> Option<ExpectedMachine> {
     let fixture_mac_address = "0a:0b:0c:0d:0e:0f".parse().unwrap();
 
-    ExpectedMachine::find_by_bmc_mac_address(txn, fixture_mac_address)
+    db::expected_machine::find_by_bmc_mac_address(txn, fixture_mac_address)
         .await
         .unwrap()
 }
@@ -64,7 +61,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .await
         .expect("Expected machine not found");
 
-    let new_machine = ExpectedMachine::create(
+    let new_machine = db::expected_machine::create(
         &mut txn,
         machine.bmc_mac_address,
         ExpectedMachineData {
@@ -99,10 +96,14 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     assert_eq!(machine.data.serial_number, "VVG121GG");
 
-    machine
-        .update_bmc_credentials(&mut txn, "ADMIN2".to_string(), "wysiwyg".to_string())
-        .await
-        .expect("Error updating bmc username/password");
+    db::expected_machine::update_bmc_credentials(
+        &mut machine,
+        &mut txn,
+        "ADMIN2".to_string(),
+        "wysiwyg".to_string(),
+    )
+    .await
+    .expect("Error updating bmc username/password");
 
     txn.commit().await.expect("Failed to commit transaction");
 
@@ -133,7 +134,7 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
 
     assert_eq!(machine.data.serial_number, "VVG121GG");
 
-    ExpectedMachine::delete(machine.bmc_mac_address, &mut txn)
+    db::expected_machine::delete(machine.bmc_mac_address, &mut txn)
         .await
         .expect("Error deleting expected_machine");
 
@@ -570,7 +571,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
     let bmc_mac = host_machine.bmc_info.as_ref().unwrap().mac();
 
     let mut txn = pool.begin().await.unwrap();
-    DbExploredEndpoint::insert(
+    db::explored_endpoints::insert(
         bmc_ip.parse().unwrap(),
         &EndpointExplorationReport::default(),
         &mut txn,
@@ -746,19 +747,19 @@ async fn test_with_dpu_serial_numbers(
         .await
         .expect("unable to create transaction on database pool");
 
-    let em0 = ExpectedMachine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_0)
+    let em0 = db::expected_machine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_0)
         .await
         .unwrap()
         .expect("Expected machine not found");
     assert!(em0.data.fallback_dpu_serial_numbers.is_empty());
 
-    let em3 = ExpectedMachine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_3)
+    let em3 = db::expected_machine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_3)
         .await
         .unwrap()
         .expect("Expected machine not found");
     assert_eq!(em3.data.fallback_dpu_serial_numbers, vec!["dpu_serial1"]);
 
-    let em4 = ExpectedMachine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_4)
+    let em4 = db::expected_machine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_4)
         .await
         .unwrap()
         .expect("Expected machine not found");

@@ -16,7 +16,6 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::db::machine_topology::MachineTopology;
     use crate::measured_boot::db;
     use crate::measured_boot::rpc::bundle;
     use crate::measured_boot::rpc::journal;
@@ -2009,7 +2008,7 @@ mod tests {
         )
         .await
         .unwrap();
-        MachineTopology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)
+        crate::db::machine_topology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)
             .await
             .unwrap();
 

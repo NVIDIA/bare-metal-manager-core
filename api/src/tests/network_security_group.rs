@@ -1249,7 +1249,7 @@ async fn test_network_security_group_propagation_impl(
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
     let mut txn = pool.clone().begin().await.unwrap();
-    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = crate::db::instance::find_by_id(&mut txn, instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1453,7 +1453,7 @@ async fn test_network_security_group_propagation_impl(
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
     let mut txn = pool.clone().begin().await.unwrap();
-    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance_id2)
+    let instance = crate::db::instance::find_by_id(&mut txn, instance_id2)
         .await
         .unwrap()
         .unwrap();

@@ -9,11 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
 
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
-use sqlx::{PgConnection, Postgres, Row, postgres::PgRow};
+use sqlx::{PgConnection, Postgres};
 
 use crate::{
     CarbideError,
@@ -23,30 +22,6 @@ use crate::{
         metadata::Metadata,
     },
 };
-
-impl<'r> sqlx::FromRow<'r, PgRow> for InstanceType {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
-
-        let metadata = Metadata {
-            name: row.try_get("name")?,
-            description: row.try_get("description")?,
-            labels: labels.0,
-        };
-
-        let desired_capabilities: sqlx::types::Json<Vec<InstanceTypeMachineCapabilityFilter>> =
-            row.try_get("desired_capabilities")?;
-
-        Ok(InstanceType {
-            id: row.try_get("id")?,
-            version: row.try_get("version")?,
-            created: row.try_get("created")?,
-            deleted: row.try_get("deleted")?,
-            metadata,
-            desired_capabilities: desired_capabilities.0,
-        })
-    }
-}
 
 /// Creates a new InstanceType DB record.  It enforces a unique `name` by
 /// only creating if there is no active record found with the same name.
@@ -231,6 +206,7 @@ mod tests {
         machine::capabilities::{MachineCapabilityDeviceType, MachineCapabilityType},
         metadata::Metadata,
     };
+    use std::collections::HashMap;
 
     #[crate::sqlx_test]
     async fn instance_type_crud(pool: sqlx::PgPool) {

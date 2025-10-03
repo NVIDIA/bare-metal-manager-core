@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db::explored_managed_host::DbExploredManagedHost;
+use crate::db;
 use crate::model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use crate::tests::common::api_fixtures::create_test_env;
 use ::rpc::forge as rpc;
@@ -39,7 +39,7 @@ async fn test_find_explored_managed_host_ids(
             }],
         });
     }
-    DbExploredManagedHost::update(&mut txn, managed_hosts.as_slice()).await?;
+    db::explored_managed_host::update(&mut txn, managed_hosts.as_slice()).await?;
     txn.commit().await?;
 
     let id_list = env
@@ -76,7 +76,7 @@ async fn test_find_explored_managed_hosts_by_ids(
             }],
         });
     }
-    DbExploredManagedHost::update(&mut txn, managed_hosts.as_slice()).await?;
+    db::explored_managed_host::update(&mut txn, managed_hosts.as_slice()).await?;
     txn.commit().await?;
 
     let id_list = env

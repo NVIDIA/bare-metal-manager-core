@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 
@@ -21,6 +21,8 @@ use crate::model::metadata::Metadata;
 use forge_uuid::UuidConversionError;
 use forge_uuid::instance::InstanceId;
 use rpc::errors::RpcDataConversionError;
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
 
 #[derive(thiserror::Error, Debug)]
 pub enum TenantError {
@@ -485,5 +487,59 @@ mod tests {
         };
 
         assert_eq!("randomkey123", pub_key.to_string());
+    }
+}
+
+// simplified tenant keyset id struct with tenant_org_id and keyset_id both as string
+// used in find_ids and find_by_ids
+#[derive(Debug, Clone, FromRow)]
+pub struct TenantKeysetId {
+    pub organization_id: String,
+    pub keyset_id: String,
+}
+
+impl From<TenantKeysetId> for rpc::forge::TenantKeysetIdentifier {
+    fn from(src: TenantKeysetId) -> Self {
+        Self {
+            organization_id: src.organization_id,
+            keyset_id: src.keyset_id,
+        }
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for Tenant {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let organization_id: String = row.try_get("organization_id")?;
+        let name: String = row.try_get("organization_name")?;
+        Ok(Self {
+            organization_id: organization_id
+                .try_into()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            metadata: Metadata {
+                name,
+                description: String::new(), // We're using metadata for consistency,
+                labels: HashMap::new(), // but description and labels might never be used for Tenant
+            },
+            version: row.try_get("version")?,
+        })
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for TenantKeyset {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let tenant_keyset_content: sqlx::types::Json<TenantKeysetContent> =
+            row.try_get("content")?;
+
+        let organization_id: String = row.try_get("organization_id")?;
+        Ok(Self {
+            version: row.try_get("version")?,
+            keyset_content: tenant_keyset_content.0,
+            keyset_identifier: TenantKeysetIdentifier {
+                organization_id: organization_id
+                    .try_into()
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+                keyset_id: row.try_get("keyset_id")?,
+            },
+        })
     }
 }

@@ -16,13 +16,13 @@
 */
 
 use crate::db::DatabaseError;
-use crate::db::machine_topology::TopologyData;
 use crate::measured_boot::db::journal::get_latest_journal_for_id;
 use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::machine::{
     get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
 };
+use crate::model::machine::topology::TopologyData;
 use crate::{CarbideError, CarbideResult};
 use chrono::Utc;
 use forge_uuid::DbTable;

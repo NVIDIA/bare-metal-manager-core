@@ -18,7 +18,7 @@ use std::{
 use sqlx::PgConnection;
 
 use crate::{
-    db::{DatabaseError, explored_endpoints::DbExploredEndpoint},
+    db::{self, DatabaseError},
     model::site_explorer::{
         Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
         Inventory, PowerState, Service,
@@ -50,7 +50,7 @@ async fn insert_endpoint(
     model: &str,
     bmc_version: &str,
 ) -> Result<(), DatabaseError> {
-    DbExploredEndpoint::insert(
+    db::explored_endpoints::insert(
         IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
         &build_exploration_report(vendor, model, bmc_version, machine_id_str),
         txn,

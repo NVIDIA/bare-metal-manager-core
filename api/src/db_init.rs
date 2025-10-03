@@ -16,18 +16,21 @@ use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
 use sqlx::{Pool, Postgres};
 
-use crate::db::vpc::{self, NewVpc, Vpc};
+use crate::db::vpc::{self};
 use crate::db::{ObjectColumnFilter, network_segment};
+use crate::model::domain::NewDomain;
 use crate::model::metadata::Metadata;
+use crate::model::network_segment::NewNetworkSegment;
+use crate::model::vpc::NewVpc;
 use crate::{
     CarbideError,
     api::Api,
     cfg::file::AgentUpgradePolicyChoice,
+    db,
     db::{
         DatabaseError,
-        domain::{self, Domain, NewDomain},
-        dpu_agent_upgrade_policy::DpuAgentUpgradePolicy,
-        network_segment::{NetworkSegment, NewNetworkSegment},
+        domain::{self},
+        dpu_agent_upgrade_policy,
     },
     model::{machine::upgrade_policy::AgentUpgradePolicy, network_segment::NetworkDefinition},
 };
@@ -43,10 +46,11 @@ pub async fn create_initial_domain(
         .begin()
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
-    let domains = Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+    let domains =
+        db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     if domains.is_empty() {
         let domain = NewDomain::new(domain_name);
-        domain.persist_first(&mut txn).await?;
+        db::domain::persist_first(&domain, &mut txn).await?;
         txn.commit()
             .await
             .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
@@ -75,7 +79,7 @@ pub async fn create_initial_networks(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let all_domains =
-        Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+        db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     if all_domains.len() != 1 {
         // We only create initial networks if we only have a single domain - usually created
         // as initial_domain_name in config file.
@@ -86,7 +90,10 @@ pub async fn create_initial_networks(
     }
     let domain_id = all_domains[0].id;
     for (name, def) in networks {
-        if NetworkSegment::find_by_name(&mut txn, name).await.is_ok() {
+        if db::network_segment::find_by_name(&mut txn, name)
+            .await
+            .is_ok()
+        {
             // Network segments are only created the first time we start carbide-api
             tracing::debug!("Network segment {name} exists");
             continue;
@@ -109,10 +116,10 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
         .begin()
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
-    let all_segments = NetworkSegment::find_by(
+    let all_segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::<network_segment::IdColumn>::All,
-        crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+        crate::model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -122,7 +129,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
         .collect::<Vec<_>>();
 
     let all_vpcs_ids = all_segments.iter().filter_map(|x| x.vpc_id).collect_vec();
-    let all_vpcs = Vpc::find_by(
+    let all_vpcs = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::List(vpc::IdColumn, &all_vpcs_ids),
     )
@@ -163,7 +170,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        match segment.allocate_svi_ip(&mut txn).await {
+        match db::network_segment::allocate_svi_ip(&segment, &mut txn).await {
             Ok(_) => {
                 txn.commit()
                     .await
@@ -196,10 +203,10 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
     let initial_policy: AgentUpgradePolicy = initial_dpu_agent_upgrade_policy
         .unwrap_or(super::cfg::file::AgentUpgradePolicyChoice::UpOnly)
         .into();
-    let current_policy = DpuAgentUpgradePolicy::get(&mut txn).await?;
+    let current_policy = dpu_agent_upgrade_policy::get(&mut txn).await?;
     // Only set if the very first time, it's the initial policy
     if current_policy.is_none() {
-        DpuAgentUpgradePolicy::set(&mut txn, initial_policy).await?;
+        dpu_agent_upgrade_policy::set(&mut txn, initial_policy).await?;
         tracing::debug!(
             %initial_policy,
             "Initialized DPU agent upgrade policy"
@@ -228,8 +235,8 @@ pub(crate) async fn create_admin_vpc(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let admin_segment = NetworkSegment::admin(&mut txn).await?;
-    let existing_vpc = Vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
+    let admin_segment = db::network_segment::admin(&mut txn).await?;
+    let existing_vpc = db::vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
     if let Some(existing_vpc) = existing_vpc.first() {
         if let Some(vpc_id) = admin_segment.vpc_id {
             if vpc_id != existing_vpc.id {
@@ -243,9 +250,12 @@ pub(crate) async fn create_admin_vpc(
             return Ok(());
         } else {
             // Somehow vni field is not updated in network segment table. do it now.
-            admin_segment
-                .set_vpc_id_and_can_stretch(&mut txn, existing_vpc.id)
-                .await?;
+            db::network_segment::set_vpc_id_and_can_stretch(
+                &admin_segment,
+                &mut txn,
+                existing_vpc.id,
+            )
+            .await?;
             return Ok(());
         }
     }
@@ -263,13 +273,11 @@ pub(crate) async fn create_admin_vpc(
         },
     };
 
-    let vpc = admin_vpc.persist(&mut txn).await?;
-    Vpc::set_vni(&mut txn, vpc.id, vpc_vni as i32).await?;
+    let vpc = db::vpc::persist(admin_vpc, &mut txn).await?;
+    db::vpc::set_vni(&mut txn, vpc.id, vpc_vni as i32).await?;
 
     // Attach it to admin network segment.
-    admin_segment
-        .set_vpc_id_and_can_stretch(&mut txn, vpc.id)
-        .await?;
+    db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;
 
     txn.commit()
         .await

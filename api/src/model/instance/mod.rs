@@ -9,7 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use crate::errors::CarbideError;
+use crate::model::instance::config::InstanceConfig;
+use crate::model::metadata::Metadata;
+use config_version::ConfigVersion;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::instance_type::InstanceTypeId;
 use forge_uuid::machine::MachineId;
 
 pub mod config;
@@ -21,4 +26,35 @@ pub enum InstanceNetworkSyncStatus {
     ZeroDpuNoObservationNeeded,
     InstanceNetworkSynced,
     InstanceNetworkNotSynced(Vec<MachineId>),
+}
+
+pub struct NewInstance<'a> {
+    pub instance_id: InstanceId,
+    pub machine_id: MachineId,
+    pub instance_type_id: Option<InstanceTypeId>,
+    pub config: &'a InstanceConfig,
+    pub metadata: Metadata,
+    pub config_version: ConfigVersion,
+    pub network_config_version: ConfigVersion,
+    pub ib_config_version: ConfigVersion,
+    pub storage_config_version: ConfigVersion,
+}
+
+pub struct DeleteInstance {
+    pub instance_id: InstanceId,
+    pub issue: Option<rpc::forge::Issue>,
+    pub is_repair_tenant: Option<bool>,
+}
+
+impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
+    type Error = CarbideError;
+
+    fn try_from(value: rpc::InstanceReleaseRequest) -> Result<Self, Self::Error> {
+        let instance_id = value.id.ok_or(CarbideError::MissingArgument("id"))?;
+        Ok(DeleteInstance {
+            instance_id,
+            issue: value.issue,
+            is_repair_tenant: value.is_repair_tenant,
+        })
+    }
 }

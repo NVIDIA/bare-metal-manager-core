@@ -18,6 +18,7 @@ use std::{
 };
 
 use super::site_explorer;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::tests::common::{
     api_fixtures::{
         FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost, managed_host::ManagedHostConfig,
@@ -27,7 +28,6 @@ use crate::tests::common::{
 use crate::{
     cfg::file::DpuConfig as InitialDpuConfig,
     db,
-    db::machine::MachineSearchConfig,
     model::{
         hardware_info::HardwareInfo,
         site_explorer::{

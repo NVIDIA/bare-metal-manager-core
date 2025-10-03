@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db::vpc::Vpc;
+use crate::db;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::{TestEnv, create_test_env, vpc::create_vpc};
 use ::rpc::forge as rpc;
@@ -180,7 +180,7 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
         INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
     "#).bind(vpc_id).execute(txn.deref_mut()).await?;
 
-    let some_vpc = Vpc::find_by_name(&mut txn, "test vpc 1").await?;
+    let some_vpc = db::vpc::find_by_name(&mut txn, "test vpc 1").await?;
 
     assert_eq!(1, some_vpc.len());
 
@@ -326,12 +326,14 @@ async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let vpc_id = Vpc::find_by_name(&mut txn, "test vpc 1")
+    let vpc_id = db::vpc::find_by_name(&mut txn, "test vpc 1")
         .await
         .unwrap()
         .first()
         .unwrap()
         .id;
-    let vpc = Vpc::find_by_segment(&mut txn, segment_id).await.unwrap();
+    let vpc = db::vpc::find_by_segment(&mut txn, segment_id)
+        .await
+        .unwrap();
     assert_eq!(vpc.id.to_string(), vpc_id.to_string());
 }

@@ -1,4 +1,3 @@
-use crate::db::network_segment::NetworkSegment;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -10,9 +9,11 @@ use crate::db::network_segment::NetworkSegment;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db::ObjectColumnFilter;
-use crate::db::vpc::{self, UpdateVpc, UpdateVpcVirtualization, Vpc};
+use crate::db::vpc::{self};
+use crate::db::{self, ObjectColumnFilter};
 use crate::model::metadata::Metadata;
+use crate::model::vpc::{UpdateVpc, UpdateVpcVirtualization};
+use crate::tests::common;
 use crate::{CarbideError, db_init};
 use common::api_fixtures::{create_test_env, populate_network_security_groups};
 use config_version::ConfigVersion;
@@ -21,8 +22,6 @@ use forge_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
 use std::collections::HashMap;
 use std::ops::DerefMut;
-
-use crate::tests::common;
 
 #[crate::sqlx_test]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -122,13 +121,15 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         labels: HashMap::from([("label_new_key".to_string(), "label_new_value".to_string())]),
     };
 
-    let updated_vpc = UpdateVpc {
-        id: no_org_vpc_id,
-        if_version_match: None,
-        metadata: updated_metadata.clone(),
-        network_security_group_id: None,
-    }
-    .update(&mut txn)
+    let updated_vpc = db::vpc::update(
+        &UpdateVpc {
+            id: no_org_vpc_id,
+            if_version_match: None,
+            metadata: updated_metadata.clone(),
+            network_security_group_id: None,
+        },
+        &mut txn,
+    )
     .await?;
 
     assert_eq!(updated_vpc.metadata, updated_metadata);
@@ -145,15 +146,17 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     // Update virtualization type.
     let orig_virtualization_type = updated_vpc.network_virtualization_type;
-    let _updated_vpc_virtualization = UpdateVpcVirtualization {
-        id: no_org_vpc_id,
-        if_version_match: None,
-        network_virtualization_type: VpcVirtualizationType::Fnn,
-    }
-    .update(&mut txn)
+    let _updated_vpc_virtualization = db::vpc::update_virtualization(
+        &UpdateVpcVirtualization {
+            id: no_org_vpc_id,
+            if_version_match: None,
+            network_virtualization_type: VpcVirtualizationType::Fnn,
+        },
+        &mut txn,
+    )
     .await?;
 
-    let mut vpcs = Vpc::find_by(
+    let mut vpcs = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
@@ -166,15 +169,17 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     // And then put the virtualization type back and mark
     // this as the latest `updated_vpc` for subsequent checks.
-    let updated_vpc = UpdateVpcVirtualization {
-        id: no_org_vpc_id,
-        if_version_match: None,
-        network_virtualization_type: orig_virtualization_type,
-    }
-    .update(&mut txn)
+    let updated_vpc = db::vpc::update_virtualization(
+        &UpdateVpcVirtualization {
+            id: no_org_vpc_id,
+            if_version_match: None,
+            network_virtualization_type: orig_virtualization_type,
+        },
+        &mut txn,
+    )
     .await?;
 
-    let mut vpcs = Vpc::find_by(
+    let mut vpcs = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
@@ -186,17 +191,19 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     );
 
     // Update on outdated version
-    let update_result = UpdateVpc {
-        id: no_org_vpc_id,
-        if_version_match: Some(initial_no_org_vpc_version),
-        network_security_group_id: None,
-        metadata: Metadata {
-            name: "never this name".to_string(),
-            description: "".to_string(),
-            labels: HashMap::new(),
+    let update_result = db::vpc::update(
+        &UpdateVpc {
+            id: no_org_vpc_id,
+            if_version_match: Some(initial_no_org_vpc_version),
+            network_security_group_id: None,
+            metadata: Metadata {
+                name: "never this name".to_string(),
+                description: "".to_string(),
+                labels: HashMap::new(),
+            },
         },
-    }
-    .update(&mut txn)
+        &mut txn,
+    )
     .await;
     assert!(matches!(
         update_result,
@@ -204,7 +211,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     ));
 
     // Check that the data was indeed not touched
-    let mut vpcs = Vpc::find_by(
+    let mut vpcs = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
@@ -214,22 +221,24 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(first.version.version_nr(), 4); // includes 2 changes to VPC virtualization type
 
     // Update on correct version
-    let updated_vpc = UpdateVpc {
-        id: no_org_vpc_id,
-        network_security_group_id: None,
-        if_version_match: Some(updated_vpc.version),
-        metadata: Metadata {
-            name: "yet another new name".to_string(),
-            description: "".to_string(),
-            labels: HashMap::new(),
+    let updated_vpc = db::vpc::update(
+        &UpdateVpc {
+            id: no_org_vpc_id,
+            network_security_group_id: None,
+            if_version_match: Some(updated_vpc.version),
+            metadata: Metadata {
+                name: "yet another new name".to_string(),
+                description: "".to_string(),
+                labels: HashMap::new(),
+            },
         },
-    }
-    .update(&mut txn)
+        &mut txn,
+    )
     .await?;
     assert_eq!(&updated_vpc.metadata.name, "yet another new name");
     assert_eq!(updated_vpc.version.version_nr(), 5);
 
-    let mut vpcs = Vpc::find_by(
+    let mut vpcs = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
@@ -238,28 +247,28 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(&first.metadata.name, "yet another new name");
     assert_eq!(first.version.version_nr(), 5);
 
-    let vpc = Vpc::try_delete(&mut txn, no_org_vpc_id).await?.unwrap();
+    let vpc = db::vpc::try_delete(&mut txn, no_org_vpc_id).await?.unwrap();
 
     assert!(vpc.deleted.is_some());
 
-    let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc.id)).await?;
+    let vpcs = db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc.id)).await?;
 
     txn.commit().await?;
 
     assert!(vpcs.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
+    let vpcs = db::vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert_eq!(vpcs.len(), 1);
     let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id");
     assert_eq!(vpcs[0].id, forge_vpc_id);
 
-    let vpc = Vpc::try_delete(&mut txn, forge_vpc_id).await?.unwrap();
+    let vpc = db::vpc::try_delete(&mut txn, forge_vpc_id).await?.unwrap();
     assert!(vpc.deleted.is_some());
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
+    let vpcs = db::vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert!(vpcs.is_empty());
     txn.commit().await?;
 
@@ -542,7 +551,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     // Try to set the second one's VNI to the first ones. It should fail
     let mut txn = env.pool.begin().await?;
-    if let Ok(()) = Vpc::set_vni(&mut txn, vpc_2_id, forge_vpc_1.vni.unwrap() as i32).await {
+    if let Ok(()) = db::vpc::set_vni(&mut txn, vpc_2_id, forge_vpc_1.vni.unwrap() as i32).await {
         panic!("VPCs should be prevented from having duplicate VNIs");
     }
     txn.commit().await?;
@@ -559,7 +568,8 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
         INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
     "#).bind(vpc_id).execute(txn.deref_mut()).await?;
 
-    let some_vpc = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
+    let some_vpc =
+        db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
     assert_eq!(1, some_vpc.len());
 
     let first = some_vpc.first();
@@ -701,7 +711,7 @@ async fn create_admin_vpc(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     db_init::create_admin_vpc(&env.pool, Some(vni)).await?;
 
     let mut txn = env.pool.begin().await?;
-    let mut admin_vpc = Vpc::find_by_vni(&mut txn, vni as i32).await?;
+    let mut admin_vpc = db::vpc::find_by_vni(&mut txn, vni as i32).await?;
 
     let admin_vpc = admin_vpc.remove(0);
 
@@ -710,7 +720,7 @@ async fn create_admin_vpc(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         VpcVirtualizationType::Fnn
     );
 
-    let admin_segment = NetworkSegment::admin(&mut txn).await?;
+    let admin_segment = db::network_segment::admin(&mut txn).await?;
 
     assert_eq!(admin_vpc.id, admin_segment.vpc_id.unwrap());
 

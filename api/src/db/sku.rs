@@ -6,9 +6,10 @@ use futures_util::stream::StreamExt;
 use itertools::Itertools;
 use sqlx::{Acquire, PgConnection};
 
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::{
     CarbideError,
-    db::{self, DatabaseError, machine::MachineSearchConfig},
+    db::{self, DatabaseError},
     model::{
         hardware_info::HardwareInfo,
         machine::{

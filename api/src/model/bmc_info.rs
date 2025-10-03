@@ -1,4 +1,5 @@
 use ::rpc::forge as rpc;
+use std::fmt::{Display, Formatter};
 use version_compare::Cmp;
 
 use crate::{CarbideError, CarbideResult};
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 use std::net::IpAddr;
-
+use std::str::FromStr;
 // TODO(chet): Once SocketAddr::parse_ascii is no longer an experimental
 // feature, it would be good to parse bmc_info.ip to verify it's a valid IP
 // address.
@@ -80,6 +81,65 @@ impl From<BmcInfo> for rpc::BmcInfo {
             mac: value.mac.map(|mac| mac.to_string()),
             version: value.version,
             firmware_version: value.firmware_version,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
+#[sqlx(type_name = "user_roles")]
+#[sqlx(rename_all = "lowercase")]
+pub enum UserRoles {
+    User,
+    Administrator,
+    Operator,
+    Noaccess,
+}
+
+impl Display for UserRoles {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            UserRoles::User => "user",
+            UserRoles::Administrator => "administrator",
+            UserRoles::Operator => "operator",
+            UserRoles::Noaccess => "noaccess",
+        };
+
+        write!(f, "{string}")
+    }
+}
+
+impl From<rpc::UserRoles> for UserRoles {
+    fn from(action: rpc::UserRoles) -> Self {
+        match action {
+            rpc::UserRoles::User => UserRoles::User,
+            rpc::UserRoles::Administrator => UserRoles::Administrator,
+            rpc::UserRoles::Operator => UserRoles::Operator,
+            rpc::UserRoles::Noaccess => UserRoles::Noaccess,
+        }
+    }
+}
+
+impl From<UserRoles> for rpc::UserRoles {
+    fn from(action: UserRoles) -> Self {
+        match action {
+            UserRoles::User => rpc::UserRoles::User,
+            UserRoles::Administrator => rpc::UserRoles::Administrator,
+            UserRoles::Operator => rpc::UserRoles::Operator,
+            UserRoles::Noaccess => rpc::UserRoles::Noaccess,
+        }
+    }
+}
+
+impl FromStr for UserRoles {
+    type Err = CarbideError;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "user" => Ok(UserRoles::User),
+            "administrator" => Ok(UserRoles::Administrator),
+            "operator" => Ok(UserRoles::Operator),
+            "noaccess" => Ok(UserRoles::Noaccess),
+            x => Err(CarbideError::internal(format!("Unknown role found: {x}"))),
         }
     }
 }

@@ -48,123 +48,131 @@ fn get_port_data<'a>(
     Ok(*port_data)
 }
 
-impl NetworkDevice {
-    pub async fn find(
-        txn: &mut PgConnection,
-        filter: ObjectFilter<'_, &str>,
-        search_config: &NetworkDeviceSearchConfig,
-    ) -> Result<Vec<Self>, DatabaseError> {
-        let base_query = "SELECT * FROM network_devices l {where}".to_owned();
+pub async fn find(
+    txn: &mut PgConnection,
+    filter: ObjectFilter<'_, &str>,
+    search_config: &NetworkDeviceSearchConfig,
+) -> Result<Vec<NetworkDevice>, DatabaseError> {
+    let base_query = "SELECT * FROM network_devices l {where}".to_owned();
 
-        let mut devices = match filter {
-            ObjectFilter::All => {
-                sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut *txn)
-                    .await
-                    .map_err(|e| DatabaseError::new("network_devices All", e))
-            }
-            ObjectFilter::One(id) => {
-                let where_clause = "WHERE l.id=$1".to_string();
-                sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
-                    .bind(id.to_string())
-                    .fetch_all(&mut *txn)
-                    .await
-                    .map_err(|e| DatabaseError::new("network_devices One", e))
-            }
-            ObjectFilter::List(list) => {
-                let where_clause = "WHERE l.id=ANY($1)".to_string();
-                let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
-                sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
-                    .bind(str_list)
-                    .fetch_all(&mut *txn)
-                    .await
-                    .map_err(|e| DatabaseError::new("network_devices List", e))
-            }
-        }?;
-
-        if search_config.include_dpus {
-            for device in &mut devices {
-                device.dpus =
-                    DpuToNetworkDeviceMap::find_by_network_device_id(txn, device.id()).await?;
-            }
+    let mut devices = match filter {
+        ObjectFilter::All => sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", ""))
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new("network_devices All", e)),
+        ObjectFilter::One(id) => {
+            let where_clause = "WHERE l.id=$1".to_string();
+            sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
+                .bind(id.to_string())
+                .fetch_all(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::new("network_devices One", e))
         }
-
-        Ok(devices)
-    }
-
-    async fn create(txn: &mut PgConnection, data: &LldpSwitchData) -> Result<Self, DatabaseError> {
-        let query = "INSERT INTO network_devices(id, name, description, ip_addresses) VALUES($1, $2, $3, $4::inet[]) RETURNING *";
-
-        sqlx::query_as(query)
-            .bind(&data.id)
-            .bind(&data.name)
-            .bind(&data.description)
-            .bind(&data.ip_address)
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))
-    }
-
-    pub async fn get_or_create_network_device(
-        txn: &mut PgConnection,
-        data: &LldpSwitchData,
-    ) -> Result<NetworkDevice, LldpError> {
-        let network_device = NetworkDevice::find(
-            txn,
-            ObjectFilter::One(&data.id),
-            &NetworkDeviceSearchConfig::new(false),
-        )
-        .await
-        .map_err(LldpError::from)?;
-
-        if !network_device.is_empty() {
-            return Ok(network_device[0].clone());
+        ObjectFilter::List(list) => {
+            let where_clause = "WHERE l.id=ANY($1)".to_string();
+            let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
+            sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
+                .bind(str_list)
+                .fetch_all(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::new("network_devices List", e))
         }
+    }?;
 
-        NetworkDevice::create(txn, data)
-            .await
-            .map_err(LldpError::from)
-    }
-
-    pub async fn lock_network_device_table(txn: &mut PgConnection) -> Result<(), DatabaseError> {
-        let query = "LOCK TABLE network_device_lock IN EXCLUSIVE MODE";
-        sqlx::query(query)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
-
-    /// This function should be called whenever a entry is updated/deleted in
-    /// port_to_network_device_map table. Problem with update is that it can create extra load on
-    /// db as there are very few chances of port update. So this function is called only from
-    /// delete port_to_network_device_map call.
-    pub async fn cleanup_unused_switches(txn: &mut PgConnection) -> Result<(), DatabaseError> {
-        Self::lock_network_device_table(txn).await?;
-        let query = "DELETE FROM network_devices WHERE id NOT IN (SELECT network_device_id FROM port_to_network_device_map) RETURNING *";
-
-        let result = sqlx::query_as::<_, NetworkDevice>(query)
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-
-        if !result.is_empty() {
-            let ids = result.iter().map(|x| x.id()).join(",");
-            tracing::info!(ids, "Network devices cleaned up as no attached DPU found.")
+    if search_config.include_dpus {
+        for device in &mut devices {
+            device.dpus =
+                dpu_to_network_device_map::find_by_network_device_id(txn, device.id()).await?;
         }
-
-        Ok(())
     }
+
+    Ok(devices)
 }
 
-impl DpuToNetworkDeviceMap {
+async fn create(
+    txn: &mut PgConnection,
+    data: &LldpSwitchData,
+) -> Result<NetworkDevice, DatabaseError> {
+    let query = "INSERT INTO network_devices(id, name, description, ip_addresses) VALUES($1, $2, $3, $4::inet[]) RETURNING *";
+
+    sqlx::query_as(query)
+        .bind(&data.id)
+        .bind(&data.name)
+        .bind(&data.description)
+        .bind(&data.ip_address)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+pub async fn get_or_create_network_device(
+    txn: &mut PgConnection,
+    data: &LldpSwitchData,
+) -> Result<NetworkDevice, LldpError> {
+    let network_device = find(
+        txn,
+        ObjectFilter::One(&data.id),
+        &NetworkDeviceSearchConfig::new(false),
+    )
+    .await
+    .map_err(LldpError::from)?;
+
+    if !network_device.is_empty() {
+        return Ok(network_device[0].clone());
+    }
+
+    create(txn, data).await.map_err(LldpError::from)
+}
+
+pub async fn lock_network_device_table(txn: &mut PgConnection) -> Result<(), DatabaseError> {
+    let query = "LOCK TABLE network_device_lock IN EXCLUSIVE MODE";
+    sqlx::query(query)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+/// This function should be called whenever a entry is updated/deleted in
+/// port_to_network_device_map table. Problem with update is that it can create extra load on
+/// db as there are very few chances of port update. So this function is called only from
+/// delete port_to_network_device_map call.
+pub async fn cleanup_unused_switches(txn: &mut PgConnection) -> Result<(), DatabaseError> {
+    lock_network_device_table(txn).await?;
+    let query = "DELETE FROM network_devices WHERE id NOT IN (SELECT network_device_id FROM port_to_network_device_map) RETURNING *";
+
+    let result = sqlx::query_as::<_, NetworkDevice>(query)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    if !result.is_empty() {
+        let ids = result.iter().map(|x| x.id()).join(",");
+        tracing::info!(ids, "Network devices cleaned up as no attached DPU found.")
+    }
+
+    Ok(())
+}
+
+pub async fn get_topology(
+    txn: &mut PgConnection,
+    filter: ObjectFilter<'_, &str>,
+) -> Result<NetworkTopologyData, LldpError> {
+    Ok(NetworkTopologyData {
+        network_devices: find(txn, filter, &NetworkDeviceSearchConfig::new(true)).await?,
+    })
+}
+
+pub mod dpu_to_network_device_map {
+    use super::*;
+
     pub async fn create(
         txn: &mut PgConnection,
         local_port: &str,
         remote_port: &str,
         dpu_id: &MachineId,
         network_device_id: &str,
-    ) -> Result<Self, DatabaseError> {
+    ) -> Result<DpuToNetworkDeviceMap, DatabaseError> {
         // Update the association if already exists, else just insert into table.
         let query = r#"INSERT INTO port_to_network_device_map(dpu_id, local_port, remote_port, network_device_id)
                          VALUES($1, $2::dpu_local_ports, $3, $4)
@@ -195,7 +203,7 @@ impl DpuToNetworkDeviceMap {
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
 
-        NetworkDevice::cleanup_unused_switches(txn).await
+        cleanup_unused_switches(txn).await
     }
 
     pub async fn create_dpu_network_device_association(
@@ -211,16 +219,15 @@ impl DpuToNetworkDeviceMap {
             return Ok(());
         }
 
-        NetworkDevice::lock_network_device_table(txn).await?;
+        lock_network_device_table(txn).await?;
 
         // Need to create 3 associations: oob_net0, p0 and p1
         for port in &[DpuLocalPorts::OobNet0, DpuLocalPorts::P0, DpuLocalPorts::P1] {
             // In case any port is missing, print error and continue to avoid discovery failure.
             match get_port_data(device_data, port) {
                 Ok(data) => {
-                    let tor = NetworkDevice::get_or_create_network_device(txn, data).await?;
-                    Self::create(txn, &data.local_port, &data.remote_port, dpu_id, tor.id())
-                        .await?;
+                    let tor = get_or_create_network_device(txn, data).await?;
+                    create(txn, &data.local_port, &data.remote_port, dpu_id, tor.id()).await?;
                 }
                 Err(err) => {
                     tracing::warn!(%port, error=format!("{err:#}"), "LLDP data missing");
@@ -234,7 +241,7 @@ impl DpuToNetworkDeviceMap {
     pub async fn find_by_network_device_id(
         txn: &mut PgConnection,
         device_id: &str,
-    ) -> Result<Vec<Self>, DatabaseError> {
+    ) -> Result<Vec<DpuToNetworkDeviceMap>, DatabaseError> {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE network_device_id=$1";
 
         sqlx::query_as(base_query)
@@ -247,7 +254,7 @@ impl DpuToNetworkDeviceMap {
     pub async fn find_by_dpu_ids(
         txn: &mut PgConnection,
         dpu_ids: &[MachineId],
-    ) -> Result<Vec<Self>, DatabaseError> {
+    ) -> Result<Vec<DpuToNetworkDeviceMap>, DatabaseError> {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE dpu_id=ANY($1)";
 
         sqlx::query_as(base_query)
@@ -255,21 +262,5 @@ impl DpuToNetworkDeviceMap {
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new("port_to_network_device_map", e))
-    }
-}
-
-impl NetworkTopologyData {
-    pub async fn get_topology(
-        txn: &mut PgConnection,
-        filter: ObjectFilter<'_, &str>,
-    ) -> Result<Self, LldpError> {
-        Ok(NetworkTopologyData {
-            network_devices: NetworkDevice::find(
-                txn,
-                filter,
-                &NetworkDeviceSearchConfig::new(true),
-            )
-            .await?,
-        })
     }
 }

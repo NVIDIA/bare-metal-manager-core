@@ -15,15 +15,14 @@ use forge_network::virtualization::VpcVirtualizationType;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::network_segment::NetworkSegment;
-use crate::db::network_segment::NetworkSegmentSearchConfig;
-use crate::db::network_segment::NetworkSegmentType;
-use crate::db::network_segment::NewNetworkSegment;
-use crate::db::vpc::Vpc;
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
+use crate::model::network_segment::NetworkSegment;
 use crate::model::network_segment::NetworkSegmentControllerState;
+use crate::model::network_segment::NetworkSegmentSearchConfig;
+use crate::model::network_segment::NetworkSegmentType;
+use crate::model::network_segment::NewNetworkSegment;
+use crate::{CarbideError, db};
 
 pub(crate) async fn find_ids(
     api: &Api,
@@ -40,7 +39,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
 
-    let network_segments_ids = NetworkSegment::find_ids(&mut txn, filter).await?;
+    let network_segments_ids = db::network_segment::find_ids(&mut txn, filter).await?;
 
     Ok(Response::new(rpc::NetworkSegmentIdList {
         network_segments_ids,
@@ -79,7 +78,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let segments = NetworkSegment::find_by(
+    let segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::List(network_segment::IdColumn, &network_segments_ids),
         NetworkSegmentSearchConfig {
@@ -127,7 +126,7 @@ pub(crate) async fn find(
     let search_config = search_config
         .map(NetworkSegmentSearchConfig::from)
         .unwrap_or(NetworkSegmentSearchConfig::default());
-    let results = NetworkSegment::find_by(&mut txn, segment_id_filter, search_config).await?;
+    let results = db::network_segment::find_by(&mut txn, segment_id_filter, search_config).await?;
     let mut network_segments = Vec::with_capacity(results.len());
 
     for result in results {
@@ -183,7 +182,7 @@ pub(crate) async fn create(
 
     let allocate_svi_ip = if let Some(vpc_id) = new_network_segment.vpc_id {
         if new_network_segment.can_stretch.unwrap_or(true) {
-            let vpcs = Vpc::find_by(
+            let vpcs = db::vpc::find_by(
                 &mut txn,
                 ObjectColumnFilter::One(crate::db::vpc::IdColumn, &vpc_id),
             )
@@ -228,7 +227,7 @@ pub(crate) async fn delete(
 
     let segment_id = id.ok_or_else(|| Box::new(CarbideError::MissingArgument("id").into()))?;
 
-    let mut segments = NetworkSegment::find_by(
+    let mut segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
         NetworkSegmentSearchConfig::default(),
@@ -249,8 +248,7 @@ pub(crate) async fn delete(
         }
     };
 
-    let response = Ok(segment
-        .mark_as_deleted(&mut txn)
+    let response = Ok(db::network_segment::mark_as_deleted(&segment, &mut txn)
         .await
         .map(|_| rpc::NetworkSegmentDeletionResult {})
         .map(Response::new)
@@ -282,7 +280,7 @@ pub(crate) async fn for_vpc(
 
     let uuid = id.ok_or_else(|| CarbideError::InvalidArgument("id".to_string()))?;
 
-    let results = NetworkSegment::for_vpc(&mut txn, uuid).await?;
+    let results = db::network_segment::for_vpc(&mut txn, uuid).await?;
 
     let mut network_segments = Vec::with_capacity(results.len());
 
@@ -310,7 +308,7 @@ pub(crate) async fn save(
     } else {
         NetworkSegmentControllerState::Provisioning
     };
-    let mut network_segment = match ns.persist(txn, initial_state).await {
+    let mut network_segment = match db::network_segment::persist(ns, txn, initial_state).await {
         Ok(segment) => segment,
         Err(DatabaseError {
             source: sqlx::Error::Database(e),
@@ -326,8 +324,8 @@ pub(crate) async fn save(
     };
 
     if allocate_svi_ip {
-        network_segment.allocate_svi_ip(txn).await?;
-        let network_segments = NetworkSegment::find_by(
+        db::network_segment::allocate_svi_ip(&network_segment, txn).await?;
+        let network_segments = db::network_segment::find_by(
             txn,
             ObjectColumnFilter::One(network_segment::IdColumn, &network_segment.id),
             NetworkSegmentSearchConfig::default(),
@@ -354,16 +352,13 @@ pub async fn allocate_vni(
     txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<i32, CarbideError> {
-    match api
-        .common_pools
-        .ethernet
-        .pool_vni
-        .allocate(
-            txn,
-            crate::resource_pool::OwnerType::NetworkSegment,
-            owner_id,
-        )
-        .await
+    match db::resource_pool::allocate(
+        &api.common_pools.ethernet.pool_vni,
+        txn,
+        crate::resource_pool::OwnerType::NetworkSegment,
+        owner_id,
+    )
+    .await
     {
         Ok(val) => Ok(val),
         Err(crate::resource_pool::ResourcePoolError::Empty) => {
@@ -385,16 +380,13 @@ pub async fn allocate_vlan_id(
     txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<i16, CarbideError> {
-    match api
-        .common_pools
-        .ethernet
-        .pool_vlan_id
-        .allocate(
-            txn,
-            crate::resource_pool::OwnerType::NetworkSegment,
-            owner_id,
-        )
-        .await
+    match db::resource_pool::allocate(
+        &api.common_pools.ethernet.pool_vlan_id,
+        txn,
+        crate::resource_pool::OwnerType::NetworkSegment,
+        owner_id,
+    )
+    .await
     {
         Ok(val) => Ok(val),
         Err(crate::resource_pool::ResourcePoolError::Empty) => {

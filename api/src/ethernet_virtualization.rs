@@ -16,20 +16,15 @@ use tonic::Status;
 
 use crate::cfg::file::VpcPeeringPolicy;
 use crate::db::ObjectColumnFilter;
-use crate::db::vpc::VpcDpuLoopback;
-use crate::db::vpc_peering::{VpcPeering, get_prefixes_by_vpcs};
-use crate::db::vpc_prefix::VpcPrefix;
+use crate::db::vpc_peering::get_prefixes_by_vpcs;
 use crate::model::network_security_group::NetworkSecurityGroupRuleNet;
+use crate::model::network_segment::NetworkSegment;
 use crate::resource_pool::common::CommonPools;
 use crate::{
     CarbideError,
     db::{
         self,
-        domain::Domain,
-        machine_interface_address::MachineInterfaceAddress,
-        network_prefix::NetworkPrefix,
-        network_segment::NetworkSegment,
-        vpc::{self, Vpc},
+        vpc::{self},
     },
     model::{
         instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
@@ -100,7 +95,7 @@ pub async fn admin_network(
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
-    let admin_segment = NetworkSegment::admin(txn).await?;
+    let admin_segment = db::network_segment::admin(txn).await?;
 
     let prefix = match admin_segment.prefixes.first() {
         Some(p) => p,
@@ -114,7 +109,7 @@ pub async fn admin_network(
 
     let domain = match admin_segment.subdomain_id {
         Some(domain_id) => {
-            Domain::find_by_uuid(txn, domain_id)
+            db::domain::find_by_uuid(txn, domain_id)
                 .await?
                 .ok_or_else(|| CarbideError::NotFoundError {
                     kind: "domain",
@@ -144,7 +139,7 @@ pub async fn admin_network(
         .into());
     };
 
-    let address = MachineInterfaceAddress::find_ipv4_for_interface(txn, interface.id).await?;
+    let address = db::machine_interface_address::find_ipv4_for_interface(txn, interface.id).await?;
 
     // On the admin network, the interface_prefix is always
     // just going to be a /32 derived from the machine interface
@@ -179,7 +174,7 @@ pub async fn admin_network(
         match admin_segment.vpc_id {
             Some(vpc_id) => {
                 let mut vpcs =
-                    Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
+                    db::vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
                 if vpcs.is_empty() {
                     return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
                 }
@@ -187,7 +182,7 @@ pub async fn admin_network(
                 match vpc.vni {
                     Some(vpc_vni) => {
                         let tenant_loopback_ip =
-                            VpcDpuLoopback::get_or_allocate_loopback_ip_for_vpc(
+                            db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
                                 common_pools,
                                 txn,
                                 dpu_machine_id,
@@ -302,11 +297,11 @@ pub async fn tenant_network(
 
     let vpc_prefixes: Vec<String> = match segment.vpc_id {
         Some(vpc_id) => {
-            let vpc_prefixes = VpcPrefix::find_by_vpc(txn, vpc_id)
+            let vpc_prefixes = db::vpc_prefix::find_by_vpc(txn, vpc_id)
                 .await?
                 .into_iter()
                 .map(|vpc_prefix| vpc_prefix.prefix.to_string());
-            let vpc_segment_prefixes = NetworkPrefix::find_by_vpc(txn, vpc_id)
+            let vpc_segment_prefixes = db::network_prefix::find_by_vpc(txn, vpc_id)
                 .await?
                 .into_iter()
                 .map(|segment_prefix| segment_prefix.prefix.to_string());
@@ -334,7 +329,7 @@ pub async fn tenant_network(
                         }
                         _ => vec![network_virtualization_type],
                     };
-                let vpc_peers = VpcPeering::get_vpc_peer_vnis(
+                let vpc_peers = db::vpc_peering::get_vpc_peer_vnis(
                     txn,
                     vpc_id,
                     allowed_network_virtualization_types,
@@ -349,11 +344,11 @@ pub async fn tenant_network(
             }
             VpcPeeringPolicy::Mixed => {
                 // Any combination of VPC peering allowed
-                let vpc_peer_ids = VpcPeering::get_vpc_peer_ids(txn, vpc_id).await?;
+                let vpc_peer_ids = db::vpc_peering::get_vpc_peer_ids(txn, vpc_id).await?;
                 vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
                 if network_virtualization_type == VpcVirtualizationType::Fnn {
                     // Get vnis of all FNN peers for route import
-                    vpc_peer_vnis = VpcPeering::get_vpc_peer_vnis(
+                    vpc_peer_vnis = db::vpc_peering::get_vpc_peer_vnis(
                         txn,
                         vpc_id,
                         vec![VpcVirtualizationType::Fnn],
@@ -370,7 +365,8 @@ pub async fn tenant_network(
 
     let vpc_vni = match segment.vpc_id {
         Some(vpc_id) => {
-            let vpcs = Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
+            let vpcs =
+                db::vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
             if vpcs.is_empty() {
                 return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
             }

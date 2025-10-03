@@ -10,83 +10,66 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{fmt, marker::PhantomData, str::FromStr};
+use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use sqlx::{PgConnection, Postgres, Row};
+use sqlx::{PgConnection, Postgres};
 
 use super::BIND_LIMIT;
-use crate::{CarbideError, db::DatabaseError, model::resource_pool::ResourcePoolEntryState};
+use crate::model::resource_pool::{
+    OwnerType, ResourcePool, ResourcePoolEntry, ResourcePoolError, ResourcePoolSnapshot,
+    ResourcePoolStats,
+};
+use crate::{db::DatabaseError, model::resource_pool::ResourcePoolEntryState};
 
-#[derive(Debug)]
-pub struct DbResourcePool<T>
+/// Put some resources into the pool, so they can be allocated later.
+/// This needs to be called before `allocate` can return anything.
+pub async fn populate<T>(
+    value: &ResourcePool<T>,
+    txn: &mut PgConnection,
+    all_values: Vec<T>,
+) -> Result<(), ResourcePoolError>
 where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
 {
-    name: String,
-    value_type: ValueType,
-    rust_type: PhantomData<T>,
+    let free_state = ResourcePoolEntryState::Free;
+    let initial_version = ConfigVersion::initial();
+
+    for vals in all_values.chunks(BIND_LIMIT / 4) {
+        let query = "INSERT INTO resource_pool(name, value, value_type, state, state_version) ";
+        let mut qb = sqlx::QueryBuilder::new(query);
+        qb.push_values(vals.iter(), |mut b, v| {
+            b.push_bind(&value.name)
+                .push_bind(v.to_string())
+                .push_bind(value.value_type)
+                .push_bind(sqlx::types::Json(&free_state))
+                .push_bind(initial_version);
+        });
+        qb.push("ON CONFLICT (name, value) DO NOTHING");
+        let q = qb.build();
+        q.execute(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?;
+    }
+    Ok(())
 }
 
-impl<T> DbResourcePool<T>
+/// Get a resource from the pool
+pub async fn allocate<T>(
+    value: &ResourcePool<T>,
+    txn: &mut PgConnection,
+    owner_type: OwnerType,
+    owner_id: &str,
+) -> Result<T, ResourcePoolError>
 where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
 {
-    pub fn new(name: String, value_type: ValueType) -> DbResourcePool<T> {
-        DbResourcePool {
-            name,
-            value_type,
-            rust_type: PhantomData,
-        }
+    if stats(&mut *txn, value.name()).await?.free == 0 {
+        return Err(ResourcePoolError::Empty);
     }
-
-    pub fn name(&self) -> &str {
-        self.name.as_ref()
-    }
-
-    /// Put some resources into the pool, so they can be allocated later.
-    /// This needs to be called before `allocate` can return anything.
-    pub async fn populate(
-        &self,
-        txn: &mut PgConnection,
-        all_values: Vec<T>,
-    ) -> Result<(), ResourcePoolError> {
-        let free_state = ResourcePoolEntryState::Free;
-        let initial_version = ConfigVersion::initial();
-
-        for vals in all_values.chunks(BIND_LIMIT / 4) {
-            let query = "INSERT INTO resource_pool(name, value, value_type, state, state_version) ";
-            let mut qb = sqlx::QueryBuilder::new(query);
-            qb.push_values(vals.iter(), |mut b, v| {
-                b.push_bind(&self.name)
-                    .push_bind(v.to_string())
-                    .push_bind(self.value_type)
-                    .push_bind(sqlx::types::Json(&free_state))
-                    .push_bind(initial_version);
-            });
-            qb.push("ON CONFLICT (name, value) DO NOTHING");
-            let q = qb.build();
-            q.execute(&mut *txn)
-                .await
-                .map_err(|e| DatabaseError::query(query, e))?;
-        }
-        Ok(())
-    }
-
-    /// Get a resource from the pool
-    pub async fn allocate(
-        &self,
-        txn: &mut PgConnection,
-        owner_type: OwnerType,
-        owner_id: &str,
-    ) -> Result<T, ResourcePoolError> {
-        if self.stats(&mut *txn).await?.free == 0 {
-            return Err(ResourcePoolError::Empty);
-        }
-        let query = "
+    let query = "
 WITH allocate AS (
  SELECT id, value FROM resource_pool
     WHERE name = $1 AND state = $2
@@ -101,60 +84,59 @@ FROM allocate
 WHERE resource_pool.id = allocate.id
 RETURNING allocate.value
 ";
-        let free_state = ResourcePoolEntryState::Free;
-        let allocated_state = ResourcePoolEntryState::Allocated {
-            owner: owner_id.to_string(),
+    let free_state = ResourcePoolEntryState::Free;
+    let allocated_state = ResourcePoolEntryState::Allocated {
+        owner: owner_id.to_string(),
+        owner_type: owner_type.to_string(),
+    };
+
+    // TODO: We should probably update the `state_version` field too. But
+    // it's hard to do this inside the SQL query.
+    let (allocated,): (String,) = sqlx::query_as(query)
+        .bind(&value.name)
+        .bind(sqlx::types::Json(&free_state))
+        .bind(sqlx::types::Json(&allocated_state))
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    let out = allocated
+        .parse()
+        .map_err(|e: <T as FromStr>::Err| ResourcePoolError::Parse {
+            e: e.to_string(),
+            v: allocated,
+            pool_name: value.name.clone(),
             owner_type: owner_type.to_string(),
-        };
+            owner_id: owner_id.to_string(),
+        })?;
+    Ok(out)
+}
 
-        // TODO: We should probably update the `state_version` field too. But
-        // it's hard to do this inside the SQL query.
-        let (allocated,): (String,) = sqlx::query_as(query)
-            .bind(&self.name)
-            .bind(sqlx::types::Json(&free_state))
-            .bind(sqlx::types::Json(&allocated_state))
-            .fetch_one(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        let out = allocated
-            .parse()
-            .map_err(|e: <T as FromStr>::Err| ResourcePoolError::Parse {
-                e: e.to_string(),
-                v: allocated,
-                pool_name: self.name.clone(),
-                owner_type: owner_type.to_string(),
-                owner_id: owner_id.to_string(),
-            })?;
-        Ok(out)
-    }
-
-    /// Return a resource to the pool
-    pub async fn release(&self, txn: &mut PgConnection, value: T) -> Result<(), ResourcePoolError> {
-        // TODO: If we would get passed the current owner, we could guard on that
-        // so that nothing else could release the value
-        let query = "
+/// Return a resource to the pool
+pub async fn release<T>(
+    pool: &ResourcePool<T>,
+    txn: &mut PgConnection,
+    value: T,
+) -> Result<(), ResourcePoolError>
+where
+    T: ToString + FromStr + Send + Sync + 'static,
+    <T as FromStr>::Err: std::error::Error,
+{
+    // TODO: If we would get passed the current owner, we could guard on that
+    // so that nothing else could release the value
+    let query = "
 UPDATE resource_pool SET
   allocated = NULL,
   state = $1
 WHERE name = $2 AND value = $3
 ";
-        sqlx::query(query)
-            .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
-            .bind(&self.name)
-            .bind(value.to_string())
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-        Ok(())
-    }
-
-    /// Count how many (used, unused) values are in the pool
-    pub async fn stats<'c, E>(&self, executor: E) -> Result<ResourcePoolStats, ResourcePoolError>
-    where
-        E: sqlx::Executor<'c, Database = Postgres>,
-    {
-        stats(executor, &self.name).await
-    }
+    sqlx::query(query)
+        .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
+        .bind(&pool.name)
+        .bind(value.to_string())
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
 }
 
 pub async fn stats<'c, E>(executor: E, name: &str) -> Result<ResourcePoolStats, ResourcePoolError>
@@ -215,151 +197,4 @@ pub async fn find_value(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(entry)
-}
-
-impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolStats {
-    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
-        let used: i64 = row.try_get("used")?;
-        let free: i64 = row.try_get("free")?;
-        Ok(ResourcePoolStats {
-            used: used as usize,
-            free: free as usize,
-        })
-    }
-}
-
-pub struct ResourcePoolSnapshot {
-    pub name: String,
-    pub min: String,
-    pub max: String,
-    pub stats: ResourcePoolStats,
-}
-
-impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolSnapshot {
-    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
-        Ok(ResourcePoolSnapshot {
-            name: row.try_get("name")?,
-            min: row.try_get("min")?,
-            max: row.try_get("max")?,
-            stats: ResourcePoolStats::from_row(row)?,
-        })
-    }
-}
-
-impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
-    fn from(rp: ResourcePoolSnapshot) -> Self {
-        rpc::forge::ResourcePool {
-            name: rp.name,
-            min: rp.min,
-            max: rp.max,
-            total: (rp.stats.free + rp.stats.used) as u64,
-            allocated: rp.stats.used as u64,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ResourcePoolEntry {
-    pub pool_name: String,
-    pub pool_type: ValueType,
-    pub state: sqlx::types::Json<ResourcePoolEntryState>,
-    pub allocated: Option<DateTime<Utc>>,
-    // pub value: String, // currently unused
-}
-
-impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolEntry {
-    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
-        Ok(ResourcePoolEntry {
-            pool_name: row.try_get("name")?,
-            pool_type: row.try_get("value_type")?,
-            state: row.try_get("state")?,
-            allocated: row.try_get("allocated")?,
-        })
-    }
-}
-
-/// What kind of data does our resource pool store?
-#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(rename_all = "lowercase")]
-#[sqlx(type_name = "resource_pool_type")]
-pub enum ValueType {
-    Integer = 0,
-    Ipv4,
-}
-
-impl fmt::Display for ValueType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Integer => write!(f, "Integer"),
-            Self::Ipv4 => write!(f, "Ipv4"),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum OwnerType {
-    /// owner_type for loopback_ip
-    Machine,
-
-    /// owner_type for vlan_id and vni
-    NetworkSegment,
-
-    /// owner_type for pkey
-    IBPartition,
-
-    /// owner_type for vpc_cni
-    Vpc,
-
-    /// owner_type for East West Networks
-    Dpa,
-}
-
-impl FromStr for OwnerType {
-    type Err = CarbideError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "machine" => Ok(Self::Machine),
-            "network_segment" => Ok(Self::NetworkSegment),
-            "ib_partition" => Ok(Self::IBPartition),
-            "vpc" => Ok(Self::Vpc),
-            x => Err(CarbideError::internal(format!("Unknown owner_type '{x}'"))),
-        }
-    }
-}
-
-impl fmt::Display for OwnerType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Machine => write!(f, "machine"),
-            Self::NetworkSegment => write!(f, "network_segment"),
-            Self::IBPartition => write!(f, "ib_partition"),
-            Self::Vpc => write!(f, "vpc"),
-            Self::Dpa => write!(f, "dpa"),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct ResourcePoolStats {
-    /// Number of allocated values in this pool
-    pub used: usize,
-
-    /// Number of available values in this pool
-    pub free: usize,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ResourcePoolError {
-    #[error("Resource pool is empty, cannot allocate")]
-    Empty,
-    #[error("Internal database error: {0}")]
-    Db(#[from] crate::db::DatabaseError),
-    #[error("Cannot convert '{v}' to {pool_name}'s pool type for {owner_type} {owner_id}: {e}")]
-    Parse {
-        e: String,
-        v: String,
-        pool_name: String,
-        owner_type: String,
-        owner_id: String,
-    },
 }

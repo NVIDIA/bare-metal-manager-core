@@ -12,14 +12,15 @@
 
 pub(crate) mod common;
 pub(crate) mod define;
-pub(crate) use crate::db::resource_pool::{
-    DbResourcePool, OwnerType, ResourcePoolError, ResourcePoolStats, ValueType, all, find_value,
-    stats,
-};
+pub(crate) use crate::db::resource_pool::{all, find_value, stats};
 pub(crate) use define::{DefineResourcePoolError, define_all_from};
 
 pub use define::ResourcePoolDef;
 
 // These are currently only used by api-test
+pub(crate) use crate::model::resource_pool::OwnerType;
+pub(crate) use crate::model::resource_pool::ResourcePool;
+pub(crate) use crate::model::resource_pool::ResourcePoolError;
+pub(crate) use crate::model::resource_pool::ValueType;
 #[cfg(test)]
 pub use define::{Range, ResourcePoolType};

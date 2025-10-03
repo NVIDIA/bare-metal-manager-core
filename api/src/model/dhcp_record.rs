@@ -1,0 +1,52 @@
+use forge_uuid::domain::DomainId;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use forge_uuid::network::NetworkSegmentId;
+use ipnetwork::IpNetwork;
+use mac_address::MacAddress;
+use sqlx::FromRow;
+use std::net::IpAddr;
+
+///
+/// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
+/// (not implemented) that returns the network information for that interface on that node, and
+/// contains everything necessary to return a DHCP response.
+///
+/// A DhcpRecord is populated by a database view (named machine_dhcp_records).
+///
+#[derive(Debug, FromRow)]
+pub struct DhcpRecord {
+    pub machine_id: Option<MachineId>,
+    pub segment_id: NetworkSegmentId,
+    pub machine_interface_id: MachineInterfaceId,
+    pub subdomain_id: Option<DomainId>,
+
+    pub fqdn: String,
+
+    pub mac_address: MacAddress,
+    pub address: IpAddr,
+    pub mtu: i32,
+
+    pub prefix: IpNetwork,
+    pub gateway: Option<IpAddr>,
+
+    pub last_invalidation_time: chrono::DateTime<chrono::Utc>,
+}
+
+impl From<DhcpRecord> for rpc::forge::DhcpRecord {
+    fn from(record: DhcpRecord) -> Self {
+        Self {
+            machine_id: record.machine_id,
+            machine_interface_id: Some(record.machine_interface_id),
+            segment_id: Some(record.segment_id),
+            subdomain_id: record.subdomain_id,
+            fqdn: record.fqdn,
+            mac_address: record.mac_address.to_string(),
+            address: record.address.to_string(),
+            mtu: record.mtu,
+            prefix: record.prefix.to_string(),
+            gateway: record.gateway.map(|gw| gw.to_string()),
+            booturl: None, // TODO(ajf): extend database, synthesize URL
+            last_invalidation_time: Some(record.last_invalidation_time.into()),
+        }
+    }
+}

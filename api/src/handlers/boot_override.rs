@@ -15,7 +15,7 @@ use ::rpc::forge as rpc;
 use crate::api::Api;
 use crate::db;
 use crate::db::DatabaseError;
-use crate::db::machine_boot_override::MachineBootOverride;
+use crate::model::machine_boot_override::MachineBootOverride;
 use forge_uuid::machine::MachineInterfaceId;
 
 pub(crate) async fn get(
@@ -41,7 +41,8 @@ pub(crate) async fn get(
         crate::api::log_machine_id(&machine_id);
     }
 
-    let mbo = match MachineBootOverride::find_optional(&mut txn, machine_interface_id).await? {
+    let mbo = match db::machine_boot_override::find_optional(&mut txn, machine_interface_id).await?
+    {
         Some(mbo) => mbo,
         None => MachineBootOverride {
             machine_interface_id,
@@ -88,7 +89,7 @@ pub(crate) async fn set(
         ),
     }
 
-    mbo.update_or_insert(&mut txn).await?;
+    db::machine_boot_override::update_or_insert(&mbo, &mut txn).await?;
 
     txn.commit()
         .await
@@ -131,7 +132,7 @@ pub(crate) async fn clear(
             "Boot override for machine_interface_id disabled"
         ),
     }
-    MachineBootOverride::clear(&mut txn, machine_interface_id).await?;
+    db::machine_boot_override::clear(&mut txn, machine_interface_id).await?;
 
     txn.commit()
         .await

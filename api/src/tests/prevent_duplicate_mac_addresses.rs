@@ -10,10 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use crate::CarbideError;
-use crate::db::{
-    self, ObjectColumnFilter, address_selection_strategy::AddressSelectionStrategy,
-    network_segment, network_segment::NetworkSegment,
-};
+use crate::db::{self, ObjectColumnFilter, network_segment};
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
 use crate::model::machine::machine_id::from_hardware_info;
 use crate::tests::common::api_fixtures::create_test_env;
 
@@ -27,10 +25,10 @@ async fn prevent_duplicate_mac_addresses(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = NetworkSegment::find_by(
+    let network_segment = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-        crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+        crate::model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?
     .pop()

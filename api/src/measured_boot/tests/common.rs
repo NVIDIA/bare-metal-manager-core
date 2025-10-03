@@ -15,7 +15,6 @@
 //! Shared code by measured boot tests.
 
 use crate::{
-    db::machine_topology::MachineTopology,
     measured_boot::db,
     model::{hardware_info::HardwareInfo, machine::ManagedHostState, metadata::Metadata},
 };
@@ -50,7 +49,7 @@ pub async fn create_test_machine(
         None,
     )
     .await?;
-    MachineTopology::create_or_update(txn, &machine_id, topology).await?;
+    crate::db::machine_topology::create_or_update(txn, &machine_id, topology).await?;
     let machine = db::machine::from_id_with_txn(txn, machine_id).await?;
     assert_eq!(machine_id, machine.machine_id);
     Ok(machine)

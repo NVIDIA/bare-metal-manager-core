@@ -10,379 +10,133 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
-
 use config_version::ConfigVersion;
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, PgConnection, Row};
+use sqlx::PgConnection;
 
 use super::ObjectFilter;
-use super::instance::Instance;
 use crate::db::DatabaseError;
-use crate::model::{
-    metadata::Metadata,
-    tenant::{
-        Tenant, TenantKeyset, TenantKeysetContent, TenantKeysetIdentifier,
-        TenantPublicKeyValidationRequest, UpdateTenantKeyset,
-    },
-};
-use crate::{CarbideError, CarbideResult};
+use crate::model::tenant::TenantPublicKeyValidationRequest;
+use crate::model::{metadata::Metadata, tenant::Tenant};
+use crate::{CarbideError, CarbideResult, db};
 use ::rpc::forge as rpc;
 
 type OrganizationID = String;
 
-impl Tenant {
-    pub async fn create_and_persist(
-        organization_id: String,
-        metadata: Metadata,
-        txn: &mut PgConnection,
-    ) -> Result<Self, DatabaseError> {
-        let version = ConfigVersion::initial();
-        let query = "INSERT INTO tenants (organization_id, organization_name, version) VALUES ($1, $2, $3) RETURNING *";
+pub async fn create_and_persist(
+    organization_id: String,
+    metadata: Metadata,
+    txn: &mut PgConnection,
+) -> Result<Tenant, DatabaseError> {
+    let version = ConfigVersion::initial();
+    let query = "INSERT INTO tenants (organization_id, organization_name, version) VALUES ($1, $2, $3) RETURNING *";
 
-        sqlx::query_as(query)
-            .bind(organization_id)
-            .bind(metadata.name)
-            .bind(version)
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))
-    }
+    sqlx::query_as(query)
+        .bind(organization_id)
+        .bind(metadata.name)
+        .bind(version)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
 
-    pub async fn find<S: AsRef<str>>(
-        organization_id: S,
-        txn: &mut PgConnection,
-    ) -> Result<Option<Self>, DatabaseError> {
-        let query = "SELECT * FROM tenants WHERE organization_id = $1";
-        let results = sqlx::query_as(query)
-            .bind(organization_id.as_ref())
-            .fetch_optional(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
+pub async fn find<S: AsRef<str>>(
+    organization_id: S,
+    txn: &mut PgConnection,
+) -> Result<Option<Tenant>, DatabaseError> {
+    let query = "SELECT * FROM tenants WHERE organization_id = $1";
+    let results = sqlx::query_as(query)
+        .bind(organization_id.as_ref())
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-        Ok(results)
-    }
+    Ok(results)
+}
 
-    pub async fn update(
-        organization_id: String,
-        metadata: Metadata,
-        if_version_match: Option<ConfigVersion>,
-        txn: &mut PgConnection,
-    ) -> CarbideResult<Self> {
-        let current_version = match if_version_match {
-            Some(version) => version,
-            None => {
-                if let Some(tenant) = Tenant::find(organization_id.as_str(), txn).await? {
-                    tenant.version
-                } else {
-                    return Err(CarbideError::NotFoundError {
-                        id: organization_id,
-                        kind: "tenant",
-                    });
-                }
+pub async fn update(
+    organization_id: String,
+    metadata: Metadata,
+    if_version_match: Option<ConfigVersion>,
+    txn: &mut PgConnection,
+) -> CarbideResult<Tenant> {
+    let current_version = match if_version_match {
+        Some(version) => version,
+        None => {
+            if let Some(tenant) = find(organization_id.as_str(), txn).await? {
+                tenant.version
+            } else {
+                return Err(CarbideError::NotFoundError {
+                    id: organization_id,
+                    kind: "tenant",
+                });
             }
-        };
-        let next_version = current_version.increment();
+        }
+    };
+    let next_version = current_version.increment();
 
-        let query = "UPDATE tenants
+    let query = "UPDATE tenants
             SET version=$1, organization_name=$2
             WHERE organization_id=$3 AND version=$4
             RETURNING *";
 
-        sqlx::query_as(query)
-            .bind(next_version)
-            .bind(metadata.name)
-            .bind(organization_id)
-            .bind(current_version)
-            .fetch_one(txn)
-            .await
-            .map_err(|err| match err {
-                sqlx::Error::RowNotFound => {
-                    CarbideError::ConcurrentModificationError("tenant", current_version.to_string())
-                }
-                error => DatabaseError::query(query, error).into(),
-            })
-    }
-
-    pub async fn find_tenant_organization_ids(
-        txn: &mut PgConnection,
-        search_config: rpc::TenantSearchFilter,
-    ) -> Result<Vec<OrganizationID>, DatabaseError> {
-        let mut qb = sqlx::QueryBuilder::new("SELECT organization_id FROM tenants");
-
-        if let Some(tenant_org_name) = &search_config.tenant_organization_name {
-            qb.push(" WHERE organization_name = ");
-            qb.push_bind(tenant_org_name);
-        }
-
-        let tenant_organization_ids: Vec<OrganizationID> = qb
-            .build_query_as::<(String,)>()
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::new("find_tenant_organization_ids", e))?
-            .into_iter()
-            .map(|row| row.0)
-            .collect();
-
-        Ok(tenant_organization_ids)
-    }
-}
-
-impl<'r> sqlx::FromRow<'r, PgRow> for Tenant {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let organization_id: String = row.try_get("organization_id")?;
-        let name: String = row.try_get("organization_name")?;
-        Ok(Self {
-            organization_id: organization_id
-                .try_into()
-                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
-            metadata: Metadata {
-                name,
-                description: String::new(), // We're using metadata for consistency,
-                labels: HashMap::new(), // but description and labels might never be used for Tenant
-            },
-            version: row.try_get("version")?,
+    sqlx::query_as(query)
+        .bind(next_version)
+        .bind(metadata.name)
+        .bind(organization_id)
+        .bind(current_version)
+        .fetch_one(txn)
+        .await
+        .map_err(|err| match err {
+            sqlx::Error::RowNotFound => {
+                CarbideError::ConcurrentModificationError("tenant", current_version.to_string())
+            }
+            error => DatabaseError::query(query, error).into(),
         })
-    }
 }
 
-impl<'r> sqlx::FromRow<'r, PgRow> for TenantKeyset {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let tenant_keyset_content: sqlx::types::Json<TenantKeysetContent> =
-            row.try_get("content")?;
+pub async fn find_tenant_organization_ids(
+    txn: &mut PgConnection,
+    search_config: rpc::TenantSearchFilter,
+) -> Result<Vec<OrganizationID>, DatabaseError> {
+    let mut qb = sqlx::QueryBuilder::new("SELECT organization_id FROM tenants");
 
-        let organization_id: String = row.try_get("organization_id")?;
-        Ok(Self {
-            version: row.try_get("version")?,
-            keyset_content: tenant_keyset_content.0,
-            keyset_identifier: TenantKeysetIdentifier {
-                organization_id: organization_id
-                    .try_into()
-                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
-                keyset_id: row.try_get("keyset_id")?,
-            },
-        })
+    if let Some(tenant_org_name) = &search_config.tenant_organization_name {
+        qb.push(" WHERE organization_name = ");
+        qb.push_bind(tenant_org_name);
     }
+
+    let tenant_organization_ids: Vec<OrganizationID> = qb
+        .build_query_as::<(String,)>()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("find_tenant_organization_ids", e))?
+        .into_iter()
+        .map(|row| row.0)
+        .collect();
+
+    Ok(tenant_organization_ids)
 }
 
-// simplified tenant keyset id struct with tenant_org_id and keyset_id both as string
-// used in find_ids and find_by_ids
-#[derive(Debug, Clone, FromRow)]
-pub struct TenantKeysetId {
-    pub organization_id: String,
-    pub keyset_id: String,
-}
+pub async fn validate_public_key(
+    request: &TenantPublicKeyValidationRequest,
+    txn: &mut PgConnection,
+) -> Result<(), CarbideError> {
+    let instance = db::instance::find_by_id(txn, request.instance_id)
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "instance",
+            id: request.instance_id.to_string(),
+        })?;
 
-impl From<TenantKeysetId> for rpc::TenantKeysetIdentifier {
-    fn from(src: TenantKeysetId) -> Self {
-        Self {
-            organization_id: src.organization_id,
-            keyset_id: src.keyset_id,
-        }
-    }
-}
+    let keysets = db::tenant_keyset::find(
+        Some(instance.config.tenant.tenant_organization_id.to_string()),
+        ObjectFilter::List(&instance.config.tenant.tenant_keyset_ids),
+        true,
+        txn,
+    )
+    .await?;
 
-impl TenantKeyset {
-    pub async fn create(&self, txn: &mut PgConnection) -> Result<Self, DatabaseError> {
-        let query = "INSERT INTO tenant_keysets VALUES($1, $2, $3, $4) RETURNING *";
-
-        sqlx::query_as(query)
-            .bind(self.keyset_identifier.organization_id.to_string())
-            .bind(&self.keyset_identifier.keyset_id)
-            .bind(sqlx::types::Json(&self.keyset_content))
-            .bind(self.version.to_string())
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))
-    }
-
-    pub async fn find_ids(
-        txn: &mut PgConnection,
-        filter: rpc::TenantKeysetSearchFilter,
-    ) -> Result<Vec<TenantKeysetId>, DatabaseError> {
-        // build query
-        let mut builder =
-            sqlx::QueryBuilder::new("SELECT organization_id, keyset_id FROM tenant_keysets");
-        if let Some(tenant_org_id) = &filter.tenant_org_id {
-            builder.push(" WHERE organization_id = ");
-            builder.push_bind(tenant_org_id);
-        }
-        // execute
-        let query = builder.build_query_as();
-        let ids: Vec<TenantKeysetId> = query
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::new("tenant_keyset::find_ids", e))?;
-
-        Ok(ids)
-    }
-
-    pub async fn find_by_ids(
-        txn: &mut PgConnection,
-        ids: Vec<rpc::TenantKeysetIdentifier>,
-        include_key_data: bool,
-    ) -> Result<Vec<TenantKeyset>, DatabaseError> {
-        // build query
-        let mut builder = sqlx::QueryBuilder::new(
-            "SELECT * FROM tenant_keysets WHERE (organization_id, keyset_id) IN ",
-        );
-        builder.push_tuples(ids.iter(), |mut b, id| {
-            b.push_bind(id.organization_id.clone())
-                .push_bind(id.keyset_id.clone());
-        });
-        // execute
-        let query = builder.build_query_as();
-        let mut keysets: Vec<TenantKeyset> = query
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::new("tenant_keyset::find_by_ids", e))?;
-
-        if !include_key_data {
-            for data in &mut keysets {
-                data.keyset_content.public_keys.clear();
-            }
-        }
-
-        Ok(keysets)
-    }
-
-    pub async fn find(
-        organization_id: Option<String>,
-        keyset_filter: ObjectFilter<'_, String>,
-        include_key_data: bool,
-        txn: &mut PgConnection,
-    ) -> Result<Vec<Self>, DatabaseError> {
-        let mut result = if let Some(organization_id) = organization_id {
-            let base_query = "SELECT * FROM tenant_keysets WHERE organization_id = $1 {where}";
-
-            match keyset_filter {
-                ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
-                    .bind(organization_id.to_string())
-                    .fetch_all(txn)
-                    .await
-                    .map_err(|e| DatabaseError::new("keyset All", e)),
-
-                ObjectFilter::One(keyset_id) => {
-                    sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = $2"))
-                        .bind(organization_id.to_string())
-                        .bind(keyset_id)
-                        .fetch_all(txn)
-                        .await
-                        .map_err(|e| DatabaseError::query(base_query, e))
-                }
-
-                ObjectFilter::List(keyset_ids) => {
-                    sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = ANY($2)"))
-                        .bind(organization_id.to_string())
-                        .bind(keyset_ids)
-                        .fetch_all(txn)
-                        .await
-                        .map_err(|e| DatabaseError::query(base_query, e))
-                }
-            }
-        } else {
-            let query = "SELECT * FROM tenant_keysets";
-            sqlx::query_as::<_, TenantKeyset>(query)
-                .fetch_all(txn)
-                .await
-                .map_err(|e| DatabaseError::query(query, e))
-        }?;
-
-        if !include_key_data {
-            for data in &mut result {
-                data.keyset_content.public_keys.clear();
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Deletes the Keyset
-    /// - Returns `Ok(true)` if the keyset existed and got deleted
-    /// - Returns `Ok(false)` if the keyset did not exist
-    /// - Returns `Err(_)` in case of other errors
-    pub async fn delete(
-        keyset_identifier: &TenantKeysetIdentifier,
-        txn: &mut PgConnection,
-    ) -> Result<bool, DatabaseError> {
-        let query =
-            "DELETE FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = $2 RETURNING *";
-
-        match sqlx::query_as::<_, TenantKeyset>(query)
-            .bind(keyset_identifier.organization_id.as_str())
-            .bind(&keyset_identifier.keyset_id)
-            .fetch_one(txn)
-            .await
-        {
-            Ok(_) => Ok(true),
-            Err(sqlx::Error::RowNotFound) => Ok(false),
-            Err(e) => Err(DatabaseError::query(query, e)),
-        }
-    }
-}
-
-impl UpdateTenantKeyset {
-    pub async fn update(&self, txn: &mut PgConnection) -> Result<(), CarbideError> {
-        // Validate if sent version is same.
-        let current_keyset = TenantKeyset::find(
-            Some(self.keyset_identifier.organization_id.to_string()),
-            ObjectFilter::One(self.keyset_identifier.keyset_id.clone()),
-            false,
-            txn,
-        )
-        .await?;
-
-        if current_keyset.is_empty() {
-            return Err(CarbideError::NotFoundError {
-                kind: "keyset",
-                id: format!("{:?}", self.keyset_identifier),
-            });
-        }
-
-        let expected_version = self
-            .if_version_match
-            .clone()
-            .unwrap_or(current_keyset[0].version.to_string());
-
-        let query = "UPDATE tenant_keysets SET content=$1, version=$2 WHERE organization_id=$3 AND keyset_id=$4 AND version=$5 RETURNING *";
-        match sqlx::query_as::<_, TenantKeyset>(query)
-            .bind(sqlx::types::Json(&self.keyset_content))
-            .bind(self.version.to_string())
-            .bind(self.keyset_identifier.organization_id.to_string())
-            .bind(&self.keyset_identifier.keyset_id)
-            .bind(&expected_version)
-            .fetch_one(txn)
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(sqlx::Error::RowNotFound) => Err(CarbideError::ConcurrentModificationError(
-                "keyset",
-                expected_version,
-            )),
-            Err(e) => Err(DatabaseError::query(query, e).into()),
-        }
-    }
-}
-
-impl TenantPublicKeyValidationRequest {
-    pub async fn validate(&self, txn: &mut PgConnection) -> Result<(), CarbideError> {
-        let instance = Instance::find_by_id(txn, self.instance_id)
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "instance",
-                id: self.instance_id.to_string(),
-            })?;
-
-        let keysets = TenantKeyset::find(
-            Some(instance.config.tenant.tenant_organization_id.to_string()),
-            ObjectFilter::List(&instance.config.tenant.tenant_keyset_ids),
-            true,
-            txn,
-        )
-        .await?;
-
-        self.validate_key(keysets).map_err(CarbideError::from)
-    }
+    request.validate_key(keysets).map_err(CarbideError::from)
 }
 
 pub async fn load_by_organization_ids(

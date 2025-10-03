@@ -15,8 +15,10 @@
 use config_version::{ConfigVersion, Versioned};
 use sqlx::PgConnection;
 
+use crate::model::dpa_interface::DpaInterface;
 use crate::{
-    db::{DatabaseError, dpa_interface::DpaInterface},
+    db,
+    db::DatabaseError,
     model::{
         StateSla,
         controller_outcome::PersistentStateHandlerOutcome,
@@ -51,7 +53,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        DpaInterface::find_ids(txn).await
+        db::dpa_interface::find_ids(txn).await
     }
 
     /// Loads a state snapshot from the database
@@ -60,7 +62,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         txn: &mut PgConnection,
         interface_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut interfaces = DpaInterface::find_by_ids(txn, &[*interface_id], false).await?;
+        let mut interfaces = db::dpa_interface::find_by_ids(txn, &[*interface_id], false).await?;
         if interfaces.is_empty() {
             tracing::debug!("DPA load_object_state empty ifid: {:#?}", interface_id);
             return Ok(None);
@@ -104,7 +106,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
         let _updated =
-            DpaInterface::try_update_controller_state(txn, *object_id, old_version, new_state)
+            db::dpa_interface::try_update_controller_state(txn, *object_id, old_version, new_state)
                 .await?;
         Ok(())
     }
@@ -115,7 +117,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        DpaInterface::update_controller_state_outcome(txn, *object_id, outcome).await
+        db::dpa_interface::update_controller_state_outcome(txn, *object_id, outcome).await
     }
 
     fn metric_state_names(state: &DpaInterfaceControllerState) -> (&'static str, &'static str) {

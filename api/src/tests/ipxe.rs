@@ -26,7 +26,7 @@ async fn move_machine_to_needed_state(
     let machine = db::machine::find_one(
         &mut txn,
         &machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
+        crate::model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await
     .unwrap()

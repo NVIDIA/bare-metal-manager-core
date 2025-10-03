@@ -9,20 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine_validation::MachineValidationResult;
+use crate::model::machine_validation::{
+    MachineValidation, MachineValidationState, MachineValidationStatus,
+};
 use crate::{
     CarbideError,
     api::{Api, log_request_data},
     cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode},
-    db::{
-        self, DatabaseError,
-        machine::MachineSearchConfig,
-        machine_validation::{
-            MachineValidation, MachineValidationResult, MachineValidationState,
-            MachineValidationStatus,
-        },
-        machine_validation_config::MachineValidationExternalConfig,
-        machine_validation_suites,
-    },
+    db::{self, DatabaseError, machine_validation_suites},
     handlers::utils::convert_and_log_machine_id,
     model::machine::{
         FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
@@ -124,27 +120,28 @@ pub(crate) async fn mark_machine_validation_complete(
         None => "Success".to_owned(),
     };
 
-    let result = match MachineValidationResult::validate_current_context(&mut txn, rpc_id).await? {
-        Some(error_message) => {
-            db::machine::update_failure_details_by_machine_id(
-                &machine_id,
-                &mut txn,
-                FailureDetails {
-                    cause: FailureCause::MachineValidation {
-                        err: error_message.clone(),
+    let result =
+        match db::machine_validation_result::validate_current_context(&mut txn, rpc_id).await? {
+            Some(error_message) => {
+                db::machine::update_failure_details_by_machine_id(
+                    &machine_id,
+                    &mut txn,
+                    FailureDetails {
+                        cause: FailureCause::MachineValidation {
+                            err: error_message.clone(),
+                        },
+                        failed_at: chrono::Utc::now(),
+                        source: FailureSource::Scout,
                     },
-                    failed_at: chrono::Utc::now(),
-                    source: FailureSource::Scout,
-                },
-            )
-            .await?;
-            state = MachineValidationState::Failed;
-            error_message
-        }
-        None => "Success".to_owned(),
-    };
+                )
+                .await?;
+                state = MachineValidationState::Failed;
+                error_message
+            }
+            None => "Success".to_owned(),
+        };
 
-    MachineValidation::mark_machine_validation_complete(
+    db::machine_validation::mark_machine_validation_complete(
         &mut txn,
         &machine_id,
         &uuid,
@@ -242,7 +239,7 @@ pub(crate) async fn persist_validation_result(
     )
     .await?;
 
-    validation_result.create(&mut txn).await?;
+    db::machine_validation_result::create(validation_result, &mut txn).await?;
     txn.commit().await.unwrap();
     Ok(tonic::Response::new(()))
 }
@@ -282,16 +279,19 @@ pub(crate) async fn get_machine_validation_results(
 
     let mut db_results: Vec<MachineValidationResult> = Vec::new();
     if let Some(machine_id) = machine_id.as_ref() {
-        db_results =
-            MachineValidationResult::find_by_machine_id(&mut txn, machine_id, req.include_history)
-                .await?;
+        db_results = db::machine_validation_result::find_by_machine_id(
+            &mut txn,
+            machine_id,
+            req.include_history,
+        )
+        .await?;
 
         if let Some(validation_id) = validation_id {
             db_results.retain(|x| x.validation_id == validation_id)
         }
     } else if let Some(validation_id) = validation_id {
         db_results =
-            MachineValidationResult::find_by_validation_id(&mut txn, &validation_id).await?;
+            db::machine_validation_result::find_by_validation_id(&mut txn, &validation_id).await?;
     }
 
     let vec_rest = db_results
@@ -318,7 +318,7 @@ pub(crate) async fn get_machine_validation_external_config(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let req: rpc::GetMachineValidationExternalConfigRequest = request.into_inner();
-    let ret = MachineValidationExternalConfig::find_config_by_name(&mut txn, &req.name).await?;
+    let ret = db::machine_validation_config::find_config_by_name(&mut txn, &req.name).await?;
 
     Ok(tonic::Response::new(
         GetMachineValidationExternalConfigResponse {
@@ -343,7 +343,7 @@ pub(crate) async fn add_update_machine_validation_external_config(
 
     let req: rpc::AddUpdateMachineValidationExternalConfigRequest = request.into_inner();
 
-    let _ = MachineValidationExternalConfig::create_or_update(
+    let _ = db::machine_validation_config::create_or_update(
         &mut txn,
         &req.name,
         &req.description.unwrap_or_default(),
@@ -375,7 +375,7 @@ pub(crate) async fn get_machine_validation_runs(
     let db_runs = match machine_validation_run_request.machine_id {
         Some(id) => {
             let machine_id = convert_and_log_machine_id(Some(&id))?;
-            MachineValidation::find(
+            db::machine_validation::find(
                 &mut txn,
                 &machine_id,
                 machine_validation_run_request.include_history,
@@ -384,7 +384,7 @@ pub(crate) async fn get_machine_validation_runs(
         }
         None => {
             tracing::info!("no machine ID");
-            MachineValidation::find_all(&mut txn).await
+            db::machine_validation::find_all(&mut txn).await
         }
     };
     let ret = db_runs
@@ -453,7 +453,7 @@ pub(crate) async fn on_demand_machine_validation(
                         tracing::error!(msg);
                         return Err(Status::invalid_argument(msg));
                     }
-                    let validation_id = MachineValidation::create_new_run(
+                    let validation_id = db::machine_validation::create_new_run(
                         &mut txn,
                         &machine_id,
                         "OnDemand".to_string(),
@@ -512,7 +512,7 @@ pub(crate) async fn get_machine_validation_external_configs(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let ret = MachineValidationExternalConfig::find_configs(&mut txn).await?;
+    let ret = db::machine_validation_config::find_configs(&mut txn).await?;
     Ok(tonic::Response::new(
         rpc::GetMachineValidationExternalConfigsResponse {
             configs: ret
@@ -537,7 +537,7 @@ pub(crate) async fn remove_machine_validation_external_config(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let _ = MachineValidationExternalConfig::remove_config(&mut txn, &req.name).await?;
+    let _ = db::machine_validation_config::remove_config(&mut txn, &req.name).await?;
     txn.commit().await.unwrap();
 
     Ok(tonic::Response::new(()))
@@ -556,7 +556,7 @@ pub(crate) async fn update_machine_validation_test(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    // let existing = machine_validation_suites::MachineValidationTest::find(
+    // let existing = machine_validation_suites::find(
     //     &mut txn,
     //     rpc::MachineValidationTestsGetRequest {
     //         test_id: Some(req.test_id.clone()),
@@ -571,8 +571,7 @@ pub(crate) async fn update_machine_validation_test(
     //         "Cannot modify read-only test cases",
     //     ));
     // }
-    let test_id =
-        machine_validation_suites::MachineValidationTest::update(&mut txn, req.clone()).await?;
+    let test_id = machine_validation_suites::update(&mut txn, req.clone()).await?;
 
     txn.commit()
         .await
@@ -599,12 +598,10 @@ pub(crate) async fn add_machine_validation_test(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let tests = machine_validation_suites::MachineValidationTest::find(
+    let tests = machine_validation_suites::find(
         &mut txn,
         rpc::MachineValidationTestsGetRequest {
-            test_id: Some(
-                machine_validation_suites::MachineValidationTest::generate_test_id(&req.name),
-            ),
+            test_id: Some(machine_validation_suites::generate_test_id(&req.name)),
             ..rpc::MachineValidationTestsGetRequest::default()
         },
     )
@@ -613,8 +610,7 @@ pub(crate) async fn add_machine_validation_test(
         return Err(Status::invalid_argument("Name already exists"));
     }
     let version = ConfigVersion::initial();
-    let test_id =
-        machine_validation_suites::MachineValidationTest::save(&mut txn, req, version).await?;
+    let test_id = machine_validation_suites::save(&mut txn, req, version).await?;
 
     txn.commit()
         .await
@@ -643,7 +639,7 @@ pub(crate) async fn get_machine_validation_tests(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let tests = machine_validation_suites::MachineValidationTest::find(&mut txn, req).await?;
+    let tests = machine_validation_suites::find(&mut txn, req).await?;
 
     Ok(tonic::Response::new(
         rpc::MachineValidationTestsGetResponse {
@@ -668,7 +664,7 @@ pub(crate) async fn machine_validation_test_verfied(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let existing = machine_validation_suites::MachineValidationTest::find(
+    let existing = machine_validation_suites::find(
         &mut txn,
         rpc::MachineValidationTestsGetRequest {
             test_id: Some(req.test_id.clone()),
@@ -677,12 +673,8 @@ pub(crate) async fn machine_validation_test_verfied(
         },
     )
     .await?;
-    let _ = machine_validation_suites::MachineValidationTest::mark_verified(
-        &mut txn,
-        req.test_id,
-        existing[0].version,
-    )
-    .await?;
+    let _ = machine_validation_suites::mark_verified(&mut txn, req.test_id, existing[0].version)
+        .await?;
 
     txn.commit()
         .await
@@ -707,7 +699,7 @@ pub(crate) async fn machine_validation_test_next_version(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let existing = machine_validation_suites::MachineValidationTest::find(
+    let existing = machine_validation_suites::find(
         &mut txn,
         rpc::MachineValidationTestsGetRequest {
             test_id: Some(req.test_id.clone()),
@@ -715,8 +707,7 @@ pub(crate) async fn machine_validation_test_next_version(
         },
     )
     .await?;
-    let (test_id, next_version) =
-        machine_validation_suites::MachineValidationTest::clone(&mut txn, &existing[0]).await?;
+    let (test_id, next_version) = machine_validation_suites::clone(&mut txn, &existing[0]).await?;
 
     txn.commit()
         .await
@@ -743,7 +734,7 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let existing = machine_validation_suites::MachineValidationTest::find(
+    let existing = machine_validation_suites::find(
         &mut txn,
         rpc::MachineValidationTestsGetRequest {
             test_id: Some(req.test_id.clone()),
@@ -752,7 +743,7 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
         },
     )
     .await?;
-    let _ = machine_validation_suites::MachineValidationTest::enable_disable(
+    let _ = machine_validation_suites::enable_disable(
         &mut txn,
         req.test_id,
         existing[0].version,
@@ -792,7 +783,7 @@ pub(crate) async fn update_machine_validation_run(
         }
     };
 
-    MachineValidation::update_run(
+    db::machine_validation::update_run(
         &mut txn,
         &validation_id,
         req.total
@@ -824,11 +815,9 @@ pub async fn apply_config_on_startup(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Get all tests from DB
-    let tests = machine_validation_suites::MachineValidationTest::find(
-        &mut txn,
-        rpc::MachineValidationTestsGetRequest::default(),
-    )
-    .await?;
+    let tests =
+        machine_validation_suites::find(&mut txn, rpc::MachineValidationTestsGetRequest::default())
+            .await?;
 
     // Create a set of test IDs from config for efficient lookup
     let config_test_ids: std::collections::HashSet<_> =
@@ -846,7 +835,7 @@ pub async fn apply_config_on_startup(
                         test_config.enable
                     );
 
-                    machine_validation_suites::MachineValidationTest::enable_disable(
+                    machine_validation_suites::enable_disable(
                         &mut txn,
                         test.test_id.clone(),
                         test.version,
@@ -881,7 +870,7 @@ pub async fn apply_config_on_startup(
                     enable_state
                 );
 
-                machine_validation_suites::MachineValidationTest::enable_disable(
+                machine_validation_suites::enable_disable(
                     &mut txn,
                     test.test_id.clone(),
                     test.version,
@@ -915,7 +904,7 @@ pub async fn apply_config_on_startup(
                     enable_state
                 );
 
-                machine_validation_suites::MachineValidationTest::enable_disable(
+                machine_validation_suites::enable_disable(
                     &mut txn,
                     test.test_id.clone(),
                     test.version,

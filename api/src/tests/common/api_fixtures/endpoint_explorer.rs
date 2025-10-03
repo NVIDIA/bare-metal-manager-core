@@ -5,7 +5,6 @@ use std::{
 };
 
 use crate::{
-    db::expected_machine::ExpectedMachine,
     model::{
         machine::MachineInterfaceSnapshot,
         site_explorer::{EndpointExplorationError, EndpointExplorationReport},
@@ -13,6 +12,7 @@ use crate::{
     site_explorer::{EndpointExplorer, SiteExplorationMetrics},
 };
 
+use crate::model::expected_machine::ExpectedMachine;
 use forge_ssh::ssh::SshConfig;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;

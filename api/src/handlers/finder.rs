@@ -17,29 +17,17 @@ use ::rpc::protos::forge as rpc;
 use forge_uuid::dpa_interface::DpaInterfaceId;
 
 use crate::db;
-use crate::db::domain::{self, Domain};
-use crate::db::expected_machine::ExpectedMachine;
-use crate::db::instance::Instance;
-use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
-use crate::db::route_servers::{RouteServer, RouteServerSourceType};
-use crate::db::vpc::Vpc;
+use crate::db::domain;
 use crate::db::{ObjectColumnFilter, instance, network_segment, vpc};
+use crate::model::network_segment::NetworkSegmentSearchConfig;
+use crate::model::route_server::RouteServerSourceType;
 use crate::{
-    CarbideError,
-    api::Api,
-    db::{
-        DatabaseError, explored_endpoints::DbExploredEndpoint, instance_address::InstanceAddress,
-        machine_interface_address::MachineInterfaceAddress, machine_topology::MachineTopology,
-        network_prefix::NetworkPrefix,
-    },
-    model::resource_pool::ResourcePoolEntryState,
+    CarbideError, api::Api, db::DatabaseError, model::resource_pool::ResourcePoolEntryState,
 };
 use forge_uuid::{
     domain::DomainId, instance::InstanceId, machine::MachineInterfaceId, network::NetworkSegmentId,
     vpc::VpcId,
 };
-
-use crate::db::dpa_interface::DpaInterface;
 
 pub(crate) async fn find_ip_address(
     api: &Api,
@@ -134,9 +122,9 @@ pub(crate) async fn identify_serial(
         .map_err(|e| DatabaseError::txn_begin("identify_serial", e))?;
 
     let machine_ids = if req.exact {
-        MachineTopology::find_by_serial(&mut txn, &req.serial_number).await
+        db::machine_topology::find_by_serial(&mut txn, &req.serial_number).await
     } else {
-        MachineTopology::find_freetext(&mut txn, &req.serial_number).await
+        db::machine_topology::find_freetext(&mut txn, &req.serial_number).await
     }?;
 
     if machine_ids.len() > 1 {
@@ -279,7 +267,7 @@ async fn search(
 
         // Look in instance_addresses
         InstanceAddresses => {
-            let instance_address = InstanceAddress::find_by_address(&mut txn, addr).await?;
+            let instance_address = db::instance_address::find_by_address(&mut txn, addr).await?;
 
             instance_address.map(|e| {
                 let message = format!(
@@ -296,7 +284,7 @@ async fn search(
 
         // Look in machine_interface_addresses
         MachineAddresses => {
-            let out = MachineInterfaceAddress::find_by_address(&mut txn, addr).await?;
+            let out = db::machine_interface_address::find_by_address(&mut txn, addr).await?;
             out.map(|e| {
                 let message = match e.machine_id.as_ref() {
                     Some(machine_id) => format!(
@@ -318,7 +306,7 @@ async fn search(
 
         // BMC IP of the host
         BmcIp => {
-            let out = MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await?;
+            let out = db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, ip).await?;
             out.map(|machine_id| rpc::IpAddressMatch {
                 ip_type: rpc::IpType::BmcIp as i32,
                 owner_id: Some(machine_id.to_string()),
@@ -326,7 +314,7 @@ async fn search(
             })
         }
         ExploredEndpoint => {
-            let out = DbExploredEndpoint::find_by_ips(&mut txn, vec![addr]).await?;
+            let out = db::explored_endpoints::find_by_ips(&mut txn, vec![addr]).await?;
             out.first().map(|ee| rpc::IpAddressMatch {
                 ip_type: rpc::IpType::ExploredEndpoint as i32,
                 owner_id: Some(ee.address.to_string()),
@@ -346,7 +334,7 @@ async fn search(
 
         // Network segment that contains this IP address
         NetworkSegment => {
-            let out = NetworkPrefix::containing_prefix(&mut txn, &format!("{ip}/32")).await?;
+            let out = db::network_prefix::containing_prefix(&mut txn, &format!("{ip}/32")).await?;
             out.first().map(|prefix| {
                 let message = format!(
                     "{ip} is in prefix {} of segment {}, gateway {}",
@@ -369,7 +357,7 @@ async fn search(
         // source (via the config TOML), or an "admin" source (via
         // forge-admin-cli).
         RouteServers => {
-            let out = RouteServer::find_by_address(&mut txn, addr).await?;
+            let out = db::route_servers::find_by_address(&mut txn, addr).await?;
             out.map(|route_server| rpc::IpAddressMatch {
                 ip_type: match route_server.source_type {
                     RouteServerSourceType::AdminApi => rpc::IpType::RouteServerFromAdminApi,
@@ -400,7 +388,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         .map_err(|e| DatabaseError::txn_begin("UUID search", e))?;
 
     if let Ok(ns_id) = NetworkSegmentId::from_str(&u.value) {
-        let segments = NetworkSegment::find_by(
+        let segments = db::network_segment::find_by(
             &mut txn,
             ObjectColumnFilter::List(network_segment::IdColumn, &[ns_id]),
             NetworkSegmentSearchConfig {
@@ -415,7 +403,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     }
 
     if let Ok(instance_id) = InstanceId::from_str(&u.value) {
-        let instances = Instance::find(
+        let instances = db::instance::find(
             &mut txn,
             ObjectColumnFilter::One(instance::IdColumn, &instance_id),
         )
@@ -434,21 +422,22 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     }
 
     if let Ok(vpc_id) = VpcId::from_str(&u.value) {
-        let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
+        let vpcs =
+            db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
         if vpcs.len() == 1 {
             return Ok(Some(rpc::UuidType::Vpc));
         }
     }
 
     if let Ok(id) = DpaInterfaceId::from_str(&u.value) {
-        let dpas = DpaInterface::find_by_ids(&mut txn, &[id], false).await?;
+        let dpas = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
         if dpas.len() == 1 {
             return Ok(Some(rpc::UuidType::DpaInterfaceId));
         }
     }
 
     if let Ok(domain_id) = DomainId::from_str(&u.value) {
-        let domains = Domain::find_by(
+        let domains = domain::find_by(
             &mut txn,
             ObjectColumnFilter::One(domain::IdColumn, &domain_id),
         )
@@ -492,7 +481,7 @@ async fn by_mac(
         }
     }
 
-    let endpoints = DbExploredEndpoint::find_by_mac_address(&mut txn, mac).await?;
+    let endpoints = db::explored_endpoints::find_by_mac_address(&mut txn, mac).await?;
     if endpoints.len() == 1 {
         return Ok(Some((
             endpoints[0].address.to_string(),
@@ -500,7 +489,7 @@ async fn by_mac(
         )));
     }
 
-    let expected = ExpectedMachine::find_by_bmc_mac_address(&mut txn, mac).await?;
+    let expected = db::expected_machine::find_by_bmc_mac_address(&mut txn, mac).await?;
     if let Some(em) = expected {
         return Ok(Some((
             em.data.serial_number,

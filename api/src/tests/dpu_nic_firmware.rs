@@ -1,6 +1,6 @@
 use crate::CarbideResult;
-use crate::db::managed_host::LoadSnapshotOptions;
 use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
+use crate::model::machine::LoadSnapshotOptions;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestManagedHost;
 use crate::tests::common::api_fixtures::test_managed_host::TestManagedHostSnapshots;

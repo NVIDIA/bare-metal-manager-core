@@ -1,5 +1,3 @@
-use std::net::IpAddr;
-
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -12,34 +10,11 @@ use std::net::IpAddr;
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge as rpc;
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, PgConnection, Row};
-
 use super::DatabaseError;
+use crate::model::resource_record::ResourceRecord;
+use sqlx::PgConnection;
 
-#[derive(Debug, Clone)]
-pub struct ResourceRecord {
-    record: IpAddr,
-}
-
-impl<'r> FromRow<'r, PgRow> for ResourceRecord {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(ResourceRecord {
-            record: row.try_get("resource_record")?,
-        })
-    }
-}
-
-impl From<ResourceRecord> for rpc::dns_message::dns_response::Dnsrr {
-    fn from(rr: ResourceRecord) -> Self {
-        rpc::dns_message::dns_response::Dnsrr {
-            rdata: Some(rr.record.to_string()),
-        }
-    }
-}
-
-pub async fn find_record(
+pub async fn find(
     txn: &mut PgConnection,
     query_name: &str,
 ) -> Result<Option<ResourceRecord>, DatabaseError> {

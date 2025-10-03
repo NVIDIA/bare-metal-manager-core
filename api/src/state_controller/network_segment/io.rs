@@ -16,8 +16,9 @@ use config_version::{ConfigVersion, Versioned};
 use sqlx::PgConnection;
 
 use crate::db::ObjectColumnFilter;
+use crate::model::network_segment::NetworkSegment;
 use crate::{
-    db::{self, DatabaseError, network_segment::NetworkSegment},
+    db::{self, DatabaseError},
     model::{
         StateSla,
         controller_outcome::PersistentStateHandlerOutcome,
@@ -53,7 +54,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        NetworkSegment::list_segment_ids(txn, None).await
+        db::network_segment::list_segment_ids(txn, None).await
     }
 
     /// Loads a state snapshot from the database
@@ -62,10 +63,10 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         txn: &mut PgConnection,
         segment_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut segments = NetworkSegment::find_by(
+        let mut segments = db::network_segment::find_by(
             txn,
             ObjectColumnFilter::One(db::network_segment::IdColumn, segment_id),
-            db::network_segment::NetworkSegmentSearchConfig {
+            crate::model::network_segment::NetworkSegmentSearchConfig {
                 include_num_free_ips: true,
                 include_history: false,
             },
@@ -76,7 +77,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         }
         if segments.len() > 1 {
             return Err(DatabaseError::new(
-                "NetworkSegment::find()",
+                "db::network_segment::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
                         "Searching for NetworkSegment {} returned multiple results",
@@ -106,9 +107,13 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         old_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let _updated =
-            NetworkSegment::try_update_controller_state(txn, *object_id, old_version, new_state)
-                .await?;
+        let _updated = db::network_segment::try_update_controller_state(
+            txn,
+            *object_id,
+            old_version,
+            new_state,
+        )
+        .await?;
         Ok(())
     }
 
@@ -118,7 +123,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        NetworkSegment::update_controller_state_outcome(txn, *object_id, outcome).await
+        db::network_segment::update_controller_state_outcome(txn, *object_id, outcome).await
     }
 
     fn metric_state_names(state: &NetworkSegmentControllerState) -> (&'static str, &'static str) {

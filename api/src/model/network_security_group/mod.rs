@@ -9,8 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
 use std::fmt;
 
+use crate::{CarbideError, model::metadata::Metadata};
 use ::rpc::{errors::RpcDataConversionError, forge as rpc};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
@@ -19,9 +21,9 @@ use forge_uuid::{
 };
 use ipnetwork;
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
-
-use crate::{CarbideError, model::metadata::Metadata};
 
 use super::tenant::TenantOrganizationId;
 
@@ -822,6 +824,72 @@ impl TryFrom<rpc::NetworkSecurityGroupStatus> for NetworkSecurityGroupStatusObse
                 RpcDataConversionError::InvalidConfigVersion(status.version.clone())
             })?,
             source: status.source().try_into()?,
+        })
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroupAttachments {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let vpc_ids: sqlx::types::Json<Vec<VpcId>> = row.try_get("vpc_ids")?;
+        let instance_ids: sqlx::types::Json<Vec<InstanceId>> = row.try_get("instance_ids")?;
+
+        Ok(NetworkSecurityGroupAttachments {
+            id: row.try_get("id")?,
+            vpc_ids: vpc_ids.0,
+            instance_ids: instance_ids.0,
+        })
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroupPropagationObjectStatus {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let expected: i32 = row.try_get("interfaces_expected")?;
+        let applied: i32 = row.try_get("interfaces_applied")?;
+
+        let related_instance_ids: sqlx::types::Json<Vec<InstanceId>> =
+            row.try_get("related_instance_ids")?;
+        let unpropagated_instance_ids: sqlx::types::Json<Vec<InstanceId>> =
+            row.try_get("unpropagated_instance_ids")?;
+
+        Ok(NetworkSecurityGroupPropagationObjectStatus {
+            id: row.try_get("id")?,
+            interfaces_expected: expected
+                .try_into()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            interfaces_applied: applied
+                .try_into()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            related_instance_ids: related_instance_ids.0,
+            unpropagated_instance_ids: unpropagated_instance_ids.0,
+        })
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroup {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: labels.0,
+        };
+
+        let rules: sqlx::types::Json<Vec<NetworkSecurityGroupRule>> = row.try_get("rules")?;
+        let tenant_organization_id: String = row.try_get("tenant_organization_id")?;
+
+        Ok(NetworkSecurityGroup {
+            id: row.try_get("id")?,
+            version: row.try_get("version")?,
+            tenant_organization_id: tenant_organization_id
+                .parse::<TenantOrganizationId>()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            created: row.try_get("created")?,
+            deleted: row.try_get("deleted")?,
+            created_by: row.try_get("created_by")?,
+            updated_by: row.try_get("updated_by")?,
+            metadata,
+            rules: rules.0,
         })
     }
 }

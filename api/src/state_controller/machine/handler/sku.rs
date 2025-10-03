@@ -4,7 +4,7 @@ use sqlx::PgConnection;
 
 use super::{HostHandlerParams, discovered_after_state_transition};
 use crate::{
-    db::{self, machine_topology::MachineTopology, machine_validation::MachineValidation},
+    db,
     model::{
         machine::{
             BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
@@ -120,7 +120,7 @@ async fn generate_missing_sku_for_machine(
     };
 
     // if there's no expected machine, no SKU in it, or the SKU doesn't match what's assigned to the machine, don't generate a SKU
-    if db::expected_machine::ExpectedMachine::find_by_bmc_mac_address(txn, bmc_mac_address)
+    if db::expected_machine::find_by_bmc_mac_address(txn, bmc_mac_address)
         .await
         .ok()
         .flatten()
@@ -294,7 +294,8 @@ async fn advance_to_updating_inventory(
     let bom_validation_context =
         get_bom_validation_context(mh_snapshot.host_snapshot.current_state());
 
-    MachineTopology::set_topology_update_needed(txn, &mh_snapshot.host_snapshot.id, true).await?;
+    db::machine_topology::set_topology_update_needed(txn, &mh_snapshot.host_snapshot.id, true)
+        .await?;
 
     Ok(transition!(ManagedHostState::BomValidating {
         bom_validating_state: BomValidating::UpdatingInventory(bom_validation_context,),
@@ -337,7 +338,7 @@ async fn advance_to_machine_validating(
             },
         }));
     };
-    let validation_id = MachineValidation::create_new_run(
+    let validation_id = db::machine_validation::create_new_run(
         txn,
         &mh_snapshot.host_snapshot.id,
         context.clone(),

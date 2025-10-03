@@ -13,11 +13,11 @@
 use crate::{
     CarbideError, CarbideResult,
     api::{Api, log_request_data},
-    db::dpa_interface::DpaInterface,
+    db,
 };
 
-use crate::db::{DatabaseError, dpa_interface::NewDpaInterface};
-use crate::model::dpa_interface::DpaInterfaceNetworkStatusObservation;
+use crate::db::DatabaseError;
+use crate::model::dpa_interface::{DpaInterfaceNetworkStatusObservation, NewDpaInterface};
 use tonic::{Request, Response};
 
 pub(crate) async fn create(
@@ -33,9 +33,9 @@ pub(crate) async fn create(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let new_dpa = NewDpaInterface::try_from(request.into_inner())?
-        .persist(&mut txn)
-        .await?;
+    let new_dpa =
+        db::dpa_interface::persist(NewDpaInterface::try_from(request.into_inner())?, &mut txn)
+            .await?;
 
     let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
 
@@ -66,7 +66,7 @@ pub(crate) async fn delete(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let dpa_ifs_int = DpaInterface::find_by_ids(&mut txn, &[id], false).await?;
+    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
 
     let dpa_if_int = match dpa_ifs_int.len() {
         1 => dpa_ifs_int[0].clone(),
@@ -77,7 +77,7 @@ pub(crate) async fn delete(
         }
     };
 
-    dpa_if_int.delete(&mut txn).await?;
+    db::dpa_interface::delete(dpa_if_int, &mut txn).await?;
 
     txn.commit()
         .await
@@ -98,7 +98,7 @@ pub(crate) async fn get_all_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin("dpa get_all_ids", e))?;
 
-    let ids = DpaInterface::find_ids(&mut txn).await?;
+    let ids = db::dpa_interface::find_ids(&mut txn).await?;
 
     Ok(Response::new(::rpc::forge::DpaInterfaceIdList { ids }))
 }
@@ -132,7 +132,8 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let dpa_ifs_int = DpaInterface::find_by_ids(&mut txn, &req.ids, req.include_history).await?;
+    let dpa_ifs_int =
+        db::dpa_interface::find_by_ids(&mut txn, &req.ids, req.include_history).await?;
 
     let rpc_dpa_ifs = dpa_ifs_int
         .into_iter()
@@ -172,7 +173,7 @@ pub(crate) async fn set_dpa_network_observation_status(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let dpa_ifs_int = DpaInterface::find_by_ids(&mut txn, &[id], false).await?;
+    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
 
     if dpa_ifs_int.len() != 1 {
         return Err(CarbideError::InvalidArgument(
@@ -180,16 +181,14 @@ pub(crate) async fn set_dpa_network_observation_status(
         ));
     }
 
-    let mut dpa_if_int = dpa_ifs_int[0].clone();
+    let dpa_if_int = dpa_ifs_int[0].clone();
 
     let observation = DpaInterfaceNetworkStatusObservation {
         observed_at: chrono::Utc::now(),
         network_config_version: Some(dpa_if_int.network_config.version),
     };
 
-    dpa_if_int
-        .update_network_observation(&mut txn, &observation)
-        .await?;
+    db::dpa_interface::update_network_observation(&dpa_if_int, &mut txn, &observation).await?;
 
     txn.commit()
         .await

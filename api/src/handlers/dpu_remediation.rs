@@ -1,16 +1,13 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
+use crate::model::dpu_remediation::{
+    ApproveRemediation, DisableRemediation, EnableRemediation, NewRemediation, RevokeRemediation,
+};
 use crate::{
     api::Api,
-    auth,
-    db::{
-        DatabaseError,
-        dpu_remediation::{
-            AppliedRemediation, AppliedRemediationIdQueryType, ApproveRemediation,
-            DisableRemediation, EnableRemediation, NewRemediation, Remediation, RevokeRemediation,
-        },
-    },
+    auth, db,
+    db::{DatabaseError, dpu_remediation::AppliedRemediationIdQueryType},
     errors::CarbideError,
 };
 
@@ -46,13 +43,13 @@ pub(crate) async fn create(
         .begin()
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin create_remediation", e)))?;
-    let response = Ok(
-        NewRemediation::try_from((request.into_inner(), authored_by))?
-            .persist(&mut txn)
-            .await
-            .map(rpc::CreateRemediationResponse::from)
-            .map(Response::new)?,
-    );
+    let response = Ok(db::dpu_remediation::persist_remediation(
+        NewRemediation::try_from((request.into_inner(), authored_by))?,
+        &mut txn,
+    )
+    .await
+    .map(rpc::CreateRemediationResponse::from)
+    .map(Response::new)?);
 
     txn.commit()
         .await
@@ -74,9 +71,11 @@ pub(crate) async fn approve(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin approve_remediation", e)))?;
 
-    ApproveRemediation::try_from((request.into_inner(), approved_by))?
-        .persist(&mut txn)
-        .await?;
+    db::dpu_remediation::persist_approve_remediation(
+        ApproveRemediation::try_from((request.into_inner(), approved_by))?,
+        &mut txn,
+    )
+    .await?;
 
     txn.commit()
         .await
@@ -98,9 +97,11 @@ pub(crate) async fn revoke(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin revoke_remediation", e)))?;
 
-    RevokeRemediation::try_from((request.into_inner(), revoked_by))?
-        .persist(&mut txn)
-        .await?;
+    db::dpu_remediation::persist_revoke_remediation(
+        RevokeRemediation::try_from((request.into_inner(), revoked_by))?,
+        &mut txn,
+    )
+    .await?;
 
     txn.commit()
         .await
@@ -122,9 +123,11 @@ pub(crate) async fn enable(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin enable_remediation", e)))?;
 
-    EnableRemediation::try_from((request.into_inner(), enabled_by))?
-        .persist(&mut txn)
-        .await?;
+    db::dpu_remediation::persist_enable_remediation(
+        EnableRemediation::try_from((request.into_inner(), enabled_by))?,
+        &mut txn,
+    )
+    .await?;
 
     txn.commit()
         .await
@@ -146,9 +149,11 @@ pub(crate) async fn disable(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin disable_remediation", e)))?;
 
-    DisableRemediation::try_from((request.into_inner(), disabled_by))?
-        .persist(&mut txn)
-        .await?;
+    db::dpu_remediation::persist_disable_remediation(
+        DisableRemediation::try_from((request.into_inner(), disabled_by))?,
+        &mut txn,
+    )
+    .await?;
 
     txn.commit()
         .await
@@ -168,7 +173,7 @@ pub(crate) async fn find_remediation_ids(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin find_remediation_ids", e)))?;
 
-    let remediation_ids = Remediation::find_remediation_ids(&mut txn).await?;
+    let remediation_ids = db::dpu_remediation::find_remediation_ids(&mut txn).await?;
     let response = rpc::RemediationIdList { remediation_ids };
 
     txn.commit()
@@ -202,7 +207,8 @@ pub(crate) async fn find_remediations_by_ids(
         );
     }
 
-    let db_remediations = Remediation::find_remediations_by_ids(&mut txn, &remediation_ids).await?;
+    let db_remediations =
+        db::dpu_remediation::find_remediations_by_ids(&mut txn, &remediation_ids).await?;
 
     let response = Response::new(rpc::RemediationList {
         remediations: db_remediations
@@ -251,7 +257,7 @@ pub(crate) async fn find_applied_remediation_ids(
     }?;
 
     let (remediation_ids, dpu_machine_ids) =
-        AppliedRemediation::find_applied_remediation_ids(&mut txn, id_query_args).await?;
+        db::dpu_remediation::find_applied_remediation_ids(&mut txn, id_query_args).await?;
 
     let response = rpc::AppliedRemediationIdList {
         remediation_ids,
@@ -283,15 +289,16 @@ pub(crate) async fn find_applied_remediations(
         .dpu_machine_id
         .ok_or(CarbideError::MissingArgument("dpu machine id"))?;
 
-    let applied_remediations = AppliedRemediation::find_remediations_by_remediation_id_and_machine(
-        &mut txn,
-        remediation_id,
-        &machine_id,
-    )
-    .await?
-    .into_iter()
-    .map(|x| x.into())
-    .collect();
+    let applied_remediations =
+        db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
+            &mut txn,
+            remediation_id,
+            &machine_id,
+        )
+        .await?
+        .into_iter()
+        .map(|x| x.into())
+        .collect();
 
     let response = rpc::AppliedRemediationList {
         applied_remediations,
@@ -322,7 +329,7 @@ pub(crate) async fn get_next_remediation_for_machine(
         .ok_or(CarbideError::MissingArgument("machine id"))?;
 
     let remediation_to_apply =
-        Remediation::find_next_remediation_for_machine(&mut txn, machine_id).await?;
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, machine_id).await?;
 
     let remediation_id = remediation_to_apply.as_ref().map(|r| r.id);
     let remediation_script = remediation_to_apply.map(|r| r.script);
@@ -364,7 +371,7 @@ pub(crate) async fn remediation_applied(
         .status
         .ok_or(CarbideError::MissingArgument("status"))?;
 
-    Remediation::remediation_applied(&mut txn, machine_id, remediation_id, status).await?;
+    db::dpu_remediation::remediation_applied(&mut txn, machine_id, remediation_id, status).await?;
 
     txn.commit()
         .await

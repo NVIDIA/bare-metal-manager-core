@@ -13,7 +13,6 @@
 //! State Controller implementation for Machines
 
 use crate::{
-    db::attestation::EkCertVerificationStatus,
     measured_boot::db::machine::{get_measurement_bundle_state, get_measurement_machine_state},
     model::machine::{
         FailureCause, FailureDetails, FailureSource, MeasuringState, StateMachineArea,
@@ -22,11 +21,12 @@ use crate::{
 
 use forge_uuid::machine::MachineId;
 
+use super::state_handler::{MeasuringProblem, StateHandlerError};
+use crate::db::attestation::ek_cert_verification_status;
+use crate::model::attestation::EkCertVerificationStatus;
 use eyre::eyre;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use sqlx::PgConnection;
-
-use super::state_handler::{MeasuringProblem, StateHandlerError};
 
 pub mod context;
 pub mod handler;
@@ -104,20 +104,23 @@ async fn get_measuring_prerequisites(
         .await
         .map_err(StateHandlerError::DBError)?;
 
-    let ek_cert_verification_status = EkCertVerificationStatus::get_by_machine_id(txn, *machine_id)
-        .await
-        .map_err(|e| {
-            StateHandlerError::GenericError(eyre!(
-                "No EkCertVerificationStatus found for MachineId {} due to error: {}",
-                machine_id,
-                e
-            ))
-        })?
-        .ok_or_else(|| {
-            StateHandlerError::MeasuringError(MeasuringProblem::NoEkCertVerificationStatusFound(
-                format!("MachineId - {machine_id}"),
-            ))
-        })?;
+    let ek_cert_verification_status =
+        ek_cert_verification_status::get_by_machine_id(txn, *machine_id)
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre!(
+                    "No EkCertVerificationStatus found for MachineId {} due to error: {}",
+                    machine_id,
+                    e
+                ))
+            })?
+            .ok_or_else(|| {
+                StateHandlerError::MeasuringError(
+                    MeasuringProblem::NoEkCertVerificationStatusFound(format!(
+                        "MachineId - {machine_id}"
+                    )),
+                )
+            })?;
 
     Ok((machine_state, ek_cert_verification_status))
 }

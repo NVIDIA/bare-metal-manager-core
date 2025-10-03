@@ -11,18 +11,9 @@
  */
 
 use super::DatabaseError;
-use crate::cfg::file::{Firmware, FirmwareComponentType, FirmwareConfig};
-use serde::{Deserialize, Serialize};
+use crate::cfg::file::{Firmware, FirmwareConfig};
+use crate::model::desired_firmware::DesiredFirmwareVersions;
 use sqlx::PgConnection;
-use std::{collections::HashMap, default::Default};
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "PascalCase")]
-pub struct DbDesiredFirmwareVersions {
-    /// Parsed versions, serializtion override means it will always be sorted
-    #[serde(default, serialize_with = "utils::ordered_map")]
-    pub versions: HashMap<FirmwareComponentType, String>,
-}
 
 /// snapshot_desired_firmware will replace the desired_firmware table with one matching the given FirmwareConfig
 pub async fn snapshot_desired_firmware(
@@ -67,7 +58,7 @@ async fn snapshot_desired_firmware_for_model(
     sqlx::query(query)
         .bind(model.vendor.to_pascalcase())
         .bind(model.model.clone())
-        .bind(sqlx::types::Json(DbDesiredFirmwareVersions::from(
+        .bind(sqlx::types::Json(DesiredFirmwareVersions::from(
             model.clone(),
         )))
         .bind(model.explicit_start_needed)
@@ -76,22 +67,6 @@ async fn snapshot_desired_firmware_for_model(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
-}
-
-impl From<Firmware> for DbDesiredFirmwareVersions {
-    fn from(value: Firmware) -> Self {
-        // Using a BTreeMap instead of a hash means that this will be sorted by the key
-        let mut versions: DbDesiredFirmwareVersions = Default::default();
-        for (component_type, component) in value.components {
-            for firmware in component.known_firmware {
-                if firmware.default {
-                    versions.versions.insert(component_type, firmware.version);
-                    break;
-                }
-            }
-        }
-        versions
-    }
 }
 
 #[cfg(test)]

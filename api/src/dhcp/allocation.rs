@@ -14,13 +14,9 @@ use sqlx::PgConnection;
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::{
-    CarbideError, CarbideResult,
-    db::{
-        DatabaseError, address_selection_strategy::AddressSelectionStrategy,
-        network_segment::NetworkSegment,
-    },
-};
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
+use crate::model::network_segment::NetworkSegment;
+use crate::{CarbideError, CarbideResult, db::DatabaseError};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::network::NetworkPrefixId;
 

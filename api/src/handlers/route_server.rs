@@ -18,8 +18,7 @@ use tonic::Status;
 
 use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
-use crate::db::route_servers::RouteServer;
-use crate::{CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, db};
 
 // get returns all RouteServer entries, including the
 // address and source_type.
@@ -30,7 +29,7 @@ pub(crate) async fn get(
     log_request_data(&request);
 
     let mut txn = begin_txn(&api.database_connection, "route_servers.get").await?;
-    let route_servers = RouteServer::get(&mut txn).await?;
+    let route_servers = db::route_servers::get(&mut txn).await?;
 
     Ok(tonic::Response::new(rpc::RouteServerEntries {
         route_servers: route_servers.into_iter().map(Into::into).collect(),
@@ -54,7 +53,7 @@ pub(crate) async fn add(
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
     let mut txn = begin_txn(&api.database_connection, "route_servers.add").await?;
-    RouteServer::add(&mut txn, &route_servers, source_type.into()).await?;
+    db::route_servers::add(&mut txn, &route_servers, source_type.into()).await?;
     commit_txn(txn, "route_servers.add").await?;
 
     Ok(tonic::Response::new(()))
@@ -77,7 +76,7 @@ pub(crate) async fn remove(
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
     let mut txn = begin_txn(&api.database_connection, "route_servers.remove").await?;
-    RouteServer::remove(&mut txn, &route_servers, source_type.into()).await?;
+    db::route_servers::remove(&mut txn, &route_servers, source_type.into()).await?;
     commit_txn(txn, "route_servers.remove").await?;
 
     Ok(tonic::Response::new(()))
@@ -101,7 +100,7 @@ pub(crate) async fn replace(
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
     let mut txn = begin_txn(&api.database_connection, "route_servers.replace").await?;
-    RouteServer::replace(&mut txn, &route_servers, source_type.into()).await?;
+    db::route_servers::replace(&mut txn, &route_servers, source_type.into()).await?;
     commit_txn(txn, "route_servers.replace").await?;
 
     Ok(tonic::Response::new(()))

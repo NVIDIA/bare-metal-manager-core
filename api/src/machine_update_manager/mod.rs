@@ -28,16 +28,15 @@ use self::{
     metrics::MachineUpdateManagerMetrics,
 };
 use crate::cfg::file::HostHealthConfig;
-use crate::db::managed_host::LoadSnapshotOptions;
+use crate::model::dpu_machine_update::DpuMachineUpdate;
+use crate::model::machine::LoadSnapshotOptions;
 use crate::model::machine::ManagedHostStateSnapshot;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::{
     CarbideResult,
     cfg::file::{CarbideConfig, MaxConcurrentUpdates},
     db,
-    db::{
-        DatabaseError, ObjectFilter, dpu_machine_update::DpuMachineUpdate,
-        machine::MachineSearchConfig,
-    },
+    db::{DatabaseError, ObjectFilter},
 };
 use forge_uuid::machine::MachineId;
 

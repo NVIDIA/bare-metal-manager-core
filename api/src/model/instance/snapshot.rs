@@ -14,6 +14,13 @@ use std::collections::HashMap;
 
 use config_version::{ConfigVersion, Versioned};
 
+use super::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::instance::config::storage::InstanceStorageConfig;
+use crate::model::instance::config::tenant_config::TenantConfig;
+use crate::model::instance::status::storage::InstanceStorageStatusObservation;
+use crate::model::os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant};
+use crate::model::tenant::TenantOrganizationId;
 use crate::model::{
     instance::{
         config::InstanceConfig,
@@ -25,9 +32,12 @@ use crate::model::{
     metadata::Metadata,
 };
 use ::rpc::errors::RpcDataConversionError;
+use chrono::{DateTime, Utc};
+use forge_uuid::network_security_group::NetworkSecurityGroupId;
 use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
-
-use super::config::network::InstanceNetworkConfigUpdate;
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
 
 /// Represents a snapshot view of an `Instance`
 ///
@@ -105,5 +115,137 @@ impl InstanceSnapshot {
             ib_status,
             self.update_network_config_request.is_some(),
         )
+    }
+}
+
+/// This represents the structure of an instance we get from postgres via the row_to_json or
+/// JSONB_AGG functions. Its fields need to match the column names of the instances table exactly.
+/// It's expected that we read this directly from the JSON returned by the query, and then
+/// convert it into an InstanceSnapshot.
+#[derive(Serialize, Deserialize)]
+pub struct InstanceSnapshotPgJson {
+    id: InstanceId,
+    machine_id: MachineId,
+    name: String,
+    description: String,
+    labels: HashMap<String, String>,
+    network_config: InstanceNetworkConfig,
+    network_config_version: String,
+    ib_config: InstanceInfinibandConfig,
+    ib_config_version: String,
+    storage_config: InstanceStorageConfig,
+    storage_config_version: String,
+    config_version: String,
+    storage_status_observation: Option<InstanceStorageStatusObservation>,
+    phone_home_last_contact: Option<DateTime<Utc>>,
+    use_custom_pxe_on_boot: bool,
+    tenant_org: Option<String>,
+    keyset_ids: Vec<String>,
+    hostname: Option<String>,
+    os_user_data: Option<String>,
+    os_ipxe_script: String,
+    os_always_boot_with_ipxe: bool,
+    os_phone_home_enabled: bool,
+    os_image_id: Option<uuid::Uuid>,
+    instance_type_id: Option<InstanceTypeId>,
+    network_security_group_id: Option<NetworkSecurityGroupId>,
+    requested: DateTime<Utc>,
+    started: DateTime<Utc>,
+    finished: Option<DateTime<Utc>>,
+    deleted: Option<DateTime<Utc>>,
+    update_network_config_request: Option<InstanceNetworkConfigUpdate>,
+}
+
+impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let json: serde_json::value::Value = row.try_get(0)?;
+        InstanceSnapshotPgJson::deserialize(json)
+            .map_err(|err| sqlx::Error::Decode(err.into()))?
+            .try_into()
+    }
+}
+
+impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
+    type Error = sqlx::Error;
+
+    fn try_from(value: InstanceSnapshotPgJson) -> Result<Self, Self::Error> {
+        let metadata = Metadata {
+            name: value.name,
+            description: value.description,
+            labels: value.labels,
+        };
+
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(value.tenant_org.unwrap_or_default())
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
+        let os = OperatingSystem {
+            variant: match value.os_image_id {
+                Some(x) => OperatingSystemVariant::OsImage(x),
+                None => OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
+                    ipxe_script: value.os_ipxe_script,
+                }),
+            },
+            run_provisioning_instructions_on_every_boot: value.os_always_boot_with_ipxe,
+            phone_home_enabled: value.os_phone_home_enabled,
+            user_data: value.os_user_data,
+        };
+
+        let config = InstanceConfig {
+            tenant: TenantConfig {
+                tenant_organization_id,
+                tenant_keyset_ids: value.keyset_ids,
+                hostname: value.hostname,
+            },
+            os,
+            network: value.network_config,
+            infiniband: value.ib_config,
+            storage: value.storage_config,
+            network_security_group_id: value.network_security_group_id,
+        };
+
+        Ok(InstanceSnapshot {
+            id: value.id,
+            machine_id: value.machine_id,
+            instance_type_id: value.instance_type_id,
+            metadata,
+            config,
+            config_version: value.config_version.parse().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            network_config_version: value.network_config_version.parse().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "network_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            ib_config_version: value.ib_config_version.parse().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "ib_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            storage_config_version: value.storage_config_version.parse().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "storage_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            observations: InstanceStatusObservations {
+                network: HashMap::default(),
+                storage: value.storage_status_observation,
+                phone_home_last_contact: value.phone_home_last_contact,
+            },
+            use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,
+            deleted: value.deleted,
+            update_network_config_request: value.update_network_config_request,
+            // Unused as of today
+            // requested: value.requested,
+            // started: value.started,
+            // finished: value.finished,
+        })
     }
 }

@@ -13,17 +13,14 @@
 use sqlx::PgConnection;
 
 use crate::{
-    db::{
-        DatabaseError, explored_endpoints::DbExploredEndpoint,
-        explored_managed_host::DbExploredManagedHost,
-    },
+    db::{self, DatabaseError},
     model::site_explorer::SiteExplorationReport,
 };
 
 /// Fetches the latest site exploration report from the database
 pub async fn fetch(txn: &mut PgConnection) -> Result<SiteExplorationReport, DatabaseError> {
-    let endpoints = DbExploredEndpoint::find_all(txn).await?;
-    let managed_hosts = DbExploredManagedHost::find_all(txn).await?;
+    let endpoints = db::explored_endpoints::find_all(txn).await?;
+    let managed_hosts = db::explored_managed_host::find_all(txn).await?;
     Ok(SiteExplorationReport {
         endpoints,
         managed_hosts,

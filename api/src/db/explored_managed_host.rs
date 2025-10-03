@@ -19,7 +19,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct DbExploredManagedHost {
+struct DbExploredManagedHost {
     /// The IP address of the node we explored
     host_bmc_ip: IpAddr,
     /// Information about explored DPUs
@@ -45,103 +45,99 @@ impl From<DbExploredManagedHost> for ExploredManagedHost {
     }
 }
 
-impl DbExploredManagedHost {
-    pub async fn find_ips(
-        txn: &mut PgConnection,
-        // filter is currently is empty, so it is a placeholder for the future
-        _filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter,
-    ) -> Result<Vec<IpAddr>, DatabaseError> {
-        #[derive(Debug, Clone, Copy, FromRow)]
-        pub struct ExploredManagedHostIp(IpAddr);
-        // grab list of IPs
-        let mut builder = sqlx::QueryBuilder::new("SELECT host_bmc_ip FROM explored_managed_hosts");
-        let query = builder.build_query_as();
-        let ids: Vec<ExploredManagedHostIp> = query
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::new("explored_managed_hosts::find_ips", e))?;
-        // Convert to Vec<IpAddr> and return.
-        Ok(ids.iter().map(|id| id.0).collect())
-    }
+pub async fn find_ips(
+    txn: &mut PgConnection,
+    // filter is currently is empty, so it is a placeholder for the future
+    _filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter,
+) -> Result<Vec<IpAddr>, DatabaseError> {
+    #[derive(Debug, Clone, Copy, FromRow)]
+    pub struct ExploredManagedHostIp(IpAddr);
+    // grab list of IPs
+    let mut builder = sqlx::QueryBuilder::new("SELECT host_bmc_ip FROM explored_managed_hosts");
+    let query = builder.build_query_as();
+    let ids: Vec<ExploredManagedHostIp> = query
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("explored_managed_hosts::find_ips", e))?;
+    // Convert to Vec<IpAddr> and return.
+    Ok(ids.iter().map(|id| id.0).collect())
+}
 
-    pub async fn find_by_ips(
-        txn: &mut PgConnection,
-        ips: Vec<IpAddr>,
-    ) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
-        let query = "SELECT * FROM explored_managed_hosts WHERE host_bmc_ip=ANY($1)";
+pub async fn find_by_ips(
+    txn: &mut PgConnection,
+    ips: Vec<IpAddr>,
+) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
+    let query = "SELECT * FROM explored_managed_hosts WHERE host_bmc_ip=ANY($1)";
 
-        sqlx::query_as::<_, Self>(query)
-            .bind(ips)
-            .fetch_all(txn)
-            .await
-            .map(|hosts| hosts.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_managed_hosts::find_by_ips", e))
-    }
+    sqlx::query_as::<_, DbExploredManagedHost>(query)
+        .bind(ips)
+        .fetch_all(txn)
+        .await
+        .map(|hosts| hosts.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_managed_hosts::find_by_ips", e))
+}
 
-    pub async fn find_all(
-        txn: &mut PgConnection,
-    ) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
-        let query = "SELECT * FROM explored_managed_hosts ORDER by host_bmc_ip ASC";
+pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
+    let query = "SELECT * FROM explored_managed_hosts ORDER by host_bmc_ip ASC";
 
-        sqlx::query_as::<_, Self>(query)
-            .fetch_all(txn)
-            .await
-            .map(|hosts| hosts.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new("explored_managed_hosts find_all", e))
-    }
+    sqlx::query_as::<_, DbExploredManagedHost>(query)
+        .fetch_all(txn)
+        .await
+        .map(|hosts| hosts.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_managed_hosts find_all", e))
+}
 
-    pub async fn update(
-        txn: &mut PgConnection,
-        explored_hosts: &[ExploredManagedHost],
-    ) -> Result<(), DatabaseError> {
-        let query = r#"DELETE FROM explored_managed_hosts;"#;
+pub async fn update(
+    txn: &mut PgConnection,
+    explored_hosts: &[ExploredManagedHost],
+) -> Result<(), DatabaseError> {
+    let query = r#"DELETE FROM explored_managed_hosts;"#;
+    sqlx::query(query)
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    // TODO: Optimize me into a single query
+    for host in explored_hosts {
+        let query = "
+            INSERT INTO explored_managed_hosts (host_bmc_ip, explored_dpus)
+            VALUES ($1, $2)";
         sqlx::query(query)
+            .bind(host.host_bmc_ip)
+            .bind(sqlx::types::Json(&host.dpus))
             .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
-
-        // TODO: Optimize me into a single query
-        for host in explored_hosts {
-            let query = "
-            INSERT INTO explored_managed_hosts (host_bmc_ip, explored_dpus)
-            VALUES ($1, $2)";
-            sqlx::query(query)
-                .bind(host.host_bmc_ip)
-                .bind(sqlx::types::Json(&host.dpus))
-                .execute(&mut *txn)
-                .await
-                .map_err(|e| DatabaseError::query(query, e))?;
-        }
-
-        Ok(())
     }
 
-    pub async fn delete_by_host_bmc_addr(
-        txn: &mut PgConnection,
-        addr: IpAddr,
-    ) -> Result<(), DatabaseError> {
-        let query = "DELETE FROM explored_managed_hosts WHERE host_bmc_ip = $1";
-        sqlx::query(query)
-            .bind(addr)
-            .execute(txn)
-            .await
-            .map(|_| ())
-            .map_err(|e| DatabaseError::query(query, e))
-    }
+    Ok(())
+}
 
-    pub async fn is_managed_host_created_for_endpoint(
-        txn: &mut PgConnection,
-        bmc_ip: IpAddr,
-    ) -> Result<bool, DatabaseError> {
-        let query = r#"SELECT COUNT(*) FROM explored_managed_hosts,jsonb_array_elements(explored_dpus)
+pub async fn delete_by_host_bmc_addr(
+    txn: &mut PgConnection,
+    addr: IpAddr,
+) -> Result<(), DatabaseError> {
+    let query = "DELETE FROM explored_managed_hosts WHERE host_bmc_ip = $1";
+    sqlx::query(query)
+        .bind(addr)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+pub async fn is_managed_host_created_for_endpoint(
+    txn: &mut PgConnection,
+    bmc_ip: IpAddr,
+) -> Result<bool, DatabaseError> {
+    let query = r#"SELECT COUNT(*) FROM explored_managed_hosts,jsonb_array_elements(explored_dpus)
             WHERE value->>'BmcIp'=$1 or host_bmc_ip=$2;"#;
-        let (count,): (i64,) = sqlx::query_as(query)
-            .bind(bmc_ip.to_string())
-            .bind(bmc_ip)
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
+    let (count,): (i64,) = sqlx::query_as(query)
+        .bind(bmc_ip.to_string())
+        .bind(bmc_ip)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-        Ok(count > 0)
-    }
+    Ok(count > 0)
 }

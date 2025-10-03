@@ -10,14 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use crate::api::{Api, log_machine_id, log_request_data};
-use crate::db::{
-    self, DatabaseError,
-    ib_partition::IBPartition,
-    instance::{DeleteInstance, Instance},
-    machine::MachineSearchConfig,
-    managed_host::LoadSnapshotOptions,
-    network_security_group,
-};
+use crate::db::{self, DatabaseError, network_security_group};
+use crate::model::instance::DeleteInstance;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::{
     CarbideError, CarbideResult,
     handlers::utils::convert_and_log_machine_id,
@@ -35,7 +30,7 @@ use crate::{
             tenant_config::TenantConfig,
         },
         instance::snapshot::InstanceSnapshot,
-        machine::{InstanceState, ManagedHostState, ManagedHostStateSnapshot},
+        machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot},
         metadata::Metadata,
         os::OperatingSystem,
     },
@@ -95,7 +90,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::InstanceSearchFilter = request.into_inner();
 
-    let instance_ids = Instance::find_ids(&mut txn, filter).await?;
+    let instance_ids = db::instance::find_ids(&mut txn, filter).await?;
 
     Ok(tonic::Response::new(rpc::InstanceIdList { instance_ids }))
 }
@@ -161,9 +156,9 @@ pub(crate) async fn find(
     let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
     let instance_ids = match (id, label) {
         (Some(id), None) => vec![id],
-        (None, None) => Instance::find_ids(&mut txn, Default::default()).await?,
+        (None, None) => db::instance::find_ids(&mut txn, Default::default()).await?,
         (None, Some(label)) => {
-            Instance::find_ids(
+            db::instance::find_ids(
                 &mut txn,
                 rpc::InstanceSearchFilter {
                     label: Some(label),
@@ -608,7 +603,7 @@ pub(crate) async fn release(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let instance = Instance::find_by_id(&mut txn, delete_instance.instance_id)
+    let instance = db::instance::find_by_id(&mut txn, delete_instance.instance_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
@@ -675,7 +670,7 @@ pub(crate) async fn release(
     // TODO: This is racy. If the instance just got deleted we still
     // see an error here that is not returned as `NotFound` error. Ideally
     // we convert this case of the DatabaseError into NotFound too.
-    delete_instance.mark_as_deleted(&mut txn).await?;
+    db::instance::mark_as_deleted(delete_instance.instance_id, &mut txn).await?;
 
     txn.commit()
         .await
@@ -702,7 +697,7 @@ pub(crate) async fn update_phone_home_last_contact(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let instance = Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
@@ -711,7 +706,7 @@ pub(crate) async fn update_phone_home_last_contact(
 
     log_machine_id(&instance.machine_id);
 
-    let res = Instance::update_phone_home_last_contact(&mut txn, instance.id).await?;
+    let res = db::instance::update_phone_home_last_contact(&mut txn, instance.id).await?;
 
     txn.commit()
         .await
@@ -776,7 +771,7 @@ pub(crate) async fn invoke_power(
         .unwrap_or_default();
 
     if !run_provisioning_instructions_on_every_boot {
-        Instance::use_custom_ipxe_on_next_boot(
+        db::instance::use_custom_ipxe_on_next_boot(
             &machine_id,
             request.boot_with_custom_ipxe,
             &mut txn,
@@ -909,13 +904,12 @@ pub(crate) async fn update_operating_system(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let instance =
-        Instance::find_by_id(&mut txn, instance_id)
-            .await?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "instance",
-                id: instance_id.to_string(),
-            })?;
+    let instance = db::instance::find_by_id(&mut txn, instance_id)
+        .await?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
 
     log_machine_id(&instance.machine_id);
 
@@ -931,7 +925,7 @@ pub(crate) async fn update_operating_system(
         None => instance.config_version,
     };
 
-    Instance::update_os(&mut txn, instance.id, expected_version, os).await?;
+    db::instance::update_os(&mut txn, instance.id, expected_version, os).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
@@ -1001,13 +995,12 @@ pub(crate) async fn update_instance_config(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let instance =
-        Instance::find_by_id(&mut txn, instance_id)
-            .await?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "instance",
-                id: instance_id.to_string(),
-            })?;
+    let instance = db::instance::find_by_id(&mut txn, instance_id)
+        .await?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
 
     log_machine_id(&instance.machine_id);
 
@@ -1096,7 +1089,7 @@ pub(crate) async fn update_instance_config(
     update_instance_infiniband_config(&mh_snapshot, &instance, &mut config.infiniband, &mut txn)
         .await?;
 
-    Instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
+    db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
@@ -1174,15 +1167,17 @@ async fn update_instance_network_config(
                 id: instance.machine_id.to_string(),
             })?;
 
-    // Allocate IP
-    let updated_network_config = network
-        .clone()
-        // Allocate IPs and add them to the network config
-        .with_allocated_ips(txn, instance.id, &mh_snapshot.host_snapshot)
-        .await?;
+    // Allocate IPs and add them to the network config
+    let updated_network_config = db::instance_network_config::with_allocated_ips(
+        network.clone(),
+        txn,
+        instance.id,
+        &mh_snapshot.host_snapshot,
+    )
+    .await?;
 
     // Update network config in db.
-    Instance::trigger_update_network_config_request(
+    db::instance::trigger_update_network_config_request(
         &instance.id,
         &instance.config.network,
         &updated_network_config,
@@ -1234,7 +1229,7 @@ async fn update_instance_infiniband_config(
 
     // Persist the GUID for Infiniband configuration.
     // We need to increment the version number.
-    Instance::update_ib_config(
+    db::instance::update_ib_config(
         txn,
         instance.id,
         instance.ib_config_version,
@@ -1271,7 +1266,7 @@ pub async fn force_delete_instance(
     response: &mut AdminForceDeleteMachineResponse,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> CarbideResult<()> {
-    let instance = Instance::find_by_id(txn, instance_id)
+    let instance = db::instance::find_by_id(txn, instance_id)
         .await?
         .ok_or_else(|| {
             CarbideError::internal(format!("Could not find an instance for {instance_id}"))
@@ -1298,7 +1293,9 @@ pub async fn force_delete_instance(
     response.ufm_unregistration_pending = true;
     // unbind ib ports from UFM
     for (ib_partition_id, guids) in ib_config_map.iter() {
-        if let Some(pkey) = IBPartition::find_pkey_by_partition_id(txn, *ib_partition_id).await? {
+        if let Some(pkey) =
+            db::ib_partition::find_pkey_by_partition_id(txn, *ib_partition_id).await?
+        {
             ib_fabric.unbind_ib_ports(pkey, guids.to_vec()).await?;
             response.ufm_unregistrations += 1;
 
@@ -1309,12 +1306,7 @@ pub async fn force_delete_instance(
 
     // Delete the instance and allocated address
     // TODO: This might need some changes with the new state machine
-    let delete_instance = DeleteInstance {
-        instance_id,
-        issue: None,
-        is_repair_tenant: None,
-    };
-    delete_instance.delete(txn).await?;
+    db::instance::delete(instance_id, txn).await?;
 
     let mut network_segment_ids_with_vpc = vec![];
     if let Some(update_network_req) = &instance.update_network_config_request {
@@ -1334,7 +1326,7 @@ pub async fn force_delete_instance(
                 .flat_map(|x| x.ip_addrs.values().collect_vec()),
         );
 
-        db::instance_address::InstanceAddress::delete_addresses(txn, &addresses).await?;
+        db::instance_address::delete_addresses(txn, &addresses).await?;
 
         network_segment_ids_with_vpc = update_network_req
             .new_config
@@ -1370,11 +1362,8 @@ pub async fn force_delete_instance(
 
     // Mark all network ready for delete which were created for vpc_prefixes.
     if !network_segment_ids_with_vpc.is_empty() {
-        db::network_segment::NetworkSegment::mark_as_deleted_no_validation(
-            txn,
-            &network_segment_ids_with_vpc,
-        )
-        .await?;
+        db::network_segment::mark_as_deleted_no_validation(txn, &network_segment_ids_with_vpc)
+            .await?;
     }
 
     let snapshot =

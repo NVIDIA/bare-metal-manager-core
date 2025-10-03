@@ -28,19 +28,11 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 use version_compare::Cmp;
 
-use crate::db::machine::MachineSearchConfig;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::{
     CarbideError, CarbideResult,
     cfg::file::{FirmwareComponentType, FirmwareConfig, SiteExplorerConfig},
-    db::{
-        self, DatabaseError, ObjectFilter,
-        expected_machine::ExpectedMachine,
-        explored_endpoints::DbExploredEndpoint,
-        explored_managed_host::DbExploredManagedHost,
-        machine,
-        machine_topology::MachineTopology,
-        network_segment::{NetworkSegment, NetworkSegmentType},
-    },
+    db::{self, DatabaseError, ObjectFilter, machine},
     model::{
         bmc_info::BmcInfo,
         hardware_info::HardwareInfo,
@@ -71,11 +63,11 @@ pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 
 mod managed_host;
 use self::metrics::exploration_error_to_metric_label;
-use crate::db::predicted_machine_interface::{
-    NewPredictedMachineInterface, PredictedMachineInterface,
-};
 use crate::db::{ObjectColumnFilter, predicted_machine_interface};
+use crate::model::expected_machine::ExpectedMachine;
 use crate::model::machine::Machine;
+use crate::model::network_segment::NetworkSegmentType;
+use crate::model::predicted_machine_interface::NewPredictedMachineInterface;
 pub use managed_host::is_endpoint_in_managed_host;
 
 #[derive(Debug, Clone)]
@@ -305,8 +297,8 @@ impl SiteExplorer {
 
         // Grab them all because we care about everything,
         // not just the subset in the current run.
-        let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
-        let explored_managed_hosts = DbExploredManagedHost::find_all(&mut txn).await?;
+        let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+        let explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
 
         txn.rollback()
             .await
@@ -687,7 +679,7 @@ impl SiteExplorer {
         // Could optimize this by keeping it in memory. But since the manipulations
         // are quite complicated in the previous step, this makes things much easier
         let explored_endpoints =
-            DbExploredEndpoint::find_all_preingestion_complete(&mut txn).await?;
+            db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
 
         txn.commit()
             .await
@@ -1017,7 +1009,7 @@ impl SiteExplorer {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        DbExploredManagedHost::update(
+        db::explored_managed_host::update(
             &mut txn,
             managed_hosts
                 .iter()
@@ -1057,9 +1049,10 @@ impl SiteExplorer {
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let underlay_segments =
-            NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay)).await?;
+            db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
+                .await?;
         let interfaces = db::machine_interface::find_all(&mut txn).await?;
-        let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
+        let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await?;
         txn.rollback()
             .await
             .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
@@ -1131,7 +1124,7 @@ impl SiteExplorer {
             // TODO: Explore deleting all old endpoints in a single query, which would be more efficient
             // Since we practically never delete `MachineInterface`s anyway, this however isn't that important.
             for address in delete_endpoints.into_iter() {
-                DbExploredEndpoint::delete(&mut txn, address).await?;
+                db::explored_endpoints::delete(&mut txn, address).await?;
             }
 
             txn.commit()
@@ -1222,7 +1215,7 @@ impl SiteExplorer {
             .begin()
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
-        let expected = ExpectedMachine::find_all(&mut txn).await?;
+        let expected = db::expected_machine::find_all(&mut txn).await?;
 
         // Load SKU information for expected machines to record metrics
         let sku_ids: Vec<String> = expected
@@ -1411,7 +1404,7 @@ impl SiteExplorer {
                 && let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc)
                 && let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi)
             {
-                MachineTopology::update_firmware_version_by_bmc_address(
+                db::machine_topology::update_firmware_version_by_bmc_address(
                     &mut txn,
                     &address,
                     bmc_version,
@@ -1432,7 +1425,7 @@ impl SiteExplorer {
                                     "Initial exploration of machine"
                                 );
                             }
-                            let _updated = DbExploredEndpoint::try_update(
+                            let _updated = db::explored_endpoints::try_update(
                                 address,
                                 old_version,
                                 &report,
@@ -1446,7 +1439,7 @@ impl SiteExplorer {
                             // still helpful. The failure might just be intermittent.
                             old_report.last_exploration_error = Some(e);
                             old_report.last_exploration_latency = Some(exploration_duration);
-                            let _updated = DbExploredEndpoint::try_update(
+                            let _updated = db::explored_endpoints::try_update(
                                 address,
                                 old_version,
                                 &old_report,
@@ -1466,19 +1459,19 @@ impl SiteExplorer {
                                 exploration_report = ?report,
                                 "Initial exploration of machine"
                             );
-                            DbExploredEndpoint::insert(address, &report, &mut txn).await?;
+                            db::explored_endpoints::insert(address, &report, &mut txn).await?;
                         }
                         Err(e) => {
                             // If an endpoint exploration failed we still track the result in the database
                             // That will avoid immmediatly retrying the exploration in the next run
                             let mut report = EndpointExplorationReport::new_with_error(e);
                             report.last_exploration_latency = Some(exploration_duration);
-                            DbExploredEndpoint::insert(address, &report, &mut txn).await?;
+                            db::explored_endpoints::insert(address, &report, &mut txn).await?;
                         }
                     }
                     if !self.config.create_machines.load(Ordering::Relaxed) {
                         // We're using manual ingestion, making preingestion updates risky.  Go ahead and skip them.
-                        DbExploredEndpoint::set_preingestion_complete(address, &mut txn).await?
+                        db::explored_endpoints::set_preingestion_complete(address, &mut txn).await?
                     }
                 }
             }
@@ -1537,7 +1530,7 @@ impl SiteExplorer {
 
             // If we already minted this machine and it hasn't DHCP'd yet, there will be an
             // predicted_machine_interface with this MAC address. If so, also skip.
-            if !PredictedMachineInterface::find_by(
+            if !db::predicted_machine_interface::find_by(
                 txn,
                 ObjectColumnFilter::One(predicted_machine_interface::MacAddressColumn, mac_address),
             )
@@ -1633,12 +1626,14 @@ impl SiteExplorer {
                     .await?;
                 }
             } else {
-                NewPredictedMachineInterface {
-                    machine_id: &machine_id,
-                    mac_address,
-                    expected_network_segment_type: NetworkSegmentType::HostInband,
-                }
-                .create(txn)
+                db::predicted_machine_interface::create(
+                    NewPredictedMachineInterface {
+                        machine_id: &machine_id,
+                        mac_address,
+                        expected_network_segment_type: NetworkSegmentType::HostInband,
+                    },
+                    txn,
+                )
                 .await?;
             }
         }
@@ -1946,10 +1941,11 @@ impl SiteExplorer {
         mut bmc_info: BmcInfo,
         hardware_info: HardwareInfo,
     ) -> CarbideResult<()> {
-        let _topology = MachineTopology::create_or_update(txn, machine_id, &hardware_info).await?;
+        let _topology =
+            db::machine_topology::create_or_update(txn, machine_id, &hardware_info).await?;
 
         // Forge scout will update this topology with a full information.
-        MachineTopology::set_topology_update_needed(txn, machine_id, true).await?;
+        db::machine_topology::set_topology_update_needed(txn, machine_id, true).await?;
 
         // call enrich_mac_address to fill the MAC address info from the machine_interfaces table
         db::bmc_metadata::enrich_mac_address(
@@ -2115,7 +2111,8 @@ impl SiteExplorer {
                     .await
                     .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-                DbExploredEndpoint::set_last_ipmitool_bmc_reset(endpoint.address, &mut txn).await?;
+                db::explored_endpoints::set_last_ipmitool_bmc_reset(endpoint.address, &mut txn)
+                    .await?;
 
                 txn.commit()
                     .await
@@ -2150,7 +2147,8 @@ impl SiteExplorer {
                     .await
                     .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-                DbExploredEndpoint::set_last_redfish_bmc_reset(endpoint.address, &mut txn).await?;
+                db::explored_endpoints::set_last_redfish_bmc_reset(endpoint.address, &mut txn)
+                    .await?;
 
                 txn.commit()
                     .await
@@ -2225,7 +2223,7 @@ impl SiteExplorer {
                     .await
                     .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-                DbExploredEndpoint::set_last_redfish_reboot(endpoint.address, &mut txn).await?;
+                db::explored_endpoints::set_last_redfish_reboot(endpoint.address, &mut txn).await?;
 
                 txn.commit()
                     .await
@@ -2365,7 +2363,7 @@ impl SiteExplorer {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        DbExploredEndpoint::set_last_redfish_powercycle(bmc_ip_address, &mut txn).await?;
+        db::explored_endpoints::set_last_redfish_powercycle(bmc_ip_address, &mut txn).await?;
 
         txn.commit()
             .await
@@ -2760,7 +2758,7 @@ pub async fn get_machine_state_by_bmc_ip(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let state = match MachineTopology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip).await? {
+    let state = match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip).await? {
         Some(machine_id) => {
             match machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await? {
                 Some(machine) => machine.current_state().to_string(),

@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use crate::{
-    CarbideError,
+    CarbideError, db,
     db::ib_partition::{IBPartition, IBPartitionStatus},
     ib::{DEFAULT_IB_FABRIC_NAME, GetPartitionOptions, IBFabricManagerConfig, types::IBQosConf},
     model::ib_partition::IBPartitionControllerState,
@@ -90,7 +90,7 @@ impl StateHandler for IBPartitionStateHandler {
                             match e {
                                 // The IBPartition maybe deleted during controller cycle.
                                 CarbideError::NotFoundError { .. } => {
-                                    IBPartition::final_delete(*partition_id, txn).await?;
+                                    db::ib_partition::final_delete(*partition_id, txn).await?;
                                     // Release pkey after ib_partition deleted.
                                     let pkey_pool = ctx
                                         .services
@@ -103,7 +103,7 @@ impl StateHandler for IBPartitionStateHandler {
                                             "pkey pool for fabric \"{DEFAULT_IB_FABRIC_NAME}\" was not found"
                                         )})?;
 
-                                    pkey_pool.release(txn, pkey.into()).await?;
+                                    db::resource_pool::release(pkey_pool, txn, pkey.into()).await?;
                                     Ok(deleted!())
                                 }
                                 _ => Err(StateHandlerError::IBFabricError {
@@ -162,7 +162,7 @@ impl StateHandler for IBPartitionStateHandler {
                                     rate_limit: qos.rate_limit.clone(),
                                     service_level: qos.service_level.clone(),
                                 });
-                                state.update(txn).await?;
+                                db::ib_partition::update(state, txn).await?;
 
                                 if !is_qos_conf_applied(&ib_config, qos) {
                                     // Update the QoS of IBNetwork in UFM.

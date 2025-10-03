@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-pub mod address_selection_strategy;
 pub mod attestation;
 pub mod bmc_metadata;
 pub mod desired_firmware;
@@ -29,6 +28,7 @@ pub mod host_machine_update;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_address;
+pub mod instance_network_config;
 pub mod instance_type;
 pub mod machine;
 pub mod machine_boot_override;
@@ -39,6 +39,7 @@ pub mod machine_state_history;
 pub mod machine_topology;
 pub mod machine_validation;
 pub mod machine_validation_config;
+pub mod machine_validation_result;
 pub mod machine_validation_suites;
 pub mod managed_host;
 pub mod migrations;
@@ -47,7 +48,8 @@ pub mod network_prefix;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod network_segment_state_history;
-pub mod power_manager;
+pub mod os_image;
+pub mod power_options;
 pub mod predicted_machine_interface;
 pub mod queries;
 pub mod redfish_actions;
@@ -56,10 +58,14 @@ pub mod resource_record;
 pub mod route_servers;
 pub mod site_exploration_report;
 pub mod sku;
-pub mod storage;
+pub mod storage_cluster;
+pub mod storage_pool;
+pub mod storage_volume;
 pub mod tenant;
+pub mod tenant_keyset;
 pub mod trim_table;
 pub mod vpc;
+pub mod vpc_dpu_loopback;
 pub mod vpc_peering;
 pub mod vpc_prefix;
 
