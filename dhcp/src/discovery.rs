@@ -16,6 +16,7 @@ use derive_builder::Builder;
 use mac_address::MacAddress;
 
 use crate::machine::Machine;
+use crate::metrics::set_service_healthy;
 use crate::vendor_class::VendorClass;
 use crate::{CONFIG, tls};
 use crate::{CarbideDhcpContext, cache};
@@ -427,6 +428,9 @@ unsafe fn discovery_fetch_machine_at(
                                 startup_time.to_rfc3339(),
                                 last_invalidation.to_rfc3339()
                             );
+                            // Setting service status to unhealty, in case if gracefull shutdown fails, other process would need to restart it
+                            // on failed probe
+                            set_service_healthy(false);
                             // Try to gracefully shutdown dhcp server, this would call all webhooks and properly shutdown hook library
                             libc::kill(libc::getpid(), libc::SIGTERM);
                         }
