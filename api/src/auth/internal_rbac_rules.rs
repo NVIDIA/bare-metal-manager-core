@@ -35,11 +35,12 @@ enum RulePrincipal {
     SshRs,
     Health,
     Pxe,
+    Rla,
     Anonymous, // Permitted for everything
 }
 use self::RulePrincipal::{
-    Agent, Anonymous, Dhcp, Dns, ForgeAdminCLI, Health, Machineatron, Pxe, Scout, SiteAgent, Ssh,
-    SshRs,
+    Agent, Anonymous, Dhcp, Dns, ForgeAdminCLI, Health, Machineatron, Pxe, Rla, Scout, SiteAgent,
+    Ssh, SshRs,
 };
 
 impl InternalRBACRules {
@@ -132,22 +133,38 @@ impl InternalRBACRules {
         x.perm("DiscoverDhcp", vec![Dhcp, Machineatron]);
         x.perm(
             "GetMachine",
-            vec![ForgeAdminCLI, Agent, Machineatron, Ssh, SshRs],
+            vec![ForgeAdminCLI, Agent, Machineatron, Ssh, SshRs, Rla],
         );
         x.perm(
             "FindMachines",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Ssh, SshRs],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Ssh, SshRs, Rla],
         );
         x.perm("FindInterfaces", vec![ForgeAdminCLI]);
         x.perm("DeleteInterface", vec![ForgeAdminCLI]);
         x.perm("FindIpAddress", vec![ForgeAdminCLI]);
         x.perm(
             "FindMachineIds",
-            vec![ForgeAdminCLI, Machineatron, Health, SiteAgent, Ssh, SshRs],
+            vec![
+                ForgeAdminCLI,
+                Machineatron,
+                Health,
+                SiteAgent,
+                Ssh,
+                SshRs,
+                Rla,
+            ],
         );
         x.perm(
             "FindMachinesByIds",
-            vec![ForgeAdminCLI, Machineatron, Health, SiteAgent, Ssh, SshRs],
+            vec![
+                ForgeAdminCLI,
+                Machineatron,
+                Health,
+                SiteAgent,
+                Ssh,
+                SshRs,
+                Rla,
+            ],
         );
         x.perm("FindConnectedDevicesByDpuMachineIds", vec![ForgeAdminCLI]);
         x.perm("FindMachineIdsByBmcIps", vec![ForgeAdminCLI]);
@@ -446,8 +463,8 @@ impl InternalRBACRules {
         x.perm("UpdatePowerOption", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateBmcUser", vec![ForgeAdminCLI]);
         x.perm("DeleteBmcUser", vec![ForgeAdminCLI]);
-        x.perm("SetFirmwareUpdateTimeWindow", vec![ForgeAdminCLI]);
-        x.perm("ListHostFirmware", vec![ForgeAdminCLI]);
+        x.perm("SetFirmwareUpdateTimeWindow", vec![ForgeAdminCLI, Rla]);
+        x.perm("ListHostFirmware", vec![ForgeAdminCLI, Rla]);
         x.perm("EnableInfiniteBoot", vec![ForgeAdminCLI]);
         x.perm("IsInfiniteBootEnabled", vec![ForgeAdminCLI]);
         x.perm(
@@ -542,6 +559,9 @@ impl RuleInfo {
                     }
                     RulePrincipal::Health => {
                         Principal::SpiffeServiceIdentifier("carbide-hardware-health".to_string())
+                    }
+                    RulePrincipal::Rla => {
+                        Principal::SpiffeServiceIdentifier("carbide-rla".to_string())
                     }
                     RulePrincipal::Anonymous => Principal::Anonymous,
                 })
