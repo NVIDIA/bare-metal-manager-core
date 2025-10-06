@@ -184,7 +184,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
     let mh_snapshot = load_snapshot(&mut txn, &host_machine_id, LoadSnapshotOptions::default())
@@ -216,7 +216,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     // Since delay is set to 0 for test, db must be updated immediately.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
@@ -227,7 +227,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
 
         env.run_machine_state_controller_iteration().await;
         let mut txn = env.pool.begin().await?;
-        let power_entry = PowerOptions::get_all(&mut txn).await?;
+        let power_entry = db::power_options::get_all(&mut txn).await?;
         assert_eq!(power_entry[0].desired_power_state, PowerState::On);
         assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
         txn.rollback().await?;
