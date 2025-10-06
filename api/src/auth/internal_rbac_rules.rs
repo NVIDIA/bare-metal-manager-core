@@ -161,7 +161,7 @@ impl InternalRBACRules {
         x.perm("UpdateMachineCredentials", vec![]);
         x.perm("GetPxeInstructions", vec![Pxe, Machineatron]);
         x.perm("GetCloudInitInstructions", vec![Pxe]);
-        x.perm("Echo", vec![]);
+        x.perm("Echo", vec![Dhcp]);
         x.perm("CreateTenant", vec![SiteAgent]);
         x.perm("FindTenant", vec![SiteAgent, ForgeAdminCLI]);
         x.perm("UpdateTenant", vec![SiteAgent]);

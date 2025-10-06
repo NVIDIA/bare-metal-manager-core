@@ -9,7 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use bytes::Bytes;
 use http_body_util::Full;
@@ -31,23 +33,65 @@ use opentelemetry_semantic_conventions as semconv;
 use prometheus::{Encoder, TextEncoder};
 use tokio::net::TcpListener;
 
+/// Health and readiness controller
+#[derive(Debug, Clone)]
+pub struct HealthController {
+    ready: Arc<AtomicBool>,
+    healthy: Arc<AtomicBool>,
+}
+
+impl Default for HealthController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HealthController {
+    pub fn new() -> Self {
+        // Ready and healthy by default
+        Self {
+            ready: Arc::new(AtomicBool::new(true)),
+            healthy: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    pub fn set_ready(&self, ready: bool) {
+        self.ready.store(ready, Ordering::Relaxed);
+    }
+
+    pub fn set_healthy(&self, healthy: bool) {
+        self.healthy.store(healthy, Ordering::Relaxed);
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Relaxed)
+    }
+
+    pub fn is_healthy(&self) -> bool {
+        self.healthy.load(Ordering::Relaxed)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MetricsSetup {
     pub registry: prometheus::Registry,
     pub meter: Meter,
     // Need to retain this, if it's dropped, metrics are not held
     pub meter_provider: SdkMeterProvider,
+    pub health_controller: HealthController,
 }
 
 /// The shared state between HTTP requests
 struct MetricsHandlerState {
     registry: prometheus::Registry,
+    health_controller: HealthController,
 }
 
 /// Configuration for the metrics endpoint
 pub struct MetricsEndpointConfig {
     pub address: SocketAddr,
     pub registry: prometheus::Registry,
+    pub health_controller: Option<HealthController>,
 }
 
 pub fn new_metrics_setup(
@@ -89,6 +133,7 @@ pub fn new_metrics_setup(
         registry: prometheus_registry,
         meter: meter_provider.meter(service_name),
         meter_provider,
+        health_controller: HealthController::new(),
     })
 }
 
@@ -115,6 +160,7 @@ fn create_metric_view_for_retry_histograms(
 pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), std::io::Error> {
     let handler_state = Arc::new(MetricsHandlerState {
         registry: config.registry.clone(),
+        health_controller: config.health_controller.clone().unwrap_or_default(),
     });
 
     let listener = TcpListener::bind(&config.address).await?;
@@ -167,6 +213,22 @@ async fn handle_metrics_request(
                 .body(Full::new(Bytes::from(buffer)))
                 .unwrap()
         }
+        (&Method::GET, "/health") if state.health_controller.is_healthy() => Response::builder()
+            .status(200)
+            .body(Full::new(Bytes::from("Healthy")))
+            .unwrap(),
+        (&Method::GET, "/health") => Response::builder()
+            .status(503)
+            .body(Full::new(Bytes::from("Unhealthy")))
+            .unwrap(),
+        (&Method::GET, "/ready") if state.health_controller.is_ready() => Response::builder()
+            .status(200)
+            .body(Full::new(Bytes::from("Ready")))
+            .unwrap(),
+        (&Method::GET, "/ready") => Response::builder()
+            .status(503)
+            .body(Full::new(Bytes::from("Unavailable")))
+            .unwrap(),
         (&Method::GET, "/") => Response::builder()
             .status(200)
             .body(Full::new(Bytes::from(
@@ -256,5 +318,26 @@ mod tests {
                 assert!(!encoded.contains(r#"mygauge{error="ErrC",state="mystate"} 1"#));
             }
         }
+    }
+
+    #[test]
+    fn test_health_controller_state_changes() {
+        let controller = HealthController::new();
+
+        // Defaults are true
+        assert!(controller.is_ready());
+        assert!(controller.is_healthy());
+
+        controller.set_ready(false);
+        assert!(!controller.is_ready());
+
+        controller.set_healthy(false);
+        assert!(!controller.is_healthy());
+        assert!(!controller.is_ready());
+
+        controller.set_ready(true);
+        controller.set_healthy(true);
+        assert!(controller.is_ready());
+        assert!(controller.is_healthy());
     }
 }

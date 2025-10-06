@@ -16,6 +16,7 @@ use std::thread;
 
 use forge_tls::default as tls_default;
 use libc::c_char;
+use metrics_endpoint::HealthController;
 use once_cell::sync::Lazy;
 use opentelemetry::metrics::Counter;
 use rpc::forge_tls_client::ForgeClientConfig;
@@ -52,6 +53,7 @@ pub struct CarbideDhcpContext {
     forge_client_key_path: String,
     metrics_endpoint: Option<SocketAddr>,
     metrics: Option<CarbideDhcpMetrics>,
+    health_controller: Option<HealthController>,
     startup_time: chrono::DateTime<chrono::Utc>,
 }
 
@@ -79,6 +81,7 @@ impl Default for CarbideDhcpContext {
             provisioning_server_ipv4: None,
             metrics_endpoint: None,
             metrics: None,
+            health_controller: None,
             startup_time: chrono::Utc::now(),
         }
     }
