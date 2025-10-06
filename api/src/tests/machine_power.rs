@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{MaintenanceOperation, MaintenanceRequest, PowerOptionUpdateRequest};
+use rpc::forge::{
+    MaintenanceOperation, MaintenanceRequest, PowerOptionRequest, PowerOptionUpdateRequest,
+};
 
 use crate::db::{self, managed_host::load_snapshot};
 use crate::model::machine::LoadSnapshotOptions;
@@ -170,6 +172,77 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_power_manager_state_machine_desired_on_machine_off_counter(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+
+    let mut txn = env.pool.begin().await?;
+    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    assert_eq!(power_entry[0].desired_power_state, PowerState::On);
+    assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
+    let mh_snapshot = load_snapshot(&mut txn, &host_machine_id, LoadSnapshotOptions::default())
+        .await?
+        .unwrap();
+    txn.commit().await?;
+
+    // Create redfish client
+    let mut txn = env.pool.begin().await?;
+    let sim = env
+        .redfish_sim
+        .create_client_from_machine(&mh_snapshot.host_snapshot, &mut txn)
+        .await?;
+    txn.commit().await?;
+
+    // Set power state Off.
+    sim.power(libredfish::SystemPowerControl::ForceOff).await?;
+
+    assert_eq!(
+        sim.get_power_state().await.unwrap(),
+        libredfish::PowerState::Off
+    );
+
+    let mut txn = env.pool.begin().await?;
+    update_next_try_now(&host_machine_id, &mut txn).await;
+    txn.commit().await?;
+
+    // Run a iteration.
+    // Since delay is set to 0 for test, db must be updated immediately.
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await?;
+    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    assert_eq!(power_entry[0].desired_power_state, PowerState::On);
+    assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
+    txn.rollback().await?;
+
+    for _ in 1..10 {
+        // Keep power off
+        sim.power(libredfish::SystemPowerControl::ForceOff).await?;
+
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.pool.begin().await?;
+        let power_entry = PowerOptions::get_all(&mut txn).await?;
+        assert_eq!(power_entry[0].desired_power_state, PowerState::On);
+        assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
+        txn.rollback().await?;
+    }
+
+    // Get Power option
+    let res = env
+        .api
+        .get_power_options(tonic::Request::new(PowerOptionRequest {
+            machine_id: vec![host_machine_id],
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(res.response[0].tried_triggering_on_counter, 3);
 
     Ok(())
 }

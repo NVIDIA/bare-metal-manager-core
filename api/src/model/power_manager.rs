@@ -149,14 +149,12 @@ pub fn get_updated_power_options_for_desired_on_state_off(
     // In case of mismatch, next try can be soon to avoid delay.
     updated_power_options.last_fetched_next_try_at = now + next_try_duration_on_failure;
     // Carbide found the host OFF for at least 2 cycles.
-    if last_fetched_off_counter >= 2 {
-        if updated_power_options.tried_triggering_on_counter < 3 {
-            // Try power on here.
-            try_power_on = true;
-            updated_power_options.tried_triggering_on_at = Some(now);
-            updated_power_options.wait_until_time_before_performing_next_power_action =
-                now + wait_duration_until_host_reboot;
-        }
+    if last_fetched_off_counter >= 2 && updated_power_options.tried_triggering_on_counter < 3 {
+        // Try power on here.
+        try_power_on = true;
+        updated_power_options.tried_triggering_on_at = Some(now);
+        updated_power_options.wait_until_time_before_performing_next_power_action =
+            now + wait_duration_until_host_reboot;
         updated_power_options.tried_triggering_on_counter += 1;
     }
     updated_power_options.last_fetched_off_counter += 1;
