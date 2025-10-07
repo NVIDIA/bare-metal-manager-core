@@ -7,7 +7,10 @@ use std::{
 use crate::{
     model::{
         machine::MachineInterfaceSnapshot,
-        site_explorer::{EndpointExplorationError, EndpointExplorationReport},
+        site_explorer::{
+            EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus,
+            LockdownStatus,
+        },
     },
     site_explorer::{EndpointExplorer, SiteExplorationMetrics},
 };
@@ -112,6 +115,26 @@ impl EndpointExplorer for MockEndpointExplorer {
         _interface: &MachineInterfaceSnapshot,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
+    }
+
+    async fn lockdown(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _action: libredfish::EnabledDisabled,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn lockdown_status(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<LockdownStatus, EndpointExplorationError> {
+        Ok(LockdownStatus {
+            status: InternalLockdownStatus::Disabled,
+            message: "".to_string(),
+        })
     }
 
     async fn forge_setup(

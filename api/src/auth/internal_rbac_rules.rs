@@ -450,6 +450,8 @@ impl InternalRBACRules {
         x.perm("ListHostFirmware", vec![ForgeAdminCLI]);
         x.perm("EnableInfiniteBoot", vec![ForgeAdminCLI]);
         x.perm("IsInfiniteBootEnabled", vec![ForgeAdminCLI]);
+        x.perm("Lockdown", vec![ForgeAdminCLI]);
+        x.perm("LockdownStatus", vec![ForgeAdminCLI]);
         x.perm(
             "PublishMlxDeviceReport",
             vec![Agent, Scout, Machineatron, ForgeAdminCLI],

@@ -422,6 +422,7 @@ fn build_exploration_report(
         model: None,
         forge_setup_status: None,
         secure_boot_status: None,
+        lockdown_status: None,
     };
     report.model = report.model();
     report

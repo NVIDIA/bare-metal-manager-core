@@ -1415,6 +1415,34 @@ pub struct InfiniteBootArgs {
     pub reboot: bool,
 }
 
+#[derive(Parser, Debug)]
+pub struct LockdownArgs {
+    #[clap(long, help = "ID of the machine to enable/disable lockdown")]
+    pub machine: MachineId,
+    #[clap(short, long, help = "Issue reboot to apply lockdown change")]
+    pub reboot: bool,
+    #[clap(
+        long,
+        conflicts_with = "disable",
+        required_unless_present = "disable",
+        help = "Enable lockdown"
+    )]
+    pub enable: bool,
+    #[clap(
+        long,
+        conflicts_with = "enable",
+        required_unless_present = "enable",
+        help = "Disable lockdown"
+    )]
+    pub disable: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct LockdownStatusArgs {
+    #[clap(long, help = "ID of the machine to check lockdown status")]
+    pub machine: MachineId,
+}
+
 impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::SystemPowerControl {
     fn from(c_type: AdminPowerControlAction) -> Self {
         match c_type {
@@ -2070,6 +2098,10 @@ pub enum BmcAction {
     EnableInfiniteBoot(InfiniteBootArgs),
     #[clap(about = "Check if infinite boot is enabled")]
     IsInfiniteBootEnabled(InfiniteBootArgs),
+    #[clap(about = "Enable or disable lockdown")]
+    Lockdown(LockdownArgs),
+    #[clap(about = "Check lockdown status")]
+    LockdownStatus(LockdownStatusArgs),
 }
 
 #[derive(Parser, Debug)]

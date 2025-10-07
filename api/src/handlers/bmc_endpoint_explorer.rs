@@ -137,6 +137,38 @@ pub(crate) async fn disable_secure_boot(
     Ok(Response::new(()))
 }
 
+pub(crate) async fn lockdown(
+    api: &Api,
+    request: ::rpc::forge::BmcEndpointRequest,
+    action: libredfish::EnabledDisabled,
+) -> Result<Response<()>, tonic::Status> {
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .lockdown(bmc_addr, &machine_interface, action)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(()))
+}
+
+pub(crate) async fn lockdown_status(
+    api: &Api,
+    request: ::rpc::forge::BmcEndpointRequest,
+) -> Result<Response<::rpc::site_explorer::LockdownStatus>, tonic::Status> {
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    let response = api
+        .endpoint_explorer
+        .lockdown_status(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(response.into()))
+}
+
 pub(crate) async fn enable_infinite_boot(
     api: &Api,
     request: ::rpc::forge::BmcEndpointRequest,

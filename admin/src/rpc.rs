@@ -2302,6 +2302,38 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
+    pub async fn lockdown(
+        &self,
+        bmc_endpoint_request: Option<BmcEndpointRequest>,
+        machine_id: MachineId,
+        action: rpc::LockdownAction,
+    ) -> CarbideCliResult<rpc::LockdownResponse> {
+        let request = rpc::LockdownRequest {
+            bmc_endpoint_request,
+            machine_id: Some(machine_id),
+            action: Some(action as i32),
+        };
+        self.0
+            .lockdown(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn lockdown_status(
+        &self,
+        bmc_endpoint_request: Option<BmcEndpointRequest>,
+        machine_id: MachineId,
+    ) -> CarbideCliResult<::rpc::site_explorer::LockdownStatus> {
+        let request = rpc::LockdownStatusRequest {
+            bmc_endpoint_request,
+            machine_id: Some(machine_id),
+        };
+        self.0
+            .lockdown_status(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
     pub async fn create_dpu_remediation(
         &self,
         script: String,

@@ -2905,6 +2905,87 @@ impl Forge for Api {
         Ok(Response::new(rpc::DisableSecureBootResponse {}))
     }
 
+    async fn lockdown(
+        &self,
+        request: tonic::Request<rpc::LockdownRequest>,
+    ) -> Result<Response<::rpc::forge::LockdownResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+        let action = req.action();
+        let action = match action {
+            ::rpc::forge::LockdownAction::Enable => libredfish::EnabledDisabled::Enabled,
+            ::rpc::forge::LockdownAction::Disable => libredfish::EnabledDisabled::Disabled,
+        };
+
+        const DB_TXN_NAME: &str = "lockdown";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id,
+        )
+        .await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+
+        crate::handlers::bmc_endpoint_explorer::lockdown(
+            self,
+            bmc_endpoint_request.clone(),
+            action,
+        )
+        .await?;
+
+        let endpoint_address = bmc_endpoint_request.ip_address.clone();
+        tracing::info!(
+            "lockdown {} request succeeded to {}",
+            action.to_string().to_lowercase(),
+            endpoint_address
+        );
+
+        Ok(Response::new(rpc::LockdownResponse {}))
+    }
+
+    async fn lockdown_status(
+        &self,
+        request: tonic::Request<rpc::LockdownStatusRequest>,
+    ) -> Result<Response<::rpc::site_explorer::LockdownStatus>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        const DB_TXN_NAME: &str = "lockdown_status";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
+        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id,
+        )
+        .await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+
+        let response = crate::handlers::bmc_endpoint_explorer::lockdown_status(
+            self,
+            bmc_endpoint_request.clone(),
+        )
+        .await?;
+
+        Ok(response)
+    }
+
     async fn enable_infinite_boot(
         &self,
         request: tonic::Request<rpc::EnableInfiniteBootRequest>,

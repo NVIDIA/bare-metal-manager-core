@@ -33,6 +33,8 @@ message EndpointExplorationReport {
   ForgeSetupStatus forge_setup_status = 16;
   // `SecureBootStatus` reported by Redfish
   SecureBootStatus secure_boot_status = 17;
+  // `LockdownStatus` reported by Redfish
+  LockdownStatus lockdown_status = 18;
 }
 
 message ExploredEndpoint {
@@ -242,4 +244,17 @@ message BootOption {
 
 message SecureBootStatus {
   bool is_enabled = 1;
+}
+
+// `LockdownStatus` definition. Matches redfish definition
+message LockdownStatus {
+  InternalLockdownStatus status = 1;
+  string message = 2;
+}
+
+// `InternalLockdownStatus` definition. Matches redfish definition
+enum InternalLockdownStatus {
+  ENABLED = 0;
+  PARTIAL = 1;
+  DISABLED = 2;
 }

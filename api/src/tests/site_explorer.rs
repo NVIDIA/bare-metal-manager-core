@@ -210,6 +210,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 model: None,
                 forge_setup_status: None,
                 secure_boot_status: None,
+                lockdown_status: None,
             }),
         ),
     ]);
@@ -562,6 +563,7 @@ async fn test_site_explorer_audit_exploration_results(
                 versions: HashMap::default(),
                 forge_setup_status: None,
                 secure_boot_status: None,
+                lockdown_status: None,
             },
         ),
         (
@@ -585,6 +587,7 @@ async fn test_site_explorer_audit_exploration_results(
                 versions: HashMap::default(),
                 forge_setup_status: None,
                 secure_boot_status: None,
+                lockdown_status: None,
             },
         ),
         (
@@ -603,6 +606,7 @@ async fn test_site_explorer_audit_exploration_results(
                 versions: HashMap::default(),
                 forge_setup_status: None,
                 secure_boot_status: None,
+                lockdown_status: None,
             },
         ),
         (
@@ -625,6 +629,7 @@ async fn test_site_explorer_audit_exploration_results(
                 versions: HashMap::default(),
                 forge_setup_status: None,
                 secure_boot_status: None,
+                lockdown_status: None,
             },
         ),
         (
@@ -3340,6 +3345,7 @@ async fn test_expected_machine_device_type_metrics(
                 model: Some("test-model".to_string()),
                 forge_setup_status: None,
                 secure_boot_status: None,
+                lockdown_status: None,
             }),
         ),
         (
@@ -3358,6 +3364,7 @@ async fn test_expected_machine_device_type_metrics(
                 model: Some("test-model".to_string()),
                 forge_setup_status: None,
                 secure_boot_status: None,
+                lockdown_status: None,
             }),
         ),
         (
@@ -3376,6 +3383,7 @@ async fn test_expected_machine_device_type_metrics(
                 model: Some("test-model".to_string()),
                 forge_setup_status: None,
                 secure_boot_status: None,
+                lockdown_status: None,
             }),
         ),
     ]);
