@@ -456,7 +456,7 @@ pub async fn host_power_control(
                     if pending.is_empty() {
                         // We need to unlock BMC to perform boot modification, and relock it later
                         let lstatus = redfish_client.lockdown_status().await?;
-                        if lstatus.is_fully_enabled() {
+                        if !lstatus.is_fully_disabled() {
                             redfish_client.lockdown(EnabledDisabled::Disabled).await?;
                         }
                         // Supermicro will boot the users OS if we don't do this
