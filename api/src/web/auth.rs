@@ -58,13 +58,11 @@ pub async fn callback(
     request_headers: HeaderMap,
     Query(query): Query<AuthRequest>,
     Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
-) -> Response {
+) -> AuthCallbackResponse {
+    use AuthCallbackError::*;
+
     let Some(oauth2_layer) = oauth2_layer else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "expected oauth2 extension layer is empty",
-        )
-            .into_response();
+        return EmptyOauth2Layer.into();
     };
 
     let cookiejar: PrivateCookieJar = PrivateCookieJar::from_headers(
@@ -86,11 +84,7 @@ pub async fn callback(
         .ok()
         .and_then(|uri| uri.host().map(|host| host.to_owned()))
     else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "invalid hostname missing host",
-        )
-            .into_response();
+        return MissingHost.into();
     };
     // Extra gating of the override.
     #[cfg(not(feature = "linux-build"))]
@@ -106,7 +100,7 @@ pub async fn callback(
     // and then drop the cookie.
     if let Some(client_secret) = request_headers.get(CLIENT_SECRET_HEADER) {
         let Ok(client_secret) = client_secret.to_str() else {
-            return (StatusCode::BAD_REQUEST, "invalid client secret format").into_response();
+            return (StatusCode::BAD_REQUEST, "invalid client secret format").into();
         };
 
         let client_id = oauth2_layer.client.client_id().as_str().to_owned();
@@ -125,18 +119,14 @@ pub async fn callback(
         {
             Ok(s) => s,
             Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("bad token response from external auth service: {e}"),
-                )
-                    .into_response();
+                return BadClientCredentialsTokenResponse(e.to_string()).into();
             }
         };
 
-        let now_seconds = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(n) => n.as_secs(),
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
-        };
+        let now_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("implausible future date")
+            .as_secs();
 
         let cookie = Cookie::build((
             "sid",
@@ -160,7 +150,8 @@ pub async fn callback(
             cookiejar.remove(cookie.clone()).add(cookie),
             Redirect::to("/admin/"),
         )
-            .into_response();
+            .into_response()
+            .into();
     }
 
     let Some(query_state) = query.state else {
@@ -168,42 +159,30 @@ pub async fn callback(
             StatusCode::BAD_REQUEST,
             "'state' parameter required for MFA flow",
         )
-            .into_response();
+            .into();
     };
 
     let Some(query_code) = query.code else {
-        return (StatusCode::BAD_REQUEST, "'code' required for MFA flow").into_response();
+        return (StatusCode::BAD_REQUEST, "'code' required for MFA flow").into();
     };
 
     // Grab the csrf state cookie we stored when we generated the original auth redirect.
     // We'll proactively remove it after we grab the value later.
     let Some(csrf_cookie) = cookiejar.get("csrf_state") else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "unable to verify csrf state from external auth response",
-        )
-            .into_response();
+        return MissingCsrfState.into();
     };
 
     // Compare the state we received when creating the original
     // auth redirect TO azure with the state we just received in the request
     // FROM Azure.
     if *csrf_cookie.value() != query_state {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "csrf state of auth request did not match state from external auth response",
-        )
-            .into_response();
+        return CsrfStateMismatch.into();
     }
 
     // Grab the pkce verifier cookie we stored when we generated the original auth redirect.
     // We'll proactively remove it after we grab the value later.
     let Some(pkce_cookie) = cookiejar.get("pkce_verifier") else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "unable to extract pkce verifier from cookie",
-        )
-            .into_response();
+        return MissingPkceVerifier.into();
     };
 
     let pkce_verifier = PkceCodeVerifier::new(pkce_cookie.value().to_owned());
@@ -219,69 +198,45 @@ pub async fn callback(
     {
         Ok(s) => s,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("bad token response from external auth service: {e}"),
-            )
-                .into_response();
+            return BadAuthCodeTokenResponse(e.to_string()).into();
         }
     };
 
     let exp_secs = match token.expires_in() {
         Some(d) => d.as_secs(),
         _ => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to find expiration in auth token",
-            )
-                .into_response();
+            return MissingExpiration.into();
         }
     };
 
     let secs: i64 = match exp_secs.try_into() {
         Ok(s) => s,
         _ => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to convert auth expiration seconds between integer types",
-            )
-                .into_response();
+            return InvalidExpiration.into();
         }
     };
 
-    let now_seconds = match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(n) => n.as_secs(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
-    };
+    let now_seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("implausible future date")
+        .as_secs();
 
     let user = match token.access_token().secret().split(".").nth(1) {
         None => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "response token is missing payload claims section",
-            )
-                .into_response();
+            return MissingPayloadClaims.into();
         }
         Some(s) => {
             let data = match BASE64_URL_SAFE_NO_PAD.decode(s) {
                 Ok(d) => d,
                 Err(e) => {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("invalid payload claims portion in oauth2 response token:  {e}"),
-                    )
-                        .into_response();
+                    return InvalidPayloadClaimsBase64(e).into();
                 }
             };
 
             match serde_json::from_slice::<OauthUserData>(&data) {
                 Ok(d) => d,
                 Err(e) => {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("failed to parse payload claims in oauth2 response token: {e}"),
-                    )
-                        .into_response();
+                    return InvalidPayloadClaimsJson(e).into();
                 }
             }
         }
@@ -294,11 +249,7 @@ pub async fn callback(
     )) {
         Ok(u) => u,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to parse group query uri: {e}"),
-            )
-                .into_response();
+            return InvalidGroupQueryUri(e).into();
         }
     };
 
@@ -312,12 +263,8 @@ pub async fn callback(
                 format!("Bearer {}", token.access_token().secret().to_owned()).as_str(),
             ) {
                 Ok(h) => h,
-                _ => {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "unable to create authorization header",
-                    )
-                        .into_response();
+                Err(e) => {
+                    return CouldNotCreateAuthHeader(e.to_string()).into();
                 }
             },
         )
@@ -330,11 +277,7 @@ pub async fn callback(
     let request = match request {
         Ok(r) => r,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("unable to create request to grab group details: {e}"),
-            )
-                .into_response();
+            return CouldNotCreateGroupDetailsRequest(e.to_string()).into();
         }
     };
 
@@ -346,26 +289,18 @@ pub async fn callback(
         Ok(response) => match serde_json::from_slice::<OauthUserGroups>(&response.into_body()) {
             Ok(g) => g,
             Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("failed to parse oauth2 user groups response: {e}"),
-                )
-                    .into_response();
+                return InvalidUserGroupsResponse(e.to_string()).into();
             }
         },
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to get oauth2 user groups: {e}"),
-            )
-                .into_response();
+            return FailedToGetUserGroups(e.to_string()).into();
         }
     };
 
     // If no groups were found, then this user doesn't have
     // access.
     if groups.value.is_empty() {
-        return (StatusCode::UNAUTHORIZED, "user not found in any groups").into_response();
+        return (StatusCode::UNAUTHORIZED, "user not found in any groups").into();
     }
 
     // Otherwise, iterate through the groups they're in and see if any matches
@@ -389,7 +324,7 @@ pub async fn callback(
             StatusCode::UNAUTHORIZED,
             "user not found in any permitted groups",
         )
-            .into_response();
+            .into();
     };
 
     // Grab the previous page cookie so we can send the human back to the original
@@ -459,6 +394,102 @@ pub async fn callback(
         Redirect::to(&requested_page),
     )
         .into_response()
+        .into()
+}
+
+/// Use our own Response type so that the error message can be logged as well as placed in the
+/// response body.
+///
+/// Note: Use the Error variant to return INTERNAL_SERVER_ERROR, don't use
+/// (INTERNAL_SERVER_ERROR, "error string"), as the latter will not be logged properly.
+pub enum AuthCallbackResponse {
+    Response(Response),
+    Error(AuthCallbackError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum AuthCallbackError {
+    #[error("expected oauth2 extension layer is empty")]
+    EmptyOauth2Layer,
+    #[cfg(not(feature = "linux-build"))]
+    #[error("invalid hostname missing host")]
+    MissingHost,
+    #[error(
+        "bad token response from external auth service when exchanging client credentials: {0}"
+    )]
+    BadClientCredentialsTokenResponse(String),
+    #[error("unable to verify csrf state from external auth response")]
+    MissingCsrfState,
+    #[error("csrf state of auth request did not match state from external auth response")]
+    CsrfStateMismatch,
+    #[error("unable to extract pkce verifier from cookie")]
+    MissingPkceVerifier,
+    #[error(
+        "bad token response from external auth service when exchanging authorization code: {0}"
+    )]
+    BadAuthCodeTokenResponse(String),
+    #[error("failed to find expiration in auth token")]
+    MissingExpiration,
+    #[error("failed to convert auth expiration seconds between integer types")]
+    InvalidExpiration,
+    #[error("response token is missing payload claims section")]
+    MissingPayloadClaims,
+    #[error("invalid payload claims portion in oauth2 response token: {0}")]
+    InvalidPayloadClaimsBase64(base64::DecodeError),
+    #[error("invalid payload claims JSON in oauth2 response token: {0}")]
+    InvalidPayloadClaimsJson(serde_json::Error),
+    #[error("failed to parse group query uri: {0}")]
+    InvalidGroupQueryUri(url::ParseError),
+    #[error("unable to create authorization header for group details request: {0}")]
+    CouldNotCreateAuthHeader(String),
+    #[error("unable to create request to grab group details: {0}")]
+    CouldNotCreateGroupDetailsRequest(String),
+    #[error("failed to parse oauth2 user groups response: {0}")]
+    InvalidUserGroupsResponse(String),
+    #[error("failed to get oauth2 user groups: {0}")]
+    FailedToGetUserGroups(String),
+}
+
+impl IntoResponse for AuthCallbackResponse {
+    fn into_response(self) -> Response {
+        match self {
+            AuthCallbackResponse::Response(response) => response,
+            AuthCallbackResponse::Error(error) => {
+                tracing::error!("internal server error running auth_callback: {error}");
+                (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
+            }
+        }
+    }
+}
+
+/// Convert a (status, string) to a Response, logging unsuccessful responses to INFO. Not used for
+/// INTERNAL_SERVER_ERROR, use AuthCallbackResponse::Error for that.
+impl<S> From<(StatusCode, S)> for AuthCallbackResponse
+where
+    S: ToString,
+{
+    fn from(value: (StatusCode, S)) -> Self {
+        if !value.0.is_success() {
+            tracing::info!(
+                "auth_callback was unsuccessful with status code {}: {}",
+                value.0.as_u16(),
+                value.1.to_string()
+            );
+        }
+        AuthCallbackResponse::Response((value.0, value.1.to_string()).into_response())
+    }
+}
+
+impl From<AuthCallbackError> for AuthCallbackResponse {
+    fn from(error: AuthCallbackError) -> Self {
+        AuthCallbackResponse::Error(error)
+    }
+}
+
+impl From<Response> for AuthCallbackResponse {
+    fn from(value: Response) -> Self {
+        AuthCallbackResponse::Response(value)
+    }
 }
 
 /// Used to grab the user ID from
