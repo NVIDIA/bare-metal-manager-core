@@ -11,6 +11,7 @@
  */
 
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
@@ -21,7 +22,8 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
 use rpc::site_explorer::{
-    ExploredEndpoint, ForgeSetupStatus, SecureBootStatus, SiteExplorationReport,
+    ExploredEndpoint, ForgeSetupStatus, InternalLockdownStatus, LockdownStatus, SecureBootStatus,
+    SiteExplorationReport,
 };
 use serde::Deserialize;
 
@@ -367,7 +369,9 @@ struct ExploredEndpointDetail {
     credentials_set: String,
     has_machine: bool,
     secure_boot_status: String,
+    lockdown_status: String,
     is_dell_endpoint: bool,
+    report_age: String,
 }
 struct ExploredEndpointInfo {
     endpoint: ExploredEndpoint,
@@ -385,6 +389,12 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             .map(|vendor| vendor.to_lowercase() == "dell")
             .unwrap_or(false);
 
+        let report_age =
+            config_version::ConfigVersion::from_str(&endpoint_info.endpoint.report_version)
+                .ok()
+                .map(|v| v.since_state_change_humanized())
+                .unwrap_or_else(|| "unknown".to_string());
+
         Self {
             last_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.clone())
@@ -398,10 +408,14 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             secure_boot_status: secure_boot_status_to_string(
                 report_ref.and_then(|report| report.secure_boot_status.as_ref()),
             ),
+            lockdown_status: lockdown_status_to_string(
+                report_ref.and_then(|report| report.lockdown_status.as_ref()),
+            ),
             endpoint: endpoint_info.endpoint,
             credentials_set: endpoint_info.credentials_set,
             has_machine: endpoint_info.has_machine,
             is_dell_endpoint,
+            report_age,
         }
     }
 }
@@ -772,6 +786,56 @@ pub async fn disable_secure_boot(
     Redirect::to(&view_url).into_response()
 }
 
+pub async fn disable_lockdown(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    if let Err(err) = state
+        .lockdown(tonic::Request::new(rpc::forge::LockdownRequest {
+            bmc_endpoint_request: Some(BmcEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+                mac_address: None,
+            }),
+            machine_id: None,
+            action: Some(rpc::forge::LockdownAction::Disable as i32),
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, "disable_lockdown");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}
+
+pub async fn enable_lockdown(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    if let Err(err) = state
+        .lockdown(tonic::Request::new(rpc::forge::LockdownRequest {
+            bmc_endpoint_request: Some(BmcEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+                mac_address: None,
+            }),
+            machine_id: None,
+            action: Some(rpc::forge::LockdownAction::Enable as i32),
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, "enable_lockdown");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}
+
 pub async fn forge_setup(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
@@ -917,7 +981,7 @@ fn forge_setup_status_to_string(status: Option<&ForgeSetupStatus>) -> String {
 
 fn secure_boot_status_to_string(status: Option<&SecureBootStatus>) -> String {
     match status {
-        None => "Unable to fetch Secure Boot Status".to_string(),
+        None => "Unknown".to_string(),
         Some(s) => {
             if s.is_enabled {
                 "Enabled".to_string()
@@ -925,5 +989,17 @@ fn secure_boot_status_to_string(status: Option<&SecureBootStatus>) -> String {
                 "Disabled".to_string()
             }
         }
+    }
+}
+
+fn lockdown_status_to_string(status: Option<&LockdownStatus>) -> String {
+    match status {
+        None => "Unknown".to_string(),
+        Some(s) => match s.status {
+            x if x == InternalLockdownStatus::Enabled as i32 => "Enabled".to_string(),
+            x if x == InternalLockdownStatus::Disabled as i32 => "Disabled".to_string(),
+            x if x == InternalLockdownStatus::Partial as i32 => "Partial".to_string(),
+            _ => "Unknown".to_string(),
+        },
     }
 }

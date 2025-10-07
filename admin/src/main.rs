@@ -1004,6 +1004,53 @@ async fn main() -> color_eyre::Result<()> {
                     None => println!("Unknown"),
                 }
             }
+            BmcAction::Lockdown(args) => {
+                let machine = args.machine;
+                let action = if args.enable {
+                    forgerpc::LockdownAction::Enable
+                } else if args.disable {
+                    forgerpc::LockdownAction::Disable
+                } else {
+                    return Err(CarbideCliError::GenericError(
+                        "Either --enable or --disable must be specified".to_string(),
+                    )
+                    .into());
+                };
+
+                api_client.lockdown(None, machine, action).await?;
+
+                let action_str = if args.enable { "enabled" } else { "disabled" };
+
+                if args.reboot {
+                    api_client
+                        .admin_power_control(
+                            None,
+                            Some(machine.to_string()),
+                            AdminPowerControlAction::ForceRestart.into(),
+                        )
+                        .await?;
+                    println!(
+                        "Lockdown {} and reboot initiated to apply the change.",
+                        action_str
+                    );
+                } else {
+                    println!(
+                        "Lockdown {}. Please reboot the machine to apply the change.",
+                        action_str
+                    );
+                }
+            }
+            BmcAction::LockdownStatus(args) => {
+                let response = api_client.lockdown_status(None, args.machine).await?;
+                // Convert status enum to string
+                let status_str = match response.status {
+                    0 => "Enabled",  // InternalLockdownStatus::ENABLED
+                    1 => "Partial",  // InternalLockdownStatus::PARTIAL
+                    2 => "Disabled", // InternalLockdownStatus::DISABLED
+                    _ => "Unknown",
+                };
+                println!("{}: {}", status_str, response.message);
+            }
         },
         CliCommand::Inventory(action) => {
             inventory::print_inventory(&api_client, action, config.internal_page_size).await?

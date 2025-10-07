@@ -315,8 +315,8 @@ table.detailsview {
 
 /* Detail view tables have fixed label column width */
 table.detailsview th {
-  width: 25%;
-  min-width: 200px;
+  width: 18%;
+  min-width: 140px;
 }
 
 table.detailsview td {
@@ -601,11 +601,25 @@ button[disabled] {
   border: 1px solid gray;
 }
 
-button:hover:enabled,
-input[type="submit"]:hover {
+.config-card input[type="submit"].disabled {
+  background-color: rgba(113, 128, 150, 0.1) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--text-muted) !important;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+button:hover:enabled:not(.tab-button),
+input[type="submit"]:hover:not(.disabled) {
   background-color: var(--accent-green);
   box-shadow: var(--shadow-md);
   border-color: var(--accent-green-hover);
+}
+
+.config-card input[type="submit"].disabled:hover {
+  background-color: rgba(113, 128, 150, 0.1) !important;
+  box-shadow: var(--shadow-sm);
+  border-color: var(--text-muted) !important;
 }
 
 /* Notification banner for restart reminders */
@@ -1022,9 +1036,11 @@ details > *:not(summary) {
 }
 
 /* Vertical forms (maintenance, quarantine) */
-#maintenance_action,
+#maintenance_action {
+  display: block;
+}
 #quarantine_action {
-  /* These forms stack vertically */
+  display: block;
 }
 
 #maintenance_action button,
@@ -1089,6 +1105,73 @@ details > *:not(summary) {
     background-color: red;
     border: 1px solid red;
   }
+}
+
+/* ------------------------------------------------------------------------
+   Configuration Cards
+   ------------------------------------------------------------------------ */
+
+/* Grid container for configuration cards */
+.config-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 260px);
+  gap: 1rem;
+  width: 100%;
+}
+
+/* Individual configuration card */
+.config-card {
+  width: 260px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Card header with title and status */
+.config-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.config-card .bubble {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Card title */
+.config-card-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+/* Card action area */
+.config-card-action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.config-card-reminder {
+  height: 1rem;
+  line-height: 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+/* Full width button in card */
+.config-card-action input[type="submit"],
+.config-card-action button {
+  width: 100%;
+  margin: 0;
 }
 
 /* ------------------------------------------------------------------------
@@ -1212,6 +1295,68 @@ pre:not(div[style*="overflow: auto"] > pre):not(td > div > pre) {
   overflow: auto;
 }
 
+
+/* ------------------------------------------------------------------------
+   Tab System
+   ------------------------------------------------------------------------ */
+
+.tab-nav {
+  display: flex;
+  gap: 0;
+  margin-bottom: 2rem;
+  margin-top: 1.5rem;
+  position: relative;
+}
+
+.tab-button {
+  all: unset;
+  display: inline-block;
+  color: var(--text-secondary);
+  padding: 0.75rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tab-button:hover {
+  color: var(--text-secondary);
+}
+
+.tab-button.active {
+  color: var(--accent-green);
+}
+
+.tab-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background-color: var(--accent-green);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 0;
+}
+
+.tab-content {
+  display: none;
+  animation: fadeIn 0.2s ease;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* ------------------------------------------------------------------------
    Responsive Design
    ------------------------------------------------------------------------ */
@@ -1244,7 +1389,18 @@ pre:not(div[style*="overflow: auto"] > pre):not(td > div > pre) {
   }
   
   table.detailsview th {
-    width: 30%;
-    min-width: 150px;
+    width: 26%;
+    min-width: 120px;
+  }
+  
+  .tab-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .tab-button {
+    padding: 0.65rem 1.25rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
   }
 } 

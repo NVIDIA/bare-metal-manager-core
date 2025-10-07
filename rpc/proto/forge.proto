@@ -470,6 +470,10 @@ service Forge {
   rpc AdminPowerControl(AdminPowerControlRequest) returns (AdminPowerControlResponse);
   // Disable Secure Boot
   rpc DisableSecureBoot(BmcEndpointRequest) returns (DisableSecureBootResponse);
+  // Set Lockdown (Enable or Disable)
+  rpc Lockdown(LockdownRequest) returns (LockdownResponse);
+  // Fetch Lockdown Status
+  rpc LockdownStatus(LockdownStatusRequest) returns (site_explorer.LockdownStatus);
   // Start Forge Setup
   rpc ForgeSetup(ForgeSetupRequest) returns (ForgeSetupResponse);
   // Set DPU as first boot option
@@ -2784,6 +2788,25 @@ message AdminForceDeleteMachineResponse {
 }
 
 message DisableSecureBootResponse {
+}
+
+message LockdownRequest {
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional common.MachineId machine_id = 2;
+  optional LockdownAction action = 3;
+}
+
+enum LockdownAction {
+  ENABLE = 0;
+  DISABLE = 1;
+}
+
+message LockdownResponse {
+}
+
+message LockdownStatusRequest {
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional common.MachineId machine_id = 2;
 }
 
 message ForgeSetupStatusRequest {

@@ -24,8 +24,9 @@ use regex::Regex;
 use crate::model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
-    ForgeSetupDiff, ForgeSetupStatus, Inventory, Manager, NetworkAdapter, PCIeDevice, PowerState,
-    SecureBootStatus, Service, SystemStatus, UefiDevicePath,
+    ForgeSetupDiff, ForgeSetupStatus, InternalLockdownStatus, Inventory, LockdownStatus, Manager,
+    NetworkAdapter, PCIeDevice, PowerState, SecureBootStatus, Service, SystemStatus,
+    UefiDevicePath,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -252,6 +253,15 @@ impl RedfishClient {
             )
             .ok();
 
+        let lockdown_status = fetch_lockdown_status(client.as_ref())
+            .await
+            .inspect_err(|error| {
+                if !matches!(error, libredfish::RedfishError::NotSupported(_)) {
+                    tracing::warn!(%error, "Failed to fetch lockdown status.");
+                }
+            })
+            .ok();
+
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
@@ -266,6 +276,7 @@ impl RedfishClient {
             model: None,
             forge_setup_status,
             secure_boot_status,
+            lockdown_status,
         })
     }
 
@@ -318,6 +329,41 @@ impl RedfishClient {
             .map_err(map_redfish_error)?;
 
         Ok(())
+    }
+
+    pub async fn lockdown(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+        action: libredfish::EnabledDisabled,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.lockdown(action).await.map_err(map_redfish_error)?;
+
+        Ok(())
+    }
+
+    pub async fn lockdown_status(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<LockdownStatus, EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        let response = fetch_lockdown_status(client.as_ref())
+            .await
+            .map_err(map_redfish_error)?;
+
+        Ok(response)
     }
 
     pub async fn enable_infinite_boot(
@@ -1008,6 +1054,21 @@ async fn fetch_secure_boot_status(client: &dyn Redfish) -> Result<SecureBootStat
     let is_enabled = secure_boot_enable && secure_boot_current_boot.is_enabled();
 
     Ok(SecureBootStatus { is_enabled })
+}
+
+async fn fetch_lockdown_status(client: &dyn Redfish) -> Result<LockdownStatus, RedfishError> {
+    let status = client.lockdown_status().await?;
+    let internal_status = if status.is_fully_enabled() {
+        InternalLockdownStatus::Enabled
+    } else if status.is_fully_disabled() {
+        InternalLockdownStatus::Disabled
+    } else {
+        InternalLockdownStatus::Partial
+    };
+    Ok(LockdownStatus {
+        status: internal_status,
+        message: status.message().to_string(),
+    })
 }
 
 pub(crate) fn map_redfish_client_creation_error(

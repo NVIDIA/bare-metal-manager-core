@@ -81,6 +81,8 @@ pub struct EndpointExplorationReport {
     pub forge_setup_status: Option<ForgeSetupStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secure_boot_status: Option<SecureBootStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lockdown_status: Option<LockdownStatus>,
 }
 
 impl EndpointExplorationReport {
@@ -142,6 +144,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             service: report.service.into_iter().map(Into::into).collect(),
             forge_setup_status: report.forge_setup_status.map(Into::into),
             secure_boot_status: report.secure_boot_status.map(Into::into),
+            lockdown_status: report.lockdown_status.map(Into::into),
         }
     }
 }
@@ -650,6 +653,7 @@ impl EndpointExplorationReport {
             model: None,
             forge_setup_status: None,
             secure_boot_status: None,
+            lockdown_status: None,
         }
     }
 
@@ -1243,6 +1247,43 @@ impl From<SecureBootStatus> for rpc::site_explorer::SecureBootStatus {
     }
 }
 
+/// `LockdownStatus` definition. Matches redfish definition
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct LockdownStatus {
+    pub status: InternalLockdownStatus,
+    pub message: String,
+}
+
+impl From<LockdownStatus> for rpc::site_explorer::LockdownStatus {
+    fn from(lockdown_status: LockdownStatus) -> Self {
+        rpc::site_explorer::LockdownStatus {
+            status: rpc::site_explorer::InternalLockdownStatus::from(lockdown_status.status) as _,
+            message: lockdown_status.message,
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum InternalLockdownStatus {
+    Enabled,
+    Partial,
+    #[default]
+    Disabled,
+}
+
+impl From<InternalLockdownStatus> for rpc::site_explorer::InternalLockdownStatus {
+    fn from(state: InternalLockdownStatus) -> Self {
+        match state {
+            InternalLockdownStatus::Enabled => rpc::site_explorer::InternalLockdownStatus::Enabled,
+            InternalLockdownStatus::Partial => rpc::site_explorer::InternalLockdownStatus::Partial,
+            InternalLockdownStatus::Disabled => {
+                rpc::site_explorer::InternalLockdownStatus::Disabled
+            }
+        }
+    }
+}
+
 /// `Service` definition. Matches redfish definition
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -1607,6 +1648,7 @@ mod tests {
             model: None,
             forge_setup_status: None,
             secure_boot_status: None,
+            lockdown_status: None,
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1665,6 +1707,7 @@ mod tests {
             model: None,
             forge_setup_status: None,
             secure_boot_status: None,
+            lockdown_status: None,
         };
         report
             .generate_machine_id(false)

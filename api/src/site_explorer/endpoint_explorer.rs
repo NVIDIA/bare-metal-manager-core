@@ -17,7 +17,7 @@ use super::metrics::SiteExplorationMetrics;
 use crate::model::expected_machine::ExpectedMachine;
 use crate::model::{
     machine::MachineInterfaceSnapshot,
-    site_explorer::{EndpointExplorationError, EndpointExplorationReport},
+    site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus},
 };
 use libredfish::RoleId;
 use std::net::SocketAddr;
@@ -71,6 +71,19 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
     ) -> Result<(), EndpointExplorationError>;
+
+    async fn lockdown(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        action: libredfish::EnabledDisabled,
+    ) -> Result<(), EndpointExplorationError>;
+
+    async fn lockdown_status(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<LockdownStatus, EndpointExplorationError>;
 
     async fn enable_infinite_boot(
         &self,
