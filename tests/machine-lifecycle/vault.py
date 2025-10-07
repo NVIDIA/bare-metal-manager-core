@@ -42,7 +42,7 @@ class ForgeVaultClient:
         host_bmc_password = host_bmc_creds.split(":", maxsplit=1)[1]
         return host_bmc_password
 
-    def get_ngc_api_key(self, environment: Literal["prod", "stg", "qa"]):
+    def get_ngc_api_key(self, environment: Literal["prod", "stg", "qa", "canary"]):
         read_response = self.client.secrets.kv.v2.read_secret(mount_point=self.mount_point, path=self.path)
         if environment == "prod":
             return read_response["data"]["data"]["nvcr"]
@@ -50,6 +50,8 @@ class ForgeVaultClient:
             return read_response["data"]["data"]["stg_nvcr"]
         elif environment == "qa":
             return read_response["data"]["data"]["stg_qa_nvcr"]
+        elif environment == "canary":
+            return read_response["data"]["data"]["temp_canary_nvcr"]  # To be replaced with Service Keys
         else:
             raise ValueError(f"Unknown environment: {environment}")
 
@@ -70,6 +72,7 @@ def vault_login() -> hvac.Client:
     Works for GitLab CI and local dev environment where a token exists at ${HOME}/.vault-token
     Don't forget to call logout() on the client with finished with it.
     """
+    client = ""
     if "VAULT_JWT_TOKEN" in os.environ:
         # GitLab CI
         client = hvac.Client(
