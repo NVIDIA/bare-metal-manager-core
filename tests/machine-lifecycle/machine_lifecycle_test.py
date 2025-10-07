@@ -34,29 +34,35 @@ SUPPORTED_FW_VERSIONS_FOR_DOWNGRADE = {
 @dataclass
 class TestConfig:
     """Configuration for the machine lifecycle test."""
+
     site_under_test: str
     short_site_name: str
     machine_under_test: str
     machine_sku: str | None
     expected_dpu_count: int
-    factory_reset: bool
     dpu_fw_downgrade: bool
     fw_downgrade_version: str | None
-    skip_postingestion_checks: bool
-    post_ingestion_cycles: int
+    provision_cycles: int
+    skip_factory_reset: bool
+    debug_ingestion_only: bool
+    debug_instance_provision_only: bool
+
 
 @dataclass
 class SiteConfig:
     """Configuration for the site and NGC environment."""
+
     site: ngc.Site
     ngc_api_key: str
     dpu_bmc_username: str
     dpu_bmc_password: str
     host_bmc_password: str
 
+
 @dataclass
 class MachineInfo:
     """Information about the machine under test."""
+
     machine: dict
     vendor: Literal["lenovo", "dell"]  # Currently supported for these tests
     host_bmc_username: str
@@ -69,18 +75,22 @@ class MachineInfo:
     machine_under_test_dpu: str
     machine_under_test_predicted_host: str
 
+
 @dataclass
 class NGCUUIDs:
     """UUIDs required for NGC operations."""
+
     site_uuid: str
     instance_type_uuid: str
     vpc_uuid: str
     subnet_uuid: str
     os_uuid: str
 
+
 @dataclass
 class FirmwarePaths:
     """Paths to the local downloaded firmware files."""
+
     bmc_fw_path: str
     cec_fw_path: str
     bfb_path: str
@@ -88,73 +98,111 @@ class FirmwarePaths:
 
 def main():
     """Main entry point for the machine lifecycle test."""
-    # Test setup
+
+    ##################################
+    # 1. Setup and log initial state #
+    ##################################
     test_config = setup_test_config()
     pprint.pprint(test_config)
     site_config = setup_site_config(test_config)
-    pprint.pprint(site_config)
+    pprint.pprint(_mask_site_config_creds(site_config))
     machine_info = collect_machine_info(test_config)
-    pprint.pprint(machine_info)
     ngc_uuids = collect_ngc_uuids(test_config, site_config)
 
+    # Check machine is in a testable state
     verify_initial_machine_state(test_config)
 
-    # Collect machine capabilities before ingestion (currently only tested in QA2)
+    # Collect initial machine capabilities (currently only tested in QA2)
+    machine_capabilities = ""
     if test_config.site_under_test == "pdx-qa2-new":
-        machine_capabilities = capabilities_generator.generate_capabilities([test_config.machine_under_test])
-    # Optional DPU firmware downgrade step
-    if test_config.dpu_fw_downgrade:
-        perform_firmware_downgrade(test_config, site_config, machine_info)
-        verify_firmware_versions(test_config, site_config, machine_info, downgraded=True)
-
-    # Optional factory-reset step (soon to be non-optional if the DPU firmware was just downgraded)
-    if test_config.factory_reset:
-        perform_factory_reset(test_config, site_config, machine_info)
-
-    # We need to unassign the instance type before we can force-delete the machine
-    ngc.delete_allocation(
-        site_config.site,
-        f"machine-lifecycle-test-{test_config.machine_sku}",
-        strict=False,
-    )
-    ngc.unassign_instance_type(site_config.site, test_config.machine_under_test, strict=False)
-
-    # Perform force delete and wait for reingestion to Ready state
-    force_delete_and_await_reingestion(test_config, site_config, machine_info)
-
-    # If we performed a downgrade before reingestion, verify firmware has been upgraded by Forge
-    if test_config.dpu_fw_downgrade:
-        verify_firmware_versions(test_config, site_config, machine_info, downgraded=False)
-
-    # Validate machine capabilities after ingestion (currently only tested in QA2)
-    if test_config.site_under_test == "pdx-qa2-new":
-        capability_validator.validate_machine_capabilities(
-            test_config.machine_under_test,
-            machine_capabilities,
-            admin_cli
+        machine_capabilities = capabilities_generator.generate_capabilities(
+            [test_config.machine_under_test]
         )
 
-    # Assign the instance type back to the machine
-    ngc.assign_instance_type(site_config.site, ngc_uuids.instance_type_uuid, test_config.machine_under_test)
-    ngc.create_allocation(
-        site_config.site,
-        ngc_uuids.instance_type_uuid,
-        ngc_uuids.site_uuid,
-        f"machine-lifecycle-test-{test_config.machine_sku}"
-    )
-    if not test_config.skip_postingestion_checks:
-        for cnt in range(test_config.post_ingestion_cycles):
-            print(f"Running post-ingestion checks cycle {cnt + 1} of {test_config.post_ingestion_cycles}")
-            # Create an instance, wait for it to be ready, and verify SSH access
-            instance_uuid = create_instance_and_verify(test_config, site_config, ngc_uuids)
+    if not test_config.debug_instance_provision_only:
 
-            # Delete the instance and wait for return to 'Ready'
+        ###########################################
+        # 2. Firmware downgrade DPU(s) (OPTIONAL) #
+        ###########################################
+        if test_config.dpu_fw_downgrade:
+            perform_firmware_downgrade(test_config, site_config, machine_info)
+            verify_firmware_versions(test_config, site_config, machine_info, downgraded=True)
+
+        ####################################
+        # 3. Factory reset host and DPU(s) #
+        ####################################
+        # NB: This is non-optional if the firmware downgrade has run
+        if not test_config.skip_factory_reset:
+            perform_factory_reset(test_config, site_config, machine_info)
+
+        ###########################
+        # 4. Force delete machine #
+        ###########################
+        # Unassign any instance type first or force-delete will fail
+        ngc.delete_allocation(
+            site_config.site,
+            f"machine-lifecycle-test-{test_config.machine_sku}",
+            strict=False,
+        )
+        ngc.unassign_instance_type(site_config.site, test_config.machine_under_test, strict=False)
+
+        # Perform force delete and wait for reingestion to Ready state
+        force_delete_and_await_reingestion(test_config, site_config, machine_info)
+
+        # If we performed a downgrade before reingestion, verify firmware has been upgraded by Forge
+        if test_config.dpu_fw_downgrade:
+            verify_firmware_versions(test_config, site_config, machine_info, downgraded=False)
+
+        # Validate machine capabilities after ingestion (currently only tested in QA2)
+        if test_config.site_under_test == "pdx-qa2-new":
+            capability_validator.validate_machine_capabilities(
+                test_config.machine_under_test, machine_capabilities, admin_cli
+            )
+    else:
+        print("Skipping ingestion portion due to $DEBUG_INSTANCE_PROVISION_ONLY flag")
+
+    if not test_config.debug_ingestion_only:
+
+        ####################################
+        # 5. Create and delete an instance #
+        ####################################
+        # First ensure the machine is assigned and allocated to the tenant
+        ngc.assign_instance_type(
+            site_config.site,
+            ngc_uuids.instance_type_uuid,
+            test_config.machine_under_test,
+            strict=False,
+        )
+        ngc.create_allocation(
+            site_config.site,
+            ngc_uuids.instance_type_uuid,
+            ngc_uuids.site_uuid,
+            f"machine-lifecycle-test-{test_config.machine_sku}",
+            strict=False,
+        )
+
+        for i in range(test_config.provision_cycles):
+            print(f"Running instance provision cycle {i+1} of {test_config.provision_cycles}")
+            instance_uuid = create_instance_and_verify(test_config, site_config, ngc_uuids)
             delete_instance_and_verify(test_config, ngc_uuids, instance_uuid)
     else:
-        print("Skipping post-ingestion checks")
+        print("Skipping instance provision portion due to $DEBUG_INGESTION_ONLY flag")
 
 
-def _error_and_exit(message: str, set_maintenance: bool = False, machine_id: str | None = None) -> None:
+def _mask_site_config_creds(site_config: SiteConfig) -> dict:
+    """Create a printable version of site_config with sensitive fields masked."""
+    return {
+        "site": site_config.site,
+        "ngc_api_key": "***masked***",
+        "dpu_bmc_username": site_config.dpu_bmc_username,
+        "dpu_bmc_password": "***masked***",
+        "host_bmc_password": "***masked***",
+    }
+
+
+def _error_and_exit(
+    message: str, set_maintenance: bool = False, machine_id: str | None = None
+) -> None:
     """Print error message and exit with status code 1.
 
     Args:
@@ -189,40 +237,59 @@ def setup_test_config() -> TestConfig:
 
     machine_sku = os.environ.get("MACHINE_SKU", None)
 
-    expected_dpu_count = int(os.environ.get("DPU_COUNT", "1"))
-    if expected_dpu_count not in [1, 2]:
-        _error_and_exit("$DPU_COUNT must be set to 1 or 2")
+    expected_dpu_count = int(os.environ.get("DPU_COUNT"))
+    if not expected_dpu_count:
+        _error_and_exit("$DPU_COUNT must be provided")
 
     try:
-        factory_reset = os.environ.get("FACTORY_RESET", "false").lower() == "true"
         dpu_fw_downgrade = os.environ.get("FW_DOWNGRADE", "false").lower() == "true"
         fw_downgrade_version = os.environ.get("FW_DOWNGRADE_VERSION", None)
         if dpu_fw_downgrade:
             if fw_downgrade_version is None:
-                _error_and_exit("$FW_DOWNGRADE_VERSION must be provided when $FW_DOWNGRADE is set to 'true'")
+                _error_and_exit(
+                    "$FW_DOWNGRADE_VERSION must be provided when $FW_DOWNGRADE is 'true'"
+                )
             if fw_downgrade_version not in SUPPORTED_FW_VERSIONS_FOR_DOWNGRADE:
-                _error_and_exit("$FW_DOWNGRADE_VERSION currently only supports '2.2.1' or '2.5.0' (DOCA)")
+                _error_and_exit(
+                    "$FW_DOWNGRADE_VERSION currently only supports '2.2.1' or '2.5.0' (DOCA)"
+                )
 
-        skip_postingestion_checks = os.environ.get("SKIP_POSTINGESTION_CHECKS", "false").lower() == "true"
+        skip_factory_reset = os.environ.get("SKIP_FACTORY_RESET", "false").lower() == "true"
+        if skip_factory_reset and dpu_fw_downgrade:
+            _error_and_exit("$SKIP_FACTORY_RESET can't be 'true' when $FW_DOWNGRADE is 'true'")
+
+        provision_cycles = int(os.environ.get("PROVISION_CYCLES", "1"))
+
+        # DEBUG FLAGS - Choose to run ingestion OR provisioning independently
+        debug_ingestion_only = os.environ.get("DEBUG_INGESTION_ONLY", "false").lower() == "true"
+        debug_instance_provision_only = (
+            os.environ.get("DEBUG_INSTANCE_PROVISION_ONLY", "false").lower() == "true"
+        )
+        if debug_ingestion_only and debug_instance_provision_only:
+            _error_and_exit(
+                "$DEBUG_INGESTION_ONLY and $DEBUG_INSTANCE_PROVISION_ONLY cannot both be 'true'"
+            )
     except Exception as e:
         _error_and_exit(f"Error setting environment variables: {e}")
 
     # Set env var for use by forge-admin-cli
-    os.environ["CARBIDE_API_URL"] = f"https://api-{short_site_name}.frg.nvidia.com"
-
-    post_ingestion_cycles = int(os.environ.get("POST_INGESTION_CYCLES", "1"))
+    if site_under_test == "reno-qa3":
+        os.environ["CARBIDE_API_URL"] = f"https://api-{site_under_test}.frg.nvidia.com"
+    else:
+        os.environ["CARBIDE_API_URL"] = f"https://api-{short_site_name}.frg.nvidia.com"
 
     return TestConfig(
         site_under_test=site_under_test,
         short_site_name=short_site_name,
         machine_under_test=machine_under_test,
         expected_dpu_count=expected_dpu_count,
-        factory_reset=factory_reset,
         dpu_fw_downgrade=dpu_fw_downgrade,
         fw_downgrade_version=fw_downgrade_version,
-        skip_postingestion_checks=skip_postingestion_checks,
         machine_sku=machine_sku,
-        post_ingestion_cycles=post_ingestion_cycles
+        provision_cycles=provision_cycles,
+        skip_factory_reset=skip_factory_reset,
+        debug_ingestion_only=debug_ingestion_only,
+        debug_instance_provision_only=debug_instance_provision_only,
     )
 
 
@@ -239,9 +306,11 @@ def setup_site_config(test_config: TestConfig) -> SiteConfig:
         ngc.Site("pdx-dev3", "stg"),
         ngc.Site("reno-dev4", "stg"),
         ngc.Site("pdx-qa2-new", "qa"),
+        ngc.Site("reno-qa3", "canary"),
     ]
 
-    # Find out if the selected site is in prod or staging and get the relevant NGC API key from corp vault
+    # Find out if the selected site is in prod/staging/canary and
+    # get the relevant NGC API key from corp vault
     try:
         site = [_site for _site in sites if _site.name == test_config.site_under_test][0]
     except IndexError:
@@ -251,7 +320,7 @@ def setup_site_config(test_config: TestConfig) -> SiteConfig:
         ngc_api_key = vault_client.get_ngc_api_key(site.environment)
 
     # Get the site-wide BMC creds from corp vault
-    site_vault_path = test_config.site_under_test.replace('-new', '')  # formatting for pdx-qa2-new
+    site_vault_path = test_config.site_under_test.replace("-new", "")  # formatting for pdx-qa2-new
     with ForgeVaultClient(path=site_vault_path) as vault_client:
         dpu_bmc_username, dpu_bmc_password = vault_client.get_dpu_bmc_credentials()
         host_bmc_password = vault_client.get_host_bmc_password()
@@ -268,7 +337,7 @@ def setup_site_config(test_config: TestConfig) -> SiteConfig:
         ngc_api_key=ngc_api_key,
         dpu_bmc_username=dpu_bmc_username,
         dpu_bmc_password=dpu_bmc_password,
-        host_bmc_password=host_bmc_password
+        host_bmc_password=host_bmc_password,
     )
 
 
@@ -307,25 +376,28 @@ def collect_machine_info(test_config: TestConfig) -> MachineInfo:
         if dpu_id and bmc_ip and oob_ip:
             dpu_ids.append(dpu_id)
             dpu_bmc_ips.append(bmc_ip)
-            dpu_info_map[dpu_id] = {
-                "bmc_ip": bmc_ip,
-                "oob_ip": oob_ip
-            }
+            dpu_info_map[dpu_id] = {"bmc_ip": bmc_ip, "oob_ip": oob_ip}
         else:
             _error_and_exit(f"Missing data for DPU {dpu_id}")
 
     # Confirm we found the expected number of DPUs
     if len(dpu_info_map) != test_config.expected_dpu_count:
-        _error_and_exit(f"Found {len(dpu_info_map)} DPU(s) but expected {test_config.expected_dpu_count}")
+        _error_and_exit(
+            f"Found {len(dpu_info_map)} DPU(s) but expected {test_config.expected_dpu_count}"
+        )
     print(f"DPUs in this machine: {dpu_info_map}")
 
-    dpu_model = admin_cli.get_dpu_model(dpu_ids[0])  # Multi-DPUs can be assumed to be of same model (i.e. BF2 or BF3)
+    dpu_model = admin_cli.get_dpu_model(
+        dpu_ids[0]
+    )  # Multi-DPUs can be assumed to be of same model (i.e. BF2 or BF3)
     if dpu_model.startswith("BlueField SoC") and test_config.dpu_fw_downgrade:
         _error_and_exit("FW_DOWNGRADE option is not supported for BlueField-2 DPUs")
 
     # After force-delete, we'll use the (first) DPU to track state until the host is fully ingested
     machine_under_test_dpu = dpu_ids[0]
-    machine_under_test_predicted_host = machine_under_test_dpu[0:5] + "p" + machine_under_test_dpu[6:]
+    machine_under_test_predicted_host = (
+        machine_under_test_dpu[0:5] + "p" + machine_under_test_dpu[6:]
+    )
 
     return MachineInfo(
         machine=machine,
@@ -338,7 +410,7 @@ def collect_machine_info(test_config: TestConfig) -> MachineInfo:
         dpu_info_map=dpu_info_map,
         dpu_model=dpu_model,
         machine_under_test_dpu=machine_under_test_dpu,
-        machine_under_test_predicted_host=machine_under_test_predicted_host
+        machine_under_test_predicted_host=machine_under_test_predicted_host,
     )
 
 
@@ -441,17 +513,11 @@ def _download_firmware_files(test_config: TestConfig) -> FirmwarePaths:
         except Exception as e:
             _error_and_exit(f"BFB failed to download: {e}")
 
-    return FirmwarePaths(
-        bmc_fw_path=bmc_fw_path,
-        cec_fw_path=cec_fw_path,
-        bfb_path=bfb_path
-    )
+    return FirmwarePaths(bmc_fw_path=bmc_fw_path, cec_fw_path=cec_fw_path, bfb_path=bfb_path)
 
 
 def _power_cycle_host_and_wait(
-    machine_info: MachineInfo,
-    site_config: SiteConfig,
-    wait_for_redfish: bool = True
+    machine_info: MachineInfo, site_config: SiteConfig, wait_for_redfish: bool = True
 ) -> None:
     """Power-cycle the host and wait for services to be available again.
 
@@ -465,16 +531,20 @@ def _power_cycle_host_and_wait(
             machine_info.vendor,
             machine_info.host_bmc_ip,
             machine_info.host_bmc_username,
-            site_config.host_bmc_password
+            site_config.host_bmc_password,
         )
         time.sleep(10)
         [
-            network.wait_for_host_port(machine_info.dpu_info_map[dpu_id]["oob_ip"], 22, max_retries=20)
+            network.wait_for_host_port(
+                machine_info.dpu_info_map[dpu_id]["oob_ip"], 22, max_retries=20
+            )
             for dpu_id in machine_info.dpu_ids
         ]
         if wait_for_redfish:
             [
-                network.wait_for_redfish_endpoint(hostname=machine_info.dpu_info_map[dpu_id]["bmc_ip"])
+                network.wait_for_redfish_endpoint(
+                    hostname=machine_info.dpu_info_map[dpu_id]["bmc_ip"]
+                )
                 for dpu_id in machine_info.dpu_ids
             ]
     except Exception as e:
@@ -482,16 +552,11 @@ def _power_cycle_host_and_wait(
 
 
 def _apply_bmc_cec_firmware(
-    test_config: TestConfig,
-    site_config: SiteConfig,
-    machine_info: MachineInfo,
-    bmc_fw_path: str,
-    cec_fw_path: str
+    site_config: SiteConfig, machine_info: MachineInfo, bmc_fw_path: str, cec_fw_path: str
 ) -> None:
     """Apply BMC and CEC firmware to downgrade the DPU(s).
 
     Args:
-        test_config: The test configuration containing firmware version information
         site_config: The site configuration containing credentials
         machine_info: Information about the machine under test
         bmc_fw_path: Local path to the BMC firmware file
@@ -505,7 +570,7 @@ def _apply_bmc_cec_firmware(
                 bmc_fw_path,
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
                 site_config.dpu_bmc_username,
-                site_config.dpu_bmc_password
+                site_config.dpu_bmc_password,
             )
         except Exception as e:
             _error_and_exit(f"BMC firmware downgrade failed on {dpu_id}: {e}")
@@ -518,7 +583,7 @@ def _apply_bmc_cec_firmware(
                 cec_fw_path,
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
                 site_config.dpu_bmc_username,
-                site_config.dpu_bmc_password
+                site_config.dpu_bmc_password,
             )
         except Exception as e:
             _error_and_exit(f"CEC firmware downgrade failed on {dpu_id}: {e}")
@@ -529,10 +594,7 @@ def _apply_bmc_cec_firmware(
 
 
 def _apply_bfb_nic_firmware(
-    test_config: TestConfig,
-    site_config: SiteConfig,
-    machine_info: MachineInfo,
-    bfb_path: str
+    test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo, bfb_path: str
 ) -> None:
     """Apply BFB and NIC firmware to downgrade the DPU(s).
 
@@ -558,14 +620,14 @@ def _apply_bfb_nic_firmware(
                 utils.enable_rshim_on_dpu(
                     machine_info.dpu_info_map[dpu_id]["bmc_ip"],
                     site_config.dpu_bmc_username,
-                    site_config.dpu_bmc_password
+                    site_config.dpu_bmc_password,
                 )
             else:
                 # Use ipmitool on BMC 23.09 and below
                 utils.enable_rshim_on_dpu_ipmi(
                     machine_info.dpu_info_map[dpu_id]["bmc_ip"],
                     site_config.dpu_bmc_username,
-                    site_config.dpu_bmc_password
+                    site_config.dpu_bmc_password,
                 )
             time.sleep(10)
         except Exception as e:
@@ -579,7 +641,7 @@ def _apply_bfb_nic_firmware(
                 bfb_path,
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
                 site_config.dpu_bmc_username,
-                site_config.dpu_bmc_password
+                site_config.dpu_bmc_password,
             )
         except Exception as e:
             _error_and_exit(f"Failed to copy BFB to DPU {dpu_id}: {e}")
@@ -594,7 +656,7 @@ def _apply_bfb_nic_firmware(
                 nic_fw_url,
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
                 site_config.dpu_bmc_username,
-                site_config.dpu_bmc_password
+                site_config.dpu_bmc_password,
             )
         except Exception as e:
             _error_and_exit(f"Failed to downgrade NIC firmware on DPU {dpu_id}: {e}")
@@ -610,7 +672,7 @@ def _apply_firmware(
     machine_info: MachineInfo,
     bmc_fw_path: str,
     cec_fw_path: str,
-    bfb_path: str
+    bfb_path: str,
 ) -> None:
     """Apply firmware files to downgrade the DPU(s).
     This downgrades the BMC, CEC, BFB and NIC firmware before power-cycling the host
@@ -637,7 +699,7 @@ def _apply_firmware(
     except subprocess.CalledProcessError:
         _error_and_exit("Setting health-alert pre-downgrade failed")
 
-    _apply_bmc_cec_firmware(test_config, site_config, machine_info, bmc_fw_path, cec_fw_path)
+    _apply_bmc_cec_firmware(site_config, machine_info, bmc_fw_path, cec_fw_path)
     _apply_bfb_nic_firmware(test_config, site_config, machine_info, bfb_path)
     time.sleep(20)  # Workaround for brief 400 error from redfish
 
@@ -646,7 +708,7 @@ def verify_firmware_versions(
     test_config: TestConfig,
     site_config: SiteConfig,
     machine_info: MachineInfo,
-    downgraded: bool = False
+    downgraded: bool = False,
 ) -> None:
     """Verify that firmware versions have been downgraded to expected versions.
 
@@ -675,19 +737,23 @@ def verify_firmware_versions(
             bmc_version = utils.get_reported_bmc_version(
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
                 site_config.dpu_bmc_username,
-                site_config.dpu_bmc_password
+                site_config.dpu_bmc_password,
             )
             if expected_bmc_version not in bmc_version:
-                _error_and_exit(f"DPU {dpu_id} reports BMC version {bmc_version}, expected {expected_bmc_version}")
+                _error_and_exit(
+                    f"DPU {dpu_id} reports BMC version {bmc_version}, expected {expected_bmc_version}"
+                )
             print(f"Confirmed BMC at {expected_bmc_version} on {dpu_id}")
 
             cec_version = utils.get_reported_cec_version(
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
                 site_config.dpu_bmc_username,
-                site_config.dpu_bmc_password
+                site_config.dpu_bmc_password,
             )
             if expected_cec_version not in cec_version:
-                _error_and_exit(f"DPU {dpu_id} reports CEC version {cec_version}, expected {expected_cec_version}")
+                _error_and_exit(
+                    f"DPU {dpu_id} reports CEC version {cec_version}, expected {expected_cec_version}"
+                )
             print(f"Confirmed CEC at {expected_cec_version} on {dpu_id}")
         except Exception as e:
             _error_and_exit(f"Failed to confirm BMC & CEC versions on {dpu_id}: {e}")
@@ -701,7 +767,9 @@ def verify_firmware_versions(
                 site_config.dpu_bmc_password,
             )
             if expected_bfb_version not in bfb_version:
-                _error_and_exit(f"DPU {dpu_id} reports BFB version {bfb_version}, expected {expected_bfb_version}")
+                _error_and_exit(
+                    f"DPU {dpu_id} reports BFB version {bfb_version}, expected {expected_bfb_version}"
+                )
             print(f"Confirmed BFB at {expected_bfb_version} on {dpu_id}")
 
             nic_version = utils.get_reported_nic_version(
@@ -710,13 +778,17 @@ def verify_firmware_versions(
                 site_config.dpu_bmc_password,
             )
             if expected_nic_version not in nic_version:
-                _error_and_exit(f"DPU {dpu_id} reports NIC version {nic_version}, expected {expected_nic_version}")
+                _error_and_exit(
+                    f"DPU {dpu_id} reports NIC version {nic_version}, expected {expected_nic_version}"
+                )
             print(f"Confirmed NIC at {expected_nic_version} on {dpu_id}")
         except Exception as e:
             _error_and_exit(f"Failed to confirm BFB & NIC versions on {dpu_id}: {e}")
 
 
-def perform_firmware_downgrade(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
+def perform_firmware_downgrade(
+    test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo
+) -> None:
     """Perform DPU firmware downgrade, verify the versions, and remove the files after.
 
     Args:
@@ -732,14 +804,14 @@ def perform_firmware_downgrade(test_config: TestConfig, site_config: SiteConfig,
         machine_info,
         firmware_paths.bmc_fw_path,
         firmware_paths.cec_fw_path,
-        firmware_paths.bfb_path
+        firmware_paths.bfb_path,
     )
 
     # Clean up local firmware files
     files_to_remove = [
         firmware_paths.bmc_fw_path,
         firmware_paths.cec_fw_path,
-        firmware_paths.bfb_path
+        firmware_paths.bfb_path,
     ]
     for file in files_to_remove:
         try:
@@ -750,7 +822,9 @@ def perform_firmware_downgrade(test_config: TestConfig, site_config: SiteConfig,
             _error_and_exit(f"Failed to remove firmware file: {e}")
 
 
-def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
+def _factory_reset_dpu(
+    test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo
+) -> None:
     """Perform factory reset on DPU(s).
 
     Args:
@@ -767,25 +841,24 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
             url = f"https://{bmc_ip}/redfish/v1/Systems/Bluefield/Bios/Actions/Bios.ResetBios"
             print(f"Executing redfish request. \nURL: {url}")
             response = requests.post(
-                url,
-                auth=(site_config.dpu_bmc_username, site_config.dpu_bmc_password),
-                verify=False
+                url, auth=(site_config.dpu_bmc_username, site_config.dpu_bmc_password), verify=False
             )
         else:
             url = f"https://{bmc_ip}/redfish/v1/Systems/Bluefield/Bios/Settings"
             data = {"Attributes": {"ResetEfiVars": True}}
             print(f"Executing redfish request. \nPayload: {data} \nURL: {url}")
             response = requests.patch(
-                url, json=data,
+                url,
+                json=data,
                 auth=(site_config.dpu_bmc_username, site_config.dpu_bmc_password),
-                verify=False
+                verify=False,
             )
         if response.status_code != 200:
             print(response.text)
             _error_and_exit(
                 f"Failed to reset BIOS settings on DPU{i}. Status code: {response.status_code}",
                 set_maintenance=True,
-                machine_id=test_config.machine_under_test
+                machine_id=test_config.machine_under_test,
             )
         else:
             print(f"Resetting BIOS settings on DPU{i} was successful.")
@@ -800,7 +873,7 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
         admin_cli.factory_reset_bmc(
             machine_info.dpu_info_map[dpu_id]["bmc_ip"],
             site_config.dpu_bmc_username,
-            site_config.dpu_bmc_password
+            site_config.dpu_bmc_password,
         )
         time.sleep(5)
         network.wait_for_redfish_endpoint(hostname=machine_info.dpu_info_map[dpu_id]["bmc_ip"])
@@ -811,13 +884,16 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
             network.check_dpu_password_reset(machine_info.dpu_info_map[dpu_id]["bmc_ip"])
         except Exception as e:
             _error_and_exit(
-                f"Password reset check failed on DPU{i}: {e}", set_maintenance=True,
-                machine_id=test_config.machine_under_test
+                f"Password reset check failed on DPU{i}: {e}",
+                set_maintenance=True,
+                machine_id=test_config.machine_under_test,
             )
         i += 1
 
 
-def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
+def _factory_reset_host(
+    test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo
+) -> None:
     """Perform factory reset on host.
 
     Args:
@@ -834,7 +910,7 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
             url,
             json=data,
             auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
-            verify=False
+            verify=False,
         )
         if response.status_code == 202:
             # Success, wait for redfish task to complete
@@ -847,14 +923,14 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
                 response = requests.get(
                     url,
                     auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
-                    verify=False
+                    verify=False,
                 )
                 if response.status_code != 200:
                     print(response.text)
                     _error_and_exit(
                         f"Failed to get redfish task status. Status code: {response.status_code}",
                         set_maintenance=True,
-                        machine_id=test_config.machine_under_test
+                        machine_id=test_config.machine_under_test,
                     )
                 if response.json()["TaskState"] == "Completed":
                     print("Redfish task completed.")
@@ -867,7 +943,7 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
                 _error_and_exit(
                     "Redfish task did not complete in 5 minutes",
                     set_maintenance=True,
-                    machine_id=test_config.machine_under_test
+                    machine_id=test_config.machine_under_test,
                 )
         else:
             print(response.text)
@@ -885,16 +961,16 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
         network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
 
         print("Factory-resetting the Lenovo BMC")
-        admin_cli.factory_reset_bmc(machine_info.host_bmc_ip, machine_info.host_bmc_username, site_config.host_bmc_password)
+        admin_cli.factory_reset_bmc(
+            machine_info.host_bmc_ip, machine_info.host_bmc_username, site_config.host_bmc_password
+        )
         time.sleep(5)
         network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
     else:
         # Dell
         print("Factory-resetting Dell machine")
         factory_reset_methods = DellFactoryResetMethods(
-            machine_info.host_bmc_ip,
-            machine_info.host_bmc_username,
-            site_config.host_bmc_password
+            machine_info.host_bmc_ip, machine_info.host_bmc_username, site_config.host_bmc_password
         )
         print("Unlocking iDRAC")
         # Unlock iDRAC if needed
@@ -935,14 +1011,14 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
         expected_machines = admin_cli.get_expected_machines(machine_info.host_bmc_mac)
         if expected_machines["bmc_password"] != default_dell_bmc_password:
             factory_reset_methods = DellFactoryResetMethods(
-                machine_info.host_bmc_ip,
-                machine_info.host_bmc_username,
-                default_dell_bmc_password
+                machine_info.host_bmc_ip, machine_info.host_bmc_username, default_dell_bmc_password
             )
             factory_reset_methods.change_bmc_password(expected_machines["bmc_password"])
 
 
-def perform_factory_reset(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
+def perform_factory_reset(
+    test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo
+) -> None:
     """Perform a factory-reset on the DPU(s) and host.
 
     Args:
@@ -991,15 +1067,21 @@ def force_delete_and_await_reingestion(
             if test_config.dpu_fw_downgrade
             else config.WAIT_FOR_HOSTINIT
         )
-        admin_cli.wait_for_machine_hostinitializing(machine_info.machine_under_test_dpu, timeout=hostinit_timeout)
+        admin_cli.wait_for_machine_hostinitializing(
+            machine_info.machine_under_test_dpu, timeout=hostinit_timeout
+        )
 
         # Wait for 'Ready' state
         print("Waiting for carbide to report DPU 'Ready'")
-        admin_cli.wait_for_machine_ready(machine_info.machine_under_test_dpu, timeout=config.WAIT_FOR_READY)
+        admin_cli.wait_for_machine_ready(
+            machine_info.machine_under_test_dpu, timeout=config.WAIT_FOR_READY
+        )
 
         # After the DPU state gets to Ready, allow for the possibility that Forge tries to upgrade the DPU FW.
         # Then confirm the managed host and Cloud machine states both show Ready too.
-        print("Sleeping for 2 minutes to allow Forge to possibly grab the machine for a DPU FW upgrade...")
+        print(
+            "Sleeping for 2 minutes to allow Forge to possibly grab the machine for a DPU FW upgrade..."
+        )
         time.sleep(60 * 2)
 
         print("Waiting for the machine not to be receiving a DPU FW update from Forge...")
@@ -1009,21 +1091,35 @@ def force_delete_and_await_reingestion(
         admin_cli.check_machine_ready(test_config.machine_under_test)
 
         print("Waiting for the Cloud to also report machine Ready")
-        ngc.wait_for_machine_ready(test_config.machine_under_test, site_config.site, timeout=60 * 10)
+        ngc.wait_for_machine_ready(
+            test_config.machine_under_test, site_config.site, timeout=60 * 10
+        )
 
     except Exception as e:
         print(e.args[0], file=sys.stderr)
-        print("Exception while waiting for machine Ready, putting machine into maintenance mode", file=sys.stderr)
+        print(
+            "Exception while waiting for machine Ready, putting machine into maintenance mode",
+            file=sys.stderr,
+        )
         # We have to use managed host ID to do this, not DPU ID, but this may not exist
         # in the database yet depending on where the process got to before it failed.
         try:
             _error_and_exit(str(e), set_maintenance=True, machine_id=test_config.machine_under_test)
         except Exception:
-            print("Setting maintenance mode failed, trying again using predicted host id", file=sys.stderr)
-            _error_and_exit(str(e), set_maintenance=True, machine_id=machine_info.machine_under_test_predicted_host)
+            print(
+                "Setting maintenance mode failed, trying again using predicted host id",
+                file=sys.stderr,
+            )
+            _error_and_exit(
+                str(e),
+                set_maintenance=True,
+                machine_id=machine_info.machine_under_test_predicted_host,
+            )
 
 
-def create_instance_and_verify(test_config: TestConfig, site_config: SiteConfig, ngc_uuids: NGCUUIDs) -> str | None:
+def create_instance_and_verify(
+    test_config: TestConfig, site_config: SiteConfig, ngc_uuids: NGCUUIDs
+) -> str | None:
     """Create an instance, wait for it to be ready, and verify SSH access.
 
     Args:
@@ -1058,18 +1154,26 @@ def create_instance_and_verify(test_config: TestConfig, site_config: SiteConfig,
 
         # With phone-home enabled, Forge Cloud will only report the instance 'Ready' once it's booted and reported back
         print("Waiting for Forge Cloud to report instance 'Ready' to the tenant")
-        ngc.wait_for_instance_ready(instance_uuid, site_config.site, timeout=config.WAIT_FOR_INSTANCE)
+        ngc.wait_for_instance_ready(
+            instance_uuid, site_config.site, timeout=config.WAIT_FOR_INSTANCE
+        )
 
-        instance_ip_address = ngc.wait_for_instance_ip(instance_uuid, ngc_uuids.subnet_uuid, timeout=60 * 20)
+        instance_ip_address = ngc.wait_for_instance_ip(
+            instance_uuid, ngc_uuids.subnet_uuid, timeout=60 * 20
+        )
 
         print(f"Testing SSH connection to the instance {instance_uuid} at {instance_ip_address}")
         network.wait_for_host_port(instance_ip_address, 22, max_retries=40)
         with paramiko.SSHClient() as ssh_client:
             ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh_client.connect(instance_ip_address, pkey=ssh_private_key, username="machine-lifecycle-test-user")
+            ssh_client.connect(
+                instance_ip_address, pkey=ssh_private_key, username="machine-lifecycle-test-user"
+            )
 
             command = "uptime"
-            print(f"Executing command: {command} on instance {instance_uuid} at {instance_ip_address}")
+            print(
+                f"Executing command: {command} on instance {instance_uuid} at {instance_ip_address}"
+            )
             i, o, e = ssh_client.exec_command(command)
             stdout = o.readlines()
             stderr = e.readlines()
@@ -1086,12 +1190,14 @@ def create_instance_and_verify(test_config: TestConfig, site_config: SiteConfig,
         _error_and_exit(
             "Exception during instance creation/verification",
             set_maintenance=True,
-            machine_id=test_config.machine_under_test
+            machine_id=test_config.machine_under_test,
         )
         return None
 
 
-def delete_instance_and_verify(test_config: TestConfig, ngc_uuids: NGCUUIDs, instance_uuid: str) -> None:
+def delete_instance_and_verify(
+    test_config: TestConfig, ngc_uuids: NGCUUIDs, instance_uuid: str
+) -> None:
     """Delete the instance and wait for deprovisioning to complete.
 
     Args:
@@ -1105,10 +1211,7 @@ def delete_instance_and_verify(test_config: TestConfig, ngc_uuids: NGCUUIDs, ins
 
         print("Waiting for the instance to be deleted...")
         ngc.wait_for_vpc_to_not_contain_instance(
-            ngc_uuids.site_uuid,
-            ngc_uuids.vpc_uuid,
-            instance_uuid,
-            timeout=60 * 90
+            ngc_uuids.site_uuid, ngc_uuids.vpc_uuid, instance_uuid, timeout=60 * 90
         )
 
         print("Waiting for carbide to report the managed host 'Ready'...")
@@ -1118,7 +1221,7 @@ def delete_instance_and_verify(test_config: TestConfig, ngc_uuids: NGCUUIDs, ins
         _error_and_exit(
             "Exception during instance deletion/deprovisioning",
             set_maintenance=True,
-            machine_id=test_config.machine_under_test
+            machine_id=test_config.machine_under_test,
         )
 
 

@@ -18,17 +18,21 @@ class Environment:
     provider_org_name: str
 
 
+# Create a dictionary with the above constants
 ENVS: dict[str, Environment] = {
     "prod": Environment("prod", "https://api.ngc.nvidia.com", "i1k1exmxlqr1", "qpbftykv9atm"),
     "stg": Environment("stg", "https://api.stg.ngc.nvidia.com", "fh93zk6uqtt1", "wdksahew1rqv"),
-    "qa": Environment("qa", "https://api.stg.ngc.nvidia.com", "zqrrhxea4ktv", "wdksahew1rqv")
+    "qa": Environment("qa", "https://api.stg.ngc.nvidia.com", "zqrrhxea4ktv", "wdksahew1rqv"),
+    "canary": Environment(
+        "canary", "https://api.canary.ngc.nvidia.com", "0777870298718727", "pxkqhdaceagm"
+    ),
 }
 
 
 @dataclass
 class Site:
     name: str
-    environment: Literal["prod", "stg", "qa"]
+    environment: Literal["prod", "stg", "qa", "canary"]
 
 
 class ForgeNGCError(Exception):
@@ -55,7 +59,16 @@ def get_site_uuid(site_name: str) -> str:
 
 def get_instance_type_uuid(instance_type_name: str, site_uuid: str) -> str:
     """Given a site UUID and an instance type name, find its UUID."""
-    ngc_command = ["ngc", "--format_type", "json", "forge", "instance-type", "list", "--site", site_uuid]
+    ngc_command = [
+        "ngc",
+        "--format_type",
+        "json",
+        "forge",
+        "instance-type",
+        "list",
+        "--site",
+        site_uuid,
+    ]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode:
@@ -68,7 +81,9 @@ def get_instance_type_uuid(instance_type_name: str, site_uuid: str) -> str:
             item_id = item["id"]
             return item_id
     else:
-        raise ForgeNGCError(f"No instance type with name '{instance_type_name}' in site '{site_uuid}' found.")
+        raise ForgeNGCError(
+            f"No instance type with name '{instance_type_name}' in site '{site_uuid}' found."
+        )
 
 
 def get_subnet_uuid(subnet_name: str, vpc_uuid: str) -> str:
@@ -144,7 +159,11 @@ def wait_for_machine_ready(machine_id: str, site: Site, timeout: int) -> None:
 
 
 def wait_for_machine_status(
-    machine_id: str, site: Site, desired_status: str, timeout: int, allow_missing_machine: bool = False
+    machine_id: str,
+    site: Site,
+    desired_status: str,
+    timeout: int,
+    allow_missing_machine: bool = False,
 ) -> None:
     """Check repeatedly until the specified machine has a specific status (provider view),
     for up to `timeout` seconds.
@@ -153,10 +172,14 @@ def wait_for_machine_status(
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
         status = get_machine_status(machine_id, site, allow_missing_machine)
         if status == desired_status:
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} reached desired status ({desired_status})!")
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} reached desired status ({desired_status})!"
+            )
             return
         else:
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} not in desired status ({desired_status}) yet, current status: {status}")
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} not in desired status ({desired_status}) yet, current status: {status}"
+            )
             time.sleep(60)
     else:
         raise TimeoutError(
@@ -183,7 +206,11 @@ def get_machine_status(machine_id: str, site: Site, allow_missing_machine: bool 
     ]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
-    if ngc_process.returncode == 1 and "Client Error: 404 Response" in ngc_process.stderr and allow_missing_machine:
+    if (
+        ngc_process.returncode == 1
+        and "Client Error: 404 Response" in ngc_process.stderr
+        and allow_missing_machine
+    ):
         return "<Missing>"
     elif ngc_process.returncode:
         print(f"machine info stdout: {ngc_process.stdout}")
@@ -204,7 +231,9 @@ def wait_for_instance_ready(instance_uuid: str, site: Site, timeout: int) -> Non
     wait_for_instance_status(instance_uuid, site, "Ready", timeout)
 
 
-def wait_for_instance_status(instance_uuid: str, site: Site, desired_status: str, timeout: int) -> None:
+def wait_for_instance_status(
+    instance_uuid: str, site: Site, desired_status: str, timeout: int
+) -> None:
     """Check repeatedly until the specified instance has a specific status (tenant view),
     for up to `timeout` seconds.
     """
@@ -213,11 +242,13 @@ def wait_for_instance_status(instance_uuid: str, site: Site, desired_status: str
         status = get_instance_status(instance_uuid, site)
         if status == desired_status:
             print(
-                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: instance {instance_uuid} reached desired status ({desired_status})!")
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: instance {instance_uuid} reached desired status ({desired_status})!"
+            )
             return
         else:
             print(
-                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: instance {instance_uuid} not in desired status ({desired_status}) yet, current status: {status}")
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: instance {instance_uuid} not in desired status ({desired_status}) yet, current status: {status}"
+            )
             time.sleep(60)
     else:
         raise TimeoutError(
@@ -338,10 +369,14 @@ def wait_for_instance_ip(instance_uuid: str, subnet_uuid: str, timeout: int) -> 
         if ip_address:
             return ip_address
         else:
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Instance {instance_uuid} doesn't have an IP address yet")
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Instance {instance_uuid} doesn't have an IP address yet"
+            )
             time.sleep(60)
     else:
-        raise TimeoutError(f"Instance {instance_uuid} did not get an IP address empty within {timeout} seconds.")
+        raise TimeoutError(
+            f"Instance {instance_uuid} did not get an IP address empty within {timeout} seconds."
+        )
 
 
 def get_instance_ip(instance_uuid: str, subnet_uuid: str) -> str | None:
@@ -407,26 +442,39 @@ def wait_for_empty_vpc(site_uuid: str, vpc_uuid: str, timeout: int) -> None:
             print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} has no instances!")
             return
         else:
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} still has {len(instances)} instances")
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} still has {len(instances)} instances"
+            )
             time.sleep(60)
     else:
-        raise TimeoutError(f"VPC {vpc_uuid} did not become empty within {timeout} seconds.\n{instances}")
+        raise TimeoutError(
+            f"VPC {vpc_uuid} did not become empty within {timeout} seconds.\n{instances}"
+        )
 
 
-def wait_for_vpc_to_not_contain_instance(site_uuid: str, vpc_uuid: str, instance_uuid: str, timeout: int) -> None:
+def wait_for_vpc_to_not_contain_instance(
+    site_uuid: str, vpc_uuid: str, instance_uuid: str, timeout: int
+) -> None:
     """Wait until the specified Virtual Private Cloud does not contain the given instance."""
     instances = None
     end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=timeout)
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
         instances = get_instances(site_uuid, vpc_uuid)
         if not any(instance["id"] == instance_uuid for instance in instances):
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} no longer contains instance {instance_uuid}!")
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} no longer contains instance {instance_uuid}!"
+            )
             return
         else:
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} still contains instance {instance_uuid}")
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} still contains instance {instance_uuid}"
+            )
             time.sleep(60)
     else:
-        raise TimeoutError(f"VPC {vpc_uuid} still contains instance {instance_uuid} after {timeout} seconds.\n{instances}")
+        raise TimeoutError(
+            f"VPC {vpc_uuid} still contains instance {instance_uuid} after {timeout} seconds.\n{instances}"
+        )
+
 
 def get_allocation(site: Site, allocation_name: str, strict: bool = True) -> dict | None:
     ngc_command = [
@@ -438,7 +486,8 @@ def get_allocation(site: Site, allocation_name: str, strict: bool = True) -> dic
         ENVS[site.environment].provider_org_name,
         "allocation",
         "list",
-        allocation_name]
+        allocation_name,
+    ]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode:
@@ -468,7 +517,8 @@ def delete_allocation(site: Site, allocation_name: str, strict: bool = True) -> 
         ENVS[site.environment].provider_org_name,
         "allocation",
         "remove",
-        allocation_id]
+        allocation_id,
+    ]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode:
@@ -477,7 +527,9 @@ def delete_allocation(site: Site, allocation_name: str, strict: bool = True) -> 
     ngc_process.check_returncode()
 
 
-def create_allocation(site: Site, instance_type_id: str, site_id: str, allocation_name: str) -> None:
+def create_allocation(
+    site: Site, instance_type_id: str, site_id: str, allocation_name: str, strict: bool = True
+) -> None:
     ngc_command = [
         "ngc",
         "forge",
@@ -499,14 +551,15 @@ def create_allocation(site: Site, instance_type_id: str, site_id: str, allocatio
         site_id,
         "--tenant",
         get_tenant_uuid(),
-        allocation_name
+        allocation_name,
     ]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode:
         print(f"ngc stdout: {ngc_process.stdout}")
         print(f"ngc stderr: {ngc_process.stderr}")
-    ngc_process.check_returncode()
+    if strict:
+        ngc_process.check_returncode()
     return json.loads(ngc_process.stdout)
 
 
@@ -521,7 +574,8 @@ def unassign_instance_type(site: Site, machine_id: str, strict: bool = True) -> 
         "machine",
         "update",
         "--clear-instance-type",
-        machine_id]
+        machine_id,
+    ]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode:
@@ -531,7 +585,9 @@ def unassign_instance_type(site: Site, machine_id: str, strict: bool = True) -> 
         ngc_process.check_returncode()
 
 
-def assign_instance_type(site: Site, instance_type_uuid: str, machine_id: str) -> None:
+def assign_instance_type(
+    site: Site, instance_type_uuid: str, machine_id: str, strict: bool = True
+) -> None:
     """Assign the given instance type to the given machine."""
     ngc_command = [
         "ngc",
@@ -539,10 +595,15 @@ def assign_instance_type(site: Site, instance_type_uuid: str, machine_id: str) -
         "--org",
         ENVS[site.environment].provider_org_name,
         "instance-type",
-        "assign", "--machine", machine_id, instance_type_uuid]
+        "assign",
+        "--machine",
+        machine_id,
+        instance_type_uuid,
+    ]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode:
         print(f"ngc stdout: {ngc_process.stdout}")
         print(f"ngc stderr: {ngc_process.stderr}")
-    ngc_process.check_returncode()
+    if strict:
+        ngc_process.check_returncode()
