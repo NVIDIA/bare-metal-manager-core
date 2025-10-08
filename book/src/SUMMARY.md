@@ -55,6 +55,7 @@
 - [Database]()
     - [Data Model / DB Schema](development/schema.md)
     - [Local Playground](development/database_local_playground.md)
+    - [Managing Azure Backup Accounts](development/database_azure_backup_accounts.md)
     - [How to Use wal-g and Azure Backups](development/database_walg_azure.md)
     - [How to Configure PBSS Storage and Backups](development/database_backup_and_restore.md)
 - [DPU/Bluefield](dpu-operations.md)
