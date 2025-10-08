@@ -19,13 +19,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
+use crate::model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use crate::{
     CarbideError, CarbideResult,
     db::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter},
-    ib::{
-        IBFabricManagerConfig,
-        types::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel},
-    },
+    ib::IBFabricManagerConfig,
     model::{
         controller_outcome::PersistentStateHandlerOutcome,
         ib_partition::{IBPartitionControllerState, PartitionKey, state_sla},

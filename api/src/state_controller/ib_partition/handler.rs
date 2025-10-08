@@ -9,10 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
 use crate::{
     CarbideError, db,
     db::ib_partition::{IBPartition, IBPartitionStatus},
-    ib::{DEFAULT_IB_FABRIC_NAME, GetPartitionOptions, IBFabricManagerConfig, types::IBQosConf},
+    ib::{GetPartitionOptions, IBFabricManagerConfig},
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects,

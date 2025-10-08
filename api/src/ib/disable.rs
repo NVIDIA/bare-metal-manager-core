@@ -15,9 +15,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
-use super::types::{IBNetwork, IBPort, IBQosConf};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
+use crate::model::ib::{IBNetwork, IBPort, IBQosConf};
 
 pub struct DisableIBFabric {}
 

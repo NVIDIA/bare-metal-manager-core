@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crate::CarbideError;
 use crate::ib::IBFabricManagerConfig;
-use crate::ib::types::{IBNetwork, IBPort, IBPortState, IBQosConf};
+use crate::model::ib::{IBNetwork, IBPort, IBPortState, IBQosConf};
 
 #[derive(Default)]
 pub struct Filter {

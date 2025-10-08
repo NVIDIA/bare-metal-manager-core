@@ -41,6 +41,7 @@ pub mod dpu_remediation;
 pub mod expected_machine;
 pub mod hardware_info;
 pub mod host_machine_update;
+pub mod ib;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_address;

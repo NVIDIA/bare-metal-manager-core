@@ -653,13 +653,11 @@ impl MachineCapabilitiesSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ib::DEFAULT_IB_FABRIC_NAME,
-        model::{
-            MacAddress, NetworkSegmentId,
-            hardware_info::*,
-            machine::{MachineInterfaceId, infiniband::MachineIbInterfaceStatusObservation},
-        },
+    use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
+    use crate::model::{
+        MacAddress, NetworkSegmentId,
+        hardware_info::*,
+        machine::{MachineInterfaceId, infiniband::MachineIbInterfaceStatusObservation},
     };
     use ::rpc::forge as rpc;
     use std::str::FromStr;

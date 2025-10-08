@@ -53,6 +53,7 @@ use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
 use crate::model::desired_firmware::DesiredFirmwareVersions;
+use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::model::machine::LoadSnapshotOptions;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine_validation::{MachineValidationState, MachineValidationStatus};
@@ -79,7 +80,7 @@ use crate::{
         },
         utils::convert_and_log_machine_id,
     },
-    ib::{DEFAULT_IB_FABRIC_NAME, IBFabricManager},
+    ib::IBFabricManager,
     logging::log_limiter::LogLimiter,
     measured_boot,
     model::{

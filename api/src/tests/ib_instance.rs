@@ -13,7 +13,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cfg::file::IBFabricConfig;
-use crate::ib::{DEFAULT_IB_FABRIC_NAME, Filter, IBFabric, IBFabricManager};
+use crate::ib::{Filter, IBFabric, IBFabricManager};
+use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{api::Api, model::machine::ManagedHostState};

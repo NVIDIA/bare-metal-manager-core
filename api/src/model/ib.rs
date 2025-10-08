@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::errors::CarbideError;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-use serde::{Deserialize, Serialize};
-
-use crate::CarbideError;
+pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
 // Not implemented yet
 // pub const IBNETWORK_DEFAULT_MEMBERSHIP: IBPortMembership = IBPortMembership::Full;
@@ -85,6 +85,7 @@ impl std::fmt::Display for IBPortMembership {
         }
     }
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct IBPort {
     pub name: String,
@@ -211,7 +212,7 @@ impl From<IBServiceLevel> for i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::model::ib::IBPortMembership;
 
     #[test]
     fn port_membership_to_string() {

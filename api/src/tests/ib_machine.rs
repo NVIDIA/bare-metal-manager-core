@@ -13,8 +13,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cfg::file::IBFabricConfig;
-use crate::ib::types::{IBNetwork, IBQosConf};
-use crate::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};
+use crate::ib::{GetPartitionOptions, IBFabric};
+use crate::model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use crate::model::ib_partition::PartitionKey;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;

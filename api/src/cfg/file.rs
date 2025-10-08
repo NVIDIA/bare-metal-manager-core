@@ -35,7 +35,7 @@ use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utils::HostPortPair;
 
-use crate::ib::types::{IBMtu, IBRateLimit, IBServiceLevel};
+use crate::model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use crate::state_controller::config::IterationConfig;
 use crate::{

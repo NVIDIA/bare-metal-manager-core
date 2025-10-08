@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+mod metrics;
+
 use chrono::Utc;
 use forge_uuid::{infiniband::IBPartitionId, machine::MachineId};
 use rpc::forge::IbPartitionSearchFilter;
@@ -29,22 +31,18 @@ use crate::{
         self, DatabaseError,
         ib_partition::{IBPartition, IBPartitionSearchConfig},
     },
-    ib::{
-        GetPartitionOptions, IBFabricManager, IBFabricManagerType,
-        types::{IBNetwork, IBPort, IBPortMembership, IBPortState},
-    },
+    ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType},
     model::{
+        ib::{IBNetwork, IBPort, IBPortMembership, IBPortState},
         ib_partition::PartitionKey,
         machine::{
-            ManagedHostStateSnapshot,
+            LoadSnapshotOptions, ManagedHostStateSnapshot,
             infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
+            machine_search_config::MachineSearchConfig,
         },
     },
 };
 
-mod metrics;
-use crate::model::machine::LoadSnapshotOptions;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
