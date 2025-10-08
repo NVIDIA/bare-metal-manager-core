@@ -12,9 +12,10 @@
 use config_version::{ConfigVersion, Versioned};
 use sqlx::PgConnection;
 
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::{
     db::DatabaseError,
-    model::{StateSla, controller_outcome::PersistentStateHandlerOutcome},
+    model::StateSla,
     state_controller::{metrics::MetricsEmitter, state_handler::StateHandlerContextObjects},
 };
 

@@ -55,6 +55,10 @@ use crate::model::machine::{
 };
 use crate::model::machine::{DpuInitNextStateResolver, InstallDpuOsState};
 use crate::model::power_manager::PowerHandlingOutcome;
+use crate::state_controller::state_handler::{
+    DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, NextState,
+    ReprovisionStateHelper, all_equal,
+};
 use crate::{
     cfg::file::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
@@ -70,10 +74,10 @@ use crate::{
             InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, Machine, MachineLastRebootRequestedMode, MachineNextStateResolver,
-            MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState, NextState,
+            MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
             PerformPowerOperation, PowerDrainState, ReprovisionState, RetryInfo,
             SetSecureBootState, StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState,
-            all_equal, get_display_ids,
+            get_display_ids,
         },
         site_explorer::ExploredEndpoint,
     },
