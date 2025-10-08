@@ -85,6 +85,7 @@ manifests:
   kustomize:
     paths:
       - forged/envs/local-dev/site/site-controller
+    buildArgs: ["--enable-alpha-plugins", "--enable-exec"]
 
 deploy:
   kubeContext: k3s-dev
