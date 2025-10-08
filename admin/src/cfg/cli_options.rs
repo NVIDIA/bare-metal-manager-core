@@ -2323,6 +2323,8 @@ pub enum SiteExplorer {
     ClearError(ExploreOptions),
     #[clap(about = "Delete an explored endpoint from the database.")]
     Delete(DeleteExploredEndpointOptions),
+    #[clap(about = "Control remediation actions for an explored endpoint.")]
+    Remediation(RemediationOptions),
     IsBmcInManagedHost(ExploreOptions),
     HaveCredentials(ExploreOptions),
     CopyBfbToDpuRshim(CopyBfbToDpuRshimArgs),
@@ -2444,6 +2446,16 @@ pub struct ReExploreOptions {
 pub struct DeleteExploredEndpointOptions {
     #[clap(long, help = "BMC IP address of the endpoint to delete")]
     pub address: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct RemediationOptions {
+    #[clap(help = "BMC IP address of the endpoint")]
+    pub address: String,
+    #[clap(long, help = "Pause remediation actions", conflicts_with = "resume")]
+    pub pause: bool,
+    #[clap(long, help = "Resume remediation actions", conflicts_with = "pause")]
+    pub resume: bool,
 }
 
 #[derive(Parser, Debug)]

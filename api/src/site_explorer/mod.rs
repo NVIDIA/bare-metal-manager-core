@@ -79,6 +79,7 @@ pub struct Endpoint {
     last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
     pub(crate) expected: Option<ExpectedMachine>,
+    pause_remediation: bool,
 }
 
 impl Display for Endpoint {
@@ -95,6 +96,7 @@ impl Endpoint {
         last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
         last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
         old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
+        pause_remediation: bool,
     ) -> Self {
         Self {
             address,
@@ -104,6 +106,7 @@ impl Endpoint {
             last_redfish_reboot,
             old_report,
             expected: None,
+            pause_remediation,
         }
     }
 }
@@ -1164,6 +1167,7 @@ impl SiteExplorer {
                 endpoint.last_ipmitool_bmc_reset,
                 endpoint.last_redfish_reboot,
                 Some((endpoint.report_version, endpoint.report.clone())),
+                endpoint.pause_remediation,
             ));
         }
 
@@ -1180,6 +1184,7 @@ impl SiteExplorer {
                 None,
                 None,
                 None,
+                false, // New endpoints haven't been explored yet, so pause_remediation defaults to false
             ))
         }
 
@@ -1200,6 +1205,7 @@ impl SiteExplorer {
                     endpoint.last_ipmitool_bmc_reset,
                     endpoint.last_redfish_reboot,
                     Some((endpoint.report_version, endpoint.report.clone())),
+                    endpoint.pause_remediation,
                 ));
             }
         }
@@ -1968,6 +1974,14 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
         error: &EndpointExplorationError,
     ) {
+        // Check if remediation is paused for this endpoint first
+        if endpoint.pause_remediation {
+            tracing::info!(
+                "Site explorer will not remediate error for {endpoint} because remediation is paused for this endpoint: {error}"
+            );
+            return;
+        }
+
         // If site explorer cant log in, theres nothing we can do.
         if !self
             .endpoint_explorer
@@ -2827,6 +2841,7 @@ mod tests {
             last_ipmitool_bmc_reset: None,
             last_redfish_reboot: None,
             last_redfish_powercycle: None,
+            pause_remediation: false,
         };
 
         assert_eq!(

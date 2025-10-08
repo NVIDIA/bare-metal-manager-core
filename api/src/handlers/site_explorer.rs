@@ -276,6 +276,53 @@ pub(crate) async fn re_explore_endpoint(
     Ok(Response::new(()))
 }
 
+pub(crate) async fn pause_explored_endpoint_remediation(
+    api: &Api,
+    request: Request<rpc::PauseExploredEndpointRemediationRequest>,
+) -> Result<Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
+
+    const DB_TXN_NAME: &str = "pause_explored_endpoint_remediation";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
+    let eps = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    if eps.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "explored_endpoint",
+            id: bmc_ip.to_string(),
+        }
+        .into());
+    }
+
+    // Check if a machine exists for this endpoint
+    let in_managed_host = crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, &mut txn)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    if in_managed_host {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Cannot pause/resume remediation for endpoint {bmc_ip} because a machine exists for it"
+        ))
+        .into());
+    }
+
+    db::explored_endpoints::set_pause_remediation(bmc_ip, req.pause, &mut txn).await?;
+
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+
+    Ok(Response::new(()))
+}
+
 pub(crate) async fn is_bmc_in_managed_host(
     api: &Api,
     request: tonic::Request<::rpc::forge::BmcEndpointRequest>,

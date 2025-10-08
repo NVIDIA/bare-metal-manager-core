@@ -165,10 +165,34 @@
 							<span class="bubble {% if credentials_set == "Configured" %}success{% else %}error{% endif %}">{{ credentials_set }}</span>
 						</div>
 						<form id="clear_credentials" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-credentials" class="config-card-action">
-							<div class="config-card-reminder"></div>
+							<div class="config-card-reminder">Deletes credentials from vault.</div>
 							<input type="submit" class="delete-button" value="Clear Credentials">
 						</form>
 					</div>
+					{% if !has_machine %}
+					<!-- Remediation Card -->
+					<div class="config-card">
+						<div class="config-card-header">
+							<div class="config-card-title">Remediation</div>
+							<span class="bubble {% if pause_remediation %}warning{% else %}success{% endif %}">
+								{% if pause_remediation %}Paused{% else %}Active{% endif %}
+							</span>
+						</div>
+						{% if pause_remediation %}
+						<form id="resume_remediation" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/pause-remediation" class="config-card-action">
+							<div class="config-card-reminder">Allows auto BMC resets.</div>
+							<input type="hidden" name="pause" value="false"/>
+							<input type="submit" value="Resume Remediation">
+						</form>
+						{% else %}
+						<form id="pause_remediation" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/pause-remediation" class="config-card-action">
+							<div class="config-card-reminder">Prevents auto BMC resets.</div>
+							<input type="hidden" name="pause" value="true"/>
+							<input type="submit" value="Pause Remediation" class="warning-button">
+						</form>
+						{% endif %}
+					</div>
+					{% endif %}
 					<!-- Secure Boot Card -->
 					<div class="config-card">
 						<div class="config-card-header">

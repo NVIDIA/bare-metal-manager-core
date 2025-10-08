@@ -1188,6 +1188,24 @@ async fn main() -> color_eyre::Result<()> {
                     );
                 }
             }
+            SiteExplorer::Remediation(opts) => {
+                if opts.pause {
+                    api_client
+                        .pause_explored_endpoint_remediation(&opts.address, true)
+                        .await?;
+                    println!("Remediation paused for endpoint {}", opts.address);
+                } else if opts.resume {
+                    api_client
+                        .pause_explored_endpoint_remediation(&opts.address, false)
+                        .await?;
+                    println!("Remediation resumed for endpoint {}", opts.address);
+                } else {
+                    return Err(CarbideCliError::GenericError(
+                        "Must specify either --pause or --resume".to_owned(),
+                    )
+                    .into());
+                }
+            }
             SiteExplorer::IsBmcInManagedHost(opts) => {
                 let is_bmc_in_managed_host = api_client
                     .is_bmc_in_managed_host(&opts.address, opts.mac)

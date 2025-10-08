@@ -372,6 +372,7 @@ struct ExploredEndpointDetail {
     lockdown_status: String,
     is_dell_endpoint: bool,
     report_age: String,
+    pause_remediation: bool,
 }
 struct ExploredEndpointInfo {
     endpoint: ExploredEndpoint,
@@ -395,6 +396,8 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
                 .map(|v| v.since_state_change_humanized())
                 .unwrap_or_else(|| "unknown".to_string());
 
+        let pause_remediation = endpoint_info.endpoint.pause_remediation;
+
         Self {
             last_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.clone())
@@ -416,6 +419,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             has_machine: endpoint_info.has_machine,
             is_dell_endpoint,
             report_age,
+            pause_remediation,
         }
     }
 }
@@ -582,9 +586,38 @@ pub async fn re_explore(
     Redirect::to(&view_url)
 }
 
+pub async fn pause_remediation(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+    Form(form): Form<PauseRemediationAction>,
+) -> impl IntoResponse {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    if let Err(err) = state
+        .pause_explored_endpoint_remediation(tonic::Request::new(
+            rpc::forge::PauseExploredEndpointRemediationRequest {
+                ip_address: endpoint_ip.clone(),
+                pause: form.pause,
+            },
+        ))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip, "pause_explored_endpoint_remediation");
+        return Redirect::to(&view_url);
+    }
+
+    Redirect::to(&view_url)
+}
+
 #[derive(Deserialize, Debug)]
 pub struct ReExploreEndpointAction {
     if_version_match: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct PauseRemediationAction {
+    pause: bool,
 }
 
 fn vendors(endpoints: &[ExploredEndpointDisplay]) -> Vec<String> {
