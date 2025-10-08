@@ -11,8 +11,8 @@
  */
 
 use super::DatabaseError;
-use crate::cfg::file::{Firmware, FirmwareConfig};
-use crate::model::desired_firmware::DesiredFirmwareVersions;
+use crate::cfg::file::FirmwareConfig;
+use crate::model::firmware::{DesiredFirmwareVersions, Firmware};
 use sqlx::PgConnection;
 
 /// snapshot_desired_firmware will replace the desired_firmware table with one matching the given FirmwareConfig

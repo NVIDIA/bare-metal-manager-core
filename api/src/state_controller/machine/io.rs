@@ -15,7 +15,7 @@
 use config_version::{ConfigVersion, Versioned};
 use sqlx::PgConnection;
 
-use crate::cfg::file::HostHealthConfig;
+use crate::model::machine::HostHealthConfig;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine::{MachineValidatingState, ValidationState};
 use crate::{

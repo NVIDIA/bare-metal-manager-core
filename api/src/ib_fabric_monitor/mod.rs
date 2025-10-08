@@ -26,7 +26,7 @@ use tracing::Instrument;
 
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::{CarbideConfig, HostHealthConfig, IbFabricDefinition},
+    cfg::file::{CarbideConfig, IbFabricDefinition},
     db::{
         self, DatabaseError,
         ib_partition::{IBPartition, IBPartitionSearchConfig},
@@ -36,13 +36,12 @@ use crate::{
         ib::{IBNetwork, IBPort, IBPortMembership, IBPortState},
         ib_partition::PartitionKey,
         machine::{
-            LoadSnapshotOptions, ManagedHostStateSnapshot,
+            HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot,
             infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
             machine_search_config::MachineSearchConfig,
         },
     },
 };
-
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };

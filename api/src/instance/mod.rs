@@ -19,11 +19,11 @@ use itertools::Itertools;
 use sqlx::{PgConnection, PgPool};
 
 use crate::api::Api;
-use crate::cfg::file::HostHealthConfig;
 use crate::db::{ObjectColumnFilter, dpa_interface};
 use crate::model::hardware_info::InfinibandInterface;
 use crate::model::instance::NewInstance;
 use crate::model::instance::config::network::{InterfaceFunctionId, NetworkDetails};
+use crate::model::machine::HostHealthConfig;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine::{LoadSnapshotOptions, Machine, NotAllocatableReason};
 use crate::model::vpc_prefix::VpcPrefix;

@@ -31,13 +31,14 @@ use crate::state_controller::machine::handler::PowerOptionConfig;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 use crate::{db, db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
 
-use crate::cfg::file::{HostHealthConfig, ListenMode};
+use crate::cfg::file::ListenMode;
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::expected_machine::ExpectedMachine;
 use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
+use crate::model::machine::HostHealthConfig;
 use crate::model::route_server::RouteServerSourceType;
 use crate::{
     api::Api,

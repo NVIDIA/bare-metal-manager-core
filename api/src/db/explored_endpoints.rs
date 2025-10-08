@@ -16,8 +16,8 @@ use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
+use crate::model::firmware::FirmwareComponentType;
 use crate::{
-    cfg::file::FirmwareComponentType,
     db::DatabaseError,
     model::site_explorer::{
         EndpointExplorationReport, ExploredEndpoint, InitialResetPhase, PowerDrainState,

@@ -16,7 +16,7 @@ pub mod machine_update_module;
 pub mod metrics;
 
 use host_firmware::HostFirmwareUpdate;
-use machine_update_module::{HOST_UPDATE_HEALTH_REPORT_SOURCE, machine_updates_in_progress};
+use machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
 use sqlx::{PgConnection, PgPool};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
@@ -27,8 +27,8 @@ use self::{
     dpu_nic_firmware::DpuNicFirmwareUpdate, machine_update_module::MachineUpdateModule,
     metrics::MachineUpdateManagerMetrics,
 };
-use crate::cfg::file::HostHealthConfig;
 use crate::model::dpu_machine_update::DpuMachineUpdate;
+use crate::model::machine::HostHealthConfig;
 use crate::model::machine::LoadSnapshotOptions;
 use crate::model::machine::ManagedHostStateSnapshot;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
@@ -304,7 +304,7 @@ impl MachineUpdateManager {
         Ok(machines
             .into_iter()
             .filter_map(|m| {
-                if !m.is_dpu() && machine_updates_in_progress(&m) {
+                if !m.is_dpu() && m.machine_updates_in_progress() {
                     Some(m.id)
                 } else {
                     None

@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::machine::LoadSnapshotOptions;
+use crate::model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
 use crate::{
-    cfg::file::{HardwareHealthReportsConfig, HostHealthConfig},
     db::{self, machine::update_dpu_agent_health_report},
     tests::common::api_fixtures::{
         TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
@@ -597,7 +596,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         include_history: false,
         include_instance_data: false,
         host_health_config: HostHealthConfig {
-            hardware_health_reports: crate::cfg::file::HardwareHealthReportsConfig::Enabled,
+            hardware_health_reports: crate::model::machine::HardwareHealthReportsConfig::Enabled,
             dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
             prevent_allocations_on_stale_dpu_agent_version: false,
         },
@@ -644,7 +643,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         include_history: false,
         include_instance_data: false,
         host_health_config: HostHealthConfig {
-            hardware_health_reports: crate::cfg::file::HardwareHealthReportsConfig::Enabled,
+            hardware_health_reports: crate::model::machine::HardwareHealthReportsConfig::Enabled,
             dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
             prevent_allocations_on_stale_dpu_agent_version: false,
         },

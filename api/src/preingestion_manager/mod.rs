@@ -26,12 +26,10 @@ use tokio::{
     task::JoinSet,
 };
 
+use crate::model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::{
-        CarbideConfig, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
-        FirmwareGlobal,
-    },
+    cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal},
     db,
     db::DatabaseError,
     firmware_downloader::FirmwareDownloader,

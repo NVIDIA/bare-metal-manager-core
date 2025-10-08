@@ -19,10 +19,7 @@ use async_trait::async_trait;
 use lazy_static::lazy_static;
 use sqlx::PgConnection;
 
-use crate::{
-    CarbideResult,
-    model::machine::{Machine, ManagedHostStateSnapshot},
-};
+use crate::{CarbideResult, model::machine::ManagedHostStateSnapshot};
 use forge_uuid::machine::MachineId;
 
 /// Used by [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager) to initiate
@@ -146,11 +143,4 @@ impl Display for DpuReprovisionInitiator {
             ),
         }
     }
-}
-
-/// Returns whether a Machine is marked as having updates in progress
-///
-/// The marking is achieved by applying a special health override and health alert on the Machine
-pub fn machine_updates_in_progress(machine: &Machine) -> bool {
-    machine.reprovision_requested.is_some()
 }
