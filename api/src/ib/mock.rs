@@ -15,11 +15,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
-use super::types::{IBNetwork, IBPort, IBPortMembership, IBPortState};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
-use crate::ib::types::IBQosConf;
-use crate::ib::{IBMtu, IBRateLimit, IBServiceLevel};
+use crate::model::ib::{IBMtu, IBQosConf, IBRateLimit, IBServiceLevel};
+use crate::model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
 
 pub struct MockIBFabric {
     state: Arc<Mutex<State>>,

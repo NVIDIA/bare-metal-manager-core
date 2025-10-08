@@ -16,15 +16,15 @@ use std::{path::Path, sync::Arc};
 use async_trait::async_trait;
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
-use super::types::{
-    IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
-};
 use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
     UFMCert, UFMConfig, UFMError, Ufm,
 };
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
+use crate::model::ib::{
+    IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
+};
 
 pub struct RestIBFabric {
     ufm: Ufm,

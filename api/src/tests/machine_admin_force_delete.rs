@@ -14,7 +14,8 @@ use crate::{
     api::Api,
     cfg::file::IBFabricConfig,
     db,
-    ib::{self, DEFAULT_IB_FABRIC_NAME, IBFabricManager},
+    ib::{self, IBFabricManager},
+    model,
     model::{
         hardware_info::TpmEkCertificate,
         machine::{InstanceState, ManagedHostState},
@@ -31,6 +32,7 @@ use std::{collections::HashSet, net::IpAddr, str::FromStr};
 use tonic::Request;
 
 use crate::attestation as attest;
+use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::tests::common;
 use common::api_fixtures::{
@@ -522,7 +524,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let filter = ib::Filter {
         guids: Some(guids.clone()),
         pkey: Some(pkey),
-        state: Some(ib::types::IBPortState::Active),
+        state: Some(model::ib::IBPortState::Active),
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 1);
 
@@ -533,7 +535,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let filter = ib::Filter {
         guids: Some(guids.iter().cloned().collect()),
         pkey: Some(pkey),
-        state: Some(ib::types::IBPortState::Active),
+        state: Some(model::ib::IBPortState::Active),
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
 

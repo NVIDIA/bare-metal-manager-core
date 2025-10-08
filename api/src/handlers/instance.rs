@@ -1274,7 +1274,7 @@ pub async fn force_delete_instance(
         .to_owned();
 
     let ib_fabric = ib_fabric_manager
-        .connect(crate::ib::DEFAULT_IB_FABRIC_NAME)
+        .connect(crate::model::ib::DEFAULT_IB_FABRIC_NAME)
         .await?;
 
     // Collect the ib partition and ib ports information about this machine

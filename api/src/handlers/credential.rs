@@ -22,7 +22,7 @@ use crate::api::Api;
 use crate::credentials::UpdateCredentials;
 use crate::db::DatabaseError;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::ib::DEFAULT_IB_FABRIC_NAME;
+use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::{CarbideError, db};
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.

@@ -21,10 +21,11 @@ pub use self::iface::Filter;
 pub use self::iface::{
     GetPartitionOptions, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions,
 };
-pub use self::types::{IBMtu, IBRateLimit, IBServiceLevel};
-
 use crate::CarbideError;
 use crate::cfg;
+pub use crate::model::ib::IBMtu;
+pub use crate::model::ib::IBRateLimit;
+pub use crate::model::ib::IBServiceLevel;
 
 mod disable;
 mod iface;
@@ -33,10 +34,6 @@ mod ufmclient;
 
 #[cfg(test)]
 mod mock;
-
-pub mod types;
-
-pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 pub enum IBFabricManagerType {

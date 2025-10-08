@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 
+use crate::model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{
@@ -25,10 +26,7 @@ use crate::{
             NewIBPartition,
         },
     },
-    ib::{
-        IBFabricManagerConfig, IBFabricManagerType,
-        types::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel},
-    },
+    ib::{IBFabricManagerConfig, IBFabricManagerType},
 };
 use forge_uuid::infiniband::IBPartitionId;
 use rpc::forge::{TenantState, forge_server::Forge};

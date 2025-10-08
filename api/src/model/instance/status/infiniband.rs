@@ -10,17 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use chrono::{DateTime, Utc};
 use config_version::Versioned;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    ib::types::IBPort,
-    model::{
-        instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
-        machine::infiniband::{MachineInfinibandStatusObservation, ib_config_synced},
-    },
+use crate::model::{
+    instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
+    machine::infiniband::{MachineInfinibandStatusObservation, ib_config_synced},
 };
 use ::rpc::errors::RpcDataConversionError;
 
@@ -179,17 +175,6 @@ impl InstanceInfinibandStatus {
 
 /// The network status that was last reported by the infiniband subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct _InstanceInfinibandStatusObservation {
-    /// Observed status for each configured interface
-    #[serde(default)]
-    pub ib_interfaces: Vec<_InstanceIbInterfaceStatusObservation>,
-
-    /// When this status was observed
-    pub observed_at: DateTime<Utc>,
-}
-
-/// The network status that was last reported by the infiniband subsystem
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceIbInterfaceStatus {
     /// The GUID of the hardware device that this interface is attached to
     pub pf_guid: Option<String>,
@@ -224,21 +209,5 @@ impl TryFrom<rpc::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
             guid: status.guid.clone(),
             lid: status.lid,
         })
-    }
-}
-
-/// The network status that was last reported by the infiniband subsystem
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct _InstanceIbInterfaceStatusObservation {
-    pub guid: Option<String>,
-    pub lid: u32,
-}
-
-impl From<&IBPort> for _InstanceIbInterfaceStatusObservation {
-    fn from(p: &IBPort) -> Self {
-        Self {
-            guid: Some(p.guid.clone()),
-            lid: p.lid as u32,
-        }
     }
 }
