@@ -701,9 +701,13 @@ fn mem_to_size(mem: &str) -> isize {
         return 0;
     }
 
-    // The first number is the size, and the second part is the unit (GiB or TiB)
+    // The first number is the size, and the second part is the unit (GiB or TiB).
+    // When memory details include a breakdown (e.g. "512 GiB (8x64 GiB)") we only
+    // care about the leading pair of whitespace-separated tokens.
     let Some((Ok(size), unit)) = mem
-        .split_once(|s: char| s.is_whitespace())
+        .split_whitespace()
+        .take(2)
+        .collect_tuple()
         .map(|(size, unit)| (size.parse::<f64>(), unit))
     else {
         tracing::warn!("Invalid memory format: '{mem}'");
