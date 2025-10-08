@@ -57,6 +57,8 @@ message ExploredEndpoint {
   string last_redfish_reboot = 8;
   // Last BMC redfish powercycle
   string last_redfish_powercycle = 9;
+  // Flag to prevent site explorer from taking remediation actions on redfish errors
+  bool pause_remediation = 10;
 }
 
 // Information about explored DPU that was discovered via Site Exploration

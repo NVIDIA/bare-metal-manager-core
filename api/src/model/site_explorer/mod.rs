@@ -173,6 +173,8 @@ pub struct ExploredEndpoint {
     pub last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     /// Last Powercycle issued through redfish
     pub last_redfish_powercycle: Option<chrono::DateTime<chrono::Utc>>,
+    /// Flag to prevent site explorer from taking remediation actions on redfish errors
+    pub pause_remediation: bool,
 }
 
 impl Display for ExploredEndpoint {
@@ -422,6 +424,7 @@ impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
                 .last_redfish_powercycle
                 .map(|time| time.to_string())
                 .unwrap_or_else(|| "no timestamp available".to_string()),
+            pause_remediation: endpoint.pause_remediation,
         }
     }
 }

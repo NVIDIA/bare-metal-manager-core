@@ -200,6 +200,7 @@ impl InternalRBACRules {
         x.perm("Explore", vec![ForgeAdminCLI]);
         x.perm("ReExploreEndpoint", vec![ForgeAdminCLI]);
         x.perm("DeleteExploredEndpoint", vec![ForgeAdminCLI]);
+        x.perm("PauseExploredEndpointRemediation", vec![ForgeAdminCLI]);
         x.perm("FindExploredEndpointIds", vec![ForgeAdminCLI]);
         x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI]);
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI]);

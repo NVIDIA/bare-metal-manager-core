@@ -691,6 +691,24 @@ input[type="submit"]:hover:not(.disabled) {
   border-color: var(--text-muted) !important;
 }
 
+/* Warning buttons */
+.warning-button {
+  background-color: rgba(237, 137, 54, 0.85) !important;
+  color: white !important;
+  border: 1px solid var(--warning) !important;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+  min-width: 80px;
+  font-size: 1rem;
+}
+
+.warning-button:hover {
+  background-color: var(--warning) !important;
+  text-decoration: none;
+  border-color: #dd7324 !important;
+}
+
 /* JSON/Delete button container (top right) */
 div#json {
   position: absolute;

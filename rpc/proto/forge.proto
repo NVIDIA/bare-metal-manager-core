@@ -207,6 +207,8 @@ service Forge {
   rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty);
   // Delete an explored endpoint from the database
   rpc DeleteExploredEndpoint(DeleteExploredEndpointRequest) returns (DeleteExploredEndpointResponse);
+  // Pause or unpause remediation actions for an explored endpoint
+  rpc PauseExploredEndpointRemediation(PauseExploredEndpointRemediationRequest) returns (google.protobuf.Empty);
   // paginated APIs to get site explorer explored endpoints
   rpc FindExploredEndpointIds(site_explorer.ExploredEndpointSearchFilter) returns (site_explorer.ExploredEndpointIdList);
   rpc FindExploredEndpointsByIds(site_explorer.ExploredEndpointsByIdsRequest) returns (site_explorer.ExploredEndpointList);
@@ -2380,6 +2382,13 @@ message ReExploreEndpointRequest {
 message DeleteExploredEndpointRequest {
   // The IP address of the BMC endpoint to delete
   string ip_address = 1;
+}
+
+message PauseExploredEndpointRemediationRequest {
+  // The IP address of the BMC endpoint for which to pause/unpause remediation
+  string ip_address = 1;
+  // Whether to pause (true) or unpause (false) remediation actions
+  bool pause = 2;
 }
 
 message DeleteExploredEndpointResponse {

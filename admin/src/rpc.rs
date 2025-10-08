@@ -632,6 +632,21 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
+    pub async fn pause_explored_endpoint_remediation(
+        &self,
+        address: &str,
+        pause: bool,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::PauseExploredEndpointRemediationRequest {
+            ip_address: address.to_string(),
+            pause,
+        };
+        self.0
+            .pause_explored_endpoint_remediation(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
     pub async fn is_bmc_in_managed_host(
         &self,
         address: &str,

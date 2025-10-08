@@ -48,6 +48,8 @@ struct DbExploredEndpoint {
     last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     /// The last time site explorer issued a redfish call to power cycle this endpoint
     last_redfish_powercycle: Option<chrono::DateTime<chrono::Utc>>,
+    /// Flag to prevent site explorer from taking remediation actions on redfish errors
+    pause_remediation: bool,
 }
 
 impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
@@ -62,6 +64,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
         let last_ipmitool_bmc_reset = row.try_get("last_ipmitool_bmc_reset")?;
         let last_redfish_reboot = row.try_get("last_redfish_reboot")?;
         let last_redfish_powercycle = row.try_get("last_redfish_powercycle")?;
+        let pause_remediation = row.try_get("pause_remediation")?;
         Ok(DbExploredEndpoint {
             address: row.try_get("address")?,
             report: report.0,
@@ -73,6 +76,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
             last_ipmitool_bmc_reset,
             last_redfish_reboot,
             last_redfish_powercycle,
+            pause_remediation,
         })
     }
 }
@@ -90,6 +94,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
             last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
             last_redfish_reboot: endpoint.last_redfish_reboot,
             last_redfish_powercycle: endpoint.last_redfish_powercycle,
+            pause_remediation: endpoint.pause_remediation,
         }
     }
 }
@@ -516,6 +521,21 @@ pub async fn set_last_redfish_powercycle(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE explored_endpoints SET last_redfish_powercycle=NOW() WHERE address = $1;";
     sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+pub async fn set_pause_remediation(
+    address: IpAddr,
+    pause: bool,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE explored_endpoints SET pause_remediation = $1 WHERE address = $2";
+    sqlx::query(query)
+        .bind(pause)
         .bind(address)
         .execute(txn)
         .await

@@ -271,6 +271,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(explored_endpoint::clear_last_exploration_error),
             )
             .route(
+                "/explored-endpoint/{endpoint_ip}/pause-remediation",
+                post(explored_endpoint::pause_remediation),
+            )
+            .route(
                 "/explored-endpoint/{endpoint_ip}/forge-setup",
                 post(explored_endpoint::forge_setup),
             )
