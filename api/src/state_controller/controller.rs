@@ -22,13 +22,14 @@ use crate::{
     db,
     db::DatabaseError,
     logging::sqlx_query_tracing,
+    model::controller_outcome::PersistentStateHandlerOutcome,
     state_controller::{
         config::IterationConfig,
         io::StateControllerIO,
         metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics},
         state_handler::{
-            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
-            StateHandlerServices,
+            FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome, StateHandlerServices,
         },
     },
 };
@@ -377,7 +378,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                             if is_success {
                                 // Commit transaction only when handler returned the Success. 
                                 if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted { .. })) {
-                                    let db_outcome = handler_outcome.as_ref().into();
+                                    let db_outcome = PersistentStateHandlerOutcome::from_result(handler_outcome.as_ref());
                                     io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
                                 }
 
@@ -388,7 +389,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 // Whatever is the reason, outcome must be stored in db.
                                 let _ = txn.rollback().await;
                                 let mut txn = services.pool.begin().await?;
-                                let db_outcome = handler_outcome.as_ref().into();
+                                let db_outcome = PersistentStateHandlerOutcome::from_result(handler_outcome.as_ref());
                                 io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
                                 txn.commit()
                                     .await

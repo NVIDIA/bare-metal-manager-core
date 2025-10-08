@@ -11,11 +11,7 @@
  */
 
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-
-use crate::state_controller::state_handler::{
-    SourceReference, StateHandlerError, StateHandlerOutcome,
-};
+use std::fmt::{Debug, Display};
 
 /// DB storage of the result of a state handler iteration
 /// It is different from a StateHandlerOutcome in that it also stores the error message,
@@ -64,53 +60,11 @@ impl Display for PersistentSourceReference {
     }
 }
 
-impl From<&SourceReference> for PersistentSourceReference {
-    fn from(value: &SourceReference) -> Self {
-        Self {
-            file: value.file.to_string(),
-            line: value.line,
-        }
-    }
-}
-
 impl From<PersistentSourceReference> for rpc::forge::ControllerStateSourceReference {
     fn from(source_ref: PersistentSourceReference) -> Self {
         rpc::forge::ControllerStateSourceReference {
             file: source_ref.file,
             line: source_ref.line.try_into().unwrap_or_default(),
-        }
-    }
-}
-
-impl<S> From<Result<&StateHandlerOutcome<S>, &StateHandlerError>>
-    for PersistentStateHandlerOutcome
-{
-    fn from(
-        r: Result<&StateHandlerOutcome<S>, &StateHandlerError>,
-    ) -> PersistentStateHandlerOutcome {
-        match r {
-            Ok(StateHandlerOutcome::Wait { reason, source_ref }) => {
-                PersistentStateHandlerOutcome::Wait {
-                    reason: reason.clone(),
-                    source_ref: Some(source_ref.into()),
-                }
-            }
-            Ok(StateHandlerOutcome::Transition { source_ref, .. }) => {
-                PersistentStateHandlerOutcome::Transition {
-                    source_ref: Some(source_ref.into()),
-                }
-            }
-            Ok(StateHandlerOutcome::DoNothing { source_ref }) => {
-                PersistentStateHandlerOutcome::DoNothing {
-                    source_ref: Some(source_ref.into()),
-                }
-            }
-            Ok(StateHandlerOutcome::Deleted { .. }) => unreachable!(),
-            Err(err) => PersistentStateHandlerOutcome::Error {
-                err: err.to_string(),
-                // TODO: Make it possible to determine where errors are generated
-                source_ref: None,
-            },
         }
     }
 }
@@ -144,7 +98,6 @@ impl From<PersistentStateHandlerOutcome> for rpc::forge::ControllerStateReason {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_state_outcome_serialize() {
         let wait_state = PersistentStateHandlerOutcome::Wait {
