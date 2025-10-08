@@ -20,6 +20,7 @@
 //! The module should only contain data definitions and associated helper functions,
 //! but no actual business logic.
 
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 
 use forge_uuid::network::NetworkSegmentId;
@@ -31,7 +32,6 @@ pub mod address_selection_strategy;
 pub mod attestation;
 pub mod bmc_info;
 pub mod controller_outcome;
-pub mod desired_firmware;
 pub mod dhcp_entry;
 pub mod dhcp_record;
 pub mod domain;
@@ -39,6 +39,7 @@ pub mod dpa_interface;
 pub mod dpu_machine_update;
 pub mod dpu_remediation;
 pub mod expected_machine;
+pub mod firmware;
 pub mod hardware_info;
 pub mod host_machine_update;
 pub mod ib;
@@ -271,5 +272,32 @@ mod tests {
                 .into_inner(),
             mac
         );
+    }
+}
+
+/// DPU related config.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DpuModel {
+    BlueField2,
+    BlueField3,
+    Unknown,
+}
+
+impl<T> From<T> for DpuModel
+where
+    T: AsRef<str>,
+{
+    fn from(model: T) -> Self {
+        match model.as_ref().to_lowercase().replace("-", " ") {
+            value if value.contains("bluefield 2") => DpuModel::BlueField2,
+            value if value.contains("bluefield 3") => DpuModel::BlueField3,
+            _ => DpuModel::Unknown,
+        }
+    }
+}
+
+impl fmt::Display for DpuModel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{self:?}").to_lowercase())
     }
 }

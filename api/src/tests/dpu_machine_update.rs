@@ -99,8 +99,12 @@ async fn test_find_available_outdated_dpus(
     let env = create_test_env(pool).await;
     let dpu_count: usize = 10;
     let snapshots = create_machines(&env, dpu_count).await;
-    let dpus =
-        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        None,
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )
+    .await?;
 
     assert_eq!(dpus.len(), dpu_count);
     Ok(())
@@ -152,8 +156,12 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
 
     let snapshots = get_all_snapshots(&env).await;
 
-    let dpus =
-        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        None,
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )
+    .await?;
 
     assert_eq!(dpus.len(), 9);
     Ok(())
@@ -165,8 +173,12 @@ async fn test_find_available_outdated_dpus_limit(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let snapshots = create_machines(&env, 10).await;
-    let dpus =
-        DpuMachineUpdate::find_available_outdated_dpus(Some(1), &env.config, &snapshots).await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        Some(1),
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )
+    .await?;
 
     assert_eq!(dpus.len(), 1);
     Ok(())
@@ -179,7 +191,11 @@ async fn test_find_unavailable_outdated_dpus_when_none(
     let env = create_test_env(pool).await;
     let snapshots = create_machines(&env, 10).await;
 
-    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&env.config, &snapshots).await;
+    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )
+    .await;
 
     assert_eq!(dpus.len(), 0);
     Ok(())
@@ -201,7 +217,11 @@ async fn test_find_unavailable_outdated_dpus(
     create_machines(&env, 2).await;
     let snapshots = get_all_snapshots(&env).await;
 
-    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&env.config, &snapshots).await;
+    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )
+    .await;
 
     assert_eq!(dpus.len(), 1);
     assert_eq!(dpus.first().unwrap().dpu_machine_id, mh.dpu().id);
@@ -238,8 +258,12 @@ async fn test_find_available_outdated_dpus_multidpu(
 
     txn.commit().await?;
 
-    let dpus =
-        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        None,
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )
+    .await?;
 
     assert_eq!(dpus.len(), all_dpus.len());
     Ok(())
@@ -279,8 +303,12 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     .await
     .unwrap();
 
-    let dpus =
-        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        None,
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )
+    .await?;
 
     assert!(dpus.is_empty());
 
@@ -339,8 +367,12 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     .await
     .unwrap();
 
-    let dpus =
-        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        None,
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )
+    .await?;
 
     assert!(dpus.is_empty());
 

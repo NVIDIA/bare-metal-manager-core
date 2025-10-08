@@ -23,12 +23,12 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use utils::models::arch::CpuArchitecture;
 
-use super::{bmc_info::BmcInfo, hardware_info::DpuData};
+use super::{DpuModel, bmc_info::BmcInfo, hardware_info::DpuData};
+use crate::model::firmware::{Firmware, FirmwareComponentType};
 use crate::model::hardware_info::HardwareInfoError;
 use crate::model::machine::machine_id::MissingHardwareInfo;
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::{DpuModel, Firmware, FirmwareComponentType},
     model::{
         hardware_info::{DmiData, HardwareInfo},
         machine::machine_id::from_hardware_info_with_type,

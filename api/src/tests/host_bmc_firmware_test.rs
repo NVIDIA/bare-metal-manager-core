@@ -10,14 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
 use crate::{
     CarbideResult,
-    cfg::file::{
-        CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
-        TimePeriod,
-    },
+    cfg::file::{CarbideConfig, TimePeriod},
     db::{self, DatabaseError},
     machine_update_manager::{
         MachineUpdateManager, machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,

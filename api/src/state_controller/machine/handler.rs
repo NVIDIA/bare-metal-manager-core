@@ -42,6 +42,8 @@ use version_compare::Cmp;
 
 use crate::db::host_machine_update::clear_host_reprovisioning_request;
 use crate::db::machine::update_restart_verification_status;
+use crate::model::DpuModel;
+use crate::model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use crate::model::instance::InstanceNetworkSyncStatus;
 use crate::model::instance::config::network::{
     DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId,
@@ -61,8 +63,7 @@ use crate::state_controller::state_handler::{
 };
 use crate::{
     cfg::file::{
-        BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
-        FirmwareConfig, FirmwareEntry, MachineValidationConfig, TimePeriod,
+        BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig, TimePeriod,
     },
     db::{self},
     firmware_downloader::FirmwareDownloader,

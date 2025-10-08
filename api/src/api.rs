@@ -52,7 +52,7 @@ use tss_esapi::{
 use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
-use crate::model::desired_firmware::DesiredFirmwareVersions;
+use crate::model::firmware::DesiredFirmwareVersions;
 use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::model::machine::LoadSnapshotOptions;
 use crate::model::machine::machine_search_config::MachineSearchConfig;

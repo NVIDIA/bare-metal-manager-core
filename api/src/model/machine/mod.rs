@@ -22,28 +22,40 @@ use crate::model::instance::config::network::DeviceLocator;
 use crate::model::power_manager::PowerOptions;
 use crate::{
     CarbideError,
-    cfg::file::{FirmwareComponentType, HardwareHealthReportsConfig},
     model::{hardware_info::HardwareInfo, machine::capabilities::MachineCapabilitiesSet},
 };
 use ::rpc::errors::RpcDataConversionError;
 
 use base64::prelude::*;
 
-use chrono::{DateTime, Utc};
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use crate::model::dpa_interface::DpaInterface;
+use crate::model::firmware::FirmwareComponentType;
+use crate::model::instance::snapshot::InstanceSnapshotPgJson;
+use crate::model::machine::health_override::HealthReportOverrides;
+use crate::model::network_segment::NetworkSegmentType;
+use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
+use duration_str::deserialize_duration_chrono;
+use forge_uuid::machine::MachineType;
 use forge_uuid::{
     domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
     machine::MachineInterfaceId, network::NetworkSegmentId,
 };
+use health_report::HealthReport;
+use json::MachineSnapshotPgJson;
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
-use serde::{Deserialize, Serialize};
+use rpc::forge::HealthOverrideOrigin;
+use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Deref;
+use strum_macros::EnumIter;
 
 mod slas;
 
@@ -57,19 +69,6 @@ pub mod network;
 pub mod storage;
 pub mod topology;
 pub mod upgrade_policy;
-
-use crate::cfg::file::HostHealthConfig;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::dpa_interface::DpaInterface;
-use crate::model::instance::snapshot::InstanceSnapshotPgJson;
-use crate::model::machine::health_override::HealthReportOverrides;
-use crate::model::network_segment::NetworkSegmentType;
-use forge_uuid::machine::MachineType;
-use health_report::HealthReport;
-use json::MachineSnapshotPgJson;
-use rpc::forge::HealthOverrideOrigin;
-use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
-use strum_macros::EnumIter;
 
 type DpuDeviceMappings = (HashMap<MachineId, String>, HashMap<String, Vec<MachineId>>);
 
@@ -860,6 +859,13 @@ impl Machine {
         }
 
         Ok((id_to_device_map, device_to_id_map))
+    }
+
+    /// Returns whether a Machine is marked as having updates in progress
+    ///
+    /// The marking is achieved by applying a special health override and health alert on the Machine
+    pub fn machine_updates_in_progress(&self) -> bool {
+        self.reprovision_requested.is_some()
     }
 }
 
@@ -2486,4 +2492,58 @@ mod tests {
             MachineLastRebootRequestedMode::Reboot,
         ));
     }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct HostHealthConfig {
+    /// Whether or not to use hardware health reports in aggregate health reports
+    /// and for restricting state transitions.
+    #[serde(default)]
+    pub hardware_health_reports: HardwareHealthReportsConfig,
+    /// How old a DPU agent's version should be before considering stale
+    #[serde(
+        default = "HostHealthConfig::dpu_agent_version_staleness_threshold_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub dpu_agent_version_staleness_threshold: Duration,
+
+    /// Whether to fail health checks if a DPU agent version is stale
+    #[serde(default)]
+    pub prevent_allocations_on_stale_dpu_agent_version: bool,
+}
+
+/// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
+fn as_duration<S>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("{}s", d.num_seconds()))
+}
+
+impl Default for HostHealthConfig {
+    fn default() -> Self {
+        HostHealthConfig {
+            hardware_health_reports: HardwareHealthReportsConfig::default(),
+            dpu_agent_version_staleness_threshold:
+                Self::dpu_agent_version_staleness_threshold_default(),
+            prevent_allocations_on_stale_dpu_agent_version: false,
+        }
+    }
+}
+
+impl HostHealthConfig {
+    pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
+        Duration::days(1)
+    }
+}
+
+#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub enum HardwareHealthReportsConfig {
+    #[default]
+    Disabled,
+    /// Include successes and alerts but remove their classifications
+    MonitorOnly,
+    /// Include successes, alerts, and classifications.
+    Enabled,
 }

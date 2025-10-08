@@ -19,13 +19,13 @@ use sqlx::{Pool, Postgres};
 use crate::db::vpc::{self};
 use crate::db::{ObjectColumnFilter, network_segment};
 use crate::model::domain::NewDomain;
+use crate::model::firmware::AgentUpgradePolicyChoice;
 use crate::model::metadata::Metadata;
 use crate::model::network_segment::NewNetworkSegment;
 use crate::model::vpc::NewVpc;
 use crate::{
     CarbideError,
     api::Api,
-    cfg::file::AgentUpgradePolicyChoice,
     db,
     db::{
         DatabaseError,
@@ -201,7 +201,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let initial_policy: AgentUpgradePolicy = initial_dpu_agent_upgrade_policy
-        .unwrap_or(super::cfg::file::AgentUpgradePolicyChoice::UpOnly)
+        .unwrap_or(AgentUpgradePolicyChoice::UpOnly)
         .into();
     let current_policy = dpu_agent_upgrade_policy::get(&mut txn).await?;
     // Only set if the very first time, it's the initial policy

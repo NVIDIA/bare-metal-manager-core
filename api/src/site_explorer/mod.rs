@@ -31,7 +31,7 @@ use version_compare::Cmp;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::{FirmwareComponentType, FirmwareConfig, SiteExplorerConfig},
+    cfg::file::{FirmwareConfig, SiteExplorerConfig},
     db::{self, DatabaseError, ObjectFilter, machine},
     model::{
         bmc_info::BmcInfo,
@@ -65,6 +65,7 @@ mod managed_host;
 use self::metrics::exploration_error_to_metric_label;
 use crate::db::{ObjectColumnFilter, predicted_machine_interface};
 use crate::model::expected_machine::ExpectedMachine;
+use crate::model::firmware::FirmwareComponentType;
 use crate::model::machine::Machine;
 use crate::model::network_segment::NetworkSegmentType;
 use crate::model::predicted_machine_interface::NewPredictedMachineInterface;

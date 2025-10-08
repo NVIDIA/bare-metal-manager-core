@@ -16,8 +16,9 @@ use crate::cfg::file::DpaInterfaceStateControllerConfig;
 use crate::cfg::file::{ListenMode, MachineUpdater, PowerManagerOptions, VpcPeeringPolicy};
 use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::log_limiter::LogLimiter;
-use crate::model::machine::MachineValidatingState;
+use crate::model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use crate::model::machine::ValidationState;
+use crate::model::machine::{HostHealthConfig, MachineValidatingState};
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
@@ -31,8 +32,7 @@ use crate::tests::common::{
 use crate::{
     api::Api,
     cfg::file::{
-        CarbideConfig, DpaConfig, DpuConfig as InitialDpuConfig, Firmware, FirmwareComponent,
-        FirmwareComponentType, FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig,
+        CarbideConfig, DpaConfig, DpuConfig as InitialDpuConfig, FirmwareGlobal, IBFabricConfig,
         IbFabricDefinition, IbPartitionStateControllerConfig, MachineStateControllerConfig,
         MeasuredBootMetricsCollectorConfig, NetworkSegmentStateControllerConfig,
         StateControllerConfig, default_max_find_by_ids,
