@@ -28,7 +28,14 @@ macro_rules! rv {
     ($table: ident, $value:ident, $field_name:ident) => {
         $table.add_row(Row::new(vec![
             Cell::new(stringify!($field_name)),
-            Cell::new(&$value.$field_name.join(", ")),
+            Cell::new(
+                &$value
+                    .$field_name
+                    .chunks(5)
+                    .map(|x| x.join(", "))
+                    .collect::<Vec<String>>()
+                    .join("\n"),
+            ),
         ]));
     };
 }
@@ -117,6 +124,7 @@ pub async fn handle_show_version(
         r!(table, config, mqtt_endpoint);
         r!(table, config, mqtt_broker_port);
         r!(table, config, mqtt_hb_interval);
+        r!(table, config, dpu_secure_boot_enabled);
 
         _ = table.print_tty(true);
     }

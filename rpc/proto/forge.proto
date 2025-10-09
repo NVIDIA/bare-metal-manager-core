@@ -760,6 +760,7 @@ message RuntimeConfig {
 
   int32 mqtt_broker_port = 43;
   string mqtt_hb_interval = 44;
+  bool dpu_secure_boot_enabled = 45;
 }
 
 message EchoRequest {
