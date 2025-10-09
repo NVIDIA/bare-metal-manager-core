@@ -14,6 +14,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use forge_secrets::SecretsError;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
@@ -33,8 +34,10 @@ use crate::model::tenant::TenantOrganizationId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {
-    #[error("Failed to look up credentials {0}")]
-    MissingCredentials(eyre::Report),
+    #[error("Failed to look up credentials")]
+    MissingCredentials,
+    #[error("Unexpected secrets engine error {0}")]
+    SecretsEngineError(SecretsError),
     #[error("Failed nvmesh api request {0}")]
     NvmeshApiError(NvmeshApiError),
     #[error("Database error {0}")]
@@ -124,7 +127,8 @@ pub async fn get_auth_for_storage_cluster(
             cluster_id: cluster_id.to_string(),
         })
         .await
-        .map_err(StorageError::MissingCredentials)?;
+        .map_err(StorageError::SecretsEngineError)?
+        .ok_or(StorageError::MissingCredentials)?;
     let (user, pass) = match credentials {
         Credentials::UsernamePassword { username, password } => (username, password),
     };

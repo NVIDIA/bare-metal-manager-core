@@ -11,29 +11,10 @@
  */
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
-use mac_address::MacAddress;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
-
-async fn get_bmc_credentials(
-    api: &Api,
-    bmc_mac_address: MacAddress,
-) -> Result<(String, String), eyre::Report> {
-    let credentials = api
-        .credential_provider
-        .get_credentials(CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-        })
-        .await?;
-
-    let (username, password) = match credentials {
-        Credentials::UsernamePassword { username, password } => (username, password),
-    };
-
-    Ok((username, password))
-}
 
 pub(crate) async fn get(
     api: &Api,
@@ -93,9 +74,18 @@ pub(crate) async fn get(
         }
     };
 
-    let (username, password) = get_bmc_credentials(api, bmc_mac_address)
+    let credentials = api
+        .credential_provider
+        .get_credentials(CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+        })
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?
+        .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
+
+    let (username, password) = match credentials {
+        Credentials::UsernamePassword { username, password } => (username, password),
+    };
 
     Ok(tonic::Response::new(rpc::BmcMetaDataGetResponse {
         ip: bmc_endpoint_request.ip_address,

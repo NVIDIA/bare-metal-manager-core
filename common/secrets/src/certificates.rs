@@ -1,6 +1,8 @@
 use ::rpc::protos::forge::MachineCertificate;
 use async_trait::async_trait;
 
+use crate::SecretsError;
+
 #[derive(Debug, Clone, Default)]
 pub struct Certificate {
     pub issuing_ca: Vec<u8>,
@@ -25,5 +27,5 @@ pub trait CertificateProvider: Send + Sync {
         unique_identifier: &str,
         alt_names: Option<String>,
         ttl: Option<String>,
-    ) -> Result<Certificate, eyre::Report>;
+    ) -> Result<Certificate, SecretsError>;
 }

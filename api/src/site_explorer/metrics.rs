@@ -515,6 +515,7 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
         EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
             "invalid_dpu_redfish_bios_response"
         }
+        EndpointExplorationError::SecretsEngineError { .. } => "secrets_engine",
     }
     .to_string()
 }

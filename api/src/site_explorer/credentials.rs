@@ -59,7 +59,7 @@ impl CredentialClient {
             .get_credentials(credential_key.clone())
             .await
         {
-            Ok(credentials) => {
+            Ok(Some(credentials)) => {
                 if !Self::valid_password(credentials.clone()) {
                     return Err(EndpointExplorationError::Other {
                         details: format!(
@@ -71,8 +71,11 @@ impl CredentialClient {
 
                 Ok(credentials)
             }
-            Err(err) => Err(EndpointExplorationError::MissingCredentials {
+            Ok(None) => Err(EndpointExplorationError::MissingCredentials {
                 key: credential_key.to_key_str(),
+                cause: "No credentials exists".to_string(),
+            }),
+            Err(err) => Err(EndpointExplorationError::SecretsEngineError {
                 cause: err.to_string(),
             }),
         }

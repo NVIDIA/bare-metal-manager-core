@@ -651,11 +651,10 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 .generate_exploration_report(bmc_ip_address, credentials)
                 .await?),
 
-            Err(_) => {
+            Err(EndpointExplorationError::MissingCredentials { .. }) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "Site explorer could not find an entry in vault at 'bmc/{}/root' - this is expected if the BMC has never been seen before.",
-                    bmc_mac_address,
+                    "Site explorer could not find an entry in vault at 'bmc/{bmc_mac_address}/root' - this is expected if the BMC has never been seen before.",
                 );
 
                 // The machine's BMC root password has not been set to the Forge Sitewide BMC root password
@@ -671,6 +670,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 )
                 .await
             }
+            Err(e) => Err(e),
         }
     }
 

@@ -8,6 +8,8 @@ use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
+use crate::SecretsError;
+
 const PASSWORD_LEN: usize = 16;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -102,12 +104,15 @@ impl Credentials {
 /// Abstract over a credentials provider that functions as a kv map between "key" -> "cred"
 pub trait CredentialProvider: Send + Sync {
     // TODO: Should this take CredentialKey by ref? It's not Copy
-    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report>;
+    async fn get_credentials(
+        &self,
+        key: CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError>;
     async fn set_credentials(
         &self,
         key: CredentialKey,
         credentials: Credentials,
-    ) -> Result<(), eyre::Report>;
+    ) -> Result<(), SecretsError>;
 }
 
 #[derive(Default)]
@@ -129,21 +134,23 @@ impl TestCredentialProvider {
 
 #[async_trait]
 impl CredentialProvider for TestCredentialProvider {
-    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report> {
+    async fn get_credentials(
+        &self,
+        key: CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
         let credentials = self.credentials.lock().await;
         let cred = credentials
             .get(key.to_key_str().as_str())
-            .or(self.fallback_credentials.as_ref())
-            .ok_or_else(|| eyre::eyre!("missing key in test credentials provider"))?;
+            .or(self.fallback_credentials.as_ref());
 
-        Ok(cred.clone())
+        Ok(cred.cloned())
     }
 
     async fn set_credentials(
         &self,
         key: CredentialKey,
         credentials: Credentials,
-    ) -> Result<(), eyre::Report> {
+    ) -> Result<(), SecretsError> {
         let mut data = self.credentials.lock().await;
         let _ = data.insert(key.to_key_str(), credentials);
 

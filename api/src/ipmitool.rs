@@ -66,12 +66,9 @@ impl IPMITool for IPMIToolImpl {
             .get_credentials(credential_key.clone())
             .await
             .map_err(|e| {
-                eyre!(
-                    "Error getting credentials for key {:#?}: {}",
-                    credential_key,
-                    e
-                )
-            })?;
+                eyre!("Secret engine getting credentilas for key {credential_key:#?}: {e:#?}")
+            })?
+            .ok_or_else(|| eyre!("No credentials for key {credential_key:#?} found"))?;
 
         match self
             .execute_ipmitool_command(Self::IPMITOOL_BMC_RESET_COMMAND_ARGS, bmc_ip, &credentials)
@@ -95,11 +92,11 @@ impl IPMITool for IPMIToolImpl {
             .await
             .map_err(|e| {
                 eyre!(
-                    "Error getting credentials for machine {}: {}",
+                    "Secret engine error for machine {}: {e}",
                     machine_id.clone(),
-                    e
                 )
-            })?;
+            })?
+            .ok_or_else(|| eyre!("No credentials for machine {} found", machine_id.clone()))?;
 
         let mut errors: Vec<CmdError> = Vec::default();
 

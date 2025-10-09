@@ -12,10 +12,13 @@ use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 use rand::Rng;
 use tokio::sync::RwLock;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
-use vaultrs::client::{VaultClient, VaultClientSettings, VaultClientSettingsBuilder};
+use vaultrs::client::{
+    VaultClient, VaultClientSettings, VaultClientSettingsBuilder, VaultClientSettingsBuilderError,
+};
 use vaultrs::error::ClientError;
 use vaultrs::{kv2, pki};
 
+use crate::SecretsError;
 use crate::certificates::{Certificate, CertificateProvider};
 use crate::credentials::{CredentialKey, CredentialProvider, Credentials};
 
@@ -60,6 +63,18 @@ pub struct ForgeVaultClient {
     vault_auth_status: RwLock<ForgeVaultAuthenticationStatus>,
 }
 
+impl From<ClientError> for SecretsError {
+    fn from(value: ClientError) -> Self {
+        SecretsError::GenericError(value.into())
+    }
+}
+
+impl From<VaultClientSettingsBuilderError> for SecretsError {
+    fn from(value: VaultClientSettingsBuilderError) -> Self {
+        SecretsError::GenericError(value.into())
+    }
+}
+
 impl ForgeVaultClient {
     pub fn new(
         vault_client_config: ForgeVaultClientConfig,
@@ -79,7 +94,7 @@ pub trait VaultTask<T> {
         &self,
         vault_client: &VaultClient,
         vault_metrics: &ForgeVaultMetrics,
-    ) -> Result<T, eyre::Report>;
+    ) -> Result<T, SecretsError>;
 }
 
 pub struct VaultTaskHelper<V, T>
@@ -105,7 +120,7 @@ where
         &self,
         token: S,
         forge_vault_client: &ForgeVaultClient,
-    ) -> Result<VaultClientSettings, eyre::ErrReport>
+    ) -> Result<VaultClientSettings, SecretsError>
     where
         S: Into<String>,
     {
@@ -135,7 +150,7 @@ where
     async fn vault_token_refresh(
         &self,
         forge_vault_client: &ForgeVaultClient,
-    ) -> Result<(), eyre::ErrReport> {
+    ) -> Result<(), SecretsError> {
         let (vault_token, vault_token_expiry_secs) =
             match forge_vault_client.vault_client_config.auth_type {
                 ForgeVaultAuthenticationType::Root(ref root_token) => {
@@ -220,7 +235,7 @@ where
     pub async fn vault_client_setup(
         &self,
         vault_client: &ForgeVaultClient,
-    ) -> Result<(), eyre::ErrReport> {
+    ) -> Result<(), SecretsError> {
         let refresh_required = {
             let vault_auth_status = vault_client.vault_auth_status.read().await;
             match *vault_auth_status {
@@ -246,7 +261,7 @@ where
         Ok(())
     }
 
-    pub async fn execute(self, vault_client: &ForgeVaultClient) -> Result<T, eyre::Report> {
+    pub async fn execute(self, vault_client: &ForgeVaultClient) -> Result<T, SecretsError> {
         self.vault_client_setup(vault_client).await?;
         let vault_metrics = &vault_client.vault_metrics;
         let auth_status = vault_client.vault_auth_status.read().await;
@@ -254,7 +269,7 @@ where
         {
             self.task.execute(vault_client, vault_metrics).await
         } else {
-            Err(eyre::eyre!("vault wasn't initialized?"))
+            Err(eyre::eyre!("vault wasn't initialized?").into())
         }
     }
 }
@@ -265,12 +280,12 @@ pub struct GetCredentialsHelper {
 }
 
 #[async_trait]
-impl VaultTask<Credentials> for GetCredentialsHelper {
+impl VaultTask<Option<Credentials>> for GetCredentialsHelper {
     async fn execute(
         &self,
         vault_client: &VaultClient,
         vault_metrics: &ForgeVaultMetrics,
-    ) -> Result<Credentials, eyre::Report> {
+    ) -> Result<Option<Credentials>, SecretsError> {
         vault_metrics
             .vault_requests_total_counter
             .add(1, &[KeyValue::new("request_type", "get_credentials")]);
@@ -288,31 +303,34 @@ impl VaultTask<Credentials> for GetCredentialsHelper {
             &[KeyValue::new("request_type", "get_credentials")],
         );
 
-        let credentials = vault_response.map_err(|err| {
-            let status_code = record_vault_client_error(&err, "get_credentials", vault_metrics);
-            match status_code {
-                Some(404) => {
-                    // Not found errors are common and of no concern
-                    tracing::debug!(
-                        "Credentials not found for key ({})",
-                        self.key.to_key_str().as_str()
-                    );
-                }
-                _ => {
-                    tracing::error!(
-                        "Error getting credentials ({}). Error: {err:?}",
-                        self.key.to_key_str().as_str()
-                    );
+        let credentials = match vault_response {
+            Ok(creds) => Ok(Some(creds)),
+            Err(ce) => {
+                let status_code = record_vault_client_error(&ce, "get_credentials", vault_metrics);
+                match status_code {
+                    Some(404) => {
+                        // Not found errors are common and of no concern
+                        tracing::debug!(
+                            "Credentials not found for key ({})",
+                            self.key.to_key_str().as_str()
+                        );
+                        Ok(None)
+                    }
+                    _ => {
+                        tracing::error!(
+                            "Error getting credentials ({}). Error: {ce:?}",
+                            self.key.to_key_str().as_str()
+                        );
+                        Err(SecretsError::GenericError(ce.into()))
+                    }
                 }
             }
-
-            err
-        })?;
+        };
 
         vault_metrics
             .vault_requests_succeeded_counter
             .add(1, &[KeyValue::new("request_type", "get_credentials")]);
-        Ok(credentials)
+        credentials
     }
 }
 
@@ -355,7 +373,7 @@ impl VaultTask<()> for SetCredentialsHelper {
         &self,
         vault_client: &VaultClient,
         vault_metrics: &ForgeVaultMetrics,
-    ) -> Result<(), eyre::Report> {
+    ) -> Result<(), SecretsError> {
         vault_metrics
             .vault_requests_total_counter
             .add(1, &[KeyValue::new("request_type", "set_credentials")]);
@@ -389,7 +407,10 @@ impl VaultTask<()> for SetCredentialsHelper {
 
 #[async_trait]
 impl CredentialProvider for ForgeVaultClient {
-    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report> {
+    async fn get_credentials(
+        &self,
+        key: CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
         let kv_mount_location = self.vault_client_config.kv_mount_location.clone();
         let get_credentials_helper = GetCredentialsHelper {
             kv_mount_location,
@@ -403,7 +424,7 @@ impl CredentialProvider for ForgeVaultClient {
         &self,
         key: CredentialKey,
         credentials: Credentials,
-    ) -> Result<(), eyre::Report> {
+    ) -> Result<(), SecretsError> {
         let kv_mount_location = self.vault_client_config.kv_mount_location.clone();
         let set_credentials_helper = SetCredentialsHelper {
             key,
@@ -434,7 +455,7 @@ impl VaultTask<Certificate> for GetCertificateHelper {
         &self,
         vault_client: &VaultClient,
         vault_metrics: &ForgeVaultMetrics,
-    ) -> Result<Certificate, eyre::Report> {
+    ) -> Result<Certificate, SecretsError> {
         vault_metrics
             .vault_requests_total_counter
             .add(1, &[KeyValue::new("request_type", "get_certificate")]);
@@ -504,7 +525,7 @@ impl CertificateProvider for ForgeVaultClient {
         unique_identifier: &str,
         alt_names: Option<String>,
         ttl: Option<String>,
-    ) -> Result<Certificate, eyre::Report> {
+    ) -> Result<Certificate, SecretsError> {
         let get_certificate_helper = GetCertificateHelper {
             unique_identifier: unique_identifier.to_string(),
             pki_mount_location: self.vault_client_config.pki_mount_location.clone(),

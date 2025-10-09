@@ -6033,9 +6033,14 @@ impl HostUpgradeState {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             };
             match credential_provider.get_credentials(key).await {
-                Ok(credentials) => match credentials {
+                Ok(Some(credentials)) => match credentials {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 },
+                Ok(None) => {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "No BMC credentials exists"
+                    )));
+                }
                 Err(e) => {
                     return Err(StateHandlerError::GenericError(eyre!(
                         "Unable to get BMC credentials: {e}"
