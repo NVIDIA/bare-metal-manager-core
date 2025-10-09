@@ -20,6 +20,8 @@ serial_port_num=
 log_output=
 forge_test_user=
 forge_test_pass=
+update_grub_template="yes"
+update_grub_cfg="yes"
 
 function curl_url() {
 	url=$1
@@ -414,6 +416,14 @@ function main() {
 		if [ ! -z "$line" ]; then
 			efifs_uuid=$(echo $line|cut -d'=' -f2)
 		fi
+		line=$(echo $i|grep 'update_grub_template')
+		if [ ! -z "$line" ]; then
+			update_grub_template=$(echo $line|cut -d'=' -f2)
+		fi
+		line=$(echo $i|grep 'update_grub_cfg')
+		if [ ! -z "$line" ]; then
+			update_grub_cfg=$(echo $line|cut -d'=' -f2)
+		fi
 		
 	done
 
@@ -461,13 +471,25 @@ function main() {
 
 	sgdisk -epv $image_disk 2>&1 | tee $log_output
 	partprobe $image_disk 2>&1 | tee $log_output
+	for cmd in pvscan vgscan lvscan
+	do
+		$cmd | tee $log_output
+		udevadm settle | tee $log_output
+	done
 	if [ ! -z "$rootfs_uuid" -o ! -z "$rootfs_label" ]; then
 		# find the root partition/volume
 		get_root_dev
+		echo "Root device [$root_dev]" | tee $log_output
 		if [ -b "$root_dev" ]; then
 			mount "$root_dev" /mnt 2>&1 | tee $log_output
-			modify_grub_template
-			modify_grub_cfg
+			if [ "${update_grub_template}" == "yes" ]; then
+				echo "Updating grub template" tee $log_output
+				modify_grub_template
+			fi
+			if [ "${update_grub_cfg}" == "yes" ]; then
+				echo "Updating grub cfg" tee $log_output
+				modify_grub_cfg
+			fi
 			if [ ! -z "$cloud_init_url" ]; then
 				add_cloud_init
 			fi
