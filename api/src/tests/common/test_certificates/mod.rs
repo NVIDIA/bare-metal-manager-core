@@ -13,10 +13,8 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use forge_secrets::{
-    SecretsError,
-    certificates::{Certificate, CertificateProvider},
-};
+use forge_secrets::SecretsError;
+use forge_secrets::certificates::{Certificate, CertificateProvider};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Default)]
