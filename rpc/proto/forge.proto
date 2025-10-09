@@ -2679,6 +2679,9 @@ message FlatInterfaceConfig {
   repeated string vpc_peer_prefixes = 16;
   repeated uint32 vpc_peer_vnis = 17;
 
+  // MTU size
+  optional uint32 mtu = 18;
+
   // The details of the network security group associated with
   // either the instance or its parent VPC.
   // Currently, source would either be INSTANCE or VPC.

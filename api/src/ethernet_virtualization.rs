@@ -232,6 +232,7 @@ pub async fn admin_network(
         vpc_peer_vnis: vec![],
         network_security_group: None,
         internal_uuid: None,
+        mtu: u32::try_from(admin_segment.mtu).ok(),
     };
     Ok((cfg, interface.id))
 }
@@ -450,6 +451,7 @@ pub async fn tenant_network(
                 ))
             })?,
         internal_uuid: Some(iface.internal_uuid.into()),
+        mtu: u32::try_from(segment.mtu).ok(),
     })
 }
 

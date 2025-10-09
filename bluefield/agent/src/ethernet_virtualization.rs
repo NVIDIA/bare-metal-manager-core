@@ -1568,8 +1568,7 @@ mod tests {
     use crate::ethernet_virtualization::{
         InterfaceState, ServiceAddresses, needed_interface_state,
     };
-    use crate::{HBNDeviceNames, nvue};
-
+    use crate::{HBNDeviceNames, dhcp, nvue};
     #[ctor::ctor]
     fn setup() {
         forge_host_support::init_logging().unwrap();
@@ -1930,6 +1929,7 @@ mod tests {
             is_l2_segment: true,
             network_security_group: None,
             internal_uuid: None,
+            mtu: None,
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -1980,6 +1980,7 @@ mod tests {
                 is_l2_segment: true,
                 network_security_group: None,
                 internal_uuid: None,
+                mtu: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -2123,6 +2124,7 @@ mod tests {
                 })
                 },
                 internal_uuid: None,
+                mtu: None,
             },
         ];
 
@@ -2458,7 +2460,12 @@ mod tests {
             is_l2_segment: true,
             network_security_group: None,
             internal_uuid: None,
+            mtu: None,
         };
+
+        let mut admin_interface_with_mtu = admin_interface.clone();
+        admin_interface_with_mtu.mtu = Some(1500);
+
         assert_eq!(admin_interface.svi_ip, None);
 
         let interface_prefix_1: IpNetwork = "10.217.5.170/32".parse().unwrap();
@@ -2488,6 +2495,7 @@ mod tests {
                 is_l2_segment: true,
                 network_security_group: None,
                 internal_uuid: None,
+                mtu: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -2511,6 +2519,7 @@ mod tests {
                 is_l2_segment: true,
                 network_security_group: None,
                 internal_uuid: None,
+                mtu: None,
             },
         ];
 
@@ -2612,6 +2621,16 @@ mod tests {
             nameservers: vec![IpAddr::from([10, 1, 1, 1])],
         };
 
+        let mut host_config_str =
+            dhcp::build_server_host_config(network_config.clone(), &HBNDeviceNames::pre_23())?;
+        assert!(!host_config_str.contains("mtu"));
+
+        let mut network_config2 = network_config.clone();
+        network_config2.admin_interface = Some(admin_interface_with_mtu);
+
+        host_config_str =
+            dhcp::build_server_host_config(network_config2.clone(), &HBNDeviceNames::pre_23())?;
+        assert!(host_config_str.contains("mtu: 1500"));
         match super::write_dhcp_server_config(
             &fp,
             &super::DhcpServerPaths {
@@ -2648,6 +2667,17 @@ mod tests {
 
         // tenant host config.
         network_config.use_admin_network = false;
+
+        host_config_str =
+            dhcp::build_server_host_config(network_config.clone(), &HBNDeviceNames::pre_23())?;
+        assert!(!host_config_str.contains("mtu"));
+
+        network_config2 = network_config.clone();
+        network_config2.tenant_interfaces[0].mtu = Some(1500);
+        network_config2.tenant_interfaces[1].mtu = Some(1500);
+        host_config_str =
+            dhcp::build_server_host_config(network_config2, &HBNDeviceNames::pre_23())?;
+        assert!(host_config_str.contains("mtu: 1500"));
 
         let service_addrs = ServiceAddresses {
             pxe_ip: Ipv4Addr::from([10, 0, 0, 1]),

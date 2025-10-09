@@ -455,6 +455,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         is_l2_segment: false,
         network_security_group: None,
         internal_uuid: None,
+        mtu: None,
     };
     assert_eq!(admin_interface.svi_ip, None);
 
@@ -592,6 +593,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             }],
         }),
         internal_uuid: None,
+        mtu: None,
     };
 
     let instance = rpc::Instance {

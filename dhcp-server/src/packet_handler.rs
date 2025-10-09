@@ -21,6 +21,7 @@ use lru::LruCache;
 use rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
+use utils::models::dhcp::{HostConfig, InterfaceInfo};
 
 use crate::cache::CacheEntry;
 use crate::errors::DhcpError;
@@ -256,7 +257,8 @@ pub async fn process_packet(
 
     let (dst_address, dst_port) = decoded_packet.decide_dst_ip(msg_type);
 
-    let packet = create_dhcp_reply_packet(&decoded_packet, dhcp_response, config, msg_type)?;
+    let packet =
+        create_dhcp_reply_packet(&decoded_packet, circuit_id, dhcp_response, config, msg_type)?;
     tracing::info!(packet.send=%packet, "Sending Packet");
 
     let mut encoded_packet = Vec::new();
@@ -272,6 +274,7 @@ pub async fn process_packet(
 
 fn create_dhcp_reply_packet(
     src: &DecodedPacket,
+    circuit_id: &str,
     forge_response: DhcpRecord,
     config: &Config,
     dhcp_msg_type: MessageType,
@@ -284,7 +287,6 @@ fn create_dhcp_reply_packet(
                 .unwrap_or_else(|_| Ipv4Addr::from([0, 0, 0, 0]))
         })
         .unwrap_or(config.dhcp_config.carbide_dhcp_server);
-
     let allocated_address = Ipv4Addr::from_str(&forge_response.address)?;
     let reply_message_type = match dhcp_msg_type {
         MessageType::Discover => MessageType::Offer,
@@ -399,6 +401,11 @@ fn create_dhcp_reply_packet(
         config.dhcp_config.rebinding_time_secs,
     ));
 
+    msg.opts_mut().insert(DhcpOption::InterfaceMtu(get_mtu(
+        circuit_id,
+        config.host_config.as_ref(),
+    )));
+
     let mut client_identifier: Vec<u8> = Vec::with_capacity(src.packet.chaddr().len() + 1);
     client_identifier.push(1); // ethernet
     src.packet
@@ -502,4 +509,86 @@ fn nak_packet(
         .insert(DhcpOption::ServerIdentifier(carbide_dhcp_server));
 
     Ok(msg)
+}
+
+fn get_mtu(circuit_id: &str, host_config: Option<&HostConfig>) -> u16 {
+    host_config
+        .map(|x| x.host_ip_addresses.clone())
+        .unwrap_or_default()
+        .get(circuit_id)
+        .get_or_insert(&InterfaceInfo::default())
+        .mtu
+        .unwrap_or(1500)
+        .try_into()
+        .unwrap_or(1500)
+}
+mod test {
+    #[test]
+    fn test_get_mtu() {
+        let interface_mtu_none = crate::packet_handler::InterfaceInfo {
+            address: <std::net::Ipv4Addr as std::str::FromStr>::from_str("10.12.1.2")
+                .ok()
+                .unwrap(),
+            gateway: <std::net::Ipv4Addr as std::str::FromStr>::from_str("10.12.1.2")
+                .ok()
+                .unwrap(),
+            prefix: "24".to_string(),
+            fqdn: "fqdn1".to_string(),
+            booturl: None,
+            mtu: None,
+        };
+        let interface_mtu_9000 = crate::packet_handler::InterfaceInfo {
+            address: <std::net::Ipv4Addr as std::str::FromStr>::from_str("20.22.2.2")
+                .ok()
+                .unwrap(),
+            gateway: <std::net::Ipv4Addr as std::str::FromStr>::from_str("20.22.2.2")
+                .ok()
+                .unwrap(),
+            prefix: "16".to_string(),
+            fqdn: "fqdn2".to_string(),
+            booturl: None,
+            mtu: Some(9000),
+        };
+        let mut interface_mtu_65537 = interface_mtu_none.clone();
+        interface_mtu_65537.mtu = Some(65537);
+
+        let mut interface_mtu_12000 = interface_mtu_none.clone();
+        interface_mtu_12000.mtu = Some(12000);
+
+        let mut tree =
+            std::collections::BTreeMap::<String, crate::packet_handler::InterfaceInfo>::new();
+        let mut expected = std::collections::BTreeMap::<String, u16>::new();
+
+        tree.insert("interface_mtu_none".to_string(), interface_mtu_none);
+        expected.insert("interface_mtu_none".to_string(), 1500);
+        tree.insert("interface_mtu_9000".to_string(), interface_mtu_9000);
+        expected.insert("interface_mtu_9000".to_string(), 9000);
+        tree.insert("interface_mtu_65537".to_string(), interface_mtu_65537);
+        expected.insert("interface_mtu_65537".to_string(), 1500);
+        tree.insert("interface_mtu_12000".to_string(), interface_mtu_12000);
+        expected.insert("interface_mtu_12000".to_string(), 12000);
+
+        let host_config: utils::models::dhcp::HostConfig = utils::models::dhcp::HostConfig {
+            host_interface_id:
+                <forge_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
+                    "959888da-cdc8-4079-8d23-8a09832447ce",
+                )
+                .ok()
+                .unwrap(),
+            host_ip_addresses: tree.clone(),
+        };
+
+        for (circuit_id, expected_mtu) in expected.iter() {
+            println!("Checking circuit_id: {}", circuit_id);
+            assert_eq!(
+                *expected_mtu,
+                crate::packet_handler::get_mtu(circuit_id, Some(&host_config))
+            );
+        }
+        println!("Checking circuit_id: host_config_none");
+        assert_eq!(
+            1500,
+            crate::packet_handler::get_mtu("host_config_none", None)
+        );
+    }
 }

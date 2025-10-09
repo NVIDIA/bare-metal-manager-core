@@ -93,8 +93,21 @@ pub struct InterfaceInfo {
     pub prefix: String,
     pub fqdn: String,
     pub booturl: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtu: Option<u32>,
 }
-
+impl Default for InterfaceInfo {
+    fn default() -> Self {
+        InterfaceInfo {
+            address: Ipv4Addr::UNSPECIFIED,
+            gateway: Ipv4Addr::UNSPECIFIED,
+            prefix: Default::default(),
+            fqdn: Default::default(),
+            booturl: None,
+            mtu: None,
+        }
+    }
+}
 impl HostConfig {
     pub fn try_from(
         value: ManagedHostNetworkConfigResponse,
@@ -157,6 +170,7 @@ impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
             prefix: value.prefix,
             fqdn: value.fqdn,
             booturl: value.booturl,
+            mtu: value.mtu,
         })
     }
 }
