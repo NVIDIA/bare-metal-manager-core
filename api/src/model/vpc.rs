@@ -14,7 +14,6 @@ use rpc::errors::RpcDataConversionError;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
-use crate::errors::CarbideError;
 use crate::model::metadata::Metadata;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -135,7 +134,7 @@ impl From<Vpc> for rpc::forge::Vpc {
 }
 
 impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::forge::VpcCreationRequest) -> Result<Self, Self::Error> {
         let virt_type = match value.network_virtualization_type {
@@ -160,7 +159,7 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
         }
 
         metadata.validate(true).map_err(|e| {
-            CarbideError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
+            RpcDataConversionError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
         })?;
 
         Ok(NewVpc {
@@ -171,9 +170,7 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
                 .map(|nsg_id| nsg_id.parse())
                 .transpose()
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
-                    CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                        e.value(),
-                    ))
+                    RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
             network_virtualization_type: virt_type,
             metadata,
@@ -182,13 +179,16 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
 }
 
 impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::forge::VpcUpdateRequest) -> Result<Self, Self::Error> {
-        let if_version_match: Option<ConfigVersion> = match &value.if_version_match {
-            Some(version) => Some(version.parse::<ConfigVersion>()?),
-            None => None,
-        };
+        let if_version_match: Option<ConfigVersion> =
+            match &value.if_version_match {
+                Some(version) => Some(version.parse::<ConfigVersion>().map_err(|_| {
+                    RpcDataConversionError::InvalidConfigVersion(version.to_string())
+                })?),
+                None => None,
+            };
 
         // If Metadata isn't passed or empty, then use the old name field
         let use_legacy_name = if let Some(metadata) = &value.metadata {
@@ -206,19 +206,19 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
         }
 
         metadata.validate(true).map_err(|e| {
-            CarbideError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
+            RpcDataConversionError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
         })?;
 
         Ok(UpdateVpc {
-            id: value.id.ok_or(CarbideError::MissingArgument("id"))?,
+            id: value
+                .id
+                .ok_or(RpcDataConversionError::MissingArgument("id"))?,
             network_security_group_id: value
                 .network_security_group_id
                 .map(|nsg_id| nsg_id.parse())
                 .transpose()
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
-                    CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                        e.value(),
-                    ))
+                    RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
             if_version_match,
             metadata,
@@ -227,23 +227,30 @@ impl TryFrom<rpc::forge::VpcUpdateRequest> for UpdateVpc {
 }
 
 impl TryFrom<rpc::forge::VpcUpdateVirtualizationRequest> for UpdateVpcVirtualization {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::forge::VpcUpdateVirtualizationRequest) -> Result<Self, Self::Error> {
-        let if_version_match: Option<ConfigVersion> = match &value.if_version_match {
-            Some(version) => Some(version.parse::<ConfigVersion>()?),
-            None => None,
-        };
+        let if_version_match: Option<ConfigVersion> =
+            match &value.if_version_match {
+                Some(version) => Some(version.parse::<ConfigVersion>().map_err(|_| {
+                    RpcDataConversionError::InvalidConfigVersion(version.to_string())
+                })?),
+                None => None,
+            };
 
         let network_virtualization_type = match value.network_virtualization_type {
             Some(v) => v.try_into()?,
             None => {
-                return Err(CarbideError::MissingArgument("network_virtualization_type"));
+                return Err(RpcDataConversionError::MissingArgument(
+                    "network_virtualization_type",
+                ));
             }
         };
 
         Ok(UpdateVpcVirtualization {
-            id: value.id.ok_or(CarbideError::MissingArgument("id"))?,
+            id: value
+                .id
+                .ok_or(RpcDataConversionError::MissingArgument("id"))?,
             if_version_match,
             network_virtualization_type,
         })

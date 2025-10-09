@@ -45,6 +45,7 @@ use super::metadata::Metadata;
 use super::sku::SkuStatus;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::dpa_interface::DpaInterface;
+use crate::model::errors::{ModelError, ModelResult};
 use crate::model::firmware::FirmwareComponentType;
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::instance::config::network::DeviceLocator;
@@ -53,7 +54,6 @@ use crate::model::machine::capabilities::MachineCapabilitiesSet;
 use crate::model::machine::health_override::HealthReportOverrides;
 use crate::model::network_segment::NetworkSegmentType;
 use crate::model::power_manager::PowerOptions;
-use crate::{CarbideError, CarbideResult};
 
 mod slas;
 
@@ -312,7 +312,7 @@ impl ManagedHostStateSnapshot {
             };
 
             if let Some(network_status_observation) = snapshot.network_status_observation.as_ref()
-                && let Ok(Some(health_report)) = network_status_observation
+                && let Some(health_report) = network_status_observation
                     .expired_version_health_report(
                         host_health_config.dpu_agent_version_staleness_threshold,
                         host_health_config.prevent_allocations_on_stale_dpu_agent_version,
@@ -804,7 +804,7 @@ impl Machine {
     pub fn get_device_locator_for_dpu_id(
         &self,
         dpu_machine_id: &MachineId,
-    ) -> CarbideResult<DeviceLocator> {
+    ) -> ModelResult<DeviceLocator> {
         let (id_to_device_map, device_to_id_map) = self.get_dpu_device_and_id_mappings()?;
 
         if let Some(device) = id_to_device_map.get(dpu_machine_id)
@@ -816,15 +816,15 @@ impl Machine {
                 device_instance: instance,
             });
         }
-        Err(CarbideError::DpuMappingError(format!(
+        Err(ModelError::DpuMappingError(format!(
             "No device instance found for dpu {} in machine {}",
             dpu_machine_id, self.id
         )))
     }
 
-    pub fn get_dpu_device_and_id_mappings(&self) -> CarbideResult<DpuDeviceMappings> {
+    pub fn get_dpu_device_and_id_mappings(&self) -> ModelResult<DpuDeviceMappings> {
         if self.is_dpu() {
-            return Err(CarbideError::DpuMappingError(
+            return Err(ModelError::DpuMappingError(
                 "get_device_instance_and_dpu_id_mapping called on dpu".to_string(),
             ));
         }
@@ -832,7 +832,7 @@ impl Machine {
         let hardware_info = self
             .hardware_info
             .as_ref()
-            .ok_or(CarbideError::DpuMappingError(format!(
+            .ok_or(ModelError::DpuMappingError(format!(
                 "Missing hardware information for machine {}",
                 self.id
             )))?;
@@ -2033,7 +2033,7 @@ pub struct MachineNextStateResolver;
 pub fn get_action_for_dpu_state(
     state: &ManagedHostState,
     dpu_machine_id: &MachineId,
-) -> Result<(Action, Option<ForgeAgentControlExtraInfo>), CarbideError> {
+) -> ModelResult<(Action, Option<ForgeAgentControlExtraInfo>)> {
     Ok(match state {
         ManagedHostState::DPUReprovision { .. }
         | ManagedHostState::Assigned {
@@ -2041,7 +2041,7 @@ pub fn get_action_for_dpu_state(
         } => {
             let dpu_state = state
                 .as_reprovision_state(dpu_machine_id)
-                .ok_or_else(|| CarbideError::MissingDpu(*dpu_machine_id))?;
+                .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
             match dpu_state {
                 ReprovisionState::BufferTime => (Action::Retry, None),
                 ReprovisionState::WaitingForNetworkInstall => (Action::Discovery, None),
@@ -2060,7 +2060,7 @@ pub fn get_action_for_dpu_state(
             let dpu_state = dpu_states
                 .states
                 .get(dpu_machine_id)
-                .ok_or_else(|| CarbideError::MissingDpu(*dpu_machine_id))?;
+                .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
 
             match dpu_state {
                 DpuInitState::Init => (Action::Discovery, None),

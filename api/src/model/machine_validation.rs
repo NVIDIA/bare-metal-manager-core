@@ -4,12 +4,12 @@ use std::str::FromStr;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_uuid::machine::MachineId;
+use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
-use crate::errors::{CarbideError, CarbideResult};
 use crate::model::machine::MachineValidationFilter;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
@@ -175,13 +175,14 @@ impl From<MachineValidationExternalConfig> for rpc::forge::MachineValidationExte
 }
 
 impl TryFrom<rpc::forge::MachineValidationExternalConfig> for MachineValidationExternalConfig {
-    type Error = CarbideError;
-    fn try_from(value: rpc::forge::MachineValidationExternalConfig) -> CarbideResult<Self> {
+    type Error = RpcDataConversionError;
+    fn try_from(value: rpc::forge::MachineValidationExternalConfig) -> Result<Self, Self::Error> {
         Ok(MachineValidationExternalConfig {
             name: value.name,
             description: value.description.unwrap_or_default(),
             config: value.config,
-            version: ConfigVersion::from_str(&value.version)?,
+            version: ConfigVersion::from_str(&value.version)
+                .map_err(|_| RpcDataConversionError::InvalidConfigVersion(value.version))?,
         })
     }
 }
@@ -274,8 +275,8 @@ impl From<MachineValidationTest> for rpc::forge::MachineValidationTest {
 }
 
 impl TryFrom<rpc::forge::MachineValidationTest> for MachineValidationTest {
-    type Error = CarbideError;
-    fn try_from(value: rpc::forge::MachineValidationTest) -> CarbideResult<Self> {
+    type Error = RpcDataConversionError;
+    fn try_from(value: rpc::forge::MachineValidationTest) -> Result<Self, Self::Error> {
         Ok(MachineValidationTest {
             test_id: value.test_id,
             name: value.name,
@@ -291,7 +292,8 @@ impl TryFrom<rpc::forge::MachineValidationTest> for MachineValidationTest {
             external_config_file: value.external_config_file,
             pre_condition: value.pre_condition,
             timeout: value.timeout,
-            version: ConfigVersion::from_str(&value.version)?,
+            version: ConfigVersion::from_str(&value.version)
+                .map_err(|_| RpcDataConversionError::InvalidConfigVersion(value.version))?,
             supported_platforms: value.supported_platforms,
             modified_by: value.modified_by,
             verified: value.verified,
@@ -363,9 +365,10 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationResult {
 }
 
 impl TryFrom<rpc::forge::MachineValidationResult> for MachineValidationResult {
-    type Error = CarbideError;
-    fn try_from(value: rpc::forge::MachineValidationResult) -> CarbideResult<Self> {
-        let val_id = Uuid::try_from(value.validation_id.unwrap_or_default())?;
+    type Error = RpcDataConversionError;
+    fn try_from(value: rpc::forge::MachineValidationResult) -> Result<Self, Self::Error> {
+        let val_id = Uuid::try_from(value.validation_id.unwrap_or_default())
+            .map_err(|_| RpcDataConversionError::MissingArgument("validation_id"))?;
         let start_time = match value.start_time {
             Some(time) => {
                 DateTime::from_timestamp(time.seconds, time.nanos.try_into().unwrap()).unwrap()

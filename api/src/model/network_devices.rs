@@ -19,8 +19,6 @@ use itertools::Itertools;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
-use crate::db::DatabaseError;
-
 // When topology data is received,
 //  -> If corresponding Switch entry does not exist, create one.
 //  -> Create Switch <-> DPU association.
@@ -29,9 +27,6 @@ use crate::db::DatabaseError;
 pub enum LldpError {
     #[error("Missing port info: {0}")]
     MissingPort(String),
-
-    #[error("Database error: {0}")]
-    DbError(#[from] DatabaseError),
 }
 
 /// A NetworkDevice is identified with MGMT_MAC based unique ID.

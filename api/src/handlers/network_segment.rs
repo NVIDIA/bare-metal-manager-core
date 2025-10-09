@@ -16,6 +16,7 @@ use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
+use crate::db::resource_pool::ResourcePoolDatabaseError;
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
@@ -360,7 +361,9 @@ pub async fn allocate_vni(
     .await
     {
         Ok(val) => Ok(val),
-        Err(crate::resource_pool::ResourcePoolError::Empty) => {
+        Err(ResourcePoolDatabaseError::ResourcePool(
+            crate::resource_pool::ResourcePoolError::Empty,
+        )) => {
             tracing::error!(owner_id, pool = "vni", "Pool exhausted, cannot allocate");
             Err(CarbideError::ResourceExhausted("pool vni".to_string()))
         }
@@ -388,7 +391,9 @@ pub async fn allocate_vlan_id(
     .await
     {
         Ok(val) => Ok(val),
-        Err(crate::resource_pool::ResourcePoolError::Empty) => {
+        Err(ResourcePoolDatabaseError::ResourcePool(
+            crate::resource_pool::ResourcePoolError::Empty,
+        )) => {
             tracing::error!(
                 owner_id,
                 pool = "vlan_id",

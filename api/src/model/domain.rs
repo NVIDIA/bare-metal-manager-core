@@ -1,11 +1,10 @@
 use chrono::{DateTime, Utc};
 use forge_uuid::domain::DomainId;
+use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Error, FromRow, Row};
 use tracing::log::debug;
-
-use crate::errors::CarbideError;
 
 /// A DNS domain. Used by carbide-dns for resolving FQDNs.
 /// We create an initial one startup. Each segment can have a different domain,
@@ -62,13 +61,13 @@ pub struct NewDomain {
 }
 
 impl TryFrom<rpc::Domain> for NewDomain {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::Domain) -> Result<Self, Self::Error> {
         if let Some(_id) = value.id {
-            return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
-                "Domain",
-            )));
+            return Err(RpcDataConversionError::IdentifierSpecifiedForNewObject(
+                String::from("Domain"),
+            ));
         }
 
         Ok(NewDomain {

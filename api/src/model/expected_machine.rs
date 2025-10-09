@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
+use rpc::errors::RpcDataConversionError;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
-use crate::errors::CarbideError;
 use crate::model::metadata::Metadata;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,7 +96,7 @@ pub struct ExpectedMachineData {
 }
 
 impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(em: rpc::forge::ExpectedMachine) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -115,7 +115,7 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
 /// Otherwise assume empty Metadata
 fn metadata_from_request(
     opt_metadata: Option<::rpc::forge::Metadata>,
-) -> Result<Metadata, CarbideError> {
+) -> Result<Metadata, RpcDataConversionError> {
     Ok(match opt_metadata {
         None => Metadata {
             name: "".to_string(),
@@ -126,7 +126,8 @@ fn metadata_from_request(
             // Note that this is unvalidated Metadata. It can contain non-ASCII names
             // and
             let m: Metadata = m.try_into()?;
-            m.validate(false)?;
+            m.validate(false)
+                .map_err(|e| RpcDataConversionError::InvalidArgument(e.to_string()))?;
             m
         }
     })

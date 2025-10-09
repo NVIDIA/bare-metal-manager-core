@@ -38,6 +38,7 @@ pub mod domain;
 pub mod dpa_interface;
 pub mod dpu_machine_update;
 pub mod dpu_remediation;
+pub mod errors;
 pub mod expected_machine;
 pub mod firmware;
 pub mod hardware_info;

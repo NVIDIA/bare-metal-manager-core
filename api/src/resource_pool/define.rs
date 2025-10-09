@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 
 use crate::db;
+use crate::db::DatabaseError;
 
 /// A pool bigger than this is very likely a mistake
 const MAX_POOL_SIZE: usize = 250_000;
@@ -34,6 +35,9 @@ pub enum DefineResourcePoolError {
 
     #[error("Max pool size exceeded. {0} > {1}")]
     TooBig(usize, usize),
+
+    #[error("Database error: {0}")]
+    DatabaseError(#[from] DatabaseError),
 }
 
 /// Create or edit the resource pools, making them match the given toml string.

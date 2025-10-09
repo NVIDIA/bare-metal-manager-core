@@ -3,11 +3,10 @@ use std::net::IpAddr;
 use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
+use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-
-use crate::errors::CarbideError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkPrefix {
@@ -47,19 +46,22 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
 }
 
 impl TryFrom<rpc::forge::NetworkPrefix> for NewNetworkPrefix {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::forge::NetworkPrefix) -> Result<Self, Self::Error> {
         if let Some(_id) = value.id {
-            return Err(CarbideError::IdentifierSpecifiedForNewObject(String::from(
-                "Network Prefix",
-            )));
+            return Err(RpcDataConversionError::IdentifierSpecifiedForNewObject(
+                String::from("Network Prefix"),
+            ));
         }
 
         Ok(NewNetworkPrefix {
             prefix: value.prefix.parse()?,
             gateway: match value.gateway {
-                Some(g) => Some(g.parse()?),
+                Some(g) => Some(
+                    g.parse()
+                        .map_err(|_| RpcDataConversionError::InvalidIpAddress(g))?,
+                ),
                 None => None,
             },
             num_reserved: value.reserve_first,

@@ -46,6 +46,7 @@ use crate::model::machine::{
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::model::metadata::Metadata;
+use crate::resource_pool::ResourcePoolError;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{CarbideError, CarbideResult, db, resource_pool};
@@ -1762,7 +1763,9 @@ pub async fn allocate_loopback_ip(
     .await
     {
         Ok(val) => Ok(val),
-        Err(resource_pool::ResourcePoolError::Empty) => {
+        Err(db::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+            ResourcePoolError::Empty,
+        )) => {
             tracing::error!(owner_id, pool = "lo-ip", "Pool exhausted, cannot allocate");
             Err(CarbideError::ResourceExhausted("pool lo-ip".to_string()))
         }
@@ -1790,7 +1793,9 @@ pub async fn allocate_vpc_dpu_loopback(
     .await
     {
         Ok(val) => Ok(val),
-        Err(resource_pool::ResourcePoolError::Empty) => {
+        Err(db::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+            resource_pool::ResourcePoolError::Empty,
+        )) => {
             tracing::error!(
                 owner_id,
                 pool = "vpc-dpu-lo-ip",

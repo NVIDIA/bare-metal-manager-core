@@ -14,7 +14,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::errors::CarbideError;
+use crate::model::errors::ModelError;
 
 pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
@@ -108,7 +108,7 @@ pub struct IBRateLimit(pub i32);
 pub struct IBServiceLevel(pub i32);
 
 impl TryFrom<String> for IBPortState {
-    type Error = CarbideError;
+    type Error = ModelError;
 
     fn try_from(state: String) -> Result<Self, Self::Error> {
         match state.to_lowercase().as_str().trim() {
@@ -116,7 +116,7 @@ impl TryFrom<String> for IBPortState {
             "down" => Ok(IBPortState::Down),
             "initialize" => Ok(IBPortState::Initialize),
             "armed" => Ok(IBPortState::Armed),
-            _ => Err(CarbideError::InvalidArgument(format!(
+            _ => Err(ModelError::InvalidArgument(format!(
                 "{state} is an invalid IBPortState"
             ))),
         }
@@ -124,7 +124,7 @@ impl TryFrom<String> for IBPortState {
 }
 
 impl TryFrom<&str> for IBPortState {
-    type Error = CarbideError;
+    type Error = ModelError;
 
     fn try_from(state: &str) -> Result<Self, Self::Error> {
         IBPortState::try_from(state.to_string())
@@ -138,12 +138,12 @@ impl Default for IBMtu {
 }
 
 impl TryFrom<i32> for IBMtu {
-    type Error = CarbideError;
+    type Error = ModelError;
 
     fn try_from(mtu: i32) -> Result<Self, Self::Error> {
         match mtu {
             2 | 4 => Ok(Self(mtu)),
-            _ => Err(CarbideError::InvalidArgument(format!(
+            _ => Err(ModelError::InvalidArgument(format!(
                 "{mtu} is an invalid MTU"
             ))),
         }
@@ -163,7 +163,7 @@ impl Default for IBRateLimit {
 }
 
 impl TryFrom<i32> for IBRateLimit {
-    type Error = CarbideError;
+    type Error = ModelError;
 
     fn try_from(rate_limit: i32) -> Result<Self, Self::Error> {
         match rate_limit {
@@ -172,7 +172,7 @@ impl TryFrom<i32> for IBRateLimit {
             }
             // It is special case for SDR as 2.5
             2 => Ok(Self(rate_limit)),
-            _ => Err(CarbideError::InvalidArgument(format!(
+            _ => Err(ModelError::InvalidArgument(format!(
                 "{rate_limit} is an invalid rate limit"
             ))),
         }
@@ -193,13 +193,13 @@ impl Default for IBServiceLevel {
 }
 
 impl TryFrom<i32> for IBServiceLevel {
-    type Error = CarbideError;
+    type Error = ModelError;
 
     fn try_from(service_level: i32) -> Result<Self, Self::Error> {
         match service_level {
             0..=15 => Ok(Self(service_level)),
 
-            _ => Err(CarbideError::InvalidArgument(format!(
+            _ => Err(ModelError::InvalidArgument(format!(
                 "{service_level} is an invalid service level"
             ))),
         }

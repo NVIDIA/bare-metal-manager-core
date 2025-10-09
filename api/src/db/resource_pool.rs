@@ -28,7 +28,7 @@ pub async fn populate<T>(
     value: &ResourcePool<T>,
     txn: &mut PgConnection,
     all_values: Vec<T>,
-) -> Result<(), ResourcePoolError>
+) -> Result<(), DatabaseError>
 where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
@@ -61,13 +61,13 @@ pub async fn allocate<T>(
     txn: &mut PgConnection,
     owner_type: OwnerType,
     owner_id: &str,
-) -> Result<T, ResourcePoolError>
+) -> Result<T, ResourcePoolDatabaseError>
 where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
 {
     if stats(&mut *txn, value.name()).await?.free == 0 {
-        return Err(ResourcePoolError::Empty);
+        return Err(ResourcePoolError::Empty.into());
     }
     let query = "
 WITH allocate AS (
@@ -116,7 +116,7 @@ pub async fn release<T>(
     pool: &ResourcePool<T>,
     txn: &mut PgConnection,
     value: T,
-) -> Result<(), ResourcePoolError>
+) -> Result<(), DatabaseError>
 where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
@@ -139,7 +139,7 @@ WHERE name = $2 AND value = $3
     Ok(())
 }
 
-pub async fn stats<'c, E>(executor: E, name: &str) -> Result<ResourcePoolStats, ResourcePoolError>
+pub async fn stats<'c, E>(executor: E, name: &str) -> Result<ResourcePoolStats, DatabaseError>
 where
     E: sqlx::Executor<'c, Database = Postgres>,
 {
@@ -158,7 +158,7 @@ where
     Ok(s)
 }
 
-pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, ResourcePoolError> {
+pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, DatabaseError> {
     let mut out = Vec::with_capacity(4);
 
     let query_int =
@@ -188,7 +188,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Re
 pub async fn find_value(
     txn: &mut PgConnection,
     value: &str,
-) -> Result<Vec<ResourcePoolEntry>, ResourcePoolError> {
+) -> Result<Vec<ResourcePoolEntry>, DatabaseError> {
     let query =
         "SELECT name, value, value_type, state, allocated FROM resource_pool WHERE value = $1";
     let entry: Vec<ResourcePoolEntry> = sqlx::query_as(query)
@@ -197,4 +197,15 @@ pub async fn find_value(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(entry)
+}
+
+/// Used for functions that may return a database error or may return a ResourcePoolError. This
+/// keeps this DatabaseError out of the ResourcePoolError variants, so they can live in separate
+/// crates.
+#[derive(thiserror::Error, Debug)]
+pub enum ResourcePoolDatabaseError {
+    #[error(transparent)]
+    ResourcePool(#[from] ResourcePoolError),
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
 }

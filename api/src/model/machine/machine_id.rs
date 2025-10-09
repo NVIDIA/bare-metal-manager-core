@@ -17,7 +17,6 @@ use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use sha2::{Digest, Sha256};
 
-use crate::errors::CarbideError;
 use crate::model::hardware_info::HardwareInfo;
 
 /// Generates a temporary Machine ID for a host from the hardware fingerprint
@@ -104,9 +103,8 @@ pub enum MissingHardwareInfo {
 }
 
 /// Converts a RPC MachineId into the internal data format
-pub fn try_parse_machine_id(id: &str) -> Result<MachineId, CarbideError> {
-    Ok(MachineId::from_str(id)
-        .map_err(|_| RpcDataConversionError::InvalidMachineId(id.to_string()))?)
+pub fn try_parse_machine_id(id: &str) -> Result<MachineId, RpcDataConversionError> {
+    MachineId::from_str(id).map_err(|_| RpcDataConversionError::InvalidMachineId(id.to_string()))
 }
 
 #[cfg(test)]

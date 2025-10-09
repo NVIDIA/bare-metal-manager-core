@@ -13,8 +13,8 @@ use config_version::ConfigVersion;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::instance_type::InstanceTypeId;
 use forge_uuid::machine::MachineId;
+use rpc::errors::RpcDataConversionError;
 
-use crate::errors::CarbideError;
 use crate::model::instance::config::InstanceConfig;
 use crate::model::metadata::Metadata;
 
@@ -48,10 +48,12 @@ pub struct DeleteInstance {
 }
 
 impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::InstanceReleaseRequest) -> Result<Self, Self::Error> {
-        let instance_id = value.id.ok_or(CarbideError::MissingArgument("id"))?;
+        let instance_id = value
+            .id
+            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
         Ok(DeleteInstance {
             instance_id,
             issue: value.issue,

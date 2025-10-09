@@ -14,10 +14,9 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-
-use crate::errors::CarbideError;
 
 /// State of an entry inside the resource pool
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,14 +185,16 @@ pub enum OwnerType {
 }
 
 impl FromStr for OwnerType {
-    type Err = CarbideError;
+    type Err = RpcDataConversionError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "machine" => Ok(Self::Machine),
             "network_segment" => Ok(Self::NetworkSegment),
             "ib_partition" => Ok(Self::IBPartition),
             "vpc" => Ok(Self::Vpc),
-            x => Err(CarbideError::internal(format!("Unknown owner_type '{x}'"))),
+            x => Err(RpcDataConversionError::InvalidArgument(format!(
+                "Unknown owner_type '{x}'"
+            ))),
         }
     }
 }
@@ -223,8 +224,6 @@ pub struct ResourcePoolStats {
 pub enum ResourcePoolError {
     #[error("Resource pool is empty, cannot allocate")]
     Empty,
-    #[error("Internal database error: {0}")]
-    Db(#[from] crate::db::DatabaseError),
     #[error("Cannot convert '{v}' to {pool_name}'s pool type for {owner_type} {owner_id}: {e}")]
     Parse {
         e: String,

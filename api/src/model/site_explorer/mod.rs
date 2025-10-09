@@ -29,10 +29,10 @@ use utils::models::arch::CpuArchitecture;
 use super::DpuModel;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::DpuData;
+use crate::model::errors::{ModelError, ModelResult};
 use crate::model::firmware::{Firmware, FirmwareComponentType};
 use crate::model::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::model::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
-use crate::{CarbideError, CarbideResult};
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -451,21 +451,21 @@ impl From<&ExploredDpu> for rpc::site_explorer::ExploredDpu {
 }
 
 impl ExploredDpu {
-    pub fn machine_id_if_valid_report(&self) -> CarbideResult<&MachineId> {
+    pub fn machine_id_if_valid_report(&self) -> ModelResult<&MachineId> {
         let Some(machine_id) = self.report.machine_id.as_ref() else {
-            return Err(CarbideError::MissingArgument("Missing Machine ID"));
+            return Err(ModelError::MissingArgument("Missing Machine ID"));
         };
 
         if self.report.systems.is_empty() {
-            return Err(CarbideError::MissingArgument("Missing Systems Info"));
+            return Err(ModelError::MissingArgument("Missing Systems Info"));
         }
 
         if self.report.chassis.is_empty() {
-            return Err(CarbideError::MissingArgument("Missing Chassis Info"));
+            return Err(ModelError::MissingArgument("Missing Chassis Info"));
         }
 
         if self.report.service.is_empty() {
-            return Err(CarbideError::MissingArgument("Missing Service Info"));
+            return Err(ModelError::MissingArgument("Missing Service Info"));
         }
 
         Ok(machine_id)
@@ -489,7 +489,7 @@ impl ExploredDpu {
         }
     }
 
-    pub fn hardware_info(&self) -> CarbideResult<HardwareInfo> {
+    pub fn hardware_info(&self) -> ModelResult<HardwareInfo> {
         let serial_number = self
             .report
             .systems
@@ -521,7 +521,7 @@ impl ExploredDpu {
         let dpu_data = DpuData {
             factory_mac_address: self
                 .host_pf_mac_address
-                .ok_or(CarbideError::MissingArgument("Missing base mac"))?
+                .ok_or(ModelError::MissingArgument("Missing base mac"))?
                 .to_string(),
             part_number: chassis_map
                 .get("Card1")
@@ -739,7 +739,7 @@ impl EndpointExplorationReport {
     pub fn generate_machine_id(
         &mut self,
         force_predicted_host: bool,
-    ) -> CarbideResult<Option<&MachineId>> {
+    ) -> ModelResult<Option<&MachineId>> {
         if let Some(serial_number) = self
             .systems
             .first()
@@ -773,14 +773,12 @@ impl EndpointExplorationReport {
                 return Ok(None);
             };
 
-            let machine_id =
-                from_hardware_info_with_type(&hardware_info, machine_type).map_err(|e| {
-                    CarbideError::HardwareInfoError(HardwareInfoError::MissingHardwareInfo(e))
-                })?;
+            let machine_id = from_hardware_info_with_type(&hardware_info, machine_type)
+                .map_err(|e| ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(e)))?;
 
             Ok(Some(self.machine_id.insert(machine_id)))
         } else {
-            Err(CarbideError::HardwareInfoError(
+            Err(ModelError::HardwareInfo(
                 HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
             ))
         }
@@ -1444,7 +1442,7 @@ impl From<Option<bool>> for MachineExpectation {
 pub fn is_bf3_dpu(model: &str) -> bool {
     let normalized_model = model.to_lowercase();
     // prefix matching for BlueField-3 DPUs (https://docs.nvidia.com/networking/display/bf3dpu)
-    normalized_model.starts_with("900-9d3b6") 
+    normalized_model.starts_with("900-9d3b6")
     // looks like Lenovo ThinkSystem SR675 V3s will report the part number of NVIDIA BlueField-3 VPI QSFP112 2P 200G PCIe Gen5 x16 as SN37B36732
     // https://windows-server.lenovo.com/repo/2024_05/html/SR675V3_7D9Q_7D9R-Windows_Server_2019.html
     ||  normalized_model.starts_with("sn37b36732")

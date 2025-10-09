@@ -458,6 +458,7 @@ mod tests {
             membership: None,
         };
         let result = IBNetwork::try_from(value);
+        println!("{result:?}");
         assert!(result.is_err());
         assert!(matches!(result, Err(CarbideError::InvalidArgument(_))));
 
