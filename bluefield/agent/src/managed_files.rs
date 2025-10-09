@@ -36,6 +36,19 @@ pub fn main_sync(
                 .with_perms(0o644),
         ),
         (
+            "/lib/systemd/system/update-ovs-pipe-size.service".into(),
+            duppet::FileSpec::new()
+                .with_content(include_str!("../templates/update-ovs-pipe-size.service"))
+                .with_perms(0o644),
+        ),
+        (
+            "/opt/forge/update-ovs-pipe-size.sh".into(),
+            duppet::FileSpec::new()
+                .with_content(include_str!("../templates/update-ovs-pipe-size"))
+                .with_perms(0o755)
+                .with_exec_on_change(),
+        ),
+        (
             "/run/otelcol-contrib/machine-id".into(),
             duppet::FileSpec::new().with_content(build_otel_machine_id_file(machine_id)),
         ),

@@ -79,6 +79,9 @@ pub struct FileSpec {
     /// ensure specifies whether the file should be present
     /// or absent on the filesystem.
     pub ensure: FileEnsure,
+    /// exec_on_change triggers the execution of a file after
+    /// it has been created.
+    pub exec_on_change: bool,
 }
 
 impl FileSpec {
@@ -92,7 +95,16 @@ impl FileSpec {
             owner: None,
             group: None,
             ensure: FileEnsure::Present,
+            exec_on_change: false,
         }
+    }
+
+    /// with_exec_on_change is a builder method that sets the exec_on_change
+    /// flag on the FileSpec, which will trigger the execution of the file
+    /// on create or update.
+    pub fn with_exec_on_change(mut self) -> Self {
+        self.exec_on_change = true;
+        self
     }
 
     /// with_content is a builder method that sets the content
