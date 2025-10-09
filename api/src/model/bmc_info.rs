@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use eyre::{Report, eyre};
 use mac_address::MacAddress;
@@ -10,7 +11,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 use version_compare::Cmp;
 
-use crate::{CarbideError, CarbideResult};
+use crate::model::errors::{ModelError, ModelResult};
 // TODO(chet): Once SocketAddr::parse_ascii is no longer an experimental
 // feature, it would be good to parse bmc_info.ip to verify it's a valid IP
 // address.
@@ -44,10 +45,14 @@ impl<'r> FromRow<'r, PgRow> for BmcInfo {
 }
 
 impl TryFrom<rpc::BmcInfo> for BmcInfo {
-    type Error = CarbideError;
-    fn try_from(value: rpc::BmcInfo) -> CarbideResult<Self> {
+    type Error = RpcDataConversionError;
+    fn try_from(value: rpc::BmcInfo) -> Result<Self, RpcDataConversionError> {
         let mac: Option<MacAddress> = if let Some(mac_address) = value.mac {
-            Some(mac_address.parse()?)
+            Some(
+                mac_address
+                    .parse()
+                    .map_err(|_| RpcDataConversionError::InvalidMacAddress(mac_address))?,
+            )
         } else {
             None
         };
@@ -132,15 +137,17 @@ impl From<UserRoles> for rpc::UserRoles {
 }
 
 impl FromStr for UserRoles {
-    type Err = CarbideError;
+    type Err = ModelError;
 
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
+    fn from_str(input: &str) -> ModelResult<Self> {
         match input {
             "user" => Ok(UserRoles::User),
             "administrator" => Ok(UserRoles::Administrator),
             "operator" => Ok(UserRoles::Operator),
             "noaccess" => Ok(UserRoles::Noaccess),
-            x => Err(CarbideError::internal(format!("Unknown role found: {x}"))),
+            x => Err(ModelError::DatabaseTypeConversionError(format!(
+                "Unknown role found in database: {x}"
+            ))),
         }
     }
 }

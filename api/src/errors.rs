@@ -18,8 +18,10 @@ use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use tonic::Status;
 
+use crate::db::resource_pool::ResourcePoolDatabaseError;
 use crate::dhcp::allocation::DhcpError;
 use crate::model::ConfigValidationError;
+use crate::model::errors::ModelError;
 use crate::model::hardware_info::HardwareInfoError;
 use crate::model::network_devices::LldpError;
 use crate::model::site_explorer::EndpointExplorationError;
@@ -151,6 +153,9 @@ pub enum CarbideError {
     #[error("Resource pool error: {0}")]
     ResourcePoolError(#[from] resource_pool::ResourcePoolError),
 
+    #[error("Resource pool database error: {0}")]
+    ResourcePoolDatabaseError(#[from] ResourcePoolDatabaseError),
+
     #[error("Hardware info error: {0}")]
     HardwareInfoError(#[from] HardwareInfoError),
 
@@ -215,6 +220,19 @@ pub enum CarbideError {
 
     #[error("Client certificate presented has missing information: {0}.")]
     ClientCertificateMissingInformation(String),
+}
+
+impl From<ModelError> for CarbideError {
+    fn from(e: ModelError) -> Self {
+        match e {
+            ModelError::DpuMappingError(e) => Self::DpuMappingError(e),
+            ModelError::MissingDpu(e) => Self::MissingDpu(e),
+            ModelError::DatabaseTypeConversionError(e) => Self::DatabaseTypeConversionError(e),
+            ModelError::MissingArgument(e) => Self::MissingArgument(e),
+            ModelError::HardwareInfo(e) => Self::HardwareInfoError(e),
+            ModelError::InvalidArgument(e) => Self::InvalidArgument(e),
+        }
+    }
 }
 
 impl CarbideError {

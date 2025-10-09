@@ -18,7 +18,6 @@ use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::infiniband::MachineInfinibandStatusObservation;
-use crate::CarbideError;
 use crate::model::hardware_info::{CpuInfo, InfinibandInterface};
 use crate::model::machine::{HardwareInfo, MachineInterfaceSnapshot, RpcDataConversionError};
 
@@ -74,13 +73,13 @@ impl From<MachineCapabilityType> for rpc::MachineCapabilityType {
 }
 
 impl TryFrom<rpc::MachineCapabilityType> for MachineCapabilityType {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(t: rpc::MachineCapabilityType) -> Result<Self, Self::Error> {
         match t {
-            rpc::MachineCapabilityType::CapTypeInvalid => Err(CarbideError::from(
-                crate::model::ConfigValidationError::InvalidValue(t.as_str_name().to_string()),
-            )),
+            rpc::MachineCapabilityType::CapTypeInvalid => Err(
+                RpcDataConversionError::InvalidArgument(t.as_str_name().to_string()),
+            ),
             rpc::MachineCapabilityType::CapTypeCpu => Ok(MachineCapabilityType::Cpu),
             rpc::MachineCapabilityType::CapTypeGpu => Ok(MachineCapabilityType::Gpu),
             rpc::MachineCapabilityType::CapTypeMemory => Ok(MachineCapabilityType::Memory),

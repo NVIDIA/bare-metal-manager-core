@@ -9,6 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::backtrace::{Backtrace, BacktraceStatus};
+
+use tonic::Status;
 
 /// RpcDataConversionError enumerates errors that can occur when
 /// converting from the RPC data format into the internal data model.
@@ -40,8 +43,14 @@ pub enum RpcDataConversionError {
     InvalidUuid(&'static str, String),
     #[error("Invalid value {1} for {0}")]
     InvalidValue(String, String),
+    #[error("Argument is invalid: {0}")]
+    InvalidArgument(String),
     #[error("Argument {0} is missing")]
     MissingArgument(&'static str),
+    #[error(
+        "A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier"
+    )]
+    IdentifierSpecifiedForNewObject(String),
     #[error("Machine state {0} is invalid")]
     InvalidMachineState(String),
     #[error("Invalid NetworkSegmentType {0} is received.")]
@@ -70,4 +79,41 @@ pub enum RpcDataConversionError {
     InvalidLabel(String),
     #[error("Could not obtain object from json: {0}")]
     JsonConversionFailure(String),
+    #[error("JSON Parse failure - {0}")]
+    JsonParseError(#[from] serde_json::Error),
+    #[error("Unable to parse string into IP Network: {0}")]
+    NetworkParseError(#[from] ipnetwork::IpNetworkError),
+}
+
+impl From<RpcDataConversionError> for tonic::Status {
+    fn from(from: RpcDataConversionError) -> Self {
+        // If env RUST_BACKTRACE is set extract handler and err location
+        // If it's not set `Backtrace::capture()` is very cheap to call
+        let b = Backtrace::capture();
+        let printed = if b.status() == BacktraceStatus::Captured {
+            let b_str = b.to_string();
+            let f = b_str
+                .lines()
+                .skip(1)
+                .skip_while(|l| !l.contains("carbide"))
+                .take(2)
+                .collect::<Vec<&str>>();
+            if f.len() == 2 {
+                let handler = f[0].trim();
+                let location = f[1].trim().replace("at ", "");
+                tracing::error!("{from} location={location} handler='{handler}'");
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if !printed {
+            tracing::error!("{from}");
+        }
+
+        Status::invalid_argument(from.to_string())
+    }
 }

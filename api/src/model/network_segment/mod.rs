@@ -24,9 +24,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
 
-use crate::errors::CarbideError;
 use crate::model::StateSla;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use crate::model::errors::ModelError;
 use crate::model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use crate::model::network_segment_state_history::NetworkSegmentStateHistory;
 
@@ -262,7 +262,7 @@ impl TryFrom<i32> for NetworkSegmentType {
 }
 
 impl FromStr for NetworkSegmentType {
-    type Err = CarbideError;
+    type Err = ModelError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
             "tenant" => NetworkSegmentType::Tenant,
@@ -270,7 +270,7 @@ impl FromStr for NetworkSegmentType {
             "tor" => NetworkSegmentType::Underlay,
             "host_inband" => NetworkSegmentType::HostInband,
             _ => {
-                return Err(CarbideError::DatabaseTypeConversionError(format!(
+                return Err(ModelError::DatabaseTypeConversionError(format!(
                     "Invalid segment type {s} reveived from Database."
                 )));
             }
@@ -342,11 +342,11 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
 /// from String -> UUID fails
 ///
 impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::forge::NetworkSegmentCreationRequest) -> Result<Self, Self::Error> {
         if value.prefixes.is_empty() {
-            return Err(CarbideError::InvalidArgument(
+            return Err(RpcDataConversionError::InvalidArgument(
                 "Prefixes are empty.".to_string(),
             ));
         }
@@ -355,10 +355,10 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
             .prefixes
             .into_iter()
             .map(NewNetworkPrefix::try_from)
-            .collect::<Result<Vec<NewNetworkPrefix>, CarbideError>>()?;
+            .collect::<Result<Vec<NewNetworkPrefix>, RpcDataConversionError>>()?;
 
         if prefixes.iter().any(|ip| ip.prefix.ip().is_ipv6()) {
-            return Err(CarbideError::InvalidArgument(
+            return Err(RpcDataConversionError::InvalidArgument(
                 "IPv6 is not yet supported.".to_string(),
             ));
         }
@@ -369,7 +369,7 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
         if segment_type == NetworkSegmentType::Tenant
             && prefixes.iter().any(|ip| ip.prefix.prefix() >= 31)
         {
-            return Err(CarbideError::InvalidArgument(
+            return Err(RpcDataConversionError::InvalidArgument(
                 "Prefix 31 and 32 are not allowed.".to_string(),
             ));
         }
@@ -403,7 +403,7 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
 /// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
 ///
 impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
         // Note that even thought the segment might already be ready,
         // we only return `Ready` after
@@ -484,12 +484,15 @@ impl NewNetworkSegment {
         name: &str,
         domain_id: DomainId,
         value: &NetworkDefinition,
-    ) -> Result<Self, CarbideError> {
-        let prefix = NewNetworkPrefix {
-            prefix: value.prefix.parse()?,
-            gateway: Some(value.gateway.parse()?),
-            num_reserved: value.reserve_first,
-        };
+    ) -> Result<Self, RpcDataConversionError> {
+        let prefix =
+            NewNetworkPrefix {
+                prefix: value.prefix.parse()?,
+                gateway: Some(value.gateway.parse().map_err(|_| {
+                    RpcDataConversionError::InvalidIpAddress(value.gateway.clone())
+                })?),
+                num_reserved: value.reserve_first,
+            };
         Ok(NewNetworkSegment {
             id: uuid::Uuid::new_v4().into(),
             name: name.to_string(), // Set by the caller later

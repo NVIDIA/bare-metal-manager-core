@@ -6887,6 +6887,7 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
+ "ipnetwork",
  "log",
  "mac_address",
  "nonempty",

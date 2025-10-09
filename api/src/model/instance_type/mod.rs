@@ -24,7 +24,6 @@ use super::machine::capabilities::{
     self as machine_caps, MachineCapabilitiesSet, MachineCapabilityDeviceType,
     MachineCapabilityType,
 };
-use crate::CarbideError;
 use crate::model::metadata::Metadata;
 
 /* **************************************** */
@@ -185,7 +184,7 @@ impl InstanceTypeMachineCapabilityFilter {
 impl TryFrom<rpc::InstanceTypeMachineCapabilityFilterAttributes>
     for InstanceTypeMachineCapabilityFilter
 {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(
         cap: rpc::InstanceTypeMachineCapabilityFilterAttributes,
@@ -206,18 +205,12 @@ impl TryFrom<rpc::InstanceTypeMachineCapabilityFilterAttributes>
                 .map(|dt| {
                     rpc::MachineCapabilityDeviceType::try_from(dt)
                         .map_err(|_| {
-                            CarbideError::RpcDataConversionError(
-                                RpcDataConversionError::InvalidValue(
-                                    "MachineCapabilityDeviceType".to_string(),
-                                    dt.to_string(),
-                                ),
+                            RpcDataConversionError::InvalidValue(
+                                "MachineCapabilityDeviceType".to_string(),
+                                dt.to_string(),
                             )
                         })
-                        .and_then(|rpc_dt| {
-                            rpc_dt
-                                .try_into()
-                                .map_err(CarbideError::RpcDataConversionError)
-                        })
+                        .and_then(|rpc_dt| rpc_dt.try_into())
                 })
                 .transpose()?,
         })
@@ -227,7 +220,7 @@ impl TryFrom<rpc::InstanceTypeMachineCapabilityFilterAttributes>
 impl TryFrom<InstanceTypeMachineCapabilityFilter>
     for rpc::InstanceTypeMachineCapabilityFilterAttributes
 {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(cap: InstanceTypeMachineCapabilityFilter) -> Result<Self, Self::Error> {
         Ok(rpc::InstanceTypeMachineCapabilityFilterAttributes {
@@ -504,7 +497,7 @@ impl InstanceType {
 }
 
 impl TryFrom<InstanceType> for rpc::InstanceType {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(inst_type: InstanceType) -> Result<Self, Self::Error> {
         let mut desired_capabilities =

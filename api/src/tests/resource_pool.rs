@@ -102,7 +102,9 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // no more values
     match db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "id456").await {
-        Err(ResourcePoolError::Empty) => {} // expected
+        Err(db::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+            ResourcePoolError::Empty,
+        )) => {} // expected
         Err(err) => panic!("Unexpected err: {err}"),
         Ok(_) => panic!("Pool should be empty"),
     }

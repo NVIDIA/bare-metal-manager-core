@@ -1,8 +1,7 @@
 use forge_uuid::machine::MachineInterfaceId;
+use rpc::errors::RpcDataConversionError;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-
-use crate::errors::{CarbideError, CarbideResult};
 
 ///
 /// A custom boot response is a representation of custom data for booting machines, either with pxe or user-data
@@ -25,11 +24,14 @@ impl<'r> FromRow<'r, PgRow> for MachineBootOverride {
 }
 
 impl TryFrom<rpc::forge::MachineBootOverride> for MachineBootOverride {
-    type Error = CarbideError;
-    fn try_from(value: rpc::forge::MachineBootOverride) -> CarbideResult<Self> {
-        let machine_interface_id = value
-            .machine_interface_id
-            .ok_or_else(|| CarbideError::MissingArgument("machine_interface_id"))?;
+    type Error = RpcDataConversionError;
+    fn try_from(value: rpc::forge::MachineBootOverride) -> Result<Self, Self::Error> {
+        let machine_interface_id =
+            value
+                .machine_interface_id
+                .ok_or(RpcDataConversionError::MissingArgument(
+                    "machine_interface_id",
+                ))?;
         Ok(MachineBootOverride {
             machine_interface_id,
             custom_pxe: value.custom_pxe,

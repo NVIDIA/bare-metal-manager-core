@@ -56,6 +56,7 @@ pub(crate) async fn grow(
         Err(DE::InvalidArgument(msg)) => Err(tonic::Status::invalid_argument(msg)),
         Err(DE::InvalidToml(err)) => Err(tonic::Status::invalid_argument(err.to_string())),
         Err(DE::ResourcePoolError(msg)) => Err(tonic::Status::internal(msg.to_string())),
+        Err(DE::DatabaseError(err)) => Err(tonic::Status::internal(err.to_string())),
         Err(err @ DE::TooBig(_, _)) => Err(tonic::Status::out_of_range(err.to_string())),
     }
 }

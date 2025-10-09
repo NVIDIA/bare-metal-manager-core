@@ -26,7 +26,6 @@ use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
 use super::tenant::TenantOrganizationId;
-use crate::CarbideError;
 use crate::model::metadata::Metadata;
 
 /// The maximum priority value allowed for security group rule.
@@ -433,7 +432,7 @@ impl TryFrom<rpc::network_security_group_rule_attributes::DestinationNet>
 impl TryFrom<NetworkSecurityGroupRuleNet>
     for rpc::network_security_group_rule_attributes::SourceNet
 {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(net: NetworkSecurityGroupRuleNet) -> Result<Self, Self::Error> {
         match net {
@@ -447,7 +446,7 @@ impl TryFrom<NetworkSecurityGroupRuleNet>
 impl TryFrom<NetworkSecurityGroupRuleNet>
     for rpc::network_security_group_rule_attributes::DestinationNet
 {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(net: NetworkSecurityGroupRuleNet) -> Result<Self, Self::Error> {
         match net {
@@ -615,7 +614,7 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
 }
 
 impl TryFrom<NetworkSecurityGroupRule> for rpc::NetworkSecurityGroupRuleAttributes {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(rule: NetworkSecurityGroupRule) -> Result<Self, Self::Error> {
         Ok(rpc::NetworkSecurityGroupRuleAttributes {
@@ -657,7 +656,7 @@ pub struct NetworkSecurityGroup {
 }
 
 impl TryFrom<NetworkSecurityGroup> for rpc::NetworkSecurityGroup {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(nsg: NetworkSecurityGroup) -> Result<Self, Self::Error> {
         let mut rules = Vec::<rpc::NetworkSecurityGroupRuleAttributes>::new();

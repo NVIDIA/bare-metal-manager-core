@@ -106,20 +106,19 @@ async fn create(
 pub async fn get_or_create_network_device(
     txn: &mut PgConnection,
     data: &LldpSwitchData,
-) -> Result<NetworkDevice, LldpError> {
+) -> Result<NetworkDevice, DatabaseError> {
     let network_device = find(
         txn,
         ObjectFilter::One(&data.id),
         &NetworkDeviceSearchConfig::new(false),
     )
-    .await
-    .map_err(LldpError::from)?;
+    .await?;
 
     if !network_device.is_empty() {
         return Ok(network_device[0].clone());
     }
 
-    create(txn, data).await.map_err(LldpError::from)
+    create(txn, data).await
 }
 
 pub async fn lock_network_device_table(txn: &mut PgConnection) -> Result<(), DatabaseError> {
@@ -155,7 +154,7 @@ pub async fn cleanup_unused_switches(txn: &mut PgConnection) -> Result<(), Datab
 pub async fn get_topology(
     txn: &mut PgConnection,
     filter: ObjectFilter<'_, &str>,
-) -> Result<NetworkTopologyData, LldpError> {
+) -> Result<NetworkTopologyData, DatabaseError> {
     Ok(NetworkTopologyData {
         network_devices: find(txn, filter, &NetworkDeviceSearchConfig::new(true)).await?,
     })
@@ -208,7 +207,7 @@ pub mod dpu_to_network_device_map {
         txn: &mut PgConnection,
         device_data: &[LldpSwitchData],
         dpu_id: &MachineId,
-    ) -> Result<(), LldpError> {
+    ) -> Result<(), DatabaseError> {
         // It is possible that due to older dpu_agent, this data is null for now. In any case,
         // discovery functionality should not be broken.
         // TODO: This check should be removed after sometime.

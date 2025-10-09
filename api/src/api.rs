@@ -48,6 +48,7 @@ use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
 use crate::db::machine::{self};
 use crate::db::network_devices::NetworkDeviceSearchConfig;
+use crate::db::resource_pool::ResourcePoolDatabaseError;
 use crate::db::{self, DatabaseError, ObjectFilter, attestation as db_attest};
 use crate::handlers::instance;
 use crate::handlers::machine_validation::{
@@ -1699,7 +1700,7 @@ impl Forge for Api {
         // Respond based on machine current state
         let state = host_machine.current_state();
         let (action, action_data) = if is_dpu {
-            get_action_for_dpu_state(state, &machine_id)?
+            get_action_for_dpu_state(state, &machine_id).map_err(CarbideError::from)?
         } else {
             match state {
                 ManagedHostState::HostInit {
@@ -5773,7 +5774,9 @@ impl Api {
         .await
         {
             Ok(val) => Ok(val),
-            Err(resource_pool::ResourcePoolError::Empty) => {
+            Err(ResourcePoolDatabaseError::ResourcePool(
+                resource_pool::ResourcePoolError::Empty,
+            )) => {
                 tracing::error!(
                     owner_id,
                     pool = "vpc_vni",
@@ -5805,7 +5808,9 @@ impl Api {
         .await
         {
             Ok(val) => Ok(val),
-            Err(resource_pool::ResourcePoolError::Empty) => {
+            Err(ResourcePoolDatabaseError::ResourcePool(
+                resource_pool::ResourcePoolError::Empty,
+            )) => {
                 tracing::error!(
                     owner_id,
                     pool = "dpa_vni",
@@ -5840,7 +5845,7 @@ impl Api {
             Ok(val) => Ok(Some(
                 PartitionKey::try_from(val)
                 .map_err(|_| CarbideError::internal(format!("Partition key {val} return from pool is not a valid pkey. Pool Definition is invalid")))?)),
-            Err(resource_pool::ResourcePoolError::Empty) => {
+            Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
                 tracing::error!(owner_id, pool = "pkey", "Pool exhausted, cannot allocate");
                 Err(CarbideError::ResourceExhausted("pool pkey".to_string()))
             }

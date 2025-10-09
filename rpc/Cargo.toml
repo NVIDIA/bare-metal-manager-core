@@ -51,6 +51,7 @@ prettytable-rs = { version = "^0.10", optional = true }
 serde_yaml = { version = "*", optional = true }
 data-encoding = "2.9.0"
 sha2 = "0.10.9"
+ipnetwork = { workspace = true, features = ["serde"] }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

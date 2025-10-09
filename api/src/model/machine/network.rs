@@ -9,7 +9,6 @@ use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use serde::{Deserialize, Serialize};
 
-use crate::db::DatabaseError;
 use crate::model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
@@ -32,26 +31,26 @@ impl MachineNetworkStatusObservation {
         &self,
         staleness_threshold: Duration,
         prevent_allocations: bool,
-    ) -> Result<Option<HealthReport>, DatabaseError> {
+    ) -> Option<HealthReport> {
         let Some(agent_version) = self.agent_version.as_ref() else {
-            return Ok(Some(health_report::HealthReport::stale_agent_version(
+            return Some(health_report::HealthReport::stale_agent_version(
                 "forge-dpu-agent".to_string(),
                 self.machine_id.to_string(),
                 "Agent version is not known".to_string(),
                 prevent_allocations,
-            )));
+            ));
         };
 
         if agent_version == forge_version::v!(build_version) {
             // Same version as the server, all good.
-            return Ok(None);
+            return None;
         }
 
         match self.agent_version_superseded_at {
             Some(superseded_at) => {
                 let staleness = Utc::now().signed_duration_since(superseded_at);
                 if staleness > staleness_threshold {
-                    Ok(Some(health_report::HealthReport::stale_agent_version(
+                    Some(health_report::HealthReport::stale_agent_version(
                         "forge-dpu-agent".to_string(),
                         self.machine_id.to_string(),
                         format!(
@@ -60,9 +59,9 @@ impl MachineNetworkStatusObservation {
                             config_version::format_duration(staleness),
                         ),
                         prevent_allocations,
-                    )))
+                    ))
                 } else {
-                    Ok(None)
+                    None
                 }
             }
             None => {
@@ -70,7 +69,7 @@ impl MachineNetworkStatusObservation {
                         machine_id = %self.machine_id,
                         agent_version = %agent_version,
                         "DPU is on a stale agent version which we don't know about. Cannot know how stale it is, will not prevent allocations");
-                Ok(None)
+                None
             }
         }
     }

@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use chrono::{DateTime, Utc};
 use forge_uuid::dpu_remediations::RemediationId;
 use forge_uuid::machine::MachineId;
+use rpc::errors::RpcDataConversionError;
 use rpc::forge::{
     ApproveRemediationRequest, CreateRemediationRequest, DisableRemediationRequest,
     EnableRemediationRequest, RevokeRemediationRequest,
@@ -11,7 +12,6 @@ use rpc::forge::{
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
-use crate::errors::CarbideError;
 use crate::model::metadata::Metadata;
 
 // about 16KB file size, long enough for any reasonable script but small enough to make it
@@ -26,7 +26,7 @@ pub struct NewRemediation {
 }
 
 impl TryFrom<(CreateRemediationRequest, String)> for NewRemediation {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: (CreateRemediationRequest, String)) -> Result<Self, Self::Error> {
         let rpc_request = value.0;
@@ -38,7 +38,7 @@ impl TryFrom<(CreateRemediationRequest, String)> for NewRemediation {
             None
         };
         let retries = if rpc_request.retries < 0 {
-            return Err(CarbideError::InvalidArgument(String::from(
+            return Err(RpcDataConversionError::InvalidArgument(String::from(
                 "retries must be a positive integer or 0",
             )));
         } else {
@@ -47,11 +47,11 @@ impl TryFrom<(CreateRemediationRequest, String)> for NewRemediation {
 
         let script = rpc_request.script.to_string();
         if script.len() > MAXIMUM_SCRIPT_LENGTH {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(RpcDataConversionError::InvalidArgument(format!(
                 "script must not exceed length: {MAXIMUM_SCRIPT_LENGTH}"
             )));
         } else if script.is_empty() {
-            return Err(CarbideError::InvalidArgument(
+            return Err(RpcDataConversionError::InvalidArgument(
                 "script cannot be empty".to_string(),
             ));
         }
@@ -238,12 +238,15 @@ pub struct ApproveRemediation {
 }
 
 impl TryFrom<(ApproveRemediationRequest, String)> for ApproveRemediation {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: (ApproveRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let id = value.0.remediation_id.ok_or(CarbideError::MissingArgument(
-            "Request must contain a remediation id.",
-        ))?;
+        let id = value
+            .0
+            .remediation_id
+            .ok_or(RpcDataConversionError::MissingArgument(
+                "Request must contain a remediation id.",
+            ))?;
         let reviewer = value.1.into();
 
         Ok(Self { id, reviewer })
@@ -256,12 +259,15 @@ pub struct RevokeRemediation {
 }
 
 impl TryFrom<(RevokeRemediationRequest, String)> for RevokeRemediation {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: (RevokeRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let id = value.0.remediation_id.ok_or(CarbideError::MissingArgument(
-            "Request must contain a remediation id.",
-        ))?;
+        let id = value
+            .0
+            .remediation_id
+            .ok_or(RpcDataConversionError::MissingArgument(
+                "Request must contain a remediation id.",
+            ))?;
         let revoked_by = value.1;
         tracing::info!("Remediation: '{}' revoked by: '{}'", id, revoked_by);
 
@@ -275,12 +281,15 @@ pub struct EnableRemediation {
 }
 
 impl TryFrom<(EnableRemediationRequest, String)> for EnableRemediation {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: (EnableRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let id = value.0.remediation_id.ok_or(CarbideError::MissingArgument(
-            "Request must contain a remediation id.",
-        ))?;
+        let id = value
+            .0
+            .remediation_id
+            .ok_or(RpcDataConversionError::MissingArgument(
+                "Request must contain a remediation id.",
+            ))?;
         let enabled_by = value.1;
         tracing::info!("Remediation: '{}' enabled by: '{}'", id, enabled_by);
 
@@ -294,12 +303,15 @@ pub struct DisableRemediation {
 }
 
 impl TryFrom<(DisableRemediationRequest, String)> for DisableRemediation {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: (DisableRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let id = value.0.remediation_id.ok_or(CarbideError::MissingArgument(
-            "Request must contain a remediation id.",
-        ))?;
+        let id = value
+            .0
+            .remediation_id
+            .ok_or(RpcDataConversionError::MissingArgument(
+                "Request must contain a remediation id.",
+            ))?;
         let disabled_by = value.1;
         tracing::info!("Remediation: '{}' disabled by: '{}'", id, disabled_by);
 

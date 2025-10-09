@@ -19,11 +19,11 @@ use forge_uuid::dpa_interface::DpaInterfaceId;
 use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
-use crate::errors::CarbideError;
 use crate::model::StateSla;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 
@@ -174,13 +174,14 @@ pub struct NewDpaInterface {
 }
 
 impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::forge::DpaInterfaceCreationRequest) -> Result<Self, Self::Error> {
         let machine_id = value
             .machine_id
-            .ok_or(CarbideError::MissingArgument("id"))?;
-        let mac_address = MacAddress::from_str(&value.mac_addr)?;
+            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
+        let mac_address = MacAddress::from_str(&value.mac_addr)
+            .map_err(|_| RpcDataConversionError::InvalidMacAddress(value.mac_addr.to_string()))?;
         Ok(NewDpaInterface {
             machine_id,
             mac_address,

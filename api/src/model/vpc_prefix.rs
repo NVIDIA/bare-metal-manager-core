@@ -4,8 +4,6 @@ use rpc::errors::RpcDataConversionError;
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 
-use crate::errors::CarbideError;
-
 #[derive(Clone, Debug)]
 pub struct VpcPrefix {
     pub id: VpcPrefixId,
@@ -65,7 +63,7 @@ pub struct DeleteVpcPrefix {
 }
 
 impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::forge::VpcPrefixCreationRequest) -> Result<Self, Self::Error> {
         let rpc::forge::VpcPrefixCreationRequest {
@@ -76,9 +74,8 @@ impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
         } = value;
 
         let id = id.unwrap_or_else(|| VpcPrefixId::from(uuid::Uuid::new_v4()));
-        let vpc_id = vpc_id.ok_or_else(|| CarbideError::MissingArgument("vpc_id"))?;
-        let prefix =
-            IpNetwork::try_from(prefix.as_str()).map_err(CarbideError::NetworkParseError)?;
+        let vpc_id = vpc_id.ok_or(RpcDataConversionError::MissingArgument("vpc_id"))?;
+        let prefix = IpNetwork::try_from(prefix.as_str())?;
         // let id = VpcPrefixId::from(uuid::Uuid::new_v4());
 
         Ok(Self {
@@ -91,7 +88,7 @@ impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
 }
 
 impl TryFrom<rpc::forge::VpcPrefixUpdateRequest> for UpdateVpcPrefix {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(
         rpc_update_prefix: rpc::forge::VpcPrefixUpdateRequest,
@@ -99,15 +96,17 @@ impl TryFrom<rpc::forge::VpcPrefixUpdateRequest> for UpdateVpcPrefix {
         let rpc::forge::VpcPrefixUpdateRequest { id, prefix, name } = rpc_update_prefix;
 
         prefix
-            .map(|_| -> Result<(), CarbideError> {
-                Err(CarbideError::InvalidArgument(
+            .map(|_| -> Result<(), RpcDataConversionError> {
+                Err(RpcDataConversionError::InvalidArgument(
                     "Resizing VPC prefixes is currently unsupported".to_owned(),
                 ))
             })
             .transpose()?;
         let id = id.ok_or(RpcDataConversionError::MissingArgument("id"))?;
         let name = name.ok_or_else(|| {
-            CarbideError::InvalidArgument("At least one updated field must be set".to_owned())
+            RpcDataConversionError::InvalidArgument(
+                "At least one updated field must be set".to_owned(),
+            )
         })?;
 
         Ok(Self { id, name })
@@ -115,7 +114,7 @@ impl TryFrom<rpc::forge::VpcPrefixUpdateRequest> for UpdateVpcPrefix {
 }
 
 impl TryFrom<rpc::forge::VpcPrefixDeletionRequest> for DeleteVpcPrefix {
-    type Error = CarbideError;
+    type Error = RpcDataConversionError;
 
     fn try_from(
         rpc_delete_prefix: rpc::forge::VpcPrefixDeletionRequest,
