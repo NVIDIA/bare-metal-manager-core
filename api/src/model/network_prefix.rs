@@ -1,11 +1,13 @@
-use crate::errors::CarbideError;
+use std::net::IpAddr;
+
 use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use std::net::IpAddr;
+
+use crate::errors::CarbideError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkPrefix {

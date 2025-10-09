@@ -10,18 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use common::api_fixtures::create_test_env;
+use common::api_fixtures::instance::{
+    default_os_config, default_tenant_config, single_interface_network_config,
+};
 use forge_uuid::machine::MachineId;
 use rpc::forge as rpcf;
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
-use common::api_fixtures::{
-    create_test_env,
-    instance::{default_os_config, default_tenant_config, single_interface_network_config},
-};
-
-use crate::tests::common::api_fixtures::create_managed_host;
-use crate::tests::common::api_fixtures::create_managed_host_multi_dpu;
+use crate::tests::common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu};
 
 #[crate::sqlx_test]
 async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {

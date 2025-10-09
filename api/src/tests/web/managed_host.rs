@@ -1,19 +1,19 @@
-use crate::db::managed_host;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::LoadSnapshotOptions;
-use crate::tests::common::api_fixtures::dpu::DpuConfig;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
-use crate::tests::common::api_fixtures::site_explorer;
-use crate::tests::{
-    common::api_fixtures::{create_managed_host_multi_dpu, create_test_env},
-    web::{authenticated_request_builder, make_test_app},
-};
-use crate::web::managed_host::ManagedHostRowDisplay;
 use axum::body::Body;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
 use tower::ServiceExt;
 use utils::ManagedHostOutput;
+
+use crate::db::managed_host;
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::LoadSnapshotOptions;
+use crate::tests::common::api_fixtures::dpu::DpuConfig;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::{
+    create_managed_host_multi_dpu, create_test_env, site_explorer,
+};
+use crate::tests::web::{authenticated_request_builder, make_test_app};
+use crate::web::managed_host::ManagedHostRowDisplay;
 
 #[crate::sqlx_test]
 async fn test_ok(pool: sqlx::PgPool) {

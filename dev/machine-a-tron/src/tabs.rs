@@ -1,10 +1,12 @@
-use std::{path::PathBuf, process::Stdio, str::FromStr};
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::str::FromStr;
 
-use crossterm::{
-    ExecutableCommand,
-    event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers},
-};
-use ratatui::{Terminal, backend::CrosstermBackend, widgets::ListState};
+use crossterm::ExecutableCommand;
+use crossterm::event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::widgets::ListState;
 
 use crate::tui::TuiData;
 

@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::firmware::AgentUpgradePolicyChoice;
 use std::cmp::Ordering;
 use std::fmt;
+
+use crate::model::firmware::AgentUpgradePolicyChoice;
 
 /// How we decide whether a DPU should upgrade its forge-dpu-agent
 #[derive(Debug, Copy, Clone, PartialEq)]

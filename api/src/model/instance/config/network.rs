@@ -10,23 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    net::IpAddr,
-};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use std::net::IpAddr;
 
-use crate::model::ConfigValidationError;
 use ::rpc::errors::RpcDataConversionError;
 #[cfg(test)]
 use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkPrefixId;
-use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::model::ConfigValidationError;
 
 // Specifies whether a network interface is physical network function (PF)
 // or a virtual network function

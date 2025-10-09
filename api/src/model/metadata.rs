@@ -10,10 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::ConfigValidationError;
+use std::collections::HashMap;
+
 use ::rpc::errors::RpcDataConversionError;
 use serde::Deserialize;
-use std::collections::HashMap;
+
+use crate::model::ConfigValidationError;
 
 /// Metadata that can get associated with Forge managed resources
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]

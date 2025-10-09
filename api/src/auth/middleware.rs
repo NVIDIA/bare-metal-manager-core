@@ -6,13 +6,10 @@ use tonic::service::AxumBody;
 use tower::{Layer, Service};
 use tower_http::auth::AsyncAuthorizeRequest;
 
-use crate::{
-    auth::{
-        AuthContext, CasbinAuthorizer, Predicate, Principal, forge_spiffe::ForgeSpiffeContext,
-        internal_rbac_rules::InternalRBACRules,
-    },
-    cfg::file::AllowedCertCriteria,
-};
+use crate::auth::forge_spiffe::ForgeSpiffeContext;
+use crate::auth::internal_rbac_rules::InternalRBACRules;
+use crate::auth::{AuthContext, CasbinAuthorizer, Predicate, Principal};
+use crate::cfg::file::AllowedCertCriteria;
 // A middleware layer to deal with per-request authentication.
 // This might mean extracting a service identifier from a SPIFFE x509
 // certificate (in which case most of the heavy lifting has already been done by

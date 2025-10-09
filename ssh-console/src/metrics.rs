@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::config::Config;
-use crate::shutdown_handle::ShutdownHandle;
+use std::sync::Arc;
+
 use http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use http::{Method, Request, Response};
 use http_body_util::Full;
@@ -22,10 +22,12 @@ use hyper_util::server::conn::auto;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::Encoder;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+
+use crate::config::Config;
+use crate::shutdown_handle::ShutdownHandle;
 
 pub async fn spawn(
     config: Arc<Config>,

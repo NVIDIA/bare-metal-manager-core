@@ -1,12 +1,14 @@
-use crate::tests::common;
 use std::collections::HashSet;
 
-use crate::db;
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
+use common::api_fixtures::create_test_env;
+use common::api_fixtures::dpu::create_dpu_machine;
 use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
 
-use crate::tests::common::api_fixtures::{create_managed_host, dpu::dpu_discover_machine};
+use crate::db;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::create_managed_host;
+use crate::tests::common::api_fixtures::dpu::dpu_discover_machine;
 
 #[crate::sqlx_test]
 async fn test_lldp_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

@@ -14,11 +14,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::Read;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
-use std::{fmt, fs, io, net::Ipv4Addr};
+use std::{fmt, fs, io};
 
 use ::rpc::InterfaceFunctionType;
 use ::rpc::forge::{
@@ -26,6 +26,7 @@ use ::rpc::forge::{
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
 use eyre::WrapErr;
+use forge_network::virtualization::VpcVirtualizationType;
 use mac_address::MacAddress;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
@@ -33,7 +34,6 @@ use tokio::time::timeout;
 
 use crate::nvue::NetworkSecurityGroupRule;
 use crate::{HBNDeviceNames, acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
-use forge_network::virtualization::VpcVirtualizationType;
 
 /// None of the files we deal with should be bigger than this
 const MAX_EXPECTED_SIZE: u64 = 1048576; // 1 MiB
@@ -1560,6 +1560,8 @@ mod tests {
 
     use ::rpc::{common as rpc_common, forge as rpc};
     use eyre::WrapErr;
+    use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+    use ipnetwork::IpNetwork;
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use super::FPath;
@@ -1567,8 +1569,6 @@ mod tests {
         InterfaceState, ServiceAddresses, needed_interface_state,
     };
     use crate::{HBNDeviceNames, nvue};
-    use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
-    use ipnetwork::IpNetwork;
 
     #[ctor::ctor]
     fn setup() {

@@ -12,27 +12,23 @@
 
 //! State Handler implementation for Dpa Interfaces
 
-use crate::db::dpa_interface::get_dpa_vni;
-use crate::{
-    db,
-    model::dpa_interface::DpaInterfaceControllerState,
-    state_controller::{
-        dpa_interface::context::DpaInterfaceStateHandlerContextObjects,
-        state_handler::{
-            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing,
-            transition,
-        },
-    },
-};
+use std::sync::Arc;
+
 use chrono::{Duration, TimeDelta};
+use eyre::eyre;
 use forge_uuid::dpa_interface::DpaInterfaceId;
 use mqttea::MqtteaClient;
 use sqlx::PgConnection;
-use std::sync::Arc;
 
-use crate::model::dpa_interface::DpaInterface;
+use crate::db;
+use crate::db::dpa_interface::get_dpa_vni;
+use crate::model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
 use crate::model::resource_pool::ResourcePool;
-use eyre::eyre;
+use crate::state_controller::dpa_interface::context::DpaInterfaceStateHandlerContextObjects;
+use crate::state_controller::state_handler::{
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing,
+    transition,
+};
 
 /// The actual Dpa Interface State handler
 #[derive(Debug, Clone)]

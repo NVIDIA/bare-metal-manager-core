@@ -1,19 +1,18 @@
-use std::{net::Ipv4Addr, time::SystemTime};
+use std::net::Ipv4Addr;
+use std::time::SystemTime;
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    db::DatabaseError,
-    model::instance::status::network::{
-        InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
-    },
-};
-use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
+use serde::{Deserialize, Serialize};
+
+use crate::db::DatabaseError;
+use crate::model::instance::status::network::{
+    InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
+};
 
 /// The network status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed

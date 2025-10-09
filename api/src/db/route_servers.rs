@@ -1,9 +1,11 @@
 use std::net::IpAddr;
 
-use super::DatabaseError;
-use crate::model::route_server::{RouteServer, RouteServerSourceType};
-use crate::{CarbideError, CarbideResult, db::BIND_LIMIT};
 use sqlx::PgConnection;
+
+use super::DatabaseError;
+use crate::db::BIND_LIMIT;
+use crate::model::route_server::{RouteServer, RouteServerSourceType};
+use crate::{CarbideError, CarbideResult};
 
 // replace will replace all addresses for the given source type
 // in the database with whatever new addresses are provided.
@@ -132,8 +134,9 @@ pub async fn remove(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
+
+    use super::*;
 
     // test_ips is a helper function to create test IP addresses,
     // instead of listing all of the IPs to test in a vec, since

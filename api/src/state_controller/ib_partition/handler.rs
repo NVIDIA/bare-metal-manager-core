@@ -9,22 +9,19 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
-use crate::{
-    CarbideError, db,
-    db::ib_partition::{IBPartition, IBPartitionStatus},
-    ib::{GetPartitionOptions, IBFabricManagerConfig},
-    model::ib_partition::IBPartitionControllerState,
-    state_controller::{
-        ib_partition::context::IBPartitionStateHandlerContextObjects,
-        state_handler::{
-            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted,
-            do_nothing, transition, wait,
-        },
-    },
-};
 use forge_uuid::infiniband::IBPartitionId;
 use sqlx::PgConnection;
+
+use crate::db::ib_partition::{IBPartition, IBPartitionStatus};
+use crate::ib::{GetPartitionOptions, IBFabricManagerConfig};
+use crate::model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
+use crate::model::ib_partition::IBPartitionControllerState;
+use crate::state_controller::ib_partition::context::IBPartitionStateHandlerContextObjects;
+use crate::state_controller::state_handler::{
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted, do_nothing,
+    transition, wait,
+};
+use crate::{CarbideError, db};
 
 /// The actual IBPartition State handler
 #[derive(Debug, Default, Clone)]

@@ -1,4 +1,5 @@
-use std::{collections::BTreeMap, fmt::Write};
+use std::collections::BTreeMap;
+use std::fmt::Write;
 
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
@@ -6,22 +7,15 @@ use futures_util::stream::StreamExt;
 use itertools::Itertools;
 use sqlx::{Acquire, PgConnection};
 
+use crate::CarbideError;
+use crate::db::{self, DatabaseError};
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::Machine;
+use crate::model::machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband};
 use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::{
-    CarbideError,
-    db::{self, DatabaseError},
-    model::{
-        hardware_info::HardwareInfo,
-        machine::{
-            Machine,
-            capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband},
-        },
-        sku::{
-            Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu,
-            SkuComponentInfinibandDevices, SkuComponentMemory, SkuComponentStorage, SkuComponents,
-            diff_skus,
-        },
-    },
+use crate::model::sku::{
+    Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentInfinibandDevices,
+    SkuComponentMemory, SkuComponentStorage, SkuComponents, diff_skus,
 };
 
 /// The current version of the SKU format.  The state machine will create older

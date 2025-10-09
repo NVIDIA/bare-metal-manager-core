@@ -23,9 +23,10 @@
  *  - `profile list machines`: List all machines for a given profile.
 */
 
+use clap::Parser;
+
 use crate::cfg::measurement::{KvPair, parse_colon_pairs};
 use crate::measurement::global::cmds::IdNameIdentifier;
-use clap::Parser;
 
 // CmdProfile provides a container for the `profile`
 // subcommand, which itself contains other subcommands

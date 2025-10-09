@@ -9,10 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{
-    backtrace::{Backtrace, BacktraceStatus},
-    net::IpAddr,
-};
+use std::backtrace::{Backtrace, BacktraceStatus};
+use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
 use config_version::ConfigVersionParseError;
@@ -20,15 +18,13 @@ use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use tonic::Status;
 
-use crate::{
-    db,
-    dhcp::allocation::DhcpError,
-    model::{
-        ConfigValidationError, hardware_info::HardwareInfoError, network_devices::LldpError,
-        site_explorer::EndpointExplorationError, tenant::TenantError,
-    },
-    resource_pool,
-};
+use crate::dhcp::allocation::DhcpError;
+use crate::model::ConfigValidationError;
+use crate::model::hardware_info::HardwareInfoError;
+use crate::model::network_devices::LldpError;
+use crate::model::site_explorer::EndpointExplorationError;
+use crate::model::tenant::TenantError;
+use crate::{db, resource_pool};
 
 /// Represents various Errors that can occur throughout the system.
 ///

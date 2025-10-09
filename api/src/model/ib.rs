@@ -10,9 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::errors::CarbideError;
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
+use serde::{Deserialize, Serialize};
+
+use crate::errors::CarbideError;
 
 pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
 

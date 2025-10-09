@@ -10,47 +10,41 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
-use crate::tests::common;
-use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
-use crate::{
-    CarbideResult,
-    cfg::file::{CarbideConfig, TimePeriod},
-    db::{self, DatabaseError},
-    machine_update_manager::{
-        MachineUpdateManager, machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
-    },
-    model::{
-        instance::status::tenant::TenantState,
-        machine::{HostReprovisionState, InstanceState, ManagedHostState},
-        site_explorer::{
-            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
-            EndpointType, InitialResetPhase, Inventory, PowerDrainState, PowerState,
-            PreingestionState, Service,
-        },
-    },
-    preingestion_manager::PreingestionManager,
-};
+use std::collections::HashMap;
+use std::fs;
+use std::net::{IpAddr, Ipv4Addr};
+use std::os::unix::fs::PermissionsExt;
+use std::str::FromStr;
+use std::time::Duration;
+
+use common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::{
     self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
-    instance::TestInstance,
 };
 use forge_uuid::machine::MachineId;
 use regex::Regex;
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
 use sqlx::PgConnection;
-use std::{
-    collections::HashMap,
-    fs,
-    net::{IpAddr, Ipv4Addr},
-    os::unix::fs::PermissionsExt,
-    str::FromStr,
-    time::Duration,
-};
 use temp_dir::TempDir;
 use tokio::time::sleep;
 use tonic::Request;
+
+use crate::CarbideResult;
+use crate::cfg::file::{CarbideConfig, TimePeriod};
+use crate::db::{self, DatabaseError};
+use crate::machine_update_manager::MachineUpdateManager;
+use crate::machine_update_manager::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
+use crate::model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
+use crate::model::instance::status::tenant::TenantState;
+use crate::model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
+use crate::model::site_explorer::{
+    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
+    InitialResetPhase, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
+};
+use crate::preingestion_manager::PreingestionManager;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
 
 #[crate::sqlx_test]
 async fn test_preingestion_bmc_upgrade(

@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::errors::CarbideError;
-use crate::model::StateSla;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use std::fmt::Display;
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use forge_uuid::dpa_interface::DpaInterfaceId;
@@ -22,8 +22,10 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use std::fmt::Display;
-use std::str::FromStr;
+
+use crate::errors::CarbideError;
+use crate::model::StateSla;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 
 mod slas;
 

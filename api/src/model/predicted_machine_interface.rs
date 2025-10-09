@@ -1,8 +1,9 @@
-use crate::model::network_segment::NetworkSegmentType;
 use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use sqlx::FromRow;
 use uuid::Uuid;
+
+use crate::model::network_segment::NetworkSegmentType;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct PredictedMachineInterface {

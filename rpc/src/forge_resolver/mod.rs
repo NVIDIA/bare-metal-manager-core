@@ -1,8 +1,9 @@
-use crate::forge_resolver::resolver::ResolverError;
 use std::fs::File;
 use std::io;
 use std::io::Read;
 use std::path::Path;
+
+use crate::forge_resolver::resolver::ResolverError;
 
 pub mod resolver;
 

@@ -1,11 +1,13 @@
-use crate::utils::{base_types, field_is_optional, resolve_field_primitive_type};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{LexError, TokenStream};
 use prost_types::field_descriptor_proto::Label;
 use prost_types::{FileDescriptorProto, MethodDescriptorProto};
 use quote::{TokenStreamExt, quote};
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
+
+use crate::utils::{base_types, field_is_optional, resolve_field_primitive_type};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -496,8 +498,9 @@ fn write_token_stream<T: AsRef<Path>>(token_stream: TokenStream, out: T) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
+    use super::*;
 
     fn test_generator(proto_file: &str) -> CodeGenerator {
         let proto_dir = temp_dir::TempDir::new().expect("Could not create temporary directory");

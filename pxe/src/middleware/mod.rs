@@ -11,10 +11,9 @@
  */
 use std::str::FromStr;
 
-use axum::{
-    http::{Request, Uri, uri::PathAndQuery},
-    response::Response,
-};
+use axum::http::uri::PathAndQuery;
+use axum::http::{Request, Uri};
+use axum::response::Response;
 
 pub mod logging;
 pub mod metrics;
@@ -44,9 +43,12 @@ pub async fn fix_content_length_header<B>(mut response: Response<B>) -> Response
 
 #[cfg(test)]
 mod test {
-    use axum::{Router, body::Body, http::StatusCode};
     use std::fs::File;
     use std::io::Write;
+
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::StatusCode;
     use tempfile::TempDir;
     use tower::ServiceExt;
     use tower_http::services::ServeDir;

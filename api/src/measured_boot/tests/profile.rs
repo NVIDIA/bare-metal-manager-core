@@ -31,11 +31,11 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::measured_boot::db;
-    use crate::measured_boot::interface::profile::{
-        get_all_measurement_profile_records, test_support::get_all_measurement_profile_attr_records,
-    };
     use std::collections::HashMap;
+
+    use crate::measured_boot::db;
+    use crate::measured_boot::interface::profile::get_all_measurement_profile_records;
+    use crate::measured_boot::interface::profile::test_support::get_all_measurement_profile_attr_records;
 
     // test_profile_crudl creates a new profile with 3 attributes,
     // another new profile with 4 attributes.

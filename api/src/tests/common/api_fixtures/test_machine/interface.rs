@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common::api_fixtures::Api;
-use forge_uuid::machine::MachineInterfaceId;
-use rpc::forge::MachineArchitecture;
-use rpc::forge::PxeInstructions;
-use rpc::forge::forge_server::Forge;
 use std::sync::Arc;
+
+use forge_uuid::machine::MachineInterfaceId;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{MachineArchitecture, PxeInstructions};
+
+use crate::tests::common::api_fixtures::Api;
 
 pub struct TestMachineInterface {
     id: MachineInterfaceId,

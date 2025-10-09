@@ -14,15 +14,15 @@ use std::fmt::Display;
 use std::str::FromStr;
 
 use config_version::ConfigVersion;
-use itertools::Itertools;
-use serde::{Deserialize, Serialize};
-
-use crate::model::metadata::Metadata;
 use forge_uuid::UuidConversionError;
 use forge_uuid::instance::InstanceId;
+use itertools::Itertools;
 use rpc::errors::RpcDataConversionError;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
+
+use crate::model::metadata::Metadata;
 
 #[derive(thiserror::Error, Debug)]
 pub enum TenantError {

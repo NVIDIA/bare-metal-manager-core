@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::cfg::cli_options::MachineQuery;
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::CarbideCliResult;
 use forge_uuid::machine::MachineId;
+
+use crate::cfg::cli_options::MachineQuery;
+use crate::rpc::ApiClient;
 
 pub async fn set_host_uefi_password(
     query: MachineQuery,

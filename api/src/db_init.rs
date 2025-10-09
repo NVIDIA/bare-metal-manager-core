@@ -16,24 +16,17 @@ use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
 use sqlx::{Pool, Postgres};
 
+use crate::api::Api;
+use crate::db::domain::{self};
 use crate::db::vpc::{self};
-use crate::db::{ObjectColumnFilter, network_segment};
+use crate::db::{DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_segment};
 use crate::model::domain::NewDomain;
 use crate::model::firmware::AgentUpgradePolicyChoice;
+use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::metadata::Metadata;
-use crate::model::network_segment::NewNetworkSegment;
+use crate::model::network_segment::{NetworkDefinition, NewNetworkSegment};
 use crate::model::vpc::NewVpc;
-use crate::{
-    CarbideError,
-    api::Api,
-    db,
-    db::{
-        DatabaseError,
-        domain::{self},
-        dpu_agent_upgrade_policy,
-    },
-    model::{machine::upgrade_policy::AgentUpgradePolicy, network_segment::NetworkDefinition},
-};
+use crate::{CarbideError, db};
 
 /// Create a Domain if we don't already have one.
 /// Returns true if we created an entry in the db (we had no domains yet), false otherwise.

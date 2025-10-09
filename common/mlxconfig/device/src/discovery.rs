@@ -10,14 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::filters::DeviceFilter;
-use crate::info::MlxDeviceInfo;
+use std::process::Command;
+use std::str::FromStr;
+
 use mac_address::MacAddress;
 use quick_xml::de::from_str;
 use serde::Deserialize;
-use std::process::Command;
-use std::str::FromStr;
 use tracing::debug;
+
+use crate::filters::DeviceFilter;
+use crate::info::MlxDeviceInfo;
 
 // DevicesXml represents the root XML structure
 // from mlxfwmanager output.

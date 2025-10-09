@@ -14,21 +14,13 @@
 //! `measurement bundle` subcommand dispatcher + backing functions.
 //!
 
-use crate::measurement::MachineIdList;
-use crate::measurement::bundle::args::{
-    CmdBundle, Create, Delete, FindClosestMatch, List, ListMachines, Rename, SetState, Show,
-};
-use crate::measurement::global;
-use crate::measurement::global::cmds::{IdentifierType, get_identifier};
-use crate::rpc::ApiClient;
-use ::rpc::admin_cli::cli_output;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable};
+use std::str::FromStr;
+
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
 use ::rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest, FindClosestBundleMatchRequest,
     ListMeasurementBundleMachinesRequest, MeasurementBundleStatePb, RenameMeasurementBundleRequest,
     ShowMeasurementBundleRequest, UpdateMeasurementBundleRequest,
-};
-use ::rpc::protos::measured_boot::{
     delete_measurement_bundle_request, list_measurement_bundle_machines_request,
     rename_measurement_bundle_request, show_measurement_bundle_request,
     update_measurement_bundle_request,
@@ -39,7 +31,13 @@ use measured_boot::bundle::MeasurementBundle;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleRecord;
 use serde::Serialize;
-use std::str::FromStr;
+
+use crate::measurement::bundle::args::{
+    CmdBundle, Create, Delete, FindClosestMatch, List, ListMachines, Rename, SetState, Show,
+};
+use crate::measurement::global::cmds::{IdentifierType, get_identifier};
+use crate::measurement::{MachineIdList, global};
+use crate::rpc::ApiClient;
 
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).

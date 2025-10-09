@@ -15,25 +15,24 @@
  *  tables in the database, leveraging the journal-specific record types.
 */
 
-use super::records::MeasurementMachineState;
-use chrono::Utc;
-use forge_uuid::{
-    UuidEmptyStringError,
-    machine::MachineId,
-    measured_boot::{
-        MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
-    },
-};
-use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
-use serde::Serialize;
 use std::str::FromStr;
 
+use chrono::Utc;
+use forge_uuid::UuidEmptyStringError;
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{
+    MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
+};
 use rpc::errors::RpcDataConversionError;
+use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
+use serde::Serialize;
 #[cfg(feature = "cli")]
 use {
     rpc::admin_cli::ToTable,
     rpc::admin_cli::{just_print_summary, serde_just_print_summary},
 };
+
+use super::records::MeasurementMachineState;
 
 /// MeasurementJournal is a composition of a MeasurementJournalRecord,
 /// whose attributes are essentially copied directly it, as well as

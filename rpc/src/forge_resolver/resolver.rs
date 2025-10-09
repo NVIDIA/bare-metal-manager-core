@@ -1,10 +1,12 @@
-use crate::forge_resolver::read_resolv_conf;
-use hickory_resolver::Name;
-use hickory_resolver::config::{NameServerConfigGroup, ResolverOpts};
 use std::io;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+
+use hickory_resolver::Name;
+use hickory_resolver::config::{NameServerConfigGroup, ResolverOpts};
+
+use crate::forge_resolver::read_resolv_conf;
 
 const DEFAULT_PORT: u16 = 53;
 const RESOLV_CONF_PATH: &str = "/etc/resolv.conf";

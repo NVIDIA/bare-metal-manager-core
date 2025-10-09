@@ -9,12 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::tests::common;
-
-use crate::tests::common::api_fixtures::create_managed_host;
 use common::api_fixtures::{TestEnv, create_test_env};
-use rpc::forge::{CreateTenantKeysetResponse, forge_server::Forge};
+use rpc::forge::CreateTenantKeysetResponse;
+use rpc::forge::forge_server::Forge;
 use tonic::Code;
+
+use crate::tests::common;
+use crate::tests::common::api_fixtures::create_managed_host;
 
 #[crate::sqlx_test]
 async fn test_tenant(pool: sqlx::PgPool) {

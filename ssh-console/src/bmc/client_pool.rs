@@ -10,13 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::bmc::client::{BmcConnectionSubscription, ClientHandle};
-use crate::bmc::client_pool::GetConnectionError::InvalidMachineId;
-use crate::bmc::connection::State;
-use crate::bmc::{client, connection};
-use crate::config::Config;
-use crate::shutdown_handle::{ReadyHandle, ShutdownHandle};
-use crate::ssh_server::ServerMetrics;
+use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
+use std::sync::{Arc, RwLock};
+
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use futures_util::future::join_all;
@@ -24,13 +21,18 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Meter, ObservableGauge};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
-use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
-use std::sync::{Arc, RwLock};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
+
+use crate::bmc::client::{BmcConnectionSubscription, ClientHandle};
+use crate::bmc::client_pool::GetConnectionError::InvalidMachineId;
+use crate::bmc::connection::State;
+use crate::bmc::{client, connection};
+use crate::config::Config;
+use crate::shutdown_handle::{ReadyHandle, ShutdownHandle};
+use crate::ssh_server::ServerMetrics;
 
 /// Spawn a background task that connects to all BMC's in the environment, reconnecting if they fail.
 pub fn spawn(config: Arc<Config>, forge_api_client: ForgeApiClient, meter: &Meter) -> Handle {

@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common::api_fixtures::{create_test_env, get_vpc_fixture_id};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     PrefixMatchType, VpcPrefixCreationRequest, VpcPrefixDeletionRequest, VpcPrefixSearchQuery,
 };
 use sqlx::PgPool;
 use tonic::Request;
+
+use crate::tests::common::api_fixtures::{create_test_env, get_vpc_fixture_id};
 
 #[crate::sqlx_test]
 async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {

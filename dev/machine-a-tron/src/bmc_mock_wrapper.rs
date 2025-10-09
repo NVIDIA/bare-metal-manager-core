@@ -1,18 +1,20 @@
-use crate::config::MachineATronContext;
-use crate::machine_state_machine::MachineStateError;
-use crate::machine_utils::add_address_to_interface;
-use crate::mock_ssh_server;
-use crate::mock_ssh_server::{MockSshServerHandle, PromptBehavior};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use axum::Router;
 use bmc_mock::{
     BmcCommand, BmcMockError, BmcMockHandle, HostnameQuerying, ListenerOrAddress, MachineInfo,
     PowerStateQuerying,
 };
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
+
+use crate::config::MachineATronContext;
+use crate::machine_state_machine::MachineStateError;
+use crate::machine_utils::add_address_to_interface;
+use crate::mock_ssh_server;
+use crate::mock_ssh_server::{MockSshServerHandle, PromptBehavior};
 
 /// BmcMockWrapper launches a single instance of bmc-mock, configured to mock a single BMC for
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines

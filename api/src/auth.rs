@@ -9,7 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{path::Path, sync::Arc};
+use std::path::Path;
+use std::sync::Arc;
 
 use asn1_rs::PrintableString;
 use middleware::CertDescriptionMiddleware;
@@ -17,10 +18,8 @@ use oid_registry::Oid;
 use rustls_pki_types::CertificateDer;
 use x509_parser::prelude::{FromDer, X509Certificate, X509Name};
 
-use crate::{
-    CarbideError,
-    cfg::file::{AllowedCertCriteria, CertComponent},
-};
+use crate::CarbideError;
+use crate::cfg::file::{AllowedCertCriteria, CertComponent};
 
 mod casbin_engine;
 pub mod internal_rbac_rules;
@@ -566,7 +565,8 @@ impl PolicyEngine for PermissiveWrapper {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, io::BufRead};
+    use std::collections::HashMap;
+    use std::io::BufRead;
 
     use eyre::Context;
 

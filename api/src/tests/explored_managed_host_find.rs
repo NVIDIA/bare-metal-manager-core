@@ -9,14 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db;
-use crate::model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
-use crate::tests::common::api_fixtures::create_test_env;
+use std::net::IpAddr;
+use std::str::FromStr;
+
 use ::rpc::forge as rpc;
 use mac_address::MacAddress;
 use rpc::forge_server::Forge;
-use std::net::IpAddr;
-use std::str::FromStr;
+
+use crate::db;
+use crate::model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
+use crate::tests::common::api_fixtures::create_test_env;
 
 #[crate::sqlx_test()]
 async fn test_find_explored_managed_host_ids(

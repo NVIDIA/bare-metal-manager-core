@@ -10,14 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
+use std::time::Duration;
+
 use cfg::{AutoDetect, Command, MlxAction, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
 use forge_host_support::registration;
 use forge_uuid::machine::MachineId;
-use mlxconfig_device::{
-    cmd::device::args::DeviceArgs, cmd::device::cmds::handle as handle_mlx_device,
-};
+use mlxconfig_device::cmd::device::args::DeviceArgs;
+use mlxconfig_device::cmd::device::cmds::handle as handle_mlx_device;
 use mlxconfig_lockdown::cmd::cmds::handle_lockdown as handle_mlx_lockdown;
 use once_cell::sync::Lazy;
 use rpc::forge::ForgeAgentControlResponse;
@@ -26,10 +30,6 @@ use rpc::forge_agent_control_response::ForgeAgentControlExtraInfo;
 use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use rpc::{ForgeScoutErrorReport, forge as rpc_forge};
 pub use scout::{CarbideClientError, CarbideClientResult};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
-use std::time::Duration;
 use tokio::sync::RwLock;
 use tryhard::{RetryFutureConfig, RetryPolicy};
 use x509_parser::pem::parse_x509_pem;

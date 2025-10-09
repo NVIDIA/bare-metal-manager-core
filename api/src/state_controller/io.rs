@@ -12,12 +12,11 @@
 use config_version::{ConfigVersion, Versioned};
 use sqlx::PgConnection;
 
+use crate::db::DatabaseError;
+use crate::model::StateSla;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::{
-    db::DatabaseError,
-    model::StateSla,
-    state_controller::{metrics::MetricsEmitter, state_handler::StateHandlerContextObjects},
-};
+use crate::state_controller::metrics::MetricsEmitter;
+use crate::state_controller::state_handler::StateHandlerContextObjects;
 
 /// This trait defines on what objects a state controller instance will act,
 /// and how it loads the objects state.

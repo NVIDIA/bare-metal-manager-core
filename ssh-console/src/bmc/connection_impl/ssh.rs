@@ -10,14 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::POWER_RESET_COMMAND;
-use crate::bmc::client_pool::BmcPoolMetrics;
-use crate::bmc::connection_impl::echo_connected_message;
-use crate::bmc::message_proxy::{
-    ExecReply, MessageProxyError, ToBmcMessage, ToFrontendMessage, proxy_channel_message,
-};
-use crate::bmc::pending_output_line::PendingOutputLine;
-use crate::bmc::vendor::SshBmcVendor;
+use std::fmt::Debug;
+use std::io::Read;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
+
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
@@ -27,14 +26,17 @@ use ringbuf::traits::RingBuffer;
 use russh::client::{AuthResult, GexParams, KeyboardInteractiveAuthResponse};
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey};
 use russh::{Channel, ChannelMsg, MethodKind};
-use std::fmt::Debug;
-use std::io::Read;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
-use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
+
+use crate::POWER_RESET_COMMAND;
+use crate::bmc::client_pool::BmcPoolMetrics;
+use crate::bmc::connection_impl::echo_connected_message;
+use crate::bmc::message_proxy::{
+    ExecReply, MessageProxyError, ToBmcMessage, ToFrontendMessage, proxy_channel_message,
+};
+use crate::bmc::pending_output_line::PendingOutputLine;
+use crate::bmc::vendor::SshBmcVendor;
 
 static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
     LazyLock::new(russh_client_config);

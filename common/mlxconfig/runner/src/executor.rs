@@ -15,17 +15,19 @@
 // timeout support, and temporary file management using proper timeout
 // and backoff crates for robust execution.
 
-use crate::{command_builder::CommandSpec, error::MlxRunnerError, exec_options::ExecOptions};
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Output, Stdio};
+use std::time::{Duration, Instant};
+
 use backon::{BlockingRetryable, ExponentialBuilder};
-use std::{
-    fs,
-    io::Write,
-    path::{Path, PathBuf},
-    process::{Child, Output, Stdio},
-    time::{Duration, Instant},
-};
 use uuid::Uuid;
 use wait_timeout::ChildExt;
+
+use crate::command_builder::CommandSpec;
+use crate::error::MlxRunnerError;
+use crate::exec_options::ExecOptions;
 
 // CommandExecutor handles the execution of mlxconfig commands with
 // retry logic, timeout support, and temporary file management.

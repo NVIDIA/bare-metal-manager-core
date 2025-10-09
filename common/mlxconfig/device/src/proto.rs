@@ -10,19 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
-use crate::info::MlxDeviceInfo;
-use crate::report::MlxDeviceReport;
-use chrono::{DateTime, Utc};
-use mac_address::MacAddress;
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
+use mac_address::MacAddress;
 use rpc::protos::mlx_device::{
     DeviceField as DeviceFieldPb, DeviceFilter as DeviceFilterPb,
     DeviceFilterSet as DeviceFilterSetPb, MatchMode as MatchModePb,
     MlxDeviceInfo as MlxDeviceInfoPb, MlxDeviceReport as MlxDeviceReportPb,
 };
 use rpc::Timestamp;
+
+use crate::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
+use crate::info::MlxDeviceInfo;
+use crate::report::MlxDeviceReport;
 
 // Convert chrono DateTime to RPC Timestamp.
 fn datetime_to_timestamp(dt: DateTime<Utc>) -> Timestamp {
@@ -248,8 +249,9 @@ fn proto_match_mode_to_rust(mode: i32) -> Result<MatchMode, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::Utc;
+
+    use super::*;
 
     // create_test_device creates a sample device for testing purposes.
     fn create_test_device() -> MlxDeviceInfo {

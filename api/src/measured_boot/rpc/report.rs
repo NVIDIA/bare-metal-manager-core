@@ -14,6 +14,22 @@
  * gRPC handlers for measurement report related API calls.
  */
 
+use std::str::FromStr;
+
+use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineId;
+use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
+use rpc::protos::measured_boot::{
+    CreateMeasurementReportRequest, CreateMeasurementReportResponse,
+    DeleteMeasurementReportRequest, DeleteMeasurementReportResponse, ListMeasurementReportRequest,
+    ListMeasurementReportResponse, MatchMeasurementReportRequest, MatchMeasurementReportResponse,
+    MeasurementReportRecordPb, PromoteMeasurementReportRequest, PromoteMeasurementReportResponse,
+    RevokeMeasurementReportRequest, RevokeMeasurementReportResponse,
+    ShowMeasurementReportForIdRequest, ShowMeasurementReportForIdResponse,
+    ShowMeasurementReportsForMachineRequest, ShowMeasurementReportsForMachineResponse,
+    ShowMeasurementReportsRequest, ShowMeasurementReportsResponse, list_measurement_report_request,
+};
+use sqlx::{Pool, Postgres};
 use tonic::Status;
 
 use crate::CarbideError;
@@ -23,22 +39,6 @@ use crate::measured_boot::interface::report::{
     match_latest_reports,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineId;
-use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
-use rpc::protos::measured_boot::list_measurement_report_request;
-use rpc::protos::measured_boot::{
-    CreateMeasurementReportRequest, CreateMeasurementReportResponse,
-    DeleteMeasurementReportRequest, DeleteMeasurementReportResponse, ListMeasurementReportRequest,
-    ListMeasurementReportResponse, MatchMeasurementReportRequest, MatchMeasurementReportResponse,
-    MeasurementReportRecordPb, PromoteMeasurementReportRequest, PromoteMeasurementReportResponse,
-    RevokeMeasurementReportRequest, RevokeMeasurementReportResponse,
-    ShowMeasurementReportForIdRequest, ShowMeasurementReportForIdResponse,
-    ShowMeasurementReportsForMachineRequest, ShowMeasurementReportsForMachineResponse,
-    ShowMeasurementReportsRequest, ShowMeasurementReportsResponse,
-};
-use sqlx::{Pool, Postgres};
-use std::str::FromStr;
 
 /// handle_create_measurement_report handles the CreateMeasurementReport
 /// API endpoint.

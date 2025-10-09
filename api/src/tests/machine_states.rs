@@ -9,45 +9,49 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::tests::common;
+use std::collections::HashMap;
+
+use chrono::Duration;
+use common::api_fixtures::dpu::{
+    create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
+};
+use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine, host_uefi_setup};
+use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
+use common::api_fixtures::{
+    TestManagedHost, create_managed_host, create_test_env, create_test_env_with_overrides,
+    get_config,
+};
+use health_report::HealthReport;
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::MeasurementBundleState;
+use measured_boot::report::MeasurementReport;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
+use rpc::forge_agent_control_response::Action;
+use tonic::Request;
 
 use crate::db;
 use crate::measured_boot::db as mbdb;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::TpmEkCertificate;
 use crate::model::machine::{
-    DpuInitState, FailureDetails, LockdownInfo, LockdownMode, LockdownState, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
+    DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownInfo, LockdownMode,
+    LockdownState, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
+    ValidationState,
 };
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
 };
-use common::api_fixtures::dpu::{
-    create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
+use crate::tests::common;
+use crate::tests::common::api_fixtures::dpu::{
+    TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION,
 };
-use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine, host_uefi_setup};
-use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
-use common::api_fixtures::{TestManagedHost, create_managed_host, create_test_env};
-use measured_boot::pcr::PcrRegisterValue;
-
-use crate::model::machine::{FailureCause, FailureSource};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_managed_host_with_ek, discovery_completed,
-    dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION},
-    forge_agent_control, update_time_params,
+    TestEnvOverrides, create_managed_host_with_ek, discovery_completed, forge_agent_control,
+    update_time_params,
 };
-use chrono::Duration;
-use common::api_fixtures::{create_test_env_with_overrides, get_config};
-use health_report::HealthReport;
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::records::MeasurementBundleState;
-use measured_boot::report::MeasurementReport;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
-use rpc::forge_agent_control_response::Action;
-use std::collections::HashMap;
-use tonic::Request;
 
 #[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {

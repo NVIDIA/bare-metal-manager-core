@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};

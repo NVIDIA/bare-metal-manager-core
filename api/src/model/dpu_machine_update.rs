@@ -1,9 +1,10 @@
-use crate::model::machine::ManagedHostState;
-use crate::model::machine::ManagedHostStateSnapshot;
+use std::collections::HashMap;
+
 use casbin::error::ModelError;
 use forge_uuid::machine::MachineId;
 use sqlx::FromRow;
-use std::collections::HashMap;
+
+use crate::model::machine::{ManagedHostState, ManagedHostStateSnapshot};
 
 #[derive(Debug, FromRow)]
 pub struct DpuMachineUpdate {

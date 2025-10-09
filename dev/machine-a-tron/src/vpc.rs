@@ -1,11 +1,11 @@
-use crate::{
-    config::MachineATronContext,
-    tui::{UiUpdate, VpcDetails},
-};
-use ::rpc::Timestamp;
-use forge_uuid::vpc::VpcId;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+use ::rpc::Timestamp;
+use forge_uuid::vpc::VpcId;
+
+use crate::config::MachineATronContext;
+use crate::tui::{UiUpdate, VpcDetails};
 
 #[derive(Debug, Clone)]
 pub struct Vpc {

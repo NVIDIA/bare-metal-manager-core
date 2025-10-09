@@ -10,17 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::{TestEnv, TestManagedHost, create_test_env};
+use forge_uuid::machine::MachineId;
+use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
 
-use crate::tests::common::api_fixtures::{
-    create_managed_host,
-    instance::{default_os_config, default_tenant_config, single_interface_network_config},
-};
-use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
-
 use crate::tests::common;
+use crate::tests::common::api_fixtures::create_managed_host;
+use crate::tests::common::api_fixtures::instance::{
+    TestInstance, default_os_config, default_tenant_config, single_interface_network_config,
+};
 
 #[crate::sqlx_test]
 async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {

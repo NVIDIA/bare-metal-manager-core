@@ -9,8 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::CarbideCliError;
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::forge as forgerpc;
 
+use super::CarbideCliError;
 use crate::cfg::storage::{
     CreateOsImage, CreateStoragePool, CreateStorageVolume, DeleteOsImage, DeleteStorageCluster,
     DeleteStoragePool, DeleteStorageVolume, ImportStorageCluster, ListOsImage, ListStorageCluster,
@@ -18,9 +20,6 @@ use crate::cfg::storage::{
     UpdateStorageVolume,
 };
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::admin_cli::OutputFormat;
-use ::rpc::forge as forgerpc;
 
 fn str_to_rpc_uuid(id: &str) -> CarbideCliResult<::rpc::common::Uuid> {
     let id: ::rpc::common::Uuid = uuid::Uuid::parse_str(id)

@@ -1,15 +1,14 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
+use crate::api::Api;
+use crate::db::DatabaseError;
+use crate::db::dpu_remediation::AppliedRemediationIdQueryType;
+use crate::errors::CarbideError;
 use crate::model::dpu_remediation::{
     ApproveRemediation, DisableRemediation, EnableRemediation, NewRemediation, RevokeRemediation,
 };
-use crate::{
-    api::Api,
-    auth, db,
-    db::{DatabaseError, dpu_remediation::AppliedRemediationIdQueryType},
-    errors::CarbideError,
-};
+use crate::{auth, db};
 
 /// all of the requests that modify a remediation _require_ an external_user_name from a client cert.
 /// (even if that particular request doesn't actually persist the name, it's always at least logged)

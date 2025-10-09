@@ -1,29 +1,29 @@
-use std::{collections::HashMap, error::Error, time::Duration};
+use std::collections::HashMap;
+use std::error::Error;
+use std::time::Duration;
 
 use bmc_mock::EntryMap;
-use crossterm::{
-    ExecutableCommand,
-    event::{self, Event, EventStream, KeyCode, KeyModifiers},
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
-
-use crate::{
-    TuiHostLogs,
-    machine_a_tron::AppEvent,
-    subnet::Subnet,
-    tabs::{MachinesTab, Tab},
-    vpc::Vpc,
+use crossterm::ExecutableCommand;
+use crossterm::event::{self, Event, EventStream, KeyCode, KeyModifiers};
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
 use futures::StreamExt;
 use libredfish::PowerState;
-use ratatui::{prelude::*, symbols::DOT, widgets::*};
-use tokio::{
-    select,
-    sync::mpsc::{Receiver, Sender},
-};
+use ratatui::prelude::*;
+use ratatui::symbols::DOT;
+use ratatui::widgets::*;
+use tokio::select;
+use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
+
+use crate::TuiHostLogs;
+use crate::machine_a_tron::AppEvent;
+use crate::subnet::Subnet;
+use crate::tabs::{MachinesTab, Tab};
+use crate::vpc::Vpc;
 
 pub struct VpcDetails {
     pub vpc_id: VpcId,

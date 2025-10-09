@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::cfg::Options;
-use crate::client;
 use ::rpc::protos::mlx_device::{
     MlxDeviceReport as MlxDeviceReportPb, PublishMlxDeviceReportRequest,
     PublishMlxDeviceReportResponse,
@@ -19,6 +17,9 @@ use ::rpc::protos::mlx_device::{
 use mlxconfig_device::report::MlxDeviceReport;
 use mlxconfig_lockdown::{LockStatus, LockdownManager, MlxResult};
 use scout::CarbideClientResult;
+
+use crate::cfg::Options;
+use crate::client;
 
 // create_device_report_request is a one stop shop to collect
 // Mellanox device data from the machine, create a report, convert

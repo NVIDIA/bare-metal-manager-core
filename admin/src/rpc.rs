@@ -10,39 +10,36 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
+use std::path::Path;
 
-use ::rpc::{
-    Machine, NetworkSegment,
-    admin_cli::{CarbideCliError, CarbideCliResult},
-    forge::{
-        self as rpc, AppliedRemediationIdList, AppliedRemediationList, ApproveRemediationRequest,
-        BmcCredentialStatusResponse, BmcEndpointRequest, CreateNetworkSecurityGroupRequest,
-        CreateRemediationRequest, CreateRemediationResponse, DeleteNetworkSecurityGroupRequest,
-        DisableRemediationRequest, EnableRemediationRequest, FindAppliedRemediationIdsRequest,
-        FindAppliedRemediationsRequest, FindInstanceTypesByIdsRequest,
-        FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
-        GetNetworkSecurityGroupPropagationStatusRequest, IdentifySerialRequest,
-        IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
-        MachineHardwareInfoUpdateType, Metadata, NetworkPrefix, NetworkSecurityGroupAttributes,
-        NetworkSegmentCreationRequest, NetworkSegmentDeletionRequest, NetworkSegmentDeletionResult,
-        NetworkSegmentType, PowerState, Remediation, RemediationIdList, RemediationList,
-        RevokeRemediationRequest, SshRequest, UpdateMachineHardwareInfoRequest,
-        UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchQuery,
-        VpcVirtualizationType, instance_interface_config::NetworkDetails,
-    },
-    forge_api_client::ForgeApiClient,
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::forge::instance_interface_config::NetworkDetails;
+use ::rpc::forge::{
+    self as rpc, AppliedRemediationIdList, AppliedRemediationList, ApproveRemediationRequest,
+    BmcCredentialStatusResponse, BmcEndpointRequest, CreateNetworkSecurityGroupRequest,
+    CreateRemediationRequest, CreateRemediationResponse, DeleteNetworkSecurityGroupRequest,
+    DisableRemediationRequest, EnableRemediationRequest, FindAppliedRemediationIdsRequest,
+    FindAppliedRemediationsRequest, FindInstanceTypesByIdsRequest,
+    FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
+    GetNetworkSecurityGroupPropagationStatusRequest, IdentifySerialRequest,
+    IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
+    MachineHardwareInfoUpdateType, Metadata, NetworkPrefix, NetworkSecurityGroupAttributes,
+    NetworkSegmentCreationRequest, NetworkSegmentDeletionRequest, NetworkSegmentDeletionResult,
+    NetworkSegmentType, PowerState, Remediation, RemediationIdList, RemediationList,
+    RevokeRemediationRequest, SshRequest, UpdateMachineHardwareInfoRequest,
+    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchQuery, VpcVirtualizationType,
 };
-use forge_uuid::{
-    dpa_interface::DpaInterfaceId,
-    dpu_remediations::RemediationId,
-    infiniband::IBPartitionId,
-    instance::InstanceId,
-    machine::{MachineId, MachineInterfaceId},
-    network::NetworkSegmentId,
-    vpc::VpcId,
-    vpc_peering::VpcPeeringId,
-};
+use ::rpc::forge_api_client::ForgeApiClient;
+use ::rpc::{Machine, NetworkSegment};
+use forge_uuid::dpa_interface::DpaInterfaceId;
+use forge_uuid::dpu_remediations::RemediationId;
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
+use forge_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
 use crate::cfg::cli_options::{

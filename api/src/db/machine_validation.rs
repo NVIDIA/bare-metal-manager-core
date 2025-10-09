@@ -10,19 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::ObjectFilter;
-
+use crate::db::DatabaseError;
+use crate::model::machine::MachineValidationFilter;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine_validation::{
     MachineValidation, MachineValidationState, MachineValidationStatus,
 };
-use crate::{
-    CarbideError, CarbideResult, db, db::DatabaseError, model::machine::MachineValidationFilter,
-};
-use forge_uuid::machine::MachineId;
+use crate::{CarbideError, CarbideResult, db};
 
 pub async fn find_by(
     txn: &mut PgConnection,

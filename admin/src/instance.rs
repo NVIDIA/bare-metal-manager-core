@@ -9,21 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{fmt::Write, pin::Pin, str::FromStr};
+use std::fmt::Write;
+use std::pin::Pin;
+use std::str::FromStr;
 
-use ::rpc::{
-    admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat},
-    forge as forgerpc,
-};
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::forge as forgerpc;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
-use super::{cfg::cli_options::ShowInstance, invalid_machine_id};
-use crate::{
-    async_write, async_writeln,
-    cfg::cli_options::{RebootInstance, SortField},
-    rpc::ApiClient,
-};
+use super::cfg::cli_options::ShowInstance;
+use super::invalid_machine_id;
+use crate::cfg::cli_options::{RebootInstance, SortField};
+use crate::rpc::ApiClient;
+use crate::{async_write, async_writeln};
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,

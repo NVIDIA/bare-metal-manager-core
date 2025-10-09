@@ -10,7 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use config_version::ConfigVersion;
+use eyre::eyre;
+use forge_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use forge_uuid::machine::MachineId;
+use mac_address::MacAddress;
+use sqlx::PgConnection;
 
 use super::{DatabaseError, dpa_interface_state_history};
 use crate::db;
@@ -21,11 +26,6 @@ use crate::model::dpa_interface::{
     DpaInterfaceNetworkStatusObservation, NewDpaInterface,
 };
 use crate::model::machine::LoadSnapshotOptions;
-use config_version::ConfigVersion;
-use eyre::eyre;
-use forge_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
-use mac_address::MacAddress;
-use sqlx::PgConnection;
 
 pub async fn persist(
     value: NewDpaInterface,
@@ -323,15 +323,16 @@ pub async fn try_update_network_config(
 
 #[cfg(test)]
 mod test {
-    use crate::db::machine;
-    use crate::model::dpa_interface::NewDpaInterface;
-    use crate::{
-        db,
-        model::{machine::ManagedHostState, metadata::Metadata},
-    };
+    use std::str::FromStr;
+
     use forge_uuid::machine::MachineId;
     use mac_address::MacAddress;
-    use std::str::FromStr;
+
+    use crate::db;
+    use crate::db::machine;
+    use crate::model::dpa_interface::NewDpaInterface;
+    use crate::model::machine::ManagedHostState;
+    use crate::model::metadata::Metadata;
 
     #[crate::sqlx_test]
 

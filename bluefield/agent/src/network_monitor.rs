@@ -6,8 +6,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::hbn;
-use crate::instrumentation::NetworkMonitorMetricsState;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
 use chrono::Utc;
@@ -24,6 +22,9 @@ use tokio::sync::{mpsc, watch};
 use tokio::task;
 use tokio::time::{self, Duration, Instant};
 use tonic::async_trait;
+
+use crate::hbn;
+use crate::instrumentation::NetworkMonitorMetricsState;
 
 // @TODO: this should be able to be configured
 const MAX_PINGS_PER_DPU: u32 = 5; // Number of pings for each DPU in each check cycle

@@ -2,20 +2,19 @@ mod api;
 #[allow(dead_code)]
 mod generated;
 
-use crate::generated::{
-    common,
-    forge::{self, forge_server::ForgeServer},
-    machine_discovery,
-};
-use api_test_helper::utils::LOCALHOST_CERTS;
 use std::fs;
-use std::net::IpAddr;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
+
+use api_test_helper::utils::LOCALHOST_CERTS;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use uuid::Uuid;
+
+use crate::generated::forge::forge_server::ForgeServer;
+use crate::generated::forge::{self};
+use crate::generated::{common, machine_discovery};
 
 #[derive(Debug, Clone)]
 pub struct MockHost {

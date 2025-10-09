@@ -10,14 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use humantime::format_duration;
-use ssh2::Session;
 use std::fs::{File, metadata};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{fmt, io};
+
+use humantime::format_duration;
+use ssh2::Session;
 use thiserror::Error;
 use tokio::task::JoinError;
 

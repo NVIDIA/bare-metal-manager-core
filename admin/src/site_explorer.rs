@@ -1,11 +1,13 @@
-use std::{collections::HashMap, pin::Pin};
+use std::collections::HashMap;
+use std::pin::Pin;
 
-use crate::{async_write, async_writeln, cfg::cli_options::GetReportMode};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
 use prettytable::{Cell, Row, Table, format, row};
 
+use crate::cfg::cli_options::GetReportMode;
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use crate::{async_write, async_writeln};
 
 fn get_endpoints_for_managed_host<'a>(
     managedhost: &'a ExploredManagedHost,

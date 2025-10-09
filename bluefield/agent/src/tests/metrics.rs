@@ -1,9 +1,11 @@
-use crate::instrumentation::NetworkMonitorMetricsState;
-use crate::network_monitor::NetworkMonitorError;
-use opentelemetry::metrics::MeterProvider;
-use prometheus::{Encoder, TextEncoder};
 use std::collections::HashMap;
 use std::time::Duration;
+
+use opentelemetry::metrics::MeterProvider;
+use prometheus::{Encoder, TextEncoder};
+
+use crate::instrumentation::NetworkMonitorMetricsState;
+use crate::network_monitor::NetworkMonitorError;
 
 #[test]
 fn test_metrics() {

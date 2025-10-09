@@ -14,25 +14,22 @@ use std::sync::Arc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
-use axum::{
-    Router,
-    extract::{Path, State},
-    http::StatusCode,
-    routing::{get, post},
-};
+use axum::Router;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::routing::{get, post};
 use eyre::eyre;
 use forge_dpu_agent_utils::utils::create_forge_client;
 use forge_uuid::machine::MachineId;
-use governor::{
-    Quota, RateLimiter, clock,
-    middleware::NoOpMiddleware,
-    state::{InMemoryState, NotKeyed},
-};
+use governor::middleware::NoOpMiddleware;
+use governor::state::{InMemoryState, NotKeyed};
+use governor::{Quota, RateLimiter, clock};
 use mockall::automock;
 use nonzero_ext::nonzero;
 use rpc::forge::ManagedHostNetworkConfigResponse;
 
-use crate::{periodic_config_fetcher::InstanceMetadata, util::phone_home};
+use crate::periodic_config_fetcher::InstanceMetadata;
+use crate::util::phone_home;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";

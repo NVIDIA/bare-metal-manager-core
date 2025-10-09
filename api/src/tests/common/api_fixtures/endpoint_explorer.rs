@@ -1,24 +1,17 @@
-use std::{
-    collections::HashMap,
-    net::{IpAddr, SocketAddr},
-    sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
 
-use crate::{
-    model::{
-        machine::MachineInterfaceSnapshot,
-        site_explorer::{
-            EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus,
-            LockdownStatus,
-        },
-    },
-    site_explorer::{EndpointExplorer, SiteExplorationMetrics},
-};
-
-use crate::model::expected_machine::ExpectedMachine;
 use forge_ssh::ssh::SshConfig;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
+
+use crate::model::expected_machine::ExpectedMachine;
+use crate::model::machine::MachineInterfaceSnapshot;
+use crate::model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
+};
+use crate::site_explorer::{EndpointExplorer, SiteExplorationMetrics};
 
 /// EndpointExplorer which returns predefined data
 #[derive(Clone, Default, Debug)]

@@ -16,20 +16,21 @@
 // mlxconfig-registry crates, to have a type-safe, registry-driven
 // configuration management suite to safely execute mlxconfig commands.
 
-use crate::command_builder::CommandBuilder;
-use crate::{
-    error::MlxRunnerError,
-    exec_options::{is_destructive_variable, ExecOptions},
-    executor::CommandExecutor,
-    json_parser::JsonResponseParser,
-    result_types::{
-        ComparisonResult, PlannedChange, QueriedDeviceInfo, QueryResult, SyncResult, VariableChange,
-    },
-    traits::{MlxConfigQueryable, MlxConfigSettable},
-};
+use std::collections::HashMap;
+use std::time::Instant;
+
 use mlxconfig_variables::{MlxConfigValue, MlxVariableRegistry};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::Instant};
+
+use crate::command_builder::CommandBuilder;
+use crate::error::MlxRunnerError;
+use crate::exec_options::{is_destructive_variable, ExecOptions};
+use crate::executor::CommandExecutor;
+use crate::json_parser::JsonResponseParser;
+use crate::result_types::{
+    ComparisonResult, PlannedChange, QueriedDeviceInfo, QueryResult, SyncResult, VariableChange,
+};
+use crate::traits::{MlxConfigQueryable, MlxConfigSettable};
 
 // MlxConfigRunner is the main orchestrator for mlxconfig CLI operations.
 #[derive(Debug, Clone)]

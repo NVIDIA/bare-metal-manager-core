@@ -16,11 +16,9 @@ use ::rpc::forge as rpc;
 use mac_address::MacAddress;
 use tonic::{Request, Response};
 
-use crate::db::machine_interface;
-use crate::{
-    CarbideError,
-    db::{self, DatabaseError, dhcp_entry::DhcpEntry},
-};
+use crate::CarbideError;
+use crate::db::dhcp_entry::DhcpEntry;
+use crate::db::{self, DatabaseError, machine_interface};
 
 pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,

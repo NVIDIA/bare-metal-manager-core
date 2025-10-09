@@ -2,13 +2,14 @@
 // Unit tests for MqtteaClient core functionality including connection management,
 // message handling, subscription management, and statistics tracking.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
 use mqttea::client::ClientOptions;
 use mqttea::registry::traits::{JsonRegistration, ProtobufRegistration, RawRegistration};
 use mqttea::traits::{MessageHandler, RawMessageType};
 use mqttea::{MqtteaClient, MqtteaClientError, QoS};
 use rumqttc::AsyncClient;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[derive(Clone, PartialEq, prost::Message, serde::Serialize, serde::Deserialize)]

@@ -10,17 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::UuidConversionError;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-use crate::grpc_uuid_message;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::{
     postgres::{PgHasArrayType, PgTypeInfo},
     {FromRow, Type},
 };
+
+use crate::{UuidConversionError, grpc_uuid_message};
 
 /// DomainId is a strongly typed UUID specific to an Infiniband
 /// segment ID, with trait implementations allowing it to be passed

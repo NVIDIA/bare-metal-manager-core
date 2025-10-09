@@ -1,7 +1,8 @@
-use chrono::Local;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::sync::RwLock;
+
+use chrono::Local;
 use tokio::sync::{mpsc, oneshot};
 use tracing::field::Field;
 use tracing::span::Attributes;

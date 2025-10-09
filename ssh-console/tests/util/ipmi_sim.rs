@@ -9,18 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::util::log_stdout_and_stderr;
-use api_test_helper::utils::REPO_ROOT;
-use eyre::Context;
-use lazy_static::lazy_static;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
+
+use api_test_helper::utils::REPO_ROOT;
+use eyre::Context;
+use lazy_static::lazy_static;
 use temp_dir::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
+
+use crate::util::log_stdout_and_stderr;
 
 lazy_static! {
     static ref IPMI_SCRIPTS_DIR: PathBuf = REPO_ROOT.join("dev/ipmi").canonicalize().unwrap();

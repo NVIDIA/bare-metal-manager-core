@@ -10,16 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::{
-    forge as rpc,
-    forge_tls_client::{self, ApiConfig},
-};
+use std::ops::Add;
+use std::time::{Duration, Instant};
+
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ApiConfig};
 use eyre::Context;
 use forge_host_support::registration;
 use forge_tls::client_config::ClientCert;
 use rand::Rng;
-use std::ops::Add;
-use std::time::{Duration, Instant};
 
 /// Certificates are renewed between in these 2 time intervals
 const MIN_CERT_RENEWAL_TIME_SECS: u64 = 5 * 24 * 60 * 60; // 5 days

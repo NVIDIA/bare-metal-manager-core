@@ -7,15 +7,14 @@ use std::vec;
 
 use dsocket::Dsocket;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-use hickory_resolver::name_server::{GenericConnector, RuntimeProvider};
+use hickory_resolver::error::ResolveError;
+use hickory_resolver::name_server::{ConnectionProvider, GenericConnector, RuntimeProvider};
 use hickory_resolver::proto::TokioTime;
 use hickory_resolver::proto::iocompat::AsyncIoTokioAsStd;
-use hickory_resolver::{AsyncResolver, error::ResolveError, name_server::ConnectionProvider};
-use hickory_resolver::{Name, TokioHandle};
+use hickory_resolver::{AsyncResolver, Name, TokioHandle};
 use hyper::service::Service;
 use socket2::SockAddr;
-use tokio::net::TcpStream as TokioTcpStream;
-use tokio::net::{TcpSocket, UdpSocket as TokioUdpSocket};
+use tokio::net::{TcpSocket, TcpStream as TokioTcpStream, UdpSocket as TokioUdpSocket};
 use tracing::trace;
 
 type HickoryResolverFuture =

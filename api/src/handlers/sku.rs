@@ -1,19 +1,16 @@
-use crate::{
-    CarbideError, CarbideResult,
-    api::{Api, log_request_data},
-    db::{self, DatabaseError, machine::find_machine_ids_by_sku_id},
-    handlers::utils::convert_and_log_machine_id,
-    model::{
-        machine::{BomValidating, ManagedHostState},
-        sku::Sku,
-    },
-};
-
-use crate::model::machine::machine_search_config::MachineSearchConfig;
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
 use rpc::forge::SkuIdList;
 use tonic::{Request, Response};
+
+use crate::api::{Api, log_request_data};
+use crate::db::machine::find_machine_ids_by_sku_id;
+use crate::db::{self, DatabaseError};
+use crate::handlers::utils::convert_and_log_machine_id;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::{BomValidating, ManagedHostState};
+use crate::model::sku::Sku;
+use crate::{CarbideError, CarbideResult};
 
 pub(crate) async fn create(
     api: &Api,

@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::admin_cli::output::OutputFormat;
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use prettytable::{Table, row};
+use rpc::forge::{VpcPeering, VpcPeeringIdList};
 
 use crate::cfg::cli_options::{VpcPeeringCreate, VpcPeeringDelete, VpcPeeringShow};
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::{VpcPeering, VpcPeeringIdList};
 
 pub async fn handle_create(
     args: VpcPeeringCreate,

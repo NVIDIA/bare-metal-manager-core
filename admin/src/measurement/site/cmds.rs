@@ -14,29 +14,27 @@
 //! `measurement site` subcommand dispatcher + backing functions.
 //!
 
+use std::fs::File;
+use std::io::BufReader;
+
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output, set_summary};
+use ::rpc::protos::measured_boot::{
+    AddMeasurementTrustedMachineRequest, AddMeasurementTrustedProfileRequest,
+    ImportSiteMeasurementsRequest, MeasurementApprovedTypePb,
+    RemoveMeasurementTrustedMachineRequest, RemoveMeasurementTrustedProfileRequest,
+    remove_measurement_trusted_machine_request, remove_measurement_trusted_profile_request,
+};
+use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord};
+use measured_boot::site::{ImportResult, SiteModel};
+use serde::Serialize;
+
 use crate::measurement::global;
 use crate::measurement::site::args::{
     ApproveMachine, ApproveProfile, CmdSite, Export, Import, RemoveMachine,
     RemoveMachineByApprovalId, RemoveMachineByMachineId, RemoveProfile, RemoveProfileByApprovalId,
     RemoveProfileByProfileId, TrustedMachine, TrustedProfile,
 };
-use ::rpc::admin_cli::cli_output;
-use measured_boot::site::{ImportResult, SiteModel};
-
-use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord};
-
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, set_summary};
-use ::rpc::protos::measured_boot::remove_measurement_trusted_machine_request;
-use ::rpc::protos::measured_boot::remove_measurement_trusted_profile_request;
-use ::rpc::protos::measured_boot::{
-    AddMeasurementTrustedMachineRequest, AddMeasurementTrustedProfileRequest,
-    ImportSiteMeasurementsRequest, MeasurementApprovedTypePb,
-    RemoveMeasurementTrustedMachineRequest, RemoveMeasurementTrustedProfileRequest,
-};
-use serde::Serialize;
-use std::fs::File;
-use std::io::BufReader;
 
 /// dispatch matches + dispatches the correct command
 /// for this subcommand.

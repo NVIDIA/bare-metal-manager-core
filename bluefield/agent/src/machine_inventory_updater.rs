@@ -1,10 +1,11 @@
 use std::time::Duration;
 
-use crate::containerd::container;
-use crate::containerd::container::ContainerSummary;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use forge_uuid::machine::MachineId;
+
+use crate::containerd::container;
+use crate::containerd::container::ContainerSummary;
 
 #[derive(Debug, Clone)]
 pub struct MachineInventoryUpdaterConfig {

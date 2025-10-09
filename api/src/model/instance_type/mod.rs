@@ -9,20 +9,23 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::{CarbideError, model::metadata::Metadata};
-use ::rpc::{common as rpc_common, errors::RpcDataConversionError, forge as rpc};
+use std::collections::HashMap;
+
+use ::rpc::errors::RpcDataConversionError;
+use ::rpc::{common as rpc_common, forge as rpc};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
-use std::collections::HashMap;
 
 use super::machine::capabilities::{
     self as machine_caps, MachineCapabilitiesSet, MachineCapabilityDeviceType,
     MachineCapabilityType,
 };
+use crate::CarbideError;
+use crate::model::metadata::Metadata;
 
 /* **************************************** */
 /*    InstanceTypeMachineCapabilityFilter   */
@@ -547,7 +550,6 @@ impl TryFrom<InstanceType> for rpc::InstanceType {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::machine::capabilities::MachineCapabilityDeviceType;
     use std::collections::HashMap;
 
     use ::rpc::forge as rpc;
@@ -555,6 +557,7 @@ mod tests {
 
     use super::*;
     use crate::model::machine::capabilities;
+    use crate::model::machine::capabilities::MachineCapabilityDeviceType;
 
     #[test]
     fn test_model_instance_type_to_rpc_conversion() {

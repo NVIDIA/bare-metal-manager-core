@@ -9,13 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::{Config, errors::DhcpError};
 use forge_tls::client_config::ClientCert;
 use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
-use rpc::{
-    forge::{DhcpDiscovery, DhcpRecord},
-    forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient},
-};
+use rpc::forge::{DhcpDiscovery, DhcpRecord};
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
+
+use crate::Config;
+use crate::errors::DhcpError;
 
 pub async fn discover_dhcp(
     discovery_request: DhcpDiscovery,

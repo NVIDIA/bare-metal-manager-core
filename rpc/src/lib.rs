@@ -19,41 +19,36 @@ extern crate core;
 
 use std::cmp::Ordering;
 use std::fmt::Display;
-use std::ops::Deref;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
-use chrono::DateTime;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
-use prost::Message;
-use prost::UnknownEnumValue;
+use prost::{Message, UnknownEnumValue};
 use serde::ser::Error;
 
 pub use crate::protos::common::{self, Uuid};
+pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
+pub use crate::protos::forge::machine_discovery_info::DiscoveryData;
 pub use crate::protos::forge::{
     self, CredentialType, Domain, DomainList, ForgeScoutErrorReport, ForgeScoutErrorReportResult,
-    Instance, InstanceAllocationRequest, InstanceConfig, InstanceInterfaceConfig,
-    InstanceInterfaceStatus, InstanceInterfaceStatusObservation, InstanceList,
-    InstanceNetworkConfig, InstanceNetworkStatus, InstanceReleaseRequest, InstanceSearchQuery,
-    InstanceStatus, InstanceTenantStatus, InterfaceFunctionType, Machine, MachineCleanupInfo,
-    MachineDiscoveryInfo, MachineEvent, MachineInterface, MachineList, Metadata,
-    NetworkPrefixEvent, NetworkSegment, NetworkSegmentList, ResourcePoolType, SyncState,
-    TenantConfig, TenantState, forge_agent_control_response,
-    machine_credentials_update_request::CredentialPurpose, machine_discovery_info::DiscoveryData,
-};
-pub use crate::protos::forge::{
     IbPartition, IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
-    IbPartitionList, IbPartitionQuery, InstanceIbInterfaceConfig, InstanceIbInterfaceStatus,
-    InstanceInfinibandConfig, InstanceInfinibandStatus,
+    IbPartitionList, IbPartitionQuery, Instance, InstanceAllocationRequest, InstanceConfig,
+    InstanceIbInterfaceConfig, InstanceIbInterfaceStatus, InstanceInfinibandConfig,
+    InstanceInfinibandStatus, InstanceInterfaceConfig, InstanceInterfaceStatus,
+    InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
+    InstanceReleaseRequest, InstanceSearchQuery, InstanceStatus, InstanceTenantStatus,
+    InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
+    MachineInterface, MachineList, Metadata, NetworkPrefixEvent, NetworkSegment,
+    NetworkSegmentList, ResourcePoolType, SyncState, TenantConfig, TenantState,
+    forge_agent_control_response,
 };
-pub use crate::protos::health;
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
 };
-pub use crate::protos::site_explorer;
+pub use crate::protos::{health, site_explorer};
 
 pub mod errors;
 pub mod forge_tls_client;
@@ -729,10 +724,13 @@ impl clap::ValueEnum for forge::RouteServerSourceType {
 
 #[cfg(test)]
 mod tests {
-    use self::forge::{IpxeOperatingSystem, OperatingSystem, operating_system::Variant};
-    use super::*;
-    use forge_uuid::machine::MachineId;
     use std::time::Duration;
+
+    use forge_uuid::machine::MachineId;
+
+    use self::forge::operating_system::Variant;
+    use self::forge::{IpxeOperatingSystem, OperatingSystem};
+    use super::*;
 
     #[test]
     fn test_serialize_timestamp() {

@@ -1,8 +1,9 @@
 use std::fmt::Write;
 
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+
 use crate::cfg::cli_options::NetworkDeviceShow;
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 pub async fn show(
     output_format: OutputFormat,

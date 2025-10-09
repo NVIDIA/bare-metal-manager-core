@@ -12,12 +12,13 @@
 
 use std::fmt::Write;
 
-use crate::cfg::cli_options::{SetVpcVirt, ShowVpc};
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
 use forge_uuid::vpc::VpcId;
 use prettytable::{Table, row};
+
+use crate::cfg::cli_options::{SetVpcVirt, ShowVpc};
+use crate::rpc::ApiClient;
 
 pub async fn handle_show(
     args: ShowVpc,

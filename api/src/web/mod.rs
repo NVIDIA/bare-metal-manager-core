@@ -17,17 +17,13 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use askama::Template;
-use axum::{
-    Extension,
-    extract::{Path as AxumPath, State as AxumState},
-    middleware::Next,
-    response::{Html, IntoResponse, Redirect, Response},
-    routing::{Router, get, post},
-};
-use axum_extra::extract::{
-    Host,
-    cookie::{Cookie, Key, PrivateCookieJar},
-};
+use axum::Extension;
+use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::middleware::Next;
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::routing::{Router, get, post};
+use axum_extra::extract::Host;
+use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use base64::prelude::*;
 use http::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
 use http::{HeaderMap, Request, StatusCode, Uri};

@@ -13,13 +13,12 @@
 use axum::body::Body;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
-use rpc::forge::{AdminForceDeleteMachineRequest, forge_server::Forge};
+use rpc::forge::AdminForceDeleteMachineRequest;
+use rpc::forge::forge_server::Forge;
 use tower::ServiceExt;
 
-use crate::tests::{
-    common::api_fixtures::{create_managed_host, create_test_env},
-    web::{authenticated_request_builder, make_test_app},
-};
+use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
+use crate::tests::web::{authenticated_request_builder, make_test_app};
 
 #[crate::sqlx_test]
 async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {

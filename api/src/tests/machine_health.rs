@@ -10,19 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
-use crate::{
-    db::{self, machine::update_dpu_agent_health_report},
-    tests::common::api_fixtures::{
-        TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
-        network_configured_with_health, remove_health_report_override, send_health_report_override,
-        simulate_hardware_health_report,
-    },
-};
-use health_report::OverrideMode;
-use rpc::forge::{HealthOverrideOrigin, forge_server::Forge};
 use std::str::FromStr;
+
+use health_report::OverrideMode;
+use rpc::forge::HealthOverrideOrigin;
+use rpc::forge::forge_server::Forge;
 use tonic::Request;
+
+use crate::db::machine::update_dpu_agent_health_report;
+use crate::db::{self};
+use crate::model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
+use crate::tests::common::api_fixtures::{
+    TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
+    network_configured_with_health, remove_health_report_override, send_health_report_override,
+    simulate_hardware_health_report,
+};
 
 /// Tests whether health reports can be stored if their timestamp is newer or equal
 /// to the last received report - and are dropped otherwise.

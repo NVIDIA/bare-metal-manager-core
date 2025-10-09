@@ -10,17 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common;
-use itertools::Itertools;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use crate::model::route_server::{RouteServer, RouteServerSourceType};
 use common::api_fixtures::create_test_env;
-use rpc::{
-    forge::RouteServerSourceType as RouteServerSourceTypePb, forge::RouteServers,
-    protos::forge::forge_server::Forge,
-};
+use itertools::Itertools;
+use rpc::forge::{RouteServerSourceType as RouteServerSourceTypePb, RouteServers};
+use rpc::protos::forge::forge_server::Forge;
+
+use crate::model::route_server::{RouteServer, RouteServerSourceType};
+use crate::tests::common;
 
 #[crate::sqlx_test()]
 async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

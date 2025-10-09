@@ -13,6 +13,14 @@
 use std::ops::DerefMut;
 use std::time::SystemTime;
 
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcPrefixId;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::instance_interface_config::NetworkDetails;
+use rpc::{InstanceReleaseRequest, Timestamp};
+
 use super::{TestEnv, inject_machine_measurements, persist_machine_validation_result};
 use crate::db;
 use crate::model::instance::config::network::DeviceLocator;
@@ -21,14 +29,7 @@ use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::{
     CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
-use crate::tests::common::api_fixtures::RpcInstance;
-use crate::tests::common::api_fixtures::TestManagedHost;
-use forge_uuid::vpc::VpcPrefixId;
-use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
-use rpc::{
-    InstanceReleaseRequest, Timestamp,
-    forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
-};
+use crate::tests::common::api_fixtures::{RpcInstance, TestManagedHost};
 
 pub struct TestInstanceBuilder<'a, 'b> {
     env: &'a TestEnv,

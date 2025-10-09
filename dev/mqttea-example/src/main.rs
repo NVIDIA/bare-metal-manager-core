@@ -14,15 +14,14 @@
 // PoC/demo of the mqttea client library.
 
 use clap::Parser;
-use rumqttc::QoS;
-use serde::{Deserialize, Serialize};
-use tokio::time::{sleep, Duration};
-use tracing::{info, warn};
-
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::message_types::{RawMessage, StringMessage};
 use mqttea::registry::traits::{JsonRegistration, ProtobufRegistration, RawRegistration};
 use mqttea::registry::types::PublishOptions;
+use rumqttc::QoS;
+use serde::{Deserialize, Serialize};
+use tokio::time::{sleep, Duration};
+use tracing::{info, warn};
 
 pub mod sample_protos;
 use crate::sample_protos::HelloWorld;

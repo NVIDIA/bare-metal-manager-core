@@ -19,9 +19,8 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 
-use crate::api::Api;
-
 use super::machine::ValidationRun;
+use crate::api::Api;
 
 #[derive(Debug)]
 struct ValidationResult {

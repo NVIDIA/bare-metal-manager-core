@@ -21,11 +21,8 @@ pub use self::iface::Filter;
 pub use self::iface::{
     GetPartitionOptions, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions,
 };
-use crate::CarbideError;
-use crate::cfg;
-pub use crate::model::ib::IBMtu;
-pub use crate::model::ib::IBRateLimit;
-pub use crate::model::ib::IBServiceLevel;
+pub use crate::model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
+use crate::{CarbideError, cfg};
 
 mod disable;
 mod iface;

@@ -10,14 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use config_version::ConfigVersion;
+use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgConnection};
 
-use crate::{
-    db::DatabaseError,
-    model::machine::{MachineStateHistory, ManagedHostState},
-};
-use forge_uuid::machine::MachineId;
+use crate::db::DatabaseError;
+use crate::model::machine::{MachineStateHistory, ManagedHostState};
 
 /// History of Machine states for a single Machine
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

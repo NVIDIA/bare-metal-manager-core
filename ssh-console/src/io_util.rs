@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::os::fd::{AsFd, OwnedFd, RawFd};
+
 use nix::errno::Errno;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::pty::{OpenptyResult, openpty};
 use nix::sys::termios::{Termios, cfmakeraw};
 use nix::unistd;
-use std::os::fd::{AsFd, OwnedFd, RawFd};
 use tokio::io::unix::AsyncFd;
 
 /// Allocate a pty with `nix::pty::openpty`, ensuring its file descriptors are set with O_NONBLOCK,

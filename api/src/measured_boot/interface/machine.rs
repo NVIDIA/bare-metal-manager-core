@@ -15,12 +15,13 @@
  *  database, leveraging the machine-specific record types.
 */
 
-use crate::db::DatabaseError;
-use crate::measured_boot::db::machine::CandidateMachineRecord;
-use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
+
+use crate::db::DatabaseError;
+use crate::measured_boot::db::machine::CandidateMachineRecord;
+use crate::measured_boot::interface::common;
 
 /// get_candidate_machine_state figures out the current state of the given
 /// machine ID by checking its most recent bundle (or lack thereof), and

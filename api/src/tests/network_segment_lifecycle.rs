@@ -12,16 +12,14 @@
 
 use std::time::Duration;
 
-use crate::db;
-
-use crate::tests::common;
-use common::{
-    api_fixtures::{TestEnvOverrides, create_test_env, create_test_env_with_overrides},
-    network_segment::{create_network_segment_with_api, get_segment_state, text_history},
-};
+use common::api_fixtures::{TestEnvOverrides, create_test_env, create_test_env_with_overrides};
+use common::network_segment::{create_network_segment_with_api, get_segment_state, text_history};
 use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
+
+use crate::db;
+use crate::tests::common;
 
 async fn test_network_segment_lifecycle_impl(
     pool: sqlx::PgPool,

@@ -13,9 +13,10 @@
 // src/error.rs
 // Defines errors for the mlxconfig-runner crate.
 
-use mlxconfig_variables::MlxValueError;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use mlxconfig_variables::MlxValueError;
 use thiserror::Error;
 
 // MlxRunnerError is the core error type for the

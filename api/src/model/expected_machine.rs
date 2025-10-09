@@ -1,12 +1,14 @@
-use crate::errors::CarbideError;
-use crate::model::metadata::Metadata;
+use std::collections::HashMap;
+
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use std::collections::HashMap;
 use uuid::Uuid;
+
+use crate::errors::CarbideError;
+use crate::model::metadata::Metadata;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExpectedMachine {

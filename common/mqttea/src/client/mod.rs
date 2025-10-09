@@ -24,6 +24,7 @@ mod registry;
 mod topic_patterns;
 
 pub use core::MqtteaClient;
+
 pub use handlers::{ClosureAdapter, ErasedHandler};
 pub use messages::ReceivedMessage;
 pub use options::{ClientCredentials, ClientOptions, ClientTlsConfig, ClientTlsIdentity};

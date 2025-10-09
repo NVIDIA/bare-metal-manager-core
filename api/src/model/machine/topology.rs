@@ -1,10 +1,11 @@
-use crate::model::bmc_info::BmcInfo;
-use crate::model::hardware_info::HardwareInfo;
 use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
+
+use crate::model::bmc_info::BmcInfo;
+use crate::model::hardware_info::HardwareInfo;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MachineTopology {

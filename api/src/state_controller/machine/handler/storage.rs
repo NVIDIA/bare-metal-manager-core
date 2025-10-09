@@ -11,18 +11,16 @@
  */
 
 use chrono::Utc;
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
-use crate::{
-    db,
-    model::instance::{
-        config::storage::InstanceStorageConfig, snapshot::InstanceSnapshot,
-        status::storage::InstanceStorageStatusObservation,
-    },
-    state_controller::state_handler::{StateHandlerError, StateHandlerServices},
-    storage::{attach_volume_to_client, detach_volume_from_client},
-};
+use crate::db;
+use crate::model::instance::config::storage::InstanceStorageConfig;
+use crate::model::instance::snapshot::InstanceSnapshot;
+use crate::model::instance::status::storage::InstanceStorageStatusObservation;
+use crate::state_controller::state_handler::{StateHandlerError, StateHandlerServices};
+use crate::storage::{attach_volume_to_client, detach_volume_from_client};
 
 pub(crate) async fn attach_storage_volumes(
     services: &StateHandlerServices,

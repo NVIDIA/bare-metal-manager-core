@@ -1,10 +1,12 @@
-use crate::api_client::ApiClient;
-use crate::api_throttler::ApiCommand::GetMachine;
+use std::collections::{HashMap, HashSet};
+
 use forge_uuid::machine::MachineId;
 use rpc::Machine;
-use std::collections::{HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;
+
+use crate::api_client::ApiClient;
+use crate::api_throttler::ApiCommand::GetMachine;
 
 /// Returns an [`ApiThrottler`] which can expose certain API commands in a way that is throttled,
 /// such that we only run them a maximum of once per time interval. Every interval, the pending

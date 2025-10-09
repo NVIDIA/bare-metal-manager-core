@@ -10,43 +10,33 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::measured_boot::MeasurementReportId;
-use sqlx::PgConnection;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
-use temp_dir::TempDir;
 
-use crate::attestation::get_ek_cert_by_machine_id;
-use crate::model::hardware_info::TpmEkCertificate;
-use crate::model::machine::MeasuringState;
-use crate::state_controller::machine::MeasuringOutcome;
-use crate::state_controller::machine::handle_measuring_state;
+use byteorder::{BigEndian, ByteOrder};
 use forge_uuid::machine::MachineId;
-
-use x509_parser::certificate::X509Certificate;
-use x509_parser::prelude::FromDer;
-use x509_parser::public_key::PublicKey as x509_parser_pub_key;
-
-use tss_esapi::structures::Attest;
-use tss_esapi::structures::AttestInfo;
-use tss_esapi::structures::Public;
-use tss_esapi::structures::Signature;
-use tss_esapi::structures::Signature::RsaPss;
-use tss_esapi::traits::UnMarshall;
-
+use forge_uuid::measured_boot::MeasurementReportId;
 use num_bigint_dig::BigUint;
-
 use pkcs1::LineEnding;
 use rsa::RsaPublicKey;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use sha2::Digest;
+use sqlx::PgConnection;
+use temp_dir::TempDir;
+use tss_esapi::structures::Signature::RsaPss;
+use tss_esapi::structures::{Attest, AttestInfo, Public, Signature};
+use tss_esapi::traits::UnMarshall;
+use x509_parser::certificate::X509Certificate;
+use x509_parser::prelude::FromDer;
+use x509_parser::public_key::PublicKey as x509_parser_pub_key;
 
-use byteorder::{BigEndian, ByteOrder};
-
-use crate::CarbideError;
-use crate::CarbideResult;
+use crate::attestation::get_ek_cert_by_machine_id;
+use crate::model::hardware_info::TpmEkCertificate;
+use crate::model::machine::MeasuringState;
+use crate::state_controller::machine::{MeasuringOutcome, handle_measuring_state};
+use crate::{CarbideError, CarbideResult};
 
 const RSA_PUBKEY_EXPONENT: u32 = 65537u32;
 

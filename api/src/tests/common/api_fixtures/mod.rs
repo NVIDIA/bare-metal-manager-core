@@ -12,88 +12,23 @@
 
 //! Contains fixtures that use the Carbide API for setting up
 
-use crate::cfg::file::DpaInterfaceStateControllerConfig;
-use crate::cfg::file::{ListenMode, MachineUpdater, PowerManagerOptions, VpcPeeringPolicy};
-use crate::ib_fabric_monitor::IbFabricMonitor;
-use crate::logging::log_limiter::LogLimiter;
-use crate::model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
-use crate::model::machine::ValidationState;
-use crate::model::machine::{HostHealthConfig, MachineValidatingState};
-use crate::tests::common::api_fixtures::network_segment::{
-    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
-    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
-    create_tenant_network_segment, create_underlay_network_segment,
-};
-use crate::tests::common::{
-    api_fixtures::{endpoint_explorer::MockEndpointExplorer, managed_host::ManagedHostConfig},
-    test_certificates::TestCertificateProvider,
-    test_meter::TestMeter,
-};
-use crate::{
-    api::Api,
-    cfg::file::{
-        CarbideConfig, DpaConfig, DpuConfig as InitialDpuConfig, FirmwareGlobal, IBFabricConfig,
-        IbFabricDefinition, IbPartitionStateControllerConfig, MachineStateControllerConfig,
-        MeasuredBootMetricsCollectorConfig, NetworkSegmentStateControllerConfig,
-        StateControllerConfig, default_max_find_by_ids,
-    },
-    db::{
-        instance_type::create as create_instance_type,
-        network_security_group::create as create_network_security_group,
-    },
-    ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
-    ib::{self, IBFabricManagerImpl, IBFabricManagerType},
-    ipmitool::IPMIToolTestImpl,
-    logging::level_filter::ActiveLevel,
-    model::{
-        instance_type::InstanceTypeMachineCapabilityFilter,
-        machine::{
-            FailureDetails, MachineLastRebootRequested, ManagedHostState,
-            capabilities::MachineCapabilityType,
-        },
-        metadata::Metadata,
-        network_security_group,
-        tenant::TenantOrganizationId,
-    },
-    redfish::test_support::RedfishSim,
-    resource_pool::{self, common::CommonPools},
-    site_explorer::SiteExplorer,
-    state_controller::{
-        controller::StateController,
-        ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
-        machine::{
-            handler::{MachineStateHandler, ReachabilityParams},
-            io::MachineStateControllerIO,
-        },
-        network_segment::{
-            handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
-        },
-        state_handler::{StateHandler, StateHandlerServices},
-    },
-};
-use crate::{cfg::file::BomValidationConfig, model::machine::Machine};
-use crate::{
-    cfg::file::{MachineValidationConfig, NetworkSecurityGroupConfig, SiteExplorerConfig},
-    site_explorer::BmcEndpointExplorer,
-    state_controller::machine::handler::MachineStateHandlerBuilder,
-};
-use crate::{db, model::hardware_info::TpmEkCertificate};
-use crate::{
-    state_controller::state_handler::{
-        StateHandlerContext, StateHandlerError, StateHandlerOutcome,
-    },
-    storage::{NvmeshClientPool, test_support::NvmeshSimClient},
-};
+use std::collections::HashMap;
+use std::default::Default;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
+
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Duration, Utc};
 use dpu::DpuConfig;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
-use forge_uuid::{
-    instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId,
-    network::NetworkSegmentId, vpc::VpcId,
-};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::instance_type::InstanceTypeId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 use futures::FutureExt as _;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
@@ -101,23 +36,75 @@ use lazy_static::lazy_static;
 use measured_boot::pcr::PcrRegisterValue;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
+use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     HealthReportOverride, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
-    VpcVirtualizationType, forge_server::Forge,
+    VpcVirtualizationType,
 };
 use rpc_instance::RpcInstance;
 use site_explorer::new_host_with_machine_validation;
-use sqlx::{PgConnection, PgPool, postgres::PgConnectOptions};
-use std::{
-    collections::HashMap,
-    default::Default,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    str::FromStr,
-    sync::Arc,
-};
+use sqlx::postgres::PgConnectOptions;
+use sqlx::{PgConnection, PgPool};
 use tokio::sync::Mutex;
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
+
+use crate::api::Api;
+use crate::cfg::file::{
+    BomValidationConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
+    DpuConfig as InitialDpuConfig, FirmwareGlobal, IBFabricConfig, IbFabricDefinition,
+    IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
+    MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
+    NetworkSegmentStateControllerConfig, PowerManagerOptions, SiteExplorerConfig,
+    StateControllerConfig, VpcPeeringPolicy, default_max_find_by_ids,
+};
+use crate::db;
+use crate::db::instance_type::create as create_instance_type;
+use crate::db::network_security_group::create as create_network_security_group;
+use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
+use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
+use crate::ib_fabric_monitor::IbFabricMonitor;
+use crate::ipmitool::IPMIToolTestImpl;
+use crate::logging::level_filter::ActiveLevel;
+use crate::logging::log_limiter::LogLimiter;
+use crate::model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
+use crate::model::hardware_info::TpmEkCertificate;
+use crate::model::instance_type::InstanceTypeMachineCapabilityFilter;
+use crate::model::machine::capabilities::MachineCapabilityType;
+use crate::model::machine::{
+    FailureDetails, HostHealthConfig, Machine, MachineLastRebootRequested, MachineValidatingState,
+    ManagedHostState, ValidationState,
+};
+use crate::model::metadata::Metadata;
+use crate::model::network_security_group;
+use crate::model::tenant::TenantOrganizationId;
+use crate::redfish::test_support::RedfishSim;
+use crate::resource_pool::common::CommonPools;
+use crate::resource_pool::{self};
+use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
+use crate::state_controller::controller::StateController;
+use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
+use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
+use crate::state_controller::machine::handler::{
+    MachineStateHandler, MachineStateHandlerBuilder, ReachabilityParams,
+};
+use crate::state_controller::machine::io::MachineStateControllerIO;
+use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
+use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
+use crate::state_controller::state_handler::{
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, StateHandlerServices,
+};
+use crate::storage::NvmeshClientPool;
+use crate::storage::test_support::NvmeshSimClient;
+use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::network_segment::{
+    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
+    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
+    create_tenant_network_segment, create_underlay_network_segment,
+};
+use crate::tests::common::test_certificates::TestCertificateProvider;
+use crate::tests::common::test_meter::TestMeter;
 
 pub mod dpu;
 pub mod endpoint_explorer;
@@ -1751,7 +1738,8 @@ pub async fn simulate_hardware_health_report(
     host_machine_id: &MachineId,
     health_report: health_report::HealthReport,
 ) {
-    use rpc::forge::{HardwareHealthReport, forge_server::Forge};
+    use rpc::forge::HardwareHealthReport;
+    use rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env
         .api

@@ -33,8 +33,9 @@ pub async fn create(
 }
 
 pub mod keyset {
-    use super::*;
     use uuid::Uuid;
+
+    use super::*;
 
     pub async fn create(
         carbide_api_addrs: &[SocketAddr],

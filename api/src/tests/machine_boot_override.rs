@@ -10,14 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::CarbideError;
-use crate::db;
-
-use crate::tests::common;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::dpu::dpu_discover_dhcp;
 use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use rpc::protos::forge::forge_server::Forge;
+
+use crate::tests::common;
+use crate::{CarbideError, db};
 
 #[crate::sqlx_test]
 async fn only_one_custom_pxe_per_interface(

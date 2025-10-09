@@ -1,4 +1,6 @@
-use crate::call_router_with_new_request;
+use std::collections::HashMap;
+use std::str::FromStr;
+
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{Path, State as AxumState};
@@ -8,8 +10,8 @@ use axum::routing::get;
 use futures::future::join_all;
 use itertools::Itertools;
 use serde_json::Value;
-use std::collections::HashMap;
-use std::str::FromStr;
+
+use crate::call_router_with_new_request;
 
 /**
 This module exists to support `$expand=.($levels=N)` per the redfish spec:
@@ -221,12 +223,13 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use crate::{default_host_tar_router, wrap_router_with_redfish_expander};
     use axum::body::Body;
     use axum::http::{Method, Request};
     use libredfish::NetworkAdapter;
     use serde_json::Value;
     use tower::Service;
+
+    use crate::{default_host_tar_router, wrap_router_with_redfish_expander};
 
     #[tokio::test]
     async fn test_expand() {

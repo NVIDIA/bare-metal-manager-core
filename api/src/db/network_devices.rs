@@ -10,17 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use sqlx::PgConnection;
 
 use super::{DatabaseError, ObjectFilter};
-use crate::model::{
-    hardware_info::LldpSwitchData,
-    network_devices::{
-        DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
-    },
+use crate::model::hardware_info::LldpSwitchData;
+use crate::model::network_devices::{
+    DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
 };
-use forge_uuid::machine::MachineId;
 
 pub struct NetworkDeviceSearchConfig {
     include_dpus: bool,

@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{convert::TryFrom, fmt, str::FromStr};
+use std::convert::TryFrom;
+use std::fmt;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
@@ -19,10 +21,8 @@ use sqlx::{
     {FromRow, Type},
 };
 
-use crate::{
-    UuidConversionError, grpc_uuid_message,
-    typed_uuids::{TypedUuid, UuidSubtype},
-};
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
+use crate::{UuidConversionError, grpc_uuid_message};
 
 /// RemediationId is a strongly typed UUID specific to a Remediation ID, with
 /// trait implementations allowing it to be passed around as

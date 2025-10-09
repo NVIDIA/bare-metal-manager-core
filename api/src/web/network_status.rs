@@ -14,8 +14,6 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::filters;
-use crate::api::Api;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Query, State as AxumState};
@@ -24,6 +22,9 @@ use forge_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
+
+use super::filters;
+use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 50;
 

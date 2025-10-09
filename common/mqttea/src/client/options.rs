@@ -12,9 +12,10 @@
 
 // src/client/options.rs
 // Configuration options for the Mqttea client.
-use crate::registry::types::PublishOptions;
 use rumqttc::QoS;
 use tokio::time::Duration;
+
+use crate::registry::types::PublishOptions;
 
 // ClientOptions are optional parameters that can be
 // passed to the client, all of which are supposed

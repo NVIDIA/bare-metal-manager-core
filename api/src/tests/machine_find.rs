@@ -9,33 +9,31 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use data_encoding::BASE32_DNSSEC;
-use forge_uuid::machine::MachineType;
 use std::net::IpAddr;
 
-use crate::model::hardware_info::HardwareInfo;
-use crate::tests::sku::tests::FULL_SKU_DATA;
-use crate::{db, db::ObjectFilter, model::machine::machine_id::host_id_from_dpu_hardware_info};
-use forge_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId};
+use common::api_fixtures::dpu::create_dpu_machine;
+use common::api_fixtures::managed_host::ManagedHostConfig;
+use common::api_fixtures::{create_managed_host, create_test_env, site_explorer};
+use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
+use data_encoding::BASE32_DNSSEC;
+use forge_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId, MachineType};
 use itertools::Itertools;
 use mac_address::MacAddress;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{
+    AssociateMachinesWithInstanceTypeRequest, FindInstanceTypeIdsRequest, MachinesByIdsRequest,
+};
 use sha2::{Digest, Sha256};
 use tonic::Request;
 
+use crate::db;
+use crate::db::ObjectFilter;
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::machine_id::host_id_from_dpu_hardware_info;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host_multi_dpu;
-use common::{
-    api_fixtures::{
-        create_managed_host, create_test_env, dpu::create_dpu_machine,
-        managed_host::ManagedHostConfig, site_explorer,
-    },
-    mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
-};
-use rpc::forge::{
-    AssociateMachinesWithInstanceTypeRequest, FindInstanceTypeIdsRequest, MachinesByIdsRequest,
-    forge_server::Forge,
-};
+use crate::tests::sku::tests::FULL_SKU_DATA;
 
 #[crate::sqlx_test]
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {

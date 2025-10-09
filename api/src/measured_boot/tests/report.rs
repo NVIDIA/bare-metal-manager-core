@@ -20,19 +20,20 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::measured_boot::db;
-    use crate::measured_boot::interface::common::pcr_register_values_to_map;
-    use crate::measured_boot::interface::report::{
-        get_all_measurement_report_records, test_support::get_all_measurement_report_value_records,
-    };
-    use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
-    use crate::tests::common::api_fixtures::create_test_env;
+    use std::collections::{HashMap, HashSet};
+
     use forge_uuid::measured_boot::MeasurementReportId;
     use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
     use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
     use rand::prelude::*;
     use rpc::forge::forge_server::Forge;
-    use std::collections::{HashMap, HashSet};
+
+    use crate::measured_boot::db;
+    use crate::measured_boot::interface::common::pcr_register_values_to_map;
+    use crate::measured_boot::interface::report::get_all_measurement_report_records;
+    use crate::measured_boot::interface::report::test_support::get_all_measurement_report_value_records;
+    use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
+    use crate::tests::common::api_fixtures::create_test_env;
 
     // test_profile_crudl creates a new profile with 3 attributes,
     // another new profile with 4 attributes.

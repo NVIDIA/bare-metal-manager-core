@@ -10,18 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use forge_uuid::machine::MachineType;
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Histogram, Meter};
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::model::site_explorer::{EndpointExplorationError, MachineExpectation};
-use forge_uuid::machine::MachineType;
-use opentelemetry::{
-    KeyValue,
-    metrics::{Histogram, Meter},
-};
 
 /// Metrics that are gathered in one site exploration run
 #[derive(Clone, Debug)]

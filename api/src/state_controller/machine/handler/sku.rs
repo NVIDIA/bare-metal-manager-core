@@ -3,22 +3,15 @@ use health_report::HealthReport;
 use sqlx::PgConnection;
 
 use super::{HostHandlerParams, discovered_after_state_transition};
-use crate::{
-    db,
-    model::{
-        machine::{
-            BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
-            ManagedHostState, ManagedHostStateSnapshot, ValidationState,
-        },
-        sku::diff_skus,
-    },
-    state_controller::{
-        machine::handler::trigger_reboot_if_needed,
-        state_handler::{
-            StateHandlerError, StateHandlerOutcome, StateHandlerServices, do_nothing, transition,
-            wait,
-        },
-    },
+use crate::db;
+use crate::model::machine::{
+    BomValidating, BomValidatingContext, MachineState, MachineValidatingState, ManagedHostState,
+    ManagedHostStateSnapshot, ValidationState,
+};
+use crate::model::sku::diff_skus;
+use crate::state_controller::machine::handler::trigger_reboot_if_needed;
+use crate::state_controller::state_handler::{
+    StateHandlerError, StateHandlerOutcome, StateHandlerServices, do_nothing, transition, wait,
 };
 
 fn get_bom_validation_context(state: &ManagedHostState) -> BomValidatingContext {

@@ -16,11 +16,13 @@
 // Provides YAML and JSON serialization/deserialization for profiles,
 // with proper validation and registry lookup during deserialization.
 
-use crate::{error::MlxProfileError, profile::MlxConfigProfile};
-use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
-
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
+use serde::{Deserialize, Serialize};
+
+use crate::error::MlxProfileError;
+use crate::profile::MlxConfigProfile;
 
 // Serializable representation of an MLX configuration profile.
 // This is the format used for YAML/JSON serialization.

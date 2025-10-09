@@ -10,18 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashSet,
-    ffi::OsStr,
-    net::{IpAddr, Ipv4Addr},
-    ops::Add,
-    path::PathBuf,
-    str::FromStr,
-    sync::Arc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-};
+use std::collections::HashSet;
+use std::ffi::OsStr;
+use std::net::{IpAddr, Ipv4Addr};
+use std::ops::Add;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use ::rpc::{forge as rpc, forge::ManagedHostNetworkConfigResponse, forge_tls_client};
+use ::rpc::forge::ManagedHostNetworkConfigResponse;
+use ::rpc::{forge as rpc, forge_tls_client};
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
@@ -31,34 +30,28 @@ use forge_systemd::systemd;
 use forge_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use tokio::{
-    signal::unix::{SignalKind, signal},
-    sync::watch,
-    task::JoinHandle,
-};
+use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
 use tracing::log::error;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
+use crate::dpu::DpuNetworkInterfaces;
+use crate::dpu::interface::Interface;
+use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
+use crate::duppet::{SummaryFormat, SyncOptions};
+use crate::ethernet_virtualization::ServiceAddresses;
+use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
+use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
+use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
+use crate::network_monitor::{self, NetworkPingerType};
+use crate::util::{UrlResolver, get_host_boot_timestamp};
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
-    dpu::{
-        DpuNetworkInterfaces,
-        interface::Interface,
-        route::{DpuRoutePlan, IpRoute, Route},
-    },
-    duppet::{SummaryFormat, SyncOptions},
-    ethernet_virtualization,
-    ethernet_virtualization::ServiceAddresses,
-    hbn, health, instance_metadata_endpoint,
-    instance_metadata_endpoint::InstanceMetadataRouterStateImpl,
-    instrumentation::{create_metrics, get_dpu_agent_meter},
-    lldp, machine_inventory_updater,
-    machine_inventory_updater::MachineInventoryUpdaterConfig,
-    managed_files, mtu, netlink,
-    network_monitor::{self, NetworkPingerType},
-    nvue, periodic_config_fetcher, pretty_cmd, sysfs, upgrade,
-    util::{UrlResolver, get_host_boot_timestamp},
+    ethernet_virtualization, hbn, health, instance_metadata_endpoint, lldp,
+    machine_inventory_updater, managed_files, mtu, netlink, nvue, periodic_config_fetcher,
+    pretty_cmd, sysfs, upgrade,
 };
 
 // Main loop when running in daemon mode

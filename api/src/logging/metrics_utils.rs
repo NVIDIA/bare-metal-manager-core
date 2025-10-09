@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use opentelemetry::KeyValue;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+use opentelemetry::KeyValue;
 
 /// [`SharedMetricsHolder`] allows wrapping a bag of metrics in a Mutex, while also encapsulating some
 /// logic for conditionally emitting them based on a hold_period.

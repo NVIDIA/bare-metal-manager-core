@@ -12,21 +12,17 @@
 
 use std::collections::HashMap;
 
+use ::rpc::errors::RpcDataConversionError;
 use config_version::Versioned;
 use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{
-    instance::config::{
-        InstanceConfig, infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
-        storage::InstanceStorageConfig,
-    },
-    machine::{
-        InstanceState, ManagedHostState, ReprovisionRequest,
-        infiniband::MachineInfinibandStatusObservation,
-    },
-};
-use ::rpc::errors::RpcDataConversionError;
+use crate::model::instance::config::InstanceConfig;
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::instance::config::network::InstanceNetworkConfig;
+use crate::model::instance::config::storage::InstanceStorageConfig;
+use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
+use crate::model::machine::{InstanceState, ManagedHostState, ReprovisionRequest};
 
 pub mod infiniband;
 pub mod network;
@@ -280,9 +276,8 @@ pub struct InstanceStatusObservations {
 mod tests {
     use std::str::FromStr;
 
-    use crate::model::machine::{DpuReprovisionStates, ReprovisionState};
-
     use super::*;
+    use crate::model::machine::{DpuReprovisionStates, ReprovisionState};
 
     #[test]
     fn test_tenant_state() {

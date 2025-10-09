@@ -9,17 +9,17 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, net::IpAddr};
+use std::collections::HashMap;
+use std::net::IpAddr;
 
+use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{Acquire, PgConnection};
 
 use super::DatabaseError;
 use crate::model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use forge_uuid::network::NetworkPrefixId;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::{VpcId, VpcPrefixId};
 
 #[cfg(test)]
 #[derive(Clone, Copy)]

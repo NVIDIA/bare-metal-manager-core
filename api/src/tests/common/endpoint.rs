@@ -9,22 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{
-    collections::HashMap,
-    net::{IpAddr, Ipv4Addr},
-    str::FromStr,
-};
+use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 
+use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
-use crate::{
-    db::{self, DatabaseError},
-    model::site_explorer::{
-        Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
-        Inventory, PowerState, Service,
-    },
+use crate::db::{self, DatabaseError};
+use crate::model::site_explorer::{
+    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
+    Inventory, PowerState, Service,
 };
-use forge_uuid::machine::MachineId;
 
 pub async fn insert_endpoint_version(
     txn: &mut PgConnection,

@@ -10,10 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::Oauth2Layer;
-use crate::api::Api;
-use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
-use crate::web::redfish_actions::RedfishActionsTable;
+use std::sync::Arc;
+
 use askama::Template;
 use axum::Extension;
 use axum::extract::{Query as AxumQuery, State as AxumState};
@@ -24,7 +22,11 @@ use http::HeaderMap;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
-use std::sync::Arc;
+
+use super::Oauth2Layer;
+use crate::api::Api;
+use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
+use crate::web::redfish_actions::RedfishActionsTable;
 
 #[derive(Template)]
 #[template(path = "redfish_browser.html")]

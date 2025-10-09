@@ -1,15 +1,17 @@
-use crate::host_machine::HostMachineHandle;
-use crate::subnet::Subnet;
-use crate::vpc::Vpc;
-use crate::{
-    PersistedHostMachine, config::MachineATronContext, host_machine::HostMachine,
-    machine_utils::get_next_free_machine, tui::UiUpdate,
-};
-use futures::future::try_join_all;
 use std::collections::HashSet;
 use std::sync::Arc;
+
+use futures::future::try_join_all;
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+use crate::PersistedHostMachine;
+use crate::config::MachineATronContext;
+use crate::host_machine::{HostMachine, HostMachineHandle};
+use crate::machine_utils::get_next_free_machine;
+use crate::subnet::Subnet;
+use crate::tui::UiUpdate;
+use crate::vpc::Vpc;
 
 #[derive(PartialEq, Eq)]
 pub enum AppEvent {

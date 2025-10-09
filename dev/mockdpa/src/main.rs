@@ -25,16 +25,16 @@
 // the DPA being powercycled and losing its config and having
 // to be reprogrammed by Carbide.
 
-use chrono::Local;
-use clap::Parser;
-use rumqttc::QoS;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::time::{sleep, Duration};
 
 use ::rpc::protos::dpa_rpc::SetVni;
+use chrono::Local;
+use clap::Parser;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::traits::ProtobufRegistration;
+use rumqttc::QoS;
+use tokio::time::{sleep, Duration};
 
 #[derive(Parser)]
 #[command(name = "mockdpa")]

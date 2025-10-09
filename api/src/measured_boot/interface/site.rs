@@ -15,8 +15,6 @@
  *  tables in the database, leveraging the site-specific record types.
 */
 
-use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
@@ -27,6 +25,9 @@ use measured_boot::records::{
 };
 use measured_boot::site::MachineAttestationSummary;
 use sqlx::PgConnection;
+
+use crate::db::DatabaseError;
+use crate::measured_boot::interface::common;
 
 pub async fn insert_into_approved_machines(
     txn: &mut PgConnection,

@@ -14,29 +14,28 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use crate::api::{Api, log_machine_id, log_request_data};
-use crate::cfg::file::VpcIsolationBehaviorType;
-use crate::db;
-use crate::db::domain;
-use crate::db::dpu_agent_upgrade_policy;
-use crate::db::network_security_group;
-use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
-use crate::handlers::utils::convert_and_log_machine_id;
-use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
-use crate::model::hardware_info::MachineInventory;
-use crate::model::machine::LoadSnapshotOptions;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::network::MachineNetworkStatusObservation;
-use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
-use crate::model::machine::{InstanceState, ManagedHostState};
-use crate::model::network_segment::NetworkSegmentSearchConfig;
-use crate::{CarbideError, ethernet_virtualization};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
+
+use crate::api::{Api, log_machine_id, log_request_data};
+use crate::cfg::file::VpcIsolationBehaviorType;
+use crate::db::{
+    DatabaseError, ObjectColumnFilter, domain, dpu_agent_upgrade_policy, network_security_group,
+    network_segment,
+};
+use crate::handlers::utils::convert_and_log_machine_id;
+use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
+use crate::model::hardware_info::MachineInventory;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::network::MachineNetworkStatusObservation;
+use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
+use crate::model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
+use crate::model::network_segment::NetworkSegmentSearchConfig;
+use crate::{CarbideError, db, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.

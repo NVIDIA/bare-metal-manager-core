@@ -1,18 +1,18 @@
+use std::collections::HashMap;
+
+use common::api_fixtures::{TestEnv, create_test_env};
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use futures_util::FutureExt;
+use mac_address::MacAddress;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery};
+
+use crate::db::{self};
+use crate::model::machine::{DpuInitState, MachineState, ManagedHostState};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
 use crate::tests::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
-use crate::{
-    db::{self},
-    model::machine::{DpuInitState, MachineState, ManagedHostState},
-};
-use common::api_fixtures::TestEnv;
-use common::api_fixtures::create_test_env;
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
-use futures_util::FutureExt;
-use mac_address::MacAddress;
-use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery, forge_server::Forge};
-use std::collections::HashMap;
 
 async fn move_machine_to_needed_state(
     machine_id: MachineId,

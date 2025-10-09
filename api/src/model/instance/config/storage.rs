@@ -14,11 +14,12 @@
 
 use std::convert::TryFrom;
 
-use crate::model::ConfigValidationError;
-use crate::model::storage::StorageVolumeAttributes;
 use ::rpc::errors::RpcDataConversionError;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
+
+use crate::model::ConfigValidationError;
+use crate::model::storage::StorageVolumeAttributes;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct InstanceStorageConfig {

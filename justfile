@@ -17,7 +17,7 @@ rmi: check forged-link skaffold-dirs
   docker rmi {{image_name}}
 
 format-staged-files:
-  git diff --name-only --staged | grep '.rs' | xargs rustfmt --config imports_granularity=Crate,group_imports=StdExternalCrate,skip_children=true --edition 2024
+  git diff --name-only --staged | grep '.rs' | xargs rustfmt +nightly --config imports_granularity=Module,group_imports=StdExternalCrate,skip_children=true --edition 2024
 
 _dockerbuild NAME FILE CONTEXT=(invocation_directory()):
   DOCKER_BUILDKIT=1 docker build -t {{NAME}} -f {{FILE}} {{CONTEXT}}

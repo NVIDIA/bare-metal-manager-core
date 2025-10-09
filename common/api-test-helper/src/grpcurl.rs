@@ -10,13 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::utils::LOCALHOST_CERTS;
+use std::net::SocketAddr;
+
 use eyre::ContextCompat;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use tokio::process;
+
+use crate::utils::LOCALHOST_CERTS;
 
 pub async fn grpcurl<T: ToString>(
     addrs: &[SocketAddr],

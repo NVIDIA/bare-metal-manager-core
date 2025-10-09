@@ -10,11 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common::api_fixtures::create_test_env;
-use crate::tests::common::api_fixtures::tenant::create_tenant_keyset;
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 use tonic::Code;
+
+use crate::tests::common::api_fixtures::create_test_env;
+use crate::tests::common::api_fixtures::tenant::create_tenant_keyset;
 
 #[crate::sqlx_test]
 async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {

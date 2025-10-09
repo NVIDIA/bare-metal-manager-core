@@ -12,8 +12,7 @@
 
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use prometheus::Encoder;
-use prometheus::TextEncoder;
+use prometheus::{Encoder, TextEncoder};
 
 pub struct TestMeter {
     meter: Meter,

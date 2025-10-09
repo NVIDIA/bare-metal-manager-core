@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::Deserialize;
 use std::collections::HashMap;
+
+use serde::Deserialize;
 
 use super::{failed, make_alert, passed, probe_ids};
 use crate::{HBNDeviceNames, hbn};

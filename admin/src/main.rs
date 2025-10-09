@@ -12,41 +12,33 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
-use std::{
-    collections::{HashSet, VecDeque},
-    fs,
-    fs::File,
-    io,
-    io::{BufReader, Write},
-    net::IpAddr,
-    path::{Path, PathBuf},
-    pin::Pin,
-    str::FromStr,
-};
+use std::collections::{HashSet, VecDeque};
+use std::fs::File;
+use std::io::{BufReader, Write};
+use std::net::IpAddr;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::str::FromStr;
+use std::{fs, io};
 
-use ::rpc::{
-    CredentialType,
-    admin_cli::{CarbideCliError, OutputFormat},
-    forge as forgerpc,
-    forge::{ConfigSetting, dpu_reprovisioning_request::Mode},
-    forge_api_client::ForgeApiClient,
-    forge_tls_client::{ApiConfig, ForgeClientConfig},
+use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::forge::ConfigSetting;
+use ::rpc::forge::dpu_reprovisioning_request::Mode;
+use ::rpc::forge_api_client::ForgeApiClient;
+use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use ::rpc::{CredentialType, forge as forgerpc};
+use cfg::cli_options::DpuAction::{AgentUpgradePolicy, Reprovision, Versions};
+use cfg::cli_options::{
+    AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
+    CredentialAction, Domain, DpaOptions, DpuAction, DpuReprovision, ExpectedMachineJson, Firmware,
+    HostAction, HostReprovision, IbPartitionOptions, Instance, IpAction, Machine,
+    MachineHardwareInfo, MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand,
+    MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment, RedfishCommand, ResourcePool,
+    SetAction, Shell, SiteExplorer, TenantKeySetOptions, TpmCa, UriInfo, VpcOptions,
+    VpcPeeringOptions, VpcPrefixOptions,
 };
-use cfg::{
-    cli_options::{
-        AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand,
-        CliOptions, CredentialAction, Domain, DpaOptions, DpuAction,
-        DpuAction::{AgentUpgradePolicy, Reprovision, Versions},
-        DpuReprovision, ExpectedMachineJson, Firmware, HostAction, HostReprovision,
-        IbPartitionOptions, Instance, IpAction, Machine, MachineHardwareInfo,
-        MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
-        ManagedHost, NetworkCommand, NetworkSegment, RedfishCommand, ResourcePool, SetAction,
-        Shell, SiteExplorer, TenantKeySetOptions, TpmCa, UriInfo, VpcOptions, VpcPeeringOptions,
-        VpcPrefixOptions,
-    },
-    instance_type::InstanceTypeActions,
-    network_security_group::NetworkSecurityGroupActions,
-};
+use cfg::instance_type::InstanceTypeActions;
+use cfg::network_security_group::NetworkSecurityGroupActions;
 use clap::CommandFactory;
 use devenv::apply_devenv_config;
 use forge_secrets::credentials::Credentials;
@@ -57,27 +49,21 @@ use forge_tls::client_config::{
     get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
     get_proxy_info,
 };
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use machine::{handle_show_machine_hardware_info, handle_update_machine_hardware_info_gpus};
 use serde::{Deserialize, Serialize};
 use site_explorer::show_site_explorer_discovered_managed_host;
-use tracing_subscriber::{
-    filter::{EnvFilter, LevelFilter},
-    fmt,
-    prelude::*,
-};
+use tracing_subscriber::filter::{EnvFilter, LevelFilter};
+use tracing_subscriber::fmt;
+use tracing_subscriber::prelude::*;
 
-use crate::{
-    cfg::{
-        cli_options::{AdminPowerControlAction, QuarantineAction},
-        storage::{
-            OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions,
-            StorageVolumeActions,
-        },
-    },
-    rpc::ApiClient,
+use crate::cfg::cli_options::{AdminPowerControlAction, QuarantineAction};
+use crate::cfg::storage::{
+    OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions, StorageVolumeActions,
 };
+use crate::rpc::ApiClient;
 
 mod async_write;
 
@@ -2190,10 +2176,8 @@ pub async fn get_output_file_or_stdout(
 mod tests {
     use clap::Parser;
 
-    use crate::cfg::cli_options::{
-        CliCommand, CliOptions, ExpectedMachine, ExpectedMachineAction::Update,
-        UpdateExpectedMachine,
-    };
+    use crate::cfg::cli_options::ExpectedMachineAction::Update;
+    use crate::cfg::cli_options::{CliCommand, CliOptions, ExpectedMachine, UpdateExpectedMachine};
 
     #[test]
     fn forge_admin_cli_expected_machine_test() {

@@ -12,30 +12,27 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use forge_uuid::machine::MachineId;
+use libredfish::RedfishError;
+use mqttea::MqtteaClient;
+use sqlx::PgConnection;
+
 use crate::cfg::file::CarbideConfig;
+use crate::db::DatabaseError;
+use crate::ib::IBFabricManager;
+use crate::ipmitool::IPMITool;
 use crate::model::controller_outcome::{PersistentSourceReference, PersistentStateHandlerOutcome};
 use crate::model::machine::{
     DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState,
     DpuInitStates, DpuReprovisionStates, HostReprovisionState, InstallDpuOsState,
     InstanceNextStateResolver, InstanceState, Machine, MachineNextStateResolver, MachineState,
-    ManagedHostStateSnapshot, ReprovisionState,
+    ManagedHostState, ManagedHostStateSnapshot, ReprovisionState,
 };
 use crate::model::power_manager::PowerOptions;
 use crate::model::resource_pool::ResourcePoolError;
+use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
 use crate::resource_pool::common::IbPools;
-use crate::storage::StorageError;
-use crate::{
-    db::DatabaseError,
-    ib::IBFabricManager,
-    ipmitool::IPMITool,
-    model::machine::ManagedHostState,
-    redfish::{RedfishClientCreationError, RedfishClientPool},
-    storage::NvmeshClientPool,
-};
-use forge_uuid::machine::MachineId;
-use libredfish::RedfishError;
-use mqttea::MqtteaClient;
-use sqlx::PgConnection;
+use crate::storage::{NvmeshClientPool, StorageError};
 
 /// Services that are accessible to the `StateHandler`
 pub struct StateHandlerServices {
@@ -185,10 +182,7 @@ macro_rules! deleted {
     };
 }
 
-pub(crate) use deleted;
-pub(crate) use do_nothing;
-pub(crate) use transition;
-pub(crate) use wait;
+pub(crate) use {deleted, do_nothing, transition, wait};
 
 impl<S> std::fmt::Display for StateHandlerOutcome<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

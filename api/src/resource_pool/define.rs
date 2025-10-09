@@ -10,14 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    net::{IpAddr, Ipv4Addr},
-};
+use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
 
-use crate::db;
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
+
+use crate::db;
 
 /// A pool bigger than this is very likely a mistake
 const MAX_POOL_SIZE: usize = 250_000;

@@ -11,11 +11,11 @@
  */
 
 use config_version::ConfigVersion;
+use forge_uuid::network::NetworkSegmentId;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::model::network_segment::NetworkSegmentControllerState;
-use forge_uuid::network::NetworkSegmentId;
 
 #[cfg(test)]
 pub async fn for_segment(

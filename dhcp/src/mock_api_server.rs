@@ -10,16 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::machine::Machine;
-use ::rpc::forge as rpc;
-use http_body_util::{BodyExt, Full};
-use hyper::body::{Bytes, Incoming};
-use hyper::server::conn::http2;
-use hyper::service::service_fn;
-use hyper::{Request, Response, body, header};
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use mac_address::MacAddress;
-use prost::Message;
 /// A hyper / TCP server that pretends to be carbide-api, for unit testing.
 /// It responds to DHCP_DISCOVERY messages with a DHCP_OFFER of 172.20.0.{x}/32, where x is the
 /// last byte of the MAC address sent in the DISCOVERY packet.
@@ -30,8 +20,20 @@ use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+
+use ::rpc::forge as rpc;
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Bytes, Incoming};
+use hyper::server::conn::http2;
+use hyper::service::service_fn;
+use hyper::{Request, Response, body, header};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use mac_address::MacAddress;
+use prost::Message;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+
+use crate::machine::Machine;
 
 pub const ENDPOINT_DISCOVER_DHCP: &str = "/forge.Forge/DiscoverDhcp";
 

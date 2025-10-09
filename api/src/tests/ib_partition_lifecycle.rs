@@ -12,25 +12,22 @@
 
 use std::collections::HashMap;
 
+use forge_uuid::infiniband::IBPartitionId;
+use rpc::forge::TenantState;
+use rpc::forge::forge_server::Forge;
+use tonic::Request;
+
+use crate::api::Api;
+use crate::api::rpc::{IbPartitionConfig, IbPartitionSearchConfig};
+use crate::cfg::file::IBFabricConfig;
+use crate::db::ib_partition::{
+    IBPartition, IBPartitionConfig, IBPartitionSearchConfig, IBPartitionStatus, NewIBPartition,
+};
+use crate::db::{self, ObjectColumnFilter};
+use crate::ib::{IBFabricManagerConfig, IBFabricManagerType};
 use crate::model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
-use crate::{
-    api::Api,
-    api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
-    cfg::file::IBFabricConfig,
-    db::{
-        self, ObjectColumnFilter,
-        ib_partition::{
-            IBPartition, IBPartitionConfig, IBPartitionSearchConfig, IBPartitionStatus,
-            NewIBPartition,
-        },
-    },
-    ib::{IBFabricManagerConfig, IBFabricManagerType},
-};
-use forge_uuid::infiniband::IBPartitionId;
-use rpc::forge::{TenantState, forge_server::Forge};
-use tonic::Request;
 
 const FIXTURE_CREATED_IB_PARTITION_NAME: &str = "ib_partition_1";
 const FIXTURE_TENANT_ORG_ID: &str = "tenant";

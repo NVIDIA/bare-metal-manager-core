@@ -1,15 +1,17 @@
-use crate::MachineConfig;
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use base64::prelude::*;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
-use rpc::forge::MachineType;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
+    ConfigSetting, ExpectedMachine, MachineType, MachinesByIdsRequest, PxeInstructions,
+    SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
-use std::sync::atomic::{AtomicU32, Ordering};
+
+use crate::MachineConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {

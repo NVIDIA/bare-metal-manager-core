@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::cmp;
+use std::time::{Duration, Instant};
+
+use rpc::forge::VersionRequest;
+
 use crate::cfg::cli_options::PingOptions;
 use crate::rpc::ApiClient;
-use rpc::forge::VersionRequest;
-use std::cmp;
-use std::time::Duration;
-use std::time::Instant;
 
 pub async fn ping(client: &ApiClient, opts: PingOptions) -> color_eyre::Result<()> {
     let interval = Duration::from_secs_f32(opts.interval);

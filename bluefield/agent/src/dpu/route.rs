@@ -225,9 +225,10 @@ impl Route {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::HBNDeviceNames;
-    use std::str::FromStr;
 
     #[tokio::test]
     async fn test_current_routes() {

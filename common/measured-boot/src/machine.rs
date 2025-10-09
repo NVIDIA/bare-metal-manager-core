@@ -15,18 +15,19 @@
  *  database to match candidate machines to profiles and bundles.
 */
 
-use super::journal::MeasurementJournal;
-use super::records::MeasurementMachineState;
-use chrono::Utc;
-use forge_uuid::UuidEmptyStringError;
-use forge_uuid::machine::MachineId;
-use rpc::protos::measured_boot::{CandidateMachinePb, MeasurementMachineStatePb};
-use serde::Serialize;
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use chrono::Utc;
+use forge_uuid::UuidEmptyStringError;
+use forge_uuid::machine::MachineId;
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
+use rpc::protos::measured_boot::{CandidateMachinePb, MeasurementMachineStatePb};
+use serde::Serialize;
+
+use super::journal::MeasurementJournal;
+use super::records::MeasurementMachineState;
 
 /// CandidateMachine describes a machine that is a candidate for attestation,
 /// and is derived from machine information in the machine_toplogies table.

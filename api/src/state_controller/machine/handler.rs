@@ -13,7 +13,9 @@
 //! State Handler implementation for Machines
 
 use std::collections::{HashMap, HashSet};
-use std::{mem::discriminant as enum_discr, net::IpAddr, sync::Arc};
+use std::mem::discriminant as enum_discr;
+use std::net::IpAddr;
+use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
@@ -24,76 +26,58 @@ use forge_secrets::credentials::{
 use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
-use libredfish::{
-    Boot, Redfish, RedfishError, SystemPowerControl,
-    model::{task::TaskState, update_service::TransferProtocolType},
-};
-use libredfish::{EnabledDisabled, PowerState};
+use libredfish::model::task::TaskState;
+use libredfish::model::update_service::TransferProtocolType;
+use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
-use tokio::{
-    io::AsyncBufReadExt,
-    sync::{Mutex, Semaphore},
-};
+use tokio::io::AsyncBufReadExt;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::instrument;
 use version_compare::Cmp;
 
+use crate::cfg::file::{
+    BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig, TimePeriod,
+};
 use crate::db::host_machine_update::clear_host_reprovisioning_request;
 use crate::db::machine::update_restart_verification_status;
+use crate::db::{self};
+use crate::firmware_downloader::FirmwareDownloader;
 use crate::model::DpuModel;
 use crate::model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use crate::model::instance::InstanceNetworkSyncStatus;
 use crate::model::instance::config::network::{
-    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId,
+    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId, NetworkDetails,
 };
 use crate::model::instance::snapshot::InstanceSnapshot;
+use crate::model::machine::LockdownMode::{self, Enable};
 use crate::model::machine::infiniband::ib_config_synced;
 use crate::model::machine::{
-    CreateBossVolumeContext, CreateBossVolumeState, MachineLastRebootRequested,
-    NetworkConfigUpdateState, NextStateBFBSupport, SecureEraseBossContext, SecureEraseBossState,
-    SetBootOrderInfo, SetBootOrderState,
+    BomValidating, BomValidatingContext, CleanupState, CreateBossVolumeContext,
+    CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver, DpuInitState,
+    FailureCause, FailureDetails, FailureSource, HostReprovisionState, InitialResetPhase,
+    InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    Machine, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
+    MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
+    SetBootOrderState, SetSecureBootState, StateMachineArea, UefiSetupInfo, UefiSetupState,
+    ValidationState, get_display_ids,
 };
-use crate::model::machine::{DpuInitNextStateResolver, InstallDpuOsState};
 use crate::model::power_manager::PowerHandlingOutcome;
-use crate::state_controller::state_handler::{
-    DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, NextState,
-    ReprovisionStateHelper, all_equal,
+use crate::model::site_explorer::ExploredEndpoint;
+use crate::redfish::{self, host_power_control, set_host_uefi_password};
+use crate::resource_pool::common::CommonPools;
+use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
+use crate::state_controller::machine::{
+    MeasuringOutcome, get_measuring_prerequisites, handle_measuring_state,
 };
-use crate::{
-    cfg::file::{
-        BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig, TimePeriod,
-    },
-    db::{self},
-    firmware_downloader::FirmwareDownloader,
-    model::{
-        instance::config::network::NetworkDetails,
-        machine::{
-            BomValidating, BomValidatingContext, CleanupState, DpuDiscoveringState, DpuInitState,
-            FailureCause, FailureDetails, FailureSource, HostReprovisionState, InitialResetPhase,
-            InstanceNextStateResolver, InstanceState, LockdownInfo,
-            LockdownMode::{self, Enable},
-            LockdownState, Machine, MachineLastRebootRequestedMode, MachineNextStateResolver,
-            MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-            PerformPowerOperation, PowerDrainState, ReprovisionState, RetryInfo,
-            SetSecureBootState, StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState,
-            get_display_ids,
-        },
-        site_explorer::ExploredEndpoint,
-    },
-    redfish::{self, host_power_control, set_host_uefi_password},
-    resource_pool::common::CommonPools,
-    state_controller::{
-        machine::{
-            MeasuringOutcome, context::MachineStateHandlerContextObjects,
-            get_measuring_prerequisites, handle_measuring_state,
-        },
-        state_handler::{
-            MeasuringProblem, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome, StateHandlerServices, deleted, do_nothing, transition, wait,
-        },
-    },
+use crate::state_controller::state_handler::{
+    DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, MeasuringProblem,
+    NextState, ReprovisionStateHelper, StateHandler, StateHandlerContext, StateHandlerError,
+    StateHandlerOutcome, StateHandlerServices, all_equal, deleted, do_nothing, transition, wait,
 };
 
 mod machine_validation;

@@ -10,14 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::shutdown_handle::ShutdownHandle;
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use russh::server::Msg;
 use russh::{ChannelMsg, CryptoVec};
-use std::sync::Arc;
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
+
+use crate::shutdown_handle::ShutdownHandle;
 
 /// Proxy messages from the BMC to the user's connection.
 pub fn spawn(

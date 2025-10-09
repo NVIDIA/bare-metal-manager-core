@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::machine::{MachineId, MachineType};
 use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::model::host_machine_update::HostMachineUpdate;
 use crate::model::machine::HostReprovisionRequest;
-use forge_uuid::machine::{MachineId, MachineType};
 
 pub async fn find_upgrade_needed(
     txn: &mut PgConnection,

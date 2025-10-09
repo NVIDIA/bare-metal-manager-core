@@ -15,30 +15,26 @@ pub mod host_firmware;
 pub mod machine_update_module;
 pub mod metrics;
 
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+
+use forge_uuid::machine::MachineId;
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
 use sqlx::{PgConnection, PgPool};
-use std::collections::HashMap;
-use std::sync::atomic::Ordering;
-use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::sync::oneshot;
 
-use self::{
-    dpu_nic_firmware::DpuNicFirmwareUpdate, machine_update_module::MachineUpdateModule,
-    metrics::MachineUpdateManagerMetrics,
-};
+use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
+use self::machine_update_module::MachineUpdateModule;
+use self::metrics::MachineUpdateManagerMetrics;
+use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
+use crate::db::{DatabaseError, ObjectFilter};
 use crate::model::dpu_machine_update::DpuMachineUpdate;
-use crate::model::machine::HostHealthConfig;
-use crate::model::machine::LoadSnapshotOptions;
-use crate::model::machine::ManagedHostStateSnapshot;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::{
-    CarbideResult,
-    cfg::file::{CarbideConfig, MaxConcurrentUpdates},
-    db,
-    db::{DatabaseError, ObjectFilter},
-};
-use forge_uuid::machine::MachineId;
+use crate::model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use crate::{CarbideResult, db};
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:

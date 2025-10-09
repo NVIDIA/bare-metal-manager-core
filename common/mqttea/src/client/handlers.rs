@@ -17,9 +17,10 @@
 // message handler types in the same collection while maintaining type safety
 // for caller registrations.
 
-use async_trait::async_trait;
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+use async_trait::async_trait;
 
 use crate::client::MqtteaClient;
 use crate::errors::MqtteaClientError;

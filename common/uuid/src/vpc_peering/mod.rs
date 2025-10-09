@@ -10,16 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{fmt, str::FromStr};
+use std::fmt;
+use std::str::FromStr;
 
-use crate::UuidConversionError;
-use crate::grpc_uuid_message;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::{
     FromRow, Type,
     postgres::{PgHasArrayType, PgTypeInfo},
 };
+
+use crate::{UuidConversionError, grpc_uuid_message};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]

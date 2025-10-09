@@ -9,13 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::errors::CarbideError;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use sqlx::Row;
 use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::Row;
+
+use crate::errors::CarbideError;
 
 /// State of an entry inside the resource pool
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

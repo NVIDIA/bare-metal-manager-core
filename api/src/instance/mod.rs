@@ -12,42 +12,39 @@
 
 use std::collections::{HashMap, HashSet};
 
+use ::rpc::errors::RpcDataConversionError;
 use config_version::ConfigVersion;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::instance_type::InstanceTypeId;
+use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{PgConnection, PgPool};
 
 use crate::api::Api;
-use crate::db::{ObjectColumnFilter, dpa_interface};
+use crate::db::ib_partition::{self, IBPartitionSearchConfig};
+use crate::db::{
+    self, DatabaseError, ObjectColumnFilter, ObjectFilter, dpa_interface, network_security_group,
+};
+use crate::model::ConfigValidationError;
 use crate::model::hardware_info::InfinibandInterface;
 use crate::model::instance::NewInstance;
-use crate::model::instance::config::network::{InterfaceFunctionId, NetworkDetails};
-use crate::model::machine::HostHealthConfig;
+use crate::model::instance::config::InstanceConfig;
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::instance::config::network::{
+    InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
+};
 use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{LoadSnapshotOptions, Machine, NotAllocatableReason};
+use crate::model::machine::{
+    HostHealthConfig, LoadSnapshotOptions, Machine, ManagedHostStateSnapshot, NotAllocatableReason,
+};
+use crate::model::metadata::Metadata;
+use crate::model::os::OperatingSystemVariant;
+use crate::model::tenant::TenantOrganizationId;
 use crate::model::vpc_prefix::VpcPrefix;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
-use crate::{
-    CarbideError, CarbideResult,
-    db::{
-        self, DatabaseError, ObjectFilter,
-        ib_partition::{self, IBPartitionSearchConfig},
-        network_security_group,
-    },
-    model::{
-        ConfigValidationError,
-        instance::config::{
-            InstanceConfig, infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
-        },
-        machine::ManagedHostStateSnapshot,
-        metadata::Metadata,
-        os::OperatingSystemVariant,
-        tenant::TenantOrganizationId,
-    },
-};
-use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
+use crate::{CarbideError, CarbideResult};
 
 /// User parameters for creating an instance
 #[derive(Debug)]

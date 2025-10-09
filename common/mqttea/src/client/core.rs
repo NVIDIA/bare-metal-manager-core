@@ -17,19 +17,19 @@
 // different message type mappings without any global state conflicts. The client handles
 // MQTT connection management, message routing, and statistics tracking.
 
-use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
 use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
 use tracing::{debug, error, info, warn};
 
+use crate::client::{ClientOptions, ClosureAdapter, ErasedHandler, ReceivedMessage};
 use crate::errors::MqtteaClientError;
+use crate::registry::types::PublishOptions;
 use crate::registry::MqttRegistry;
 use crate::stats::{PublishStats, PublishStatsTracker, QueueStats, QueueStatsTracker};
 use crate::traits::MessageHandler;
-
-use crate::client::{ClientOptions, ClosureAdapter, ErasedHandler, ReceivedMessage};
-use crate::registry::types::PublishOptions;
 
 const DEFAULT_KEEP_ALIVE: std::time::Duration = std::time::Duration::from_secs(300);
 const DEFAULT_QOS: QoS = QoS::AtLeastOnce;

@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_network::virtualization::get_svi_ip;
-
 use std::fs;
 use std::io::Write;
 use std::net::IpAddr;
@@ -20,8 +18,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::tests::common;
-use crate::util::compare_lines;
 use axum::Router;
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
@@ -29,16 +25,17 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
-use forge_network::virtualization::VpcVirtualizationType;
+use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
 use ipnetwork::IpNetwork;
-use rpc::{
-    common as rpc_common,
-    forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig},
-};
+use rpc::common as rpc_common;
+use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig};
 use tokio::sync::Mutex;
+
+use crate::tests::common;
+use crate::util::compare_lines;
 
 #[derive(Default, Debug)]
 struct State {

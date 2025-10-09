@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{net::SocketAddr, process};
+use std::net::SocketAddr;
+use std::process;
 
 pub fn metrics(metrics_endpoint: &SocketAddr) -> eyre::Result<String> {
     let endpoint = format!("http://{metrics_endpoint}/metrics");

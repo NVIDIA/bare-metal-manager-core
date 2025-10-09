@@ -10,18 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::common::{AppState, Machine};
-use axum::{Router, extract::State, response::IntoResponse, routing::get};
+use axum::Router;
+use axum::extract::State;
+use axum::response::IntoResponse;
+use axum::routing::get;
 use axum_template::TemplateEngine;
 use base64::Engine as _;
 use forge_host_support::agent_config;
 use forge_uuid::machine::MachineInterfaceId;
 use rpc::forge;
+
+use crate::common::{AppState, Machine};
 
 /// Generates the content of the /etc/forge/config.toml file
 //
@@ -187,8 +189,9 @@ pub fn get_router(path_prefix: &str) -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
+    use super::*;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
 

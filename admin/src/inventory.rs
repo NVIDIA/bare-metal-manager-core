@@ -9,17 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::{InstanceList, MachineList, site_explorer::ExploredManagedHost};
+use std::collections::HashMap;
+use std::collections::hash_map::RandomState;
+use std::fs;
+
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::site_explorer::ExploredManagedHost;
+use ::rpc::{InstanceList, MachineList};
 use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{HashMap, hash_map::RandomState},
-    fs,
-};
 
 use crate::cfg::cli_options::InventoryAction;
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 // Expected output
 // x86_host_bmcs:

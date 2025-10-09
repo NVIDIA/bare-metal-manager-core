@@ -10,17 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, sync::Arc};
-use tokio::sync::oneshot;
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::{CarbideResult, cfg::file::MeasuredBootMetricsCollectorConfig, db::DatabaseError};
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementBundleState;
+use tokio::sync::oneshot;
+
+use crate::CarbideResult;
+use crate::cfg::file::MeasuredBootMetricsCollectorConfig;
+use crate::db::DatabaseError;
 
 pub(crate) mod metrics;
-use crate::measured_boot::db;
 use forge_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;
+
+use crate::measured_boot::db;
 
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.
 pub struct MeasuredBootMetricsCollector {

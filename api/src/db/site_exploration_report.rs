@@ -12,10 +12,8 @@
 
 use sqlx::PgConnection;
 
-use crate::{
-    db::{self, DatabaseError},
-    model::site_explorer::SiteExplorationReport,
-};
+use crate::db::{self, DatabaseError};
+use crate::model::site_explorer::SiteExplorationReport;
 
 /// Fetches the latest site exploration report from the database
 pub async fn fetch(txn: &mut PgConnection) -> Result<SiteExplorationReport, DatabaseError> {

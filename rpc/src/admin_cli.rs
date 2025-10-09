@@ -7,24 +7,21 @@
 
 */
 
-use std::{
-    env,
-    fs::File,
-    io::Write,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::env;
+use std::fs::File;
+use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use forge_uuid::{
-    dpu_remediations::RemediationId,
-    instance::InstanceId,
-    machine::{MachineId, MachineIdParseError},
-};
+use forge_uuid::dpu_remediations::RemediationId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::{MachineId, MachineIdParseError};
 pub use output::{Destination, OutputFormat};
 use serde::Serialize;
 #[cfg(feature = "sqlx")]
 use sqlx::{Pool, Postgres};
 
-use crate::{forge::MachineType, forge_tls_client::ForgeTlsClientError};
+use crate::forge::MachineType;
+use crate::forge_tls_client::ForgeTlsClientError;
 
 /// SUMMARY is a global variable that is being used by a few structs which
 /// implement serde::Serialize with skip_serialization_if.
@@ -183,10 +180,8 @@ pub fn cli_output<T: Serialize + ToTable>(
 }
 
 pub mod output {
-    use std::{
-        fs::File,
-        io::{Write, stdout},
-    };
+    use std::fs::File;
+    use std::io::{Write, stdout};
 
     use clap::ValueEnum;
     use serde::Serialize;

@@ -456,8 +456,7 @@ mod test {
     use rpc::forge as rpc;
 
     use crate::discovery::Discovery;
-    use crate::machine::Machine;
-    use crate::machine::machine_get_filename;
+    use crate::machine::{Machine, machine_get_filename};
     use crate::vendor_class::VendorClass;
 
     #[test]

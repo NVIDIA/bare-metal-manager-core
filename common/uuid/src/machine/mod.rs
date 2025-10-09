@@ -10,22 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::DbPrimaryUuid;
-use crate::UuidConversionError;
+use std::cmp::Ordering;
+use std::fmt;
+use std::fmt::{Debug, Display, Formatter, Write};
+use std::str::FromStr;
+
 use data_encoding::BASE32_DNSSEC;
 use prost::DecodeError;
 use prost::bytes::{Buf, BufMut};
 use prost::encoding::{DecodeContext, WireType};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::cmp::Ordering;
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
-use std::{fmt::Write, str::FromStr};
+
+use super::DbPrimaryUuid;
+use crate::UuidConversionError;
 
 static MACHINE_ID_PREFIX: &str = "fm100";
 
-use crate::grpc_uuid_message;
 #[cfg(feature = "sqlx")]
 use sqlx::{
     encode::IsNull,
@@ -33,6 +34,8 @@ use sqlx::{
     postgres::{PgHasArrayType, PgTypeInfo},
     {Database, Postgres, Row}, {FromRow, Type},
 };
+
+use crate::grpc_uuid_message;
 
 /// MachineInterfaceId is a strongly typed UUID specific to an Infiniband
 /// segment ID, with trait implementations allowing it to be passed

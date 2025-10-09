@@ -10,15 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge::{
-    MachineCredentialsUpdateResponse, machine_credentials_update_request::CredentialPurpose,
-    machine_credentials_update_request::Credentials,
-};
+use ::rpc::forge::MachineCredentialsUpdateResponse;
+use ::rpc::forge::machine_credentials_update_request::{CredentialPurpose, Credentials};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
+use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::machine::MachineId;
 
 pub struct UpdateCredentials {
     pub machine_id: MachineId,

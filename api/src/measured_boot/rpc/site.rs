@@ -14,8 +14,33 @@
  * gRPC handlers for measured boot site management API calls.
  */
 
+use std::str::FromStr;
+
+use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::TrustedMachineId;
+use measured_boot::records::{
+    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
+};
+use measured_boot::site::{MachineAttestationSummaryList, SiteModel};
+use rpc::protos::measured_boot::{
+    AddMeasurementTrustedMachineRequest, AddMeasurementTrustedMachineResponse,
+    AddMeasurementTrustedProfileRequest, AddMeasurementTrustedProfileResponse,
+    ExportSiteMeasurementsRequest, ExportSiteMeasurementsResponse, ImportSiteMeasurementsRequest,
+    ImportSiteMeasurementsResponse, ImportSiteResult, ListAttestationSummaryRequest,
+    ListAttestationSummaryResponse, ListMeasurementTrustedMachinesRequest,
+    ListMeasurementTrustedMachinesResponse, ListMeasurementTrustedProfilesRequest,
+    ListMeasurementTrustedProfilesResponse, MeasurementApprovedMachineRecordPb,
+    MeasurementApprovedProfileRecordPb, RemoveMeasurementTrustedMachineRequest,
+    RemoveMeasurementTrustedMachineResponse, RemoveMeasurementTrustedProfileRequest,
+    RemoveMeasurementTrustedProfileResponse, remove_measurement_trusted_machine_request,
+    remove_measurement_trusted_profile_request,
+};
+use sqlx::{Pool, Postgres};
 use tonic::Status;
 
+use crate::CarbideError;
+use crate::measured_boot::db;
 use crate::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
     insert_into_approved_profiles, list_attestation_summary,
@@ -23,35 +48,6 @@ use crate::measured_boot::interface::site::{
     remove_from_approved_profiles_by_approval_id, remove_from_approved_profiles_by_profile_id,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use forge_uuid::measured_boot::TrustedMachineId;
-use measured_boot::records::{
-    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
-};
-
-use rpc::protos::measured_boot::remove_measurement_trusted_profile_request;
-use rpc::protos::measured_boot::{
-    AddMeasurementTrustedMachineRequest, AddMeasurementTrustedMachineResponse,
-    AddMeasurementTrustedProfileRequest, AddMeasurementTrustedProfileResponse,
-    ExportSiteMeasurementsRequest, ExportSiteMeasurementsResponse, ImportSiteMeasurementsRequest,
-    ImportSiteMeasurementsResponse, ImportSiteResult, ListMeasurementTrustedMachinesRequest,
-    ListMeasurementTrustedMachinesResponse, ListMeasurementTrustedProfilesRequest,
-    ListMeasurementTrustedProfilesResponse, MeasurementApprovedMachineRecordPb,
-    MeasurementApprovedProfileRecordPb, RemoveMeasurementTrustedMachineRequest,
-    RemoveMeasurementTrustedMachineResponse, RemoveMeasurementTrustedProfileRequest,
-    RemoveMeasurementTrustedProfileResponse,
-};
-use rpc::protos::measured_boot::{
-    ListAttestationSummaryRequest, ListAttestationSummaryResponse,
-    remove_measurement_trusted_machine_request,
-};
-
-use crate::CarbideError;
-use crate::measured_boot::db;
-use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineId;
-use measured_boot::site::{MachineAttestationSummaryList, SiteModel};
-use sqlx::{Pool, Postgres};
-use std::str::FromStr;
 
 /// handle_import_site_measurements handles the ImportSiteMeasurements
 /// API endpoint.

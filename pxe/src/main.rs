@@ -9,12 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{fmt::Debug, net::SocketAddr, str::FromStr};
+use std::fmt::Debug;
+use std::net::SocketAddr;
+use std::str::FromStr;
 
-use axum::{
-    Router, ServiceExt,
-    middleware::{map_request, map_response},
-};
+use axum::middleware::{map_request, map_response};
+use axum::{Router, ServiceExt};
 use axum_client_ip::ClientIpSource;
 use axum_template::engine::Engine;
 use clap::Parser;

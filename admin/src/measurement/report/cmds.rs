@@ -14,24 +14,25 @@
 //! `measurement report` subcommand dispatcher + backing functions.
 //!
 
-use crate::measurement::global;
-use crate::measurement::report::args::{
-    CmdReport, Create, Delete, List, ListMachines, Match, Promote, Revoke, ShowFor, ShowForId,
-    ShowForMachine,
-};
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::list_measurement_report_request;
 use ::rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, DeleteMeasurementReportRequest, ListMeasurementReportRequest,
     MatchMeasurementReportRequest, PromoteMeasurementReportRequest, RevokeMeasurementReportRequest,
     ShowMeasurementReportForIdRequest, ShowMeasurementReportsForMachineRequest,
+    list_measurement_report_request,
 };
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementReportRecord;
 use measured_boot::report::MeasurementReport;
 use serde::Serialize;
+
+use crate::measurement::global;
+use crate::measurement::report::args::{
+    CmdReport, Create, Delete, List, ListMachines, Match, Promote, Revoke, ShowFor, ShowForId,
+    ShowForMachine,
+};
+use crate::rpc::ApiClient;
 
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).

@@ -21,9 +21,10 @@
 // and any time we execute something that changes (sync or set), we
 // then return back a VariableChange for things that changed.
 
+use std::time::Duration;
+
 use mlxconfig_variables::{MlxConfigValue, MlxConfigVariable};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 // QueriedVariable is a complete representation of a queried
 // variable from the device, populating all of the fields we

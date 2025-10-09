@@ -15,14 +15,14 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
-use crate::db::DatabaseError;
-use forge_uuid::measured_boot::MeasurementReportId;
-use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
-
-use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::MeasurementReportId;
 use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
 use sqlx::{PgConnection, Postgres, QueryBuilder};
+
+use crate::db::DatabaseError;
+use crate::measured_boot::interface::common;
 
 /// match_latest_reports takes a list of PcrRegisterValues (i.e. register:shaXXX)
 /// and returns all latest matching report entries for it.

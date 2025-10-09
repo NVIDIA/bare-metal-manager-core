@@ -9,10 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::util::ipmi_sim::IpmiSimHandle;
-use crate::util::metrics::assert_metrics;
-use crate::util::ssh_client::ConnectionConfig;
-use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
+use std::borrow::Cow;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+
 use bmc_mock::HostnameQuerying;
 use eyre::Context;
 use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
@@ -20,13 +22,13 @@ use futures::future::join_all;
 use futures_util::future::BoxFuture;
 use machine_a_tron::{MockSshServerHandle, PromptBehavior};
 use ssh_console_mock_api_server::{MockApiServerHandle, MockHost};
-use std::borrow::Cow;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
+
+use crate::util::ipmi_sim::IpmiSimHandle;
+use crate::util::metrics::assert_metrics;
+use crate::util::ssh_client::ConnectionConfig;
+use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
 
 pub mod ipmi_sim;
 pub mod legacy;
@@ -35,8 +37,9 @@ pub mod new_ssh_console;
 pub mod ssh_client;
 
 pub mod fixtures {
-    use api_test_helper::utils::REPO_ROOT;
     use std::path::PathBuf;
+
+    use api_test_helper::utils::REPO_ROOT;
 
     lazy_static::lazy_static! {
         pub static ref BMC_MOCK_CERTS_DIR: PathBuf = REPO_ROOT

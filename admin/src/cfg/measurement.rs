@@ -17,16 +17,11 @@
 
 */
 
-use crate::measurement::bundle;
-use crate::measurement::journal;
-use crate::measurement::machine;
-use crate::measurement::profile;
-use crate::measurement::report;
-use crate::measurement::site;
 use ::rpc::admin_cli::OutputFormat;
-
 use clap::Parser;
 use measured_boot::pcr::PcrRegisterValue;
+
+use crate::measurement::{bundle, journal, machine, profile, report, site};
 
 // KvPair is a really simple struct for holding
 // a key/value pair, and is used for parsing

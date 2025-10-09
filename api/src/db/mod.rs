@@ -69,11 +69,9 @@ pub mod vpc_dpu_loopback;
 pub mod vpc_peering;
 pub mod vpc_prefix;
 
-use std::{
-    error::Error,
-    fmt::{Display, Formatter},
-    panic::Location,
-};
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+use std::panic::Location;
 
 use sqlx::Postgres;
 

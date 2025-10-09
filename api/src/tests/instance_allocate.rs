@@ -9,38 +9,28 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
+
+use ::rpc::forge::ManagedHostNetworkConfigRequest;
 use forge::forge_server::Forge;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use rpc::forge;
-use std::ops::DerefMut;
 
-use ::rpc::forge::ManagedHostNetworkConfigRequest;
-
-use crate::{
-    db,
-    model::machine::ManagedHostStateSnapshot,
-    tests::{
-        common,
-        common::{
-            api_fixtures,
-            api_fixtures::{
-                TestEnv, TestEnvOverrides,
-                managed_host::ManagedHostConfig,
-                network_segment::{
-                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
-                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2,
-                    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
-                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
-                    create_host_inband_network_segment, create_network_segment,
-                    create_tenant_network_segment, create_underlay_network_segment,
-                },
-            },
-            mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL,
-        },
-    },
+use crate::db;
+use crate::model::machine::ManagedHostStateSnapshot;
+use crate::tests::common;
+use crate::tests::common::api_fixtures;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::network_segment::{
+    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
+    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
+    create_host_inband_network_segment, create_network_segment, create_tenant_network_segment,
+    create_underlay_network_segment,
 };
+use crate::tests::common::api_fixtures::{TestEnv, TestEnvOverrides};
+use crate::tests::common::mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL;
 
 #[derive(Debug, Default)]
 struct TestEnvOptions {

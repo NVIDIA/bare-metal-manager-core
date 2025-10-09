@@ -15,6 +15,14 @@
  *  tables in the database, leveraging the journal-specific record types.
 */
 
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{
+    MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
+};
+use measured_boot::journal::MeasurementJournal;
+use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
+use sqlx::PgConnection;
+
 use crate::db::DatabaseError;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::journal::{
@@ -23,15 +31,6 @@ use crate::measured_boot::interface::journal::{
     update_measurement_journal_record,
 };
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::{
-    machine::MachineId,
-    measured_boot::{
-        MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
-    },
-};
-use measured_boot::journal::MeasurementJournal;
-use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
-use sqlx::PgConnection;
 
 pub async fn new_with_txn(
     txn: &mut PgConnection,

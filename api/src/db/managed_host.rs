@@ -13,16 +13,17 @@
 //! Database access methods for manipulating the state of a ManagedHost (Host+DPUs)
 //!
 
-use crate::db::queries;
-use crate::model::machine::LoadSnapshotOptions;
-use crate::{db::DatabaseError, model::machine::ManagedHostStateSnapshot};
-use forge_uuid::machine::MachineType;
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use std::collections::HashMap;
+use std::ops::Deref;
+
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use sqlx::PgConnection;
-use std::collections::HashMap;
-use std::ops::Deref;
+
+use crate::db::{DatabaseError, queries};
+use crate::model::machine::{LoadSnapshotOptions, ManagedHostStateSnapshot};
 
 /// Loads a ManagedHost snapshot from the database
 pub async fn load_snapshot(

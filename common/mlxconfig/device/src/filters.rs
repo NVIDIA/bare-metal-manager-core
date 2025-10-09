@@ -10,12 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::info::MlxDeviceInfo;
+use std::fmt::Display;
+use std::str::FromStr;
+
 use clap::ValueEnum;
 use regex;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-use std::str::FromStr;
+
+use crate::info::MlxDeviceInfo;
 
 // MatchMode defines how filter values should be matched against device fields.
 // All matching is case-insensitive.

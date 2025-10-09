@@ -10,38 +10,35 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, default::Default, sync::Arc, time::Duration};
+use std::collections::HashMap;
+use std::default::Default;
+use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use libredfish::{
-    PowerState, RedfishError, SystemPowerControl,
-    model::{task::TaskState, update_service::TransferProtocolType},
-};
-use opentelemetry::metrics::Meter;
-use sqlx::{PgConnection, PgPool};
-use tokio::{
-    fs::File,
-    io::AsyncBufReadExt,
-    sync::{Semaphore, oneshot},
-    task::JoinSet,
-};
-
-use crate::model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
-use crate::{
-    CarbideError, CarbideResult,
-    cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal},
-    db,
-    db::DatabaseError,
-    firmware_downloader::FirmwareDownloader,
-    model::site_explorer::{
-        ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState,
-    },
-    preingestion_manager::metrics::PreingestionMetrics,
-    redfish::{RedfishClientCreationError, RedfishClientPool},
-};
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
+use libredfish::model::task::TaskState;
+use libredfish::model::update_service::TransferProtocolType;
+use libredfish::{PowerState, RedfishError, SystemPowerControl};
+use opentelemetry::metrics::Meter;
+use sqlx::{PgConnection, PgPool};
+use tokio::fs::File;
+use tokio::io::AsyncBufReadExt;
+use tokio::sync::{Semaphore, oneshot};
+use tokio::task::JoinSet;
+
+use crate::cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal};
+use crate::db::DatabaseError;
+use crate::firmware_downloader::FirmwareDownloader;
+use crate::model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
+use crate::model::site_explorer::{
+    ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState,
+};
+use crate::preingestion_manager::metrics::PreingestionMetrics;
+use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
+use crate::{CarbideError, CarbideResult, db};
 
 mod metrics;
 

@@ -15,7 +15,17 @@
  *  tables in the database, leveraging the profile-specific record types.
 */
 
+use std::collections::HashMap;
+
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::MeasurementSystemProfileId;
+use measured_boot::profile::MeasurementSystemProfile;
+use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
+use sqlx::PgConnection;
+
 use crate::db::DatabaseError;
+use crate::measured_boot::interface::common;
+use crate::measured_boot::interface::common::acquire_advisory_txn_lock;
 use crate::measured_boot::interface::profile::{
     delete_profile_attr_records_for_id, delete_profile_record_for_id,
     get_all_measurement_profile_records, get_machines_for_profile_id,
@@ -24,14 +34,7 @@ use crate::measured_boot::interface::profile::{
     insert_measurement_profile_attr_records, insert_measurement_profile_record,
     rename_profile_for_profile_id, rename_profile_for_profile_name,
 };
-use crate::measured_boot::interface::{common, common::acquire_advisory_txn_lock};
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementSystemProfileId;
-use measured_boot::profile::MeasurementSystemProfile;
-use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
-use sqlx::PgConnection;
-use std::collections::HashMap;
 
 pub async fn new_with_txn(
     txn: &mut PgConnection,
@@ -405,10 +408,12 @@ fn attr_map_to_string(attr_map: &HashMap<String, String>) -> String {
 #[cfg(test)]
 /// Code used by tests but nothing else (kept separate to avoid dead code in production)
 pub(crate) mod test_support {
-    use super::*;
+    use std::collections::HashMap;
+
     use forge_uuid::measured_boot::MeasurementSystemProfileId;
     use sqlx::{Pool, Postgres};
-    use std::collections::HashMap;
+
+    use super::*;
 
     ////////////////////////////////////////////////////////////////
     /// new creates a new MeasurementSystemProfile in the database,
@@ -474,11 +479,13 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::*;
-    use super::*;
+    use std::str::FromStr;
+
     use chrono::Utc;
     use forge_uuid::measured_boot::MeasurementSystemProfileAttrId;
-    use std::str::FromStr;
+
+    use super::test_support::*;
+    use super::*;
 
     #[test]
     // test_attr_map_to_string makes sure attr_map_to_string works

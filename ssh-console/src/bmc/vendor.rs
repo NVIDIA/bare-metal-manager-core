@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::borrow::Cow;
+
 use rpc::forge;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::borrow::Cow;
 
 /// The escape sequence for IPMI is vendor-independent since it's specific to ipmitool.
 pub static IPMITOOL_ESCAPE_SEQUENCE: EscapeSequence =

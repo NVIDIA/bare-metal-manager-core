@@ -14,15 +14,14 @@ use std::net::IpAddr;
 use chrono::Utc;
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
-use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, PgConnection, Row};
 
+use crate::db::DatabaseError;
 use crate::model::firmware::FirmwareComponentType;
-use crate::{
-    db::DatabaseError,
-    model::site_explorer::{
-        EndpointExplorationReport, ExploredEndpoint, InitialResetPhase, PowerDrainState,
-        PreingestionState,
-    },
+use crate::model::site_explorer::{
+    EndpointExplorationReport, ExploredEndpoint, InitialResetPhase, PowerDrainState,
+    PreingestionState,
 };
 
 #[derive(Debug, Clone)]

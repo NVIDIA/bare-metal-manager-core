@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::machine::{DpuInitState, ManagedHostState, ManagedHostStateSnapshot};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
+
+use crate::model::machine::{DpuInitState, ManagedHostState, ManagedHostStateSnapshot};
 
 // If power state is Paused and Reset, state machine can't take any decision on it.
 // Ignore power manager with a log and moved to state machine.

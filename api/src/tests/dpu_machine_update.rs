@@ -1,19 +1,18 @@
 use std::collections::HashMap;
 
-use crate::db::DatabaseError;
-use crate::model::machine::LoadSnapshotOptions;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::tests::common;
-
-use super::common::api_fixtures::TestEnv;
-use crate::CarbideResult;
-use crate::model::dpu_machine_update::DpuMachineUpdate;
-use crate::model::machine::{Machine, ManagedHostStateSnapshot};
-use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
-use crate::{db, model::machine::network::MachineNetworkStatusObservation};
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
+
+use super::common::api_fixtures::TestEnv;
+use crate::db::DatabaseError;
+use crate::model::dpu_machine_update::DpuMachineUpdate;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::network::MachineNetworkStatusObservation;
+use crate::model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use crate::tests::common;
+use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
+use crate::{CarbideResult, db};
 
 pub async fn update_nic_firmware_version(
     txn: &mut PgConnection,

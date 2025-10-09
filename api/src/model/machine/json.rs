@@ -1,3 +1,13 @@
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+use config_version::{ConfigVersion, Versioned};
+use forge_uuid::instance_type::InstanceTypeId;
+use forge_uuid::machine::MachineId;
+use health_report::HealthReport;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::MachineInventory;
@@ -13,14 +23,6 @@ use crate::model::machine::{
 use crate::model::metadata::Metadata;
 use crate::model::power_manager::PowerOptions;
 use crate::model::sku::SkuStatus;
-use chrono::{DateTime, Utc};
-use config_version::{ConfigVersion, Versioned};
-use forge_uuid::instance_type::InstanceTypeId;
-use forge_uuid::machine::MachineId;
-use health_report::HealthReport;
-use itertools::Itertools;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// This represents the structure of a machine we get from postgres via the row_to_json or
 /// JSONB_AGG functions. Its fields need to match the column names of the machine_snapshots query

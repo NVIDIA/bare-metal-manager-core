@@ -9,11 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::errors::CarbideError;
-use crate::model::StateSla;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::model::network_segment_state_history::NetworkSegmentStateHistory;
+use std::fmt;
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use forge_uuid::domain::DomainId;
@@ -25,8 +23,12 @@ use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
-use std::fmt;
-use std::str::FromStr;
+
+use crate::errors::CarbideError;
+use crate::model::StateSla;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use crate::model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
+use crate::model::network_segment_state_history::NetworkSegmentStateHistory;
 
 mod slas;
 

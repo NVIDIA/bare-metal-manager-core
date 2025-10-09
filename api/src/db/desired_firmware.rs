@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use sqlx::PgConnection;
+
 use super::DatabaseError;
 use crate::cfg::file::FirmwareConfig;
 use crate::model::firmware::{DesiredFirmwareVersions, Firmware};
-use sqlx::PgConnection;
 
 /// snapshot_desired_firmware will replace the desired_firmware table with one matching the given FirmwareConfig
 pub async fn snapshot_desired_firmware(

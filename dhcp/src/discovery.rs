@@ -18,8 +18,7 @@ use mac_address::MacAddress;
 use crate::machine::Machine;
 use crate::metrics::set_service_healthy;
 use crate::vendor_class::VendorClass;
-use crate::{CONFIG, tls};
-use crate::{CarbideDhcpContext, cache};
+use crate::{CONFIG, CarbideDhcpContext, cache, tls};
 
 /// Enumerates results of setting discovery options on the Builder
 #[repr(C)]
@@ -485,10 +484,11 @@ pub unsafe extern "C" fn discovery_builder_free(ctx: *mut DiscoveryBuilderFFI) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::mock_api_server;
     use std::ptr::null_mut;
     use std::thread;
+
+    use super::*;
+    use crate::mock_api_server;
 
     // Basic test passing null pointers
     #[test]

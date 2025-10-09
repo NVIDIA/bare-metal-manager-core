@@ -10,34 +10,26 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    iter,
-    str::FromStr,
-    sync::atomic::{AtomicU32, Ordering},
-};
-
-use crate::{
-    model::{
-        hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate},
-        machine::ManagedHostState,
-        site_explorer::{
-            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
-            EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState,
-            Service, UefiDevicePath,
-        },
-    },
-    tests::common::ib_guid_pool,
-};
+use std::iter;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 
 use super::create_random_self_signed_cert;
-use crate::tests::common::{
-    api_fixtures::{dpu::DpuConfig, host::X86_INFO_JSON},
-    mac_address_pool,
+use crate::model::hardware_info::{
+    HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate,
 };
+use crate::model::machine::ManagedHostState;
+use crate::model::site_explorer::{
+    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
+    EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState, Service, UefiDevicePath,
+};
+use crate::tests::common::api_fixtures::dpu::DpuConfig;
+use crate::tests::common::api_fixtures::host::X86_INFO_JSON;
+use crate::tests::common::{ib_guid_pool, mac_address_pool};
 
 static NEXT_HOST_SERIAL: AtomicU32 = AtomicU32::new(1);
 const REQUIRED_IB_GUIDS: usize = 6;

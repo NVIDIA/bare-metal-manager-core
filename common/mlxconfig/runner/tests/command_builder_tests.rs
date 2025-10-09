@@ -13,11 +13,10 @@
 // tests/command_builder_tests.rs
 // Tests for CommandBuilder functionality returning CommandSpec objects
 
-use mlxconfig_runner::{
-    command_builder::{CommandBuilder, CommandSpec},
-    ExecOptions,
-};
 use std::path::Path;
+
+use mlxconfig_runner::command_builder::{CommandBuilder, CommandSpec};
+use mlxconfig_runner::ExecOptions;
 
 mod common;
 

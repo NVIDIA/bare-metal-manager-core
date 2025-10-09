@@ -9,7 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use axum::{Router, extract::State, response::IntoResponse, routing::get};
+use axum::Router;
+use axum::extract::State;
+use axum::response::IntoResponse;
+use axum::routing::get;
 
 use crate::common::AppState;
 

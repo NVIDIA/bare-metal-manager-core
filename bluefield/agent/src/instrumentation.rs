@@ -11,11 +11,10 @@ use hyper::body::Bytes;
 use hyper::{Request, Response};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
-use tower::ServiceBuilder;
-use tracing::Span;
-
 use prometheus::{Encoder, TextEncoder};
 use tonic::service::AxumBody;
+use tower::ServiceBuilder;
+use tracing::Span;
 
 pub mod config;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};

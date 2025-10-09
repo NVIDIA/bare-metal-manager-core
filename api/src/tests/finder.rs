@@ -10,16 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::db;
-use common::api_fixtures::create_managed_host_with_config;
-use common::api_fixtures::dpu;
 use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::{
-    FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env,
+    FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_managed_host_with_config,
+    create_test_env, dpu,
 };
 use rpc::forge::IpType;
 use rpc::forge::forge_server::Forge;
 
+use crate::db;
 use crate::tests::common;
 
 /// Test searching for an IP address. Tests all the cases in a single

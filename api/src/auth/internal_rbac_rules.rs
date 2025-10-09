@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, sync::LazyLock};
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use super::ExternalUserInfo;
 use crate::auth::Principal;
@@ -575,10 +576,8 @@ impl RuleInfo {
 
 #[cfg(test)]
 mod rbac_rule_tests {
-    use std::{
-        fs::File,
-        io::{BufRead, BufReader},
-    };
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
 
     use super::*;
     use crate::auth::Principal;

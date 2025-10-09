@@ -10,19 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::errors::RpcDataConversionError;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
 use std::str::FromStr;
+
+use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgRow;
+use sqlx::{Error, Row};
 use uuid::Uuid;
 
 use crate::model::tenant::TenantOrganizationId;
-
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
-use sqlx::postgres::PgRow;
-use sqlx::{Error, Row};
 
 /// This file is just for the struct definitions and grpc proto object conversions
 /// methods are implemented in api/src/db/storage.rs and callers in api/src/storage.rs

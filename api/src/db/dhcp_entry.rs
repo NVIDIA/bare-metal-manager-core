@@ -9,10 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use forge_uuid::machine::MachineInterfaceId;
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
-use forge_uuid::machine::MachineInterfaceId;
 
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
 /// (not implemented) that returns the network information for that interface on that node, and

@@ -10,13 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::rpc::ApiClient;
-use crate::{async_write, cfg::cli_options::StartUpdates};
+use std::pin::Pin;
+
 use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
 use ::rpc::forge as forgerpc;
 use chrono::TimeZone;
 use prettytable::{Table, row};
-use std::pin::Pin;
+
+use crate::async_write;
+use crate::cfg::cli_options::StartUpdates;
+use crate::rpc::ApiClient;
 
 pub async fn start_updates(
     api_client: &ApiClient,

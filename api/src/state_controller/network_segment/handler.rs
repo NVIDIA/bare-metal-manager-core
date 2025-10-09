@@ -12,22 +12,21 @@
 
 //! State Handler implementation for Network Segments
 
-use crate::model::network_segment::{NetworkSegment, NetworkSegmentType};
-use crate::model::resource_pool::ResourcePool;
-use crate::{
-    db::{self},
-    model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
-    state_controller::{
-        network_segment::context::NetworkSegmentStateHandlerContextObjects,
-        state_handler::{
-            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted,
-            do_nothing, transition, wait,
-        },
-    },
-};
+use std::sync::Arc;
+
 use forge_uuid::network::NetworkSegmentId;
 use sqlx::PgConnection;
-use std::sync::Arc;
+
+use crate::db::{self};
+use crate::model::network_segment::{
+    NetworkSegment, NetworkSegmentControllerState, NetworkSegmentDeletionState, NetworkSegmentType,
+};
+use crate::model::resource_pool::ResourcePool;
+use crate::state_controller::network_segment::context::NetworkSegmentStateHandlerContextObjects;
+use crate::state_controller::state_handler::{
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted, do_nothing,
+    transition, wait,
+};
 
 /// The actual Network Segment State handler
 #[derive(Debug, Clone)]

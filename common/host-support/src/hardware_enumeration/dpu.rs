@@ -10,11 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    thread::sleep,
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 use regex::Regex;
 use rpc::machine_discovery::{DpuData, LldpSwitchData};

@@ -10,15 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+use std::fmt;
+use std::path::Path;
+use std::str::FromStr;
+use std::time::{Duration, Instant};
+
 use health_report::HealthProbeId;
-use std::{
-    collections::HashMap,
-    fmt,
-    path::Path,
-    str::FromStr,
-    time::{Duration, Instant},
-};
-use tokio::{process::Command as TokioCommand, time::timeout};
+use tokio::process::Command as TokioCommand;
+use tokio::time::timeout;
 
 use crate::{HBNDeviceNames, hbn};
 mod bgp;

@@ -10,18 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::net::SocketAddr;
 use std::ops::Deref;
-use std::{
-    cmp::Ordering,
-    collections::HashMap,
-    fmt, fs,
-    net::SocketAddr,
-    path::PathBuf,
-    sync::Arc,
-    sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
-    time::SystemTime,
-};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::time::SystemTime;
+use std::{fmt, fs};
 
 use arc_swap::ArcSwap;
 use bmc_vendor::BMCVendor;
@@ -39,12 +37,10 @@ use crate::model::firmware::{
 };
 use crate::model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 use crate::model::machine::HostHealthConfig;
+use crate::model::network_segment::NetworkDefinition;
 use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use crate::resource_pool::{self, ResourcePoolDef};
 use crate::state_controller::config::IterationConfig;
-use crate::{
-    model::network_segment::NetworkDefinition,
-    resource_pool::{self, ResourcePoolDef},
-};
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 static BF2_NIC: &str = "24.43.3608";
@@ -1966,10 +1962,8 @@ pub struct VmaasConfig {
 #[cfg(test)]
 mod tests {
     use chrono::Datelike;
-    use figment::{
-        Figment,
-        providers::{Env, Format, Toml},
-    };
+    use figment::Figment;
+    use figment::providers::{Env, Format, Toml};
     use libredfish::model::service_root::RedfishVendor;
 
     use super::*;

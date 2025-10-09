@@ -9,39 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use self::infiniband::MachineInfinibandStatusObservation;
-use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
-use super::instance::status::network::InstanceNetworkStatusObservation;
-use super::sku::SkuStatus;
-use super::{
-    StateSla, bmc_info::BmcInfo, hardware_info::MachineInventory,
-    instance::snapshot::InstanceSnapshot, metadata::Metadata,
-};
-use crate::CarbideResult;
-use crate::model::instance::config::network::DeviceLocator;
-use crate::model::power_manager::PowerOptions;
-use crate::{
-    CarbideError,
-    model::{hardware_info::HardwareInfo, machine::capabilities::MachineCapabilitiesSet},
-};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::ops::Deref;
+
 use ::rpc::errors::RpcDataConversionError;
-
 use base64::prelude::*;
-
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::dpa_interface::DpaInterface;
-use crate::model::firmware::FirmwareComponentType;
-use crate::model::instance::snapshot::InstanceSnapshotPgJson;
-use crate::model::machine::health_override::HealthReportOverrides;
-use crate::model::network_segment::NetworkSegmentType;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use duration_str::deserialize_duration_chrono;
-use forge_uuid::machine::MachineType;
-use forge_uuid::{
-    domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
-    machine::MachineInterfaceId, network::NetworkSegmentId,
-};
+use forge_uuid::domain::DomainId;
+use forge_uuid::instance_type::InstanceTypeId;
+use forge_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use forge_uuid::network::NetworkSegmentId;
 use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
 use libredfish::{PowerState, SystemPowerControl};
@@ -51,11 +32,28 @@ use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
-use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::ops::Deref;
 use strum_macros::EnumIter;
+
+use self::infiniband::MachineInfinibandStatusObservation;
+use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
+use super::StateSla;
+use super::bmc_info::BmcInfo;
+use super::hardware_info::MachineInventory;
+use super::instance::snapshot::InstanceSnapshot;
+use super::instance::status::network::InstanceNetworkStatusObservation;
+use super::metadata::Metadata;
+use super::sku::SkuStatus;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use crate::model::dpa_interface::DpaInterface;
+use crate::model::firmware::FirmwareComponentType;
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::instance::config::network::DeviceLocator;
+use crate::model::instance::snapshot::InstanceSnapshotPgJson;
+use crate::model::machine::capabilities::MachineCapabilitiesSet;
+use crate::model::machine::health_override::HealthReportOverrides;
+use crate::model::network_segment::NetworkSegmentType;
+use crate::model::power_manager::PowerOptions;
+use crate::{CarbideError, CarbideResult};
 
 mod slas;
 

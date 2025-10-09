@@ -2,13 +2,14 @@
 // Unit tests for trait implementations and message handling functionality,
 // including RawMessageType, MqttRecipient, and MessageHandler traits.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use mqttea::client::ClientOptions;
 use mqttea::registry::traits::RawRegistration;
 use mqttea::traits::{MessageHandler, MqttRecipient, RawMessageType};
 use mqttea::{MqtteaClient, QoS};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // Test message types implementing RawMessageType

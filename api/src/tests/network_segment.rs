@@ -15,17 +15,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
-use crate::db::network_segment::VpcColumn;
-use crate::db::vpc::IdColumn;
-use crate::model::address_selection_strategy::AddressSelectionStrategy;
-use crate::model::network_prefix::NewNetworkPrefix;
-use crate::model::network_segment::{
-    NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegment, NetworkSegmentControllerState,
-    NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
-};
-use crate::resource_pool::common::VLANID;
-use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
-use crate::{db, db_init};
+use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
@@ -33,19 +23,29 @@ use common::network_segment::{
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
-
-use crate::db::ObjectColumnFilter;
-use crate::model::network_segment;
-use crate::model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
-use crate::model::vpc::UpdateVpcVirtualization;
-use crate::tests::common;
-use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
-};
-use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 use rpc::forge::NetworkSegmentSearchConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
+
+use crate::db::ObjectColumnFilter;
+use crate::db::network_segment::VpcColumn;
+use crate::db::vpc::IdColumn;
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
+use crate::model::network_prefix::NewNetworkPrefix;
+use crate::model::network_segment;
+use crate::model::network_segment::{
+    NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegment, NetworkSegmentControllerState,
+    NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
+};
+use crate::model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
+use crate::model::vpc::UpdateVpcVirtualization;
+use crate::resource_pool::common::VLANID;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
+};
+use crate::{db, db_init};
 
 #[crate::sqlx_test]
 async fn test_advance_network_prefix_state(

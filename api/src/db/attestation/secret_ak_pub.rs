@@ -11,8 +11,9 @@
  */
 use sqlx::PgConnection;
 
+use crate::CarbideResult;
+use crate::db::DatabaseError;
 use crate::model::attestation::SecretAkPub;
-use crate::{CarbideResult, db::DatabaseError};
 
 pub async fn insert(
     txn: &mut PgConnection,

@@ -9,12 +9,15 @@
 * without an express license agreement from NVIDIA CORPORATION or
 * its affiliates is strictly prohibited.
 */
-use chrono::{DateTime, Utc};
-use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 use std::hash::Hasher;
 
-use crate::{db::DatabaseError, model::machine::MachineHealthHistoryRecord};
+use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, PgConnection, Row};
+
+use crate::db::DatabaseError;
+use crate::model::machine::MachineHealthHistoryRecord;
 
 /// History of Machine health for a single Machine
 #[derive(Debug, Clone)]

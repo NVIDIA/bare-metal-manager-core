@@ -981,12 +981,11 @@ impl From<MachineInventory> for rpc::forge::MachineInventory {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::tests::common::api_fixtures::{
-        dpu::{DPU_BF3_INFO_JSON, DPU_INFO_JSON},
-        host::{X86_INFO_JSON, X86_V1_CPU_INFO_JSON},
-    };
     use prost::Message;
+
+    use super::*;
+    use crate::tests::common::api_fixtures::dpu::{DPU_BF3_INFO_JSON, DPU_INFO_JSON};
+    use crate::tests::common::api_fixtures::host::{X86_INFO_JSON, X86_V1_CPU_INFO_JSON};
 
     #[test]
     fn test_machine_inventory_json_representation() {

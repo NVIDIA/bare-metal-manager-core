@@ -23,14 +23,15 @@
  *  - `bundle list machines`: List all matchines matching a given bundle.
 */
 
-use crate::cfg::measurement::parse_pcr_register_values;
-use crate::measurement::global::cmds::IdNameIdentifier;
 use clap::Parser;
 use forge_uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
 };
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
+
+use crate::cfg::measurement::parse_pcr_register_values;
+use crate::measurement::global::cmds::IdNameIdentifier;
 
 /// CmdBundle provides a container for the `bundle` subcommand, which itself
 /// contains other subcommands for working with profiles.

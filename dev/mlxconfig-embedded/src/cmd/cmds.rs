@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::cmd::args::{
-    Cli, Commands, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
-};
-use mlxconfig_device::{
-    cmd::device::args::DeviceArgs, cmd::device::cmds::handle as handle_device, info::MlxDeviceInfo,
-};
+use std::fs;
+use std::time::Duration;
+
+use mlxconfig_device::cmd::device::args::DeviceArgs;
+use mlxconfig_device::cmd::device::cmds::handle as handle_device;
+use mlxconfig_device::info::MlxDeviceInfo;
 use mlxconfig_lockdown::cmd::cmds::handle_lockdown;
 use mlxconfig_profile::MlxConfigProfile;
 use mlxconfig_registry::registries;
@@ -24,8 +24,10 @@ use mlxconfig_variables::{MlxConfigVariable, MlxVariableRegistry, MlxVariableSpe
 use prettytable::{Cell, Row, Table};
 use regex::Regex;
 use serde_json;
-use std::fs;
-use std::time::Duration;
+
+use crate::cmd::args::{
+    Cli, Commands, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
+};
 
 pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {

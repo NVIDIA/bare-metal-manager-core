@@ -14,13 +14,8 @@
  * gRPC handlers for measurement bundle related API calls.
  */
 
-use tonic::Status;
-
-use crate::measured_boot::interface::bundle::get_measurement_bundle_records_with_txn;
-use crate::measured_boot::interface::bundle::{
-    get_machines_for_bundle_id, get_machines_for_bundle_name,
-};
-use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::MeasurementBundleState;
 use rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, CreateMeasurementBundleResponse,
     DeleteMeasurementBundleRequest, DeleteMeasurementBundleResponse, FindClosestBundleMatchRequest,
@@ -29,18 +24,20 @@ use rpc::protos::measured_boot::{
     RenameMeasurementBundleRequest, RenameMeasurementBundleResponse, ShowMeasurementBundleRequest,
     ShowMeasurementBundleResponse, ShowMeasurementBundlesRequest, ShowMeasurementBundlesResponse,
     UpdateMeasurementBundleRequest, UpdateMeasurementBundleResponse,
+    delete_measurement_bundle_request, list_measurement_bundle_machines_request,
+    rename_measurement_bundle_request, show_measurement_bundle_request,
+    update_measurement_bundle_request,
 };
 use sqlx::{Pool, Postgres};
+use tonic::Status;
 
 use crate::errors::CarbideError;
 use crate::measured_boot::db::{self, bundle};
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::MeasurementBundleState;
-use rpc::protos::measured_boot::delete_measurement_bundle_request;
-use rpc::protos::measured_boot::list_measurement_bundle_machines_request;
-use rpc::protos::measured_boot::rename_measurement_bundle_request;
-use rpc::protos::measured_boot::show_measurement_bundle_request;
-use rpc::protos::measured_boot::update_measurement_bundle_request;
+use crate::measured_boot::interface::bundle::{
+    get_machines_for_bundle_id, get_machines_for_bundle_name,
+    get_measurement_bundle_records_with_txn,
+};
+use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_create_measurement_bundle handles the CreateMeasurementBundle
 /// API endpoint.

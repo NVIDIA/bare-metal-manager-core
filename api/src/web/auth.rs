@@ -14,27 +14,25 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::api::Api;
-use crate::web::Oauth2Layer;
-use axum::{
-    Extension,
-    extract::{Query, State as AxumState},
-    http::{HeaderValue, Method, StatusCode, header},
-    response::{IntoResponse, Redirect, Response},
-};
-use axum_extra::extract::{
-    Host,
-    cookie::{Cookie, PrivateCookieJar},
-};
+use axum::Extension;
+use axum::extract::{Query, State as AxumState};
+use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::response::{IntoResponse, Redirect, Response};
+use axum_extra::extract::Host;
+use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use http::HeaderMap;
+use oauth2::http::HeaderValue as Oauth2HeaderValue;
 use oauth2::{
     AsyncHttpClient, AuthorizationCode, ClientSecret, HttpRequest, PkceCodeVerifier, Scope,
-    TokenResponse, http::HeaderValue as Oauth2HeaderValue,
+    TokenResponse,
 };
 use serde::Deserialize;
 use time::Duration;
+
+use crate::api::Api;
+use crate::web::Oauth2Layer;
 
 lazy_static::lazy_static! {
     static ref CONTENT_TYPE_APPLICATION_FORM_URL_ENCODED: Oauth2HeaderValue = Oauth2HeaderValue::from_str("application/x-www-form-urlencoded").unwrap();

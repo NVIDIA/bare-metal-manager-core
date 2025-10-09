@@ -9,7 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::net::IpAddr;
+use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
@@ -23,17 +26,13 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use utils::models::arch::CpuArchitecture;
 
-use super::{DpuModel, bmc_info::BmcInfo, hardware_info::DpuData};
+use super::DpuModel;
+use super::bmc_info::BmcInfo;
+use super::hardware_info::DpuData;
 use crate::model::firmware::{Firmware, FirmwareComponentType};
-use crate::model::hardware_info::HardwareInfoError;
-use crate::model::machine::machine_id::MissingHardwareInfo;
-use crate::{
-    CarbideError, CarbideResult,
-    model::{
-        hardware_info::{DmiData, HardwareInfo},
-        machine::machine_id::from_hardware_info_with_type,
-    },
-};
+use crate::model::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
+use crate::model::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
+use crate::{CarbideError, CarbideResult};
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can

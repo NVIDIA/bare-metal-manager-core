@@ -12,7 +12,6 @@
 
 use std::sync::Arc;
 
-use super::filters;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
@@ -20,9 +19,10 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-
-use crate::api::Api;
 use uuid::Uuid;
+
+use super::filters;
+use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "dpa_show.html")]

@@ -1,19 +1,19 @@
-use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
+use std::collections::HashSet;
+use std::path::Path;
 
-use crate::config::MachineATronContext;
-
-use crate::api_client::ClientApiError;
-use crate::host_machine::HostMachineHandle;
-use crate::machine_state_machine::AddressConfigError;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
-use rpc::forge::MachineArchitecture;
-use std::collections::HashSet;
-use std::path::Path;
+use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
+use rpc::forge_agent_control_response::Action;
 use tempfile::TempDir;
 use uuid::Uuid;
+
+use crate::api_client::ClientApiError;
+use crate::config::MachineATronContext;
+use crate::host_machine::HostMachineHandle;
+use crate::machine_state_machine::AddressConfigError;
 
 lazy_static! {
     static ref BMC_MOCK_SOCKET_TEMP_DIR: TempDir = tempfile::Builder::new()

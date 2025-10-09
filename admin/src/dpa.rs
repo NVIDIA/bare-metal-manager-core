@@ -12,12 +12,13 @@
 
 use std::fmt::Write;
 
-use crate::cfg::cli_options::ShowDpa;
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
 use forge_uuid::dpa_interface::DpaInterfaceId;
 use prettytable::{Table, row};
+
+use crate::cfg::cli_options::ShowDpa;
+use crate::rpc::ApiClient;
 
 pub async fn handle_show(
     args: ShowDpa,

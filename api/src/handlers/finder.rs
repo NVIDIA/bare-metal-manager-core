@@ -10,24 +10,24 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{fmt, net::IpAddr, str::FromStr};
+use std::fmt;
+use std::net::IpAddr;
+use std::str::FromStr;
 
-use ::rpc::protos::common as rpc_common;
-use ::rpc::protos::forge as rpc;
+use ::rpc::protos::{common as rpc_common, forge as rpc};
+use forge_uuid::domain::DomainId;
 use forge_uuid::dpa_interface::DpaInterfaceId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineInterfaceId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 
-use crate::db;
-use crate::db::domain;
-use crate::db::{ObjectColumnFilter, instance, network_segment, vpc};
+use crate::api::Api;
+use crate::db::{DatabaseError, ObjectColumnFilter, domain, instance, network_segment, vpc};
 use crate::model::network_segment::NetworkSegmentSearchConfig;
+use crate::model::resource_pool::ResourcePoolEntryState;
 use crate::model::route_server::RouteServerSourceType;
-use crate::{
-    CarbideError, api::Api, db::DatabaseError, model::resource_pool::ResourcePoolEntryState,
-};
-use forge_uuid::{
-    domain::DomainId, instance::InstanceId, machine::MachineInterfaceId, network::NetworkSegmentId,
-    vpc::VpcId,
-};
+use crate::{CarbideError, db};
 
 pub(crate) async fn find_ip_address(
     api: &Api,

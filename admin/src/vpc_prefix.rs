@@ -13,19 +13,19 @@
 use std::borrow::Cow;
 use std::str::FromStr;
 
-use ipnet::IpNet;
-use serde::Serialize;
-
-use crate::cfg::cli_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::CarbideCliError::GenericError;
 use ::rpc::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use forge_uuid::vpc::VpcPrefixId;
+use ipnet::IpNet;
 use rpc::forge::{
     PrefixMatchType, VpcPrefix, VpcPrefixCreationRequest, VpcPrefixDeletionRequest,
     VpcPrefixSearchQuery,
 };
+use serde::Serialize;
+
+use crate::cfg::cli_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
+use crate::rpc::ApiClient;
 
 pub async fn handle_show(
     args: VpcPrefixShow,

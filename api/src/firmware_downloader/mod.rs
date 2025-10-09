@@ -12,12 +12,10 @@
 
 // Coordinates downloading firmware in the background with multiple possible requestors
 
-use std::{
-    collections::HashSet,
-    path::Path,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::collections::HashSet;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use eyre::{Report, WrapErr, eyre};
 use futures_util::StreamExt;

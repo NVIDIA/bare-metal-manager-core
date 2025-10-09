@@ -14,14 +14,16 @@
 //!
 //! Shared code by measured boot tests.
 
-use crate::{
-    measured_boot::db,
-    model::{hardware_info::HardwareInfo, machine::ManagedHostState, metadata::Metadata},
-};
+use std::str::FromStr;
+
 use forge_uuid::machine::MachineId;
 use measured_boot::machine::CandidateMachine;
 use sqlx::PgConnection;
-use std::str::FromStr;
+
+use crate::measured_boot::db;
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::ManagedHostState;
+use crate::model::metadata::Metadata;
 
 pub fn load_topology_json(path: &str) -> HardwareInfo {
     const TEST_DATA_DIR: &str = concat!(

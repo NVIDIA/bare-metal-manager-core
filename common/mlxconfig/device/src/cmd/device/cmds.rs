@@ -10,11 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use prettytable::{Cell, Row, Table};
+
 use crate::cmd::device::args::{DeviceAction, DeviceArgs, OutputFormat};
 use crate::filters::{DeviceFilter, DeviceFilterSet};
 use crate::info::MlxDeviceInfo;
 use crate::report::MlxDeviceReport;
-use prettytable::{Cell, Row, Table};
 
 // build_filter_set creates a DeviceFilterSet from a vector of DeviceFilters.
 fn build_filter_set(filters: Vec<DeviceFilter>) -> DeviceFilterSet {

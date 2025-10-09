@@ -20,8 +20,7 @@ use uuid::Uuid;
 
 use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
-use crate::model::expected_machine::ExpectedMachine;
-use crate::model::expected_machine::ExpectedMachineData;
+use crate::model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use crate::{CarbideError, db};
 
 lazy_static! {

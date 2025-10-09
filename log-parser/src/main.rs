@@ -12,18 +12,20 @@
 
 mod carbide_reporting;
 
-use crate::carbide_reporting::send_health_alerts;
-use anyhow::anyhow;
-use carbide_reporting::{create_forge_client, get_client_cert_info, get_forge_root_ca_path};
-use chrono::{DateTime, Utc};
-use regex::{Captures, Regex};
-use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::SeekFrom;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::{fmt, time};
+
+use anyhow::anyhow;
+use carbide_reporting::{create_forge_client, get_client_cert_info, get_forge_root_ca_path};
+use chrono::{DateTime, Utc};
+use regex::{Captures, Regex};
+use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+use crate::carbide_reporting::send_health_alerts;
 const MAX_EVENTS: usize = 128;
 
 #[derive(Debug, Deserialize, Copy, Clone, Eq, PartialEq)]

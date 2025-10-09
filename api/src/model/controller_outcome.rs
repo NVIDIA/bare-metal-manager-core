@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
+
+use serde::{Deserialize, Serialize};
 
 /// DB storage of the result of a state handler iteration
 /// It is different from a StateHandlerOutcome in that it also stores the error message,

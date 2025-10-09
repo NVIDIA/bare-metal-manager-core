@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common;
 use common::api_fixtures::{create_managed_host_with_config, create_test_env};
 use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
+
+use crate::tests::common;
 
 #[crate::sqlx_test]
 async fn fetch_bmc_credentials(pool: PgPool) {

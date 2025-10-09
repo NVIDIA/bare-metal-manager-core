@@ -13,32 +13,27 @@
 use std::ops::DerefMut;
 use std::str::FromStr;
 
-use crate::{
-    CarbideError, CarbideResult, db,
-    db::{DatabaseError, instance_address},
-    model::{
-        instance::{
-            config::{
-                InstanceConfig,
-                infiniband::InstanceInfinibandConfig,
-                network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate},
-                storage::InstanceStorageConfig,
-            },
-            snapshot::InstanceSnapshot,
-            status::storage::InstanceStorageStatusObservation,
-        },
-        metadata::Metadata,
-        os::{OperatingSystem, OperatingSystemVariant},
-    },
-};
-
-use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::model::instance::NewInstance;
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use forge_uuid::{instance::InstanceId, machine::MachineId, vpc::VpcId};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::vpc::VpcId;
 use sqlx::PgConnection;
+
+use crate::db::{
+    ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter, instance_address,
+};
+use crate::model::instance::NewInstance;
+use crate::model::instance::config::InstanceConfig;
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
+use crate::model::instance::config::storage::InstanceStorageConfig;
+use crate::model::instance::snapshot::InstanceSnapshot;
+use crate::model::instance::status::storage::InstanceStorageStatusObservation;
+use crate::model::metadata::Metadata;
+use crate::model::os::{OperatingSystem, OperatingSystemVariant};
+use crate::{CarbideError, CarbideResult, db};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;

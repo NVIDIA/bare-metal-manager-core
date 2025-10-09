@@ -16,7 +16,9 @@
 use std::sync::Once;
 
 use tracing::metadata::LevelFilter;
-use tracing_subscriber::{filter::EnvFilter, prelude::*, util::SubscriberInitExt};
+use tracing_subscriber::filter::EnvFilter;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::util::SubscriberInitExt;
 
 pub mod agent_config;
 #[cfg(feature = "linux-build")]

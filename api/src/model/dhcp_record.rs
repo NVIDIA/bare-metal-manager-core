@@ -1,10 +1,11 @@
+use std::net::IpAddr;
+
 use forge_uuid::domain::DomainId;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::FromRow;
-use std::net::IpAddr;
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID

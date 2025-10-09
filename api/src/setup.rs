@@ -10,64 +10,61 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
+use std::net::IpAddr;
+use std::str::FromStr;
+use std::sync::Arc;
+
 use eyre::WrapErr;
-use figment::{
-    Figment,
-    providers::{Env, Format, Toml},
-};
-use forge_secrets::{ForgeVaultClient, credentials::CredentialProvider};
+use figment::Figment;
+use figment::providers::{Env, Format, Toml};
+use forge_secrets::ForgeVaultClient;
+use forge_secrets::credentials::CredentialProvider;
 use futures_util::TryFutureExt;
 use opentelemetry::metrics::Meter;
-use sqlx::{ConnectOptions, PgPool, postgres::PgSslMode};
-use std::net::IpAddr;
-use std::{collections::HashSet, str::FromStr, sync::Arc};
-use tokio::sync::{
-    Semaphore, oneshot,
-    oneshot::{Receiver, Sender},
-};
+use sqlx::postgres::PgSslMode;
+use sqlx::{ConnectOptions, PgPool};
+use tokio::sync::oneshot::{Receiver, Sender};
+use tokio::sync::{Semaphore, oneshot};
 
-use crate::handlers::machine_validation::apply_config_on_startup;
-use crate::state_controller::machine::handler::PowerOptionConfig;
-use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
-use crate::{db, db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
-
-use crate::cfg::file::ListenMode;
+use crate::api::Api;
+use crate::cfg::file::{CarbideConfig, ListenMode};
+use crate::db::DatabaseError;
+use crate::db::machine::update_dpu_asns;
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
+use crate::firmware_downloader::FirmwareDownloader;
+use crate::handlers::machine_validation::apply_config_on_startup;
+use crate::ib::{self, IBFabricManager};
+use crate::ib_fabric_monitor::IbFabricMonitor;
+use crate::ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl};
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
+use crate::logging::service_health_metrics::{
+    ServiceHealthContext, start_export_service_health_metrics,
+};
+use crate::machine_update_manager::MachineUpdateManager;
+use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::model::expected_machine::ExpectedMachine;
 use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::model::machine::HostHealthConfig;
 use crate::model::route_server::RouteServerSourceType;
-use crate::{
-    api::Api,
-    attestation,
-    cfg::file::CarbideConfig,
-    db::DatabaseError,
-    db_init, dpa, ethernet_virtualization,
-    firmware_downloader::FirmwareDownloader,
-    ib::{self, IBFabricManager},
-    ib_fabric_monitor::IbFabricMonitor,
-    ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl},
-    listener,
-    logging::service_health_metrics::{ServiceHealthContext, start_export_service_health_metrics},
-    machine_update_manager::MachineUpdateManager,
-    measured_boot::metrics_collector::MeasuredBootMetricsCollector,
-    preingestion_manager::PreingestionManager,
-    redfish::RedfishClientPool,
-    resource_pool::{self, common::CommonPools},
-    site_explorer::{BmcEndpointExplorer, SiteExplorer},
-    state_controller::{
-        controller::StateController,
-        dpa_interface::{handler::DpaInterfaceStateHandler, io::DpaInterfaceStateControllerIO},
-        ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
-        machine::{handler::MachineStateHandlerBuilder, io::MachineStateControllerIO},
-        network_segment::{
-            handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
-        },
-    },
-};
+use crate::preingestion_manager::PreingestionManager;
+use crate::redfish::RedfishClientPool;
+use crate::resource_pool::common::CommonPools;
+use crate::resource_pool::{self, DefineResourcePoolError};
+use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
+use crate::state_controller::controller::StateController;
+use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
+use crate::state_controller::dpa_interface::io::DpaInterfaceStateControllerIO;
+use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
+use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
+use crate::state_controller::machine::handler::{MachineStateHandlerBuilder, PowerOptionConfig};
+use crate::state_controller::machine::io::MachineStateControllerIO;
+use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
+use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
+use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
+use crate::{attestation, db, db_init, dpa, ethernet_virtualization, listener};
 
 pub fn parse_carbide_config(
     config_str: String,

@@ -13,12 +13,13 @@
 // tests/result_types_tests.rs
 // Tests for result types and their functionality
 
+use std::time::Duration;
+
 use mlxconfig_runner::{
     ComparisonResult, PlannedChange, QueriedDeviceInfo, QueriedVariable, QueryResult, SyncResult,
     VariableChange,
 };
 use mlxconfig_variables::MlxValueType;
-use std::time::Duration;
 
 mod common;
 

@@ -9,89 +9,71 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{
-    collections::HashMap,
-    net::Ipv4Addr,
-    ops::DerefMut,
-    str::FromStr,
-    time::{Duration, SystemTime},
-};
+use std::collections::HashMap;
+use std::net::Ipv4Addr;
+use std::ops::DerefMut;
+use std::str::FromStr;
+use std::time::{Duration, SystemTime};
 
-use crate::{
-    cfg::file::VmaasConfig,
-    db::{
-        self, ObjectColumnFilter, instance_address::UsedOverlayNetworkIpResolver,
-        network_segment::IdColumn,
-    },
-    dhcp::allocation::UsedIpResolver,
-    instance::{InstanceAllocationRequest, allocate_instance, allocate_network},
-    model::{
-        instance::{
-            config::{
-                InstanceConfig,
-                infiniband::InstanceInfinibandConfig,
-                network::{
-                    DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
-                },
-                storage::InstanceStorageConfig,
-            },
-            status::network::{
-                InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
-            },
-        },
-        machine::{
-            CleanupState, FailureDetails, InstanceState, MachineState, MachineValidatingState,
-            ManagedHostState, MeasuringState, NetworkConfigUpdateState, ValidationState,
-        },
-        metadata::Metadata,
-        network_security_group::NetworkSecurityGroupStatusObservation,
-    },
-    network_segment::allocate::Ipv4PrefixAllocator,
-    tests::common::api_fixtures::{
-        create_managed_host_multi_dpu, instance::single_interface_network_config_with_vfs,
-    },
-};
 use ::rpc::forge::forge_server::Forge;
 use chrono::Utc;
+use common::api_fixtures::instance::{
+    advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
+    interface_network_config_with_devices, single_interface_network_config,
+    single_interface_network_config_with_vpc_prefix, update_instance_network_status_observation,
+};
+use common::api_fixtures::managed_host::ManagedHostConfig;
+use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides, dpu,
-    get_config, get_vpc_fixture_id, inject_machine_measurements,
-    instance::{
-        advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
-        interface_network_config_with_devices, single_interface_network_config,
-        single_interface_network_config_with_vpc_prefix,
-        update_instance_network_status_observation,
-    },
-    managed_host::ManagedHostConfig,
-    network_configured_with_health, persist_machine_validation_result,
-    populate_network_security_groups, site_explorer,
-    tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
+    get_config, get_vpc_fixture_id, inject_machine_measurements, network_configured_with_health,
+    persist_machine_validation_result, populate_network_security_groups, site_explorer,
 };
-
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
-
-use rpc::{
-    InstanceReleaseRequest, InterfaceFunctionType, Timestamp,
-    forge::{
-        Issue, IssueCategory, NetworkSegmentSearchFilter, OperatingSystem, TpmCaCert, TpmCaCertId,
-    },
+use rpc::forge::{
+    Issue, IssueCategory, NetworkSegmentSearchFilter, OperatingSystem, TpmCaCert, TpmCaCertId,
 };
-use tonic::Request;
-
-use crate::model::dpu_machine_update::DpuMachineUpdate;
-use crate::model::network_segment::NetworkSegmentSearchConfig;
-use crate::model::vpc::UpdateVpcVirtualization;
-use crate::tests::common;
-use crate::tests::common::api_fixtures::{
-    TestEnv, create_managed_host_with_ek, update_time_params,
-};
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcPrefixId;
+use rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp};
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use tonic::Request;
+
+use crate::cfg::file::VmaasConfig;
+use crate::db::instance_address::UsedOverlayNetworkIpResolver;
+use crate::db::network_segment::IdColumn;
+use crate::db::{self, ObjectColumnFilter};
+use crate::dhcp::allocation::UsedIpResolver;
+use crate::instance::{InstanceAllocationRequest, allocate_instance, allocate_network};
+use crate::model::dpu_machine_update::DpuMachineUpdate;
+use crate::model::instance::config::InstanceConfig;
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::instance::config::network::{
+    DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
+};
+use crate::model::instance::config::storage::InstanceStorageConfig;
+use crate::model::instance::status::network::{
+    InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
+};
+use crate::model::machine::{
+    CleanupState, FailureDetails, InstanceState, MachineState, MachineValidatingState,
+    ManagedHostState, MeasuringState, NetworkConfigUpdateState, ValidationState,
+};
+use crate::model::metadata::Metadata;
+use crate::model::network_security_group::NetworkSecurityGroupStatusObservation;
+use crate::model::network_segment::NetworkSegmentSearchConfig;
+use crate::model::vpc::UpdateVpcVirtualization;
+use crate::network_segment::allocate::Ipv4PrefixAllocator;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::instance::single_interface_network_config_with_vfs;
+use crate::tests::common::api_fixtures::{
+    TestEnv, create_managed_host_multi_dpu, create_managed_host_with_ek, update_time_params,
+};
 
 #[crate::sqlx_test]
 async fn test_allocate_and_release_instance_one_dpu(

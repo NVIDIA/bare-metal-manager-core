@@ -20,6 +20,7 @@ pub mod traits;
 pub mod types;
 
 pub use core::MqttRegistry;
+
 pub use entry::MqttRegistryEntry;
 pub use traits::{
     JsonRegistration, MessageRegistration, ProtobufRegistration, RawRegistration, YamlRegistration,

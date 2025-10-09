@@ -11,11 +11,9 @@
  */
 
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{DpaInterfaceCreationRequest, DpaInterfacesByIdsRequest};
 
-use crate::tests::common::api_fixtures::create_managed_host;
-use crate::tests::common::api_fixtures::create_test_env;
-use rpc::forge::DpaInterfaceCreationRequest;
-use rpc::forge::DpaInterfacesByIdsRequest;
+use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[crate::sqlx_test]
 async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

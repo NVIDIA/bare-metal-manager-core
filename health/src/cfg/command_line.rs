@@ -9,8 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::Parser;
 use std::str::FromStr;
+
+use clap::Parser;
 
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]

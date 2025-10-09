@@ -10,24 +10,31 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{api::Api, auth, cfg::file::AuthConfig, logging::api_logs::LogLayer};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Instant;
+
 use ::rpc::forge as rpc;
 use hyper::server::conn::{http1, http2};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
-use opentelemetry::{KeyValue, metrics::Meter};
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::Meter;
 use rustls::server::WebPkiClientVerifier;
 use rustls_pki_types::CertificateDer;
-use std::{net::SocketAddr, sync::Arc, time::Instant};
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::oneshot::{Receiver, Sender};
-use tokio_rustls::{
-    TlsAcceptor,
-    rustls::{RootCertStore, ServerConfig},
-};
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 use tonic_reflection::server::Builder;
-use tower_http::{add_extension::AddExtensionLayer, auth::AsyncRequireAuthorizationLayer};
+use tower_http::add_extension::AddExtensionLayer;
+use tower_http::auth::AsyncRequireAuthorizationLayer;
+
+use crate::api::Api;
+use crate::auth;
+use crate::cfg::file::AuthConfig;
+use crate::logging::api_logs::LogLayer;
 
 pub enum ApiListenMode {
     Tls(Arc<ApiTlsConfig>),

@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::logging::metrics_utils::SharedMetricsHolder;
-use opentelemetry::{
-    KeyValue,
-    metrics::{Counter, Histogram, Meter},
-};
+use std::collections::HashMap;
+use std::time::Duration;
+
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Counter, Histogram, Meter};
 use serde::Serialize;
-use std::{collections::HashMap, time::Duration};
+
+use crate::logging::metrics_utils::SharedMetricsHolder;
 
 /// Metrics that are gathered in one a single `IbFabricMonitor` run
 #[derive(Clone, Debug)]

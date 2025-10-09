@@ -15,8 +15,6 @@
  *  tables in the database, leveraging the bundle-specific record types.
 */
 
-use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use forge_uuid::{DbPrimaryUuid, DbTable};
@@ -25,6 +23,9 @@ use measured_boot::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
 use sqlx::PgConnection;
+
+use crate::db::DatabaseError;
+use crate::measured_boot::interface::common;
 
 /// insert_measurement_bundle_record is a very basic insert of a
 /// new row into the measurement_bundles table, where only a profile_id

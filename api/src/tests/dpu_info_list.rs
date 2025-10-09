@@ -1,4 +1,5 @@
-use common::api_fixtures::{create_managed_host, create_test_env, dpu::loopback_ip};
+use common::api_fixtures::dpu::loopback_ip;
+use common::api_fixtures::{create_managed_host, create_test_env};
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;

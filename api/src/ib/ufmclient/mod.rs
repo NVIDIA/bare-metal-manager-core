@@ -10,19 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
-use crate::ib::ufmclient::rest::ResponseDetails;
-
 use self::rest::{RestClient, RestClientConfig, RestError, RestScheme};
+use crate::ib::ufmclient::rest::ResponseDetails;
 
 mod rest;
 

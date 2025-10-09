@@ -1,9 +1,10 @@
+use mac_address::MacAddress;
+use sqlx::PgConnection;
+
 use crate::db::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::model::predicted_machine_interface::{
     NewPredictedMachineInterface, PredictedMachineInterface,
 };
-use mac_address::MacAddress;
-use sqlx::PgConnection;
 
 #[cfg(test)]
 #[derive(Clone, Copy)]

@@ -9,15 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db::{self};
-use crate::model::machine::MachineStateHistory;
-use crate::model::machine::ManagedHostState;
-use common::api_fixtures::create_managed_host;
+use common::api_fixtures::dpu::create_dpu_machine;
+use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 
+use crate::db::{self};
+use crate::model::machine::{MachineStateHistory, ManagedHostState};
 use crate::tests::common;
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 
 #[crate::sqlx_test]
 async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

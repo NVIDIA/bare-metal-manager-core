@@ -1,10 +1,12 @@
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
+
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 use crate::host_port_pair::HostPortParseError::{
     EmptyString, InvalidPort, InvalidString, UriUnsupported,
 };
-use serde::de::Visitor;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
 
 /// A [`HostPortPair`] is a representation of a string like `some-host.fqdn:1234`.
 ///
@@ -123,8 +125,9 @@ pub enum HostPortParseError {
 
 #[cfg(test)]
 mod tests {
-    use crate::host_port_pair::{HostPortPair, HostPortParseError};
     use std::str::FromStr;
+
+    use crate::host_port_pair::{HostPortPair, HostPortParseError};
 
     #[test]
     fn test_proxy_address_parsing() {

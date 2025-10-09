@@ -10,14 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::site_explorer::EndpointExplorationError;
+use std::sync::Arc;
+
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
 };
 use mac_address::MacAddress;
-use std::sync::Arc;
 
 use super::metrics::SiteExplorationMetrics;
+use crate::model::site_explorer::EndpointExplorationError;
 
 const SITEWIDE_BMC_ROOT_CREDENTIAL_KEY: CredentialKey = CredentialKey::BmcCredentials {
     credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,

@@ -9,6 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::BTreeMap;
+use std::future::Future;
+use std::net::{Ipv4Addr, TcpListener};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{self, Duration};
+
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use api_test_helper::{
@@ -20,15 +27,6 @@ use futures::FutureExt;
 use futures::future::join_all;
 use itertools::Itertools;
 use sqlx::{Postgres, Row};
-use std::future::Future;
-use std::net::TcpListener;
-use std::sync::Arc;
-use std::{
-    collections::BTreeMap,
-    net::Ipv4Addr,
-    path::PathBuf,
-    time::{self, Duration},
-};
 use tokio::time::sleep;
 
 #[ctor::ctor]

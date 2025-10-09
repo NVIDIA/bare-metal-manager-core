@@ -1,8 +1,10 @@
+use sqlx::PgConnection;
+
 use crate::db::{DatabaseError, ObjectFilter};
 use crate::errors::CarbideError;
-use crate::model::tenant::TenantKeysetId;
-use crate::model::tenant::{TenantKeyset, TenantKeysetIdentifier, UpdateTenantKeyset};
-use sqlx::PgConnection;
+use crate::model::tenant::{
+    TenantKeyset, TenantKeysetId, TenantKeysetIdentifier, UpdateTenantKeyset,
+};
 
 pub async fn create(
     value: &TenantKeyset,

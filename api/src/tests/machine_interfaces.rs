@@ -10,25 +10,26 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{borrow::Borrow, collections::HashSet, str::FromStr};
+use std::borrow::Borrow;
+use std::collections::HashSet;
+use std::str::FromStr;
 
-use crate::{
-    CarbideError,
-    db::{self, dhcp_entry::DhcpEntry, domain},
-    model::machine::{MachineInterfaceSnapshot, machine_id::from_hardware_info},
-};
-
+use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
 use itertools::Itertools;
 use mac_address::MacAddress;
-use rpc::forge::{InterfaceSearchQuery, forge_server::Forge};
-
-use crate::db::ObjectColumnFilter;
-use crate::model::address_selection_strategy::AddressSelectionStrategy;
-use crate::tests::common;
-use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
-use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
+use rpc::forge::InterfaceSearchQuery;
+use rpc::forge::forge_server::Forge;
 use tokio::sync::broadcast;
 use tonic::Code;
+
+use crate::CarbideError;
+use crate::db::dhcp_entry::DhcpEntry;
+use crate::db::{self, ObjectColumnFilter, domain};
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
+use crate::model::machine::MachineInterfaceSnapshot;
+use crate::model::machine::machine_id::from_hardware_info;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
 
 #[crate::sqlx_test]
 async fn only_one_primary_interface_per_machine(

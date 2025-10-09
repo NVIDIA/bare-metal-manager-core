@@ -10,26 +10,26 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::IpAddr;
+use std::str::FromStr;
+use std::sync::Arc;
+
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
 };
+use libredfish::model::BootProgress;
 use libredfish::{
     EnabledDisabled, Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl,
-    model::BootProgress,
 };
 use sqlx::PgConnection;
-use std::net::IpAddr;
-use std::{str::FromStr, sync::Arc};
 use utils::HostPortPair;
 
-use crate::{
-    CarbideError, CarbideResult,
-    db::{self},
-    ipmitool::IPMITool,
-    model::machine::Machine,
-};
+use crate::db::{self};
+use crate::ipmitool::IPMITool;
+use crate::model::machine::Machine;
+use crate::{CarbideError, CarbideResult};
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
@@ -636,30 +636,28 @@ pub async fn did_dpu_finish_booting(
 #[cfg(test)]
 pub mod test_support {
     use std::collections::HashMap;
+    use std::path::Path;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
 
-    use super::*;
+    use chrono::Utc;
+    use forge_secrets::credentials::TestCredentialProvider;
+    use libredfish::model::oem::nvidia_dpu::NicMode;
+    use libredfish::model::secure_boot::SecureBootMode;
+    use libredfish::model::sensor::GPUSensors;
+    use libredfish::model::service_root::ServiceRoot;
+    use libredfish::model::storage::Drives;
+    use libredfish::model::task::Task;
+    use libredfish::model::update_service::{ComponentType, TransferProtocolType, UpdateService};
+    use libredfish::model::{ODataId, ODataLinks};
     use libredfish::{
         Assembly, Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState,
         Redfish, RedfishError, Resource, SystemPowerControl,
-        model::{
-            ODataId, ODataLinks,
-            oem::nvidia_dpu::NicMode,
-            secure_boot::SecureBootMode,
-            sensor::GPUSensors,
-            service_root::ServiceRoot,
-            storage::Drives,
-            task::Task,
-            update_service::{ComponentType, TransferProtocolType, UpdateService},
-        },
     };
     use mac_address::MacAddress;
-    use std::sync::Mutex;
-    use std::time::Duration;
-    use std::{
-        path::Path,
-        sync::atomic::{AtomicBool, Ordering},
-    };
-    use {chrono::Utc, forge_secrets::credentials::TestCredentialProvider};
+
+    use super::*;
 
     #[derive(Default)]
     struct RedfishSimState {
@@ -1628,9 +1626,10 @@ pub mod test_support {
 
 #[cfg(test)]
 mod tests {
+    use libredfish::PowerState;
+
     use super::test_support::*;
     use super::*;
-    use libredfish::PowerState;
 
     #[tokio::test]
     async fn test_power_state() {

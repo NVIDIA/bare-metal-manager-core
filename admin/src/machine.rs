@@ -9,12 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::VecDeque, fmt::Write, fs, pin::Pin, str::FromStr, time::Duration};
+use std::collections::VecDeque;
+use std::fmt::Write;
+use std::fs;
+use std::pin::Pin;
+use std::str::FromStr;
+use std::time::Duration;
 
-use ::rpc::{
-    admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat},
-    forge as forgerpc,
-};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::forge as forgerpc;
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
 use health_report::{
@@ -24,11 +27,11 @@ use prettytable::{Row, Table, row};
 use rpc::Machine;
 
 use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
-use crate::{
-    async_write, async_write_table_as_csv, async_writeln,
-    cfg::cli_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField},
-    rpc::ApiClient,
+use crate::cfg::cli_options::{
+    ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField,
 };
+use crate::rpc::ApiClient;
+use crate::{async_write, async_write_table_as_csv, async_writeln};
 
 fn convert_machine_to_nice_format(
     machine: forgerpc::Machine,

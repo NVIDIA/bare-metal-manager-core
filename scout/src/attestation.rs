@@ -11,11 +11,13 @@
  */
 
 use std::ffi::CString;
+use std::process::Command;
 use std::str::FromStr;
+use std::vec::Vec;
 
 use ::rpc::machine_discovery::TpmDescription;
-use tss_esapi::Context;
-use tss_esapi::TctiNameConf;
+use ::rpc::{forge as rpc, machine_discovery as rpc_md};
+use forge_uuid::machine::MachineId;
 use tss_esapi::abstraction::{ak, ek};
 use tss_esapi::attributes::session::SessionAttributesBuilder;
 use tss_esapi::constants::{CapabilityType, PropertyTag, SessionType};
@@ -24,22 +26,15 @@ use tss_esapi::interface_types::algorithm::{
     AsymmetricAlgorithm, HashingAlgorithm, SignatureSchemeAlgorithm,
 };
 use tss_esapi::interface_types::session_handles::PolicySession;
-use tss_esapi::structures::PcrSlot;
-use tss_esapi::structures::SymmetricDefinition;
+use tss_esapi::structures::CapabilityData::TpmProperties;
 use tss_esapi::structures::{
-    Attest, CapabilityData::TpmProperties, Data, Digest, EncryptedSecret, HashScheme,
-    PcrSelectionListBuilder, Signature,
+    Attest, Data, Digest, EncryptedSecret, HashScheme, IdObject, PcrSelectionListBuilder, PcrSlot,
+    Signature, SignatureScheme, SymmetricDefinition,
 };
-use tss_esapi::structures::{IdObject, SignatureScheme};
 use tss_esapi::traits::Marshall;
-
-use std::process::Command;
-use std::vec::Vec;
+use tss_esapi::{Context, TctiNameConf};
 
 use crate::CarbideClientError;
-use ::rpc::forge as rpc;
-use ::rpc::machine_discovery as rpc_md;
-use forge_uuid::machine::MachineId;
 
 pub(crate) fn create_context_from_path(path: &str) -> Result<Context, Box<dyn std::error::Error>> {
     let tcti = TctiNameConf::from_str(path)?;

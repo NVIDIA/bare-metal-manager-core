@@ -13,10 +13,8 @@
 use std::time::Duration;
 
 use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
-use ::rpc::forge_tls_client::ForgeClientT;
-use ::rpc::forge_tls_client::{ForgeClientConfig, ForgeTlsClient};
-use ::rpc::machine_discovery as rpc_discovery;
-use ::rpc::{MachineDiscoveryInfo, forge as rpc};
+use ::rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT, ForgeTlsClient};
+use ::rpc::{MachineDiscoveryInfo, forge as rpc, machine_discovery as rpc_discovery};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use forge_tls::default as tls_default;

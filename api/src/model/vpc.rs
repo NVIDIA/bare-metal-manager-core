@@ -1,5 +1,6 @@
-use crate::errors::CarbideError;
-use crate::model::metadata::Metadata;
+use std::collections::HashMap;
+use std::net::IpAddr;
+
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
@@ -12,8 +13,9 @@ use forge_uuid::vpc_peering::VpcPeeringId;
 use rpc::errors::RpcDataConversionError;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use std::collections::HashMap;
-use std::net::IpAddr;
+
+use crate::errors::CarbideError;
+use crate::model::metadata::Metadata;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {

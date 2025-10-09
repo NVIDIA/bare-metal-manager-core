@@ -16,10 +16,12 @@
 // by the introduction of a IntoMlxValue trait, so you can call
 // var.with(<some-val>) and it will leverage the spec
 // to create a properly-typed value.
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+
 use crate::spec::MlxVariableSpec;
 use crate::variable::MlxConfigVariable;
-use serde::{Deserialize, Serialize};
-use std::fmt;
 
 // MlxConfigValue defines a typed value for an mlxconfig variable.
 // It contains both the variable definition and the actual value,

@@ -10,11 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    hash::Hash,
-    str::FromStr,
-};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::hash::Hash;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 

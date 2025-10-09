@@ -20,13 +20,13 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::vec::Vec;
 
+use forge_uuid::{DbPrimaryUuid, DbTable};
+use measured_boot::pcr::PcrRegisterValue;
 use sqlx::postgres::PgRow;
 use sqlx::{Encode, PgConnection, Postgres};
 
 use crate::db::DatabaseError;
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::{DbPrimaryUuid, DbTable};
-use measured_boot::pcr::PcrRegisterValue;
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
 // from DiscoveryInfo for a given machine when

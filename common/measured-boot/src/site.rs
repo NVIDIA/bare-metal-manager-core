@@ -17,26 +17,27 @@
  * This also provides code for importing/exporting (and working with) SiteModels.
 */
 
-use super::records::{
-    MeasurementBundleRecord, MeasurementBundleValueRecord, MeasurementSystemProfileAttrRecord,
-    MeasurementSystemProfileRecord,
-};
+use std::convert::{From, Into};
+use std::str::FromStr;
+use std::vec::Vec;
+
 use chrono::Utc;
-use forge_uuid::{machine::MachineId, measured_boot::MeasurementBundleId};
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::MeasurementBundleId;
+#[cfg(feature = "cli")]
+use rpc::admin_cli::ToTable;
 use rpc::protos::measured_boot::{
     ImportSiteMeasurementsResponse, ListAttestationSummaryResponse, MachineAttestationSummaryPb,
     SiteModelPb,
 };
 use serde::{Deserialize, Serialize};
-use std::convert::{From, Into};
-use std::str::FromStr;
-use std::vec::Vec;
-
-#[cfg(feature = "cli")]
-use rpc::admin_cli::ToTable;
-
 #[cfg(feature = "sqlx")]
 use sqlx::FromRow;
+
+use super::records::{
+    MeasurementBundleRecord, MeasurementBundleValueRecord, MeasurementSystemProfileAttrRecord,
+    MeasurementSystemProfileRecord,
+};
 
 #[derive(Serialize)]
 pub struct ImportResult {

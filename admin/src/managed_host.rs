@@ -10,19 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, SortField, UpdatePowerOptions};
-use crate::rpc::ApiClient;
-use crate::{async_write, async_write_table_as_csv};
+use std::collections::HashSet;
+use std::fmt::Write;
+use std::pin::Pin;
+
 use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use forge_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
 use rpc::forge::PowerOptions;
 use serde::Serialize;
-use std::collections::HashSet;
-use std::fmt::Write;
-use std::pin::Pin;
 use tracing::warn;
+
+use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, SortField, UpdatePowerOptions};
+use crate::rpc::ApiClient;
+use crate::{async_write, async_write_table_as_csv};
 
 const UNKNOWN: &str = "Unknown";
 

@@ -9,20 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{net::IpAddr, str::FromStr};
+use std::net::IpAddr;
+use std::str::FromStr;
 
-use crate::db;
+use common::api_fixtures::dpu::create_dpu_machine;
+use common::api_fixtures::host::host_discover_dhcp;
+use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_test_env};
 use itertools::Itertools;
 use mac_address::MacAddress;
-
-use crate::model::hardware_info::HardwareInfo;
-use crate::tests::common;
-use common::api_fixtures::{
-    FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_test_env, dpu::create_dpu_machine,
-    host::host_discover_dhcp,
-};
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
+
+use crate::db;
+use crate::model::hardware_info::HardwareInfo;
+use crate::tests::common;
 
 #[crate::sqlx_test]
 async fn test_machine_discovery_no_domain(

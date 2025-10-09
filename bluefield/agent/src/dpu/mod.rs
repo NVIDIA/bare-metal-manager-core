@@ -2,9 +2,8 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
-use ipnetwork::IpNetwork;
-
 use forge_host_support::agent_config::FmdsDpuNetworkingConfig;
+use ipnetwork::IpNetwork;
 
 pub mod interface;
 pub mod link;

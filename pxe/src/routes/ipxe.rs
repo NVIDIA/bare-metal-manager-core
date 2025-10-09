@@ -10,16 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
+use std::fmt::Display;
 
-use axum::{Router, extract::State, response::IntoResponse, routing::get};
+use axum::Router;
+use axum::extract::State;
+use axum::response::IntoResponse;
+use axum::routing::get;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client::ForgeClientConfig;
 
-use crate::{
-    common::{AppState, Machine, MachineInterface},
-    routes::RpcContext,
-};
+use crate::common::{AppState, Machine, MachineInterface};
+use crate::routes::RpcContext;
 
 pub enum PxeErrorCode {
     ArchitectureNotFound = 105,

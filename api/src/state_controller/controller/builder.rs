@@ -12,25 +12,23 @@
 
 use std::sync::Arc;
 
+use mqttea::client::MqtteaClient;
 use opentelemetry::metrics::Meter;
 use tokio::sync::oneshot;
 
 use crate::cfg::file::CarbideConfig;
+use crate::ib::IBFabricManager;
+use crate::ipmitool::IPMITool;
+use crate::redfish::RedfishClientPool;
 use crate::resource_pool::common::IbPools;
-use crate::storage::NvmeshClientPool;
-use crate::{
-    ib::IBFabricManager,
-    ipmitool::IPMITool,
-    redfish::RedfishClientPool,
-    state_controller::{
-        config::IterationConfig,
-        controller::{StateController, StateControllerHandle},
-        io::StateControllerIO,
-        metrics::MetricHolder,
-        state_handler::{NoopStateHandler, StateHandler, StateHandlerServices},
-    },
+use crate::state_controller::config::IterationConfig;
+use crate::state_controller::controller::{StateController, StateControllerHandle};
+use crate::state_controller::io::StateControllerIO;
+use crate::state_controller::metrics::MetricHolder;
+use crate::state_controller::state_handler::{
+    NoopStateHandler, StateHandler, StateHandlerServices,
 };
-use mqttea::client::MqtteaClient;
+use crate::storage::NvmeshClientPool;
 
 /// The return value of `[Builder::build_internal]`
 struct BuildOrSpawn<IO: StateControllerIO> {

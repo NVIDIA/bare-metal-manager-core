@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::TestEnv;
-use crate::api::rpc::{
-    IbPartitionConfig, IbPartitionCreationRequest, IbPartitionSearchConfig, forge_server::Forge,
-};
 use forge_uuid::infiniband::IBPartitionId;
 use tonic::Request;
+
+use super::TestEnv;
+use crate::api::rpc::forge_server::Forge;
+use crate::api::rpc::{IbPartitionConfig, IbPartitionCreationRequest, IbPartitionSearchConfig};
 
 pub const DEFAULT_TENANT: &str = "Tenant1";
 

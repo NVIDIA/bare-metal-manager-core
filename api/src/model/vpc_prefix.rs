@@ -1,9 +1,10 @@
-use crate::errors::CarbideError;
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use rpc::errors::RpcDataConversionError;
 use sqlx::Row;
 use sqlx::postgres::PgRow;
+
+use crate::errors::CarbideError;
 
 #[derive(Clone, Debug)]
 pub struct VpcPrefix {

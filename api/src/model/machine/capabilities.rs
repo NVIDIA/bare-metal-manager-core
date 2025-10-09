@@ -10,21 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, fmt};
+use std::collections::HashMap;
+use std::fmt;
 
 use ::rpc::forge as rpc;
+use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::infiniband::MachineInfinibandStatusObservation;
-use crate::model::machine::RpcDataConversionError;
-use crate::{
-    CarbideError,
-    model::{
-        hardware_info::{CpuInfo, InfinibandInterface},
-        machine::{HardwareInfo, MachineInterfaceSnapshot},
-    },
-};
-use forge_uuid::machine::MachineId;
+use crate::CarbideError;
+use crate::model::hardware_info::{CpuInfo, InfinibandInterface};
+use crate::model::machine::{HardwareInfo, MachineInterfaceSnapshot, RpcDataConversionError};
 
 lazy_static::lazy_static! {
     static ref BLOCK_STORAGE_REGEX: regex::Regex = regex::Regex::new(r"(Virtual_CDROM\d+|Virtual_SD\d+|NO_MODEL|LOGICAL_VOLUME)").unwrap();
@@ -652,15 +648,16 @@ impl MachineCapabilitiesSet {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
-    use crate::model::{
-        MacAddress, NetworkSegmentId,
-        hardware_info::*,
-        machine::{MachineInterfaceId, infiniband::MachineIbInterfaceStatusObservation},
-    };
-    use ::rpc::forge as rpc;
     use std::str::FromStr;
+
+    use ::rpc::forge as rpc;
+
+    use super::*;
+    use crate::model::hardware_info::*;
+    use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
+    use crate::model::machine::MachineInterfaceId;
+    use crate::model::machine::infiniband::MachineIbInterfaceStatusObservation;
+    use crate::model::{MacAddress, NetworkSegmentId};
 
     const X86_INFO_JSON: &[u8] = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),

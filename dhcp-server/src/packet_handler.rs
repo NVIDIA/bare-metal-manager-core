@@ -9,27 +9,23 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{
-    net::{Ipv4Addr, SocketAddrV4},
-    str::FromStr,
-    sync::Arc,
-};
+use std::net::{Ipv4Addr, SocketAddrV4};
+use std::str::FromStr;
+use std::sync::Arc;
 
-use dhcproto::{
-    Encodable, Encoder,
-    v4::{
-        Decodable, Decoder, DhcpOption, Message, MessageType, OptionCode,
-        relay::{RelayAgentInformation, RelayCode, RelayInfo},
-    },
-};
+use dhcproto::v4::relay::{RelayAgentInformation, RelayCode, RelayInfo};
+use dhcproto::v4::{Decodable, Decoder, DhcpOption, Message, MessageType, OptionCode};
+use dhcproto::{Encodable, Encoder};
 use ipnetwork::IpNetwork;
 use lru::LruCache;
 use rpc::forge::{DhcpDiscovery, DhcpRecord};
-use tokio::{net::UdpSocket, sync::Mutex};
+use tokio::net::UdpSocket;
+use tokio::sync::Mutex;
 
-use crate::{
-    Config, DhcpMode, cache::CacheEntry, errors::DhcpError, util, vendor_class::VendorClass,
-};
+use crate::cache::CacheEntry;
+use crate::errors::DhcpError;
+use crate::vendor_class::VendorClass;
+use crate::{Config, DhcpMode, util};
 
 const PKT_TYPE_OP_REQUEST: u8 = 1;
 

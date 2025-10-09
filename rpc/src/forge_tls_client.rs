@@ -1,37 +1,32 @@
 use std::io;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eyre::Result;
 use forge_http_connector::connector::ForgeHttpConnector;
-use forge_http_connector::resolver::ForgeResolver;
-use forge_http_connector::resolver::ForgeResolverOpts;
+use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
 use forge_tls::client_config::ClientCert;
 use hickory_resolver::config::ResolverConfig;
 use hyper::body::Incoming;
-use tonic::transport::Uri;
-
+use hyper_util::client::legacy;
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::{
-    ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme, pki_types::CertificateDer,
-    pki_types::PrivateKeyDer, pki_types::ServerName, pki_types::UnixTime,
-};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
+use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
 use tonic::body::Body;
+use tonic::transport::Uri;
+use tower::ServiceExt;
+use tower::util::BoxCloneService;
+use tryhard::backoff_strategies::FixedBackoff;
+use tryhard::{NoOnRetry, RetryFutureConfig};
+use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::forge::VersionRequest;
 use crate::forge_resolver;
 use crate::forge_resolver::resolver::ResolverError;
 use crate::forge_tls_client::ConfigurationError::CouldNotReadRootCa;
 use crate::protos::forge::forge_client::ForgeClient;
-use hyper_util::client::legacy;
-use hyper_util::rt::{TokioExecutor, TokioTimer};
-use tower::ServiceExt;
-use tower::util::BoxCloneService;
-use tryhard::backoff_strategies::FixedBackoff;
-use tryhard::{NoOnRetry, RetryFutureConfig};
-use x509_parser::prelude::{FromDer, X509Certificate};
 
 pub type ForgeClientT = ForgeClient<
     BoxCloneService<
@@ -675,10 +670,12 @@ pub type ForgeTlsClientResult<T> = Result<T, ForgeTlsClientError>;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::net::SocketAddr;
+
     use forge_http_connector::connector::ConnectorMetrics;
     use hyper_rustls::HttpsConnector;
-    use std::net::SocketAddr;
+
+    use super::*;
 
     #[tokio::test]
     // test_max_retries builds up an instance of hyper client using

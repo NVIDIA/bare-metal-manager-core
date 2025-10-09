@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::duppet::SyncOptions;
 use colored::*;
 use similar::{ChangeTag, TextDiff};
+
+use crate::duppet::SyncOptions;
 
 /// logln is a macro used for conditional logging based
 /// around the --dry-run and --quiet sync options.

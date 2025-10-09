@@ -1,8 +1,11 @@
-use std::{env, fs, io, path::Path, str::FromStr};
+use std::path::Path;
+use std::str::FromStr;
+use std::{env, fs, io};
 
-use crate::default as tls_default;
 use serde::Deserialize;
 use tonic::transport::Uri;
+
+use crate::default as tls_default;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientConfigError {

@@ -10,23 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::machine_update_module::{HOST_FW_UPDATE_HEALTH_REPORT_SOURCE, MachineUpdateModule};
-use crate::{
-    CarbideResult,
-    cfg::file::{CarbideConfig, FirmwareConfig},
-    db::{self, desired_firmware},
-    model::machine::ManagedHostStateSnapshot,
-};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use async_trait::async_trait;
 use forge_uuid::machine::MachineId;
 use opentelemetry::metrics::Meter;
 use sqlx::PgConnection;
-use std::{
-    collections::HashMap,
-    sync::atomic::{AtomicU64, Ordering},
-};
-use std::{collections::HashSet, fmt, sync::Arc};
 use tokio::sync::Mutex;
+
+use super::machine_update_module::{HOST_FW_UPDATE_HEALTH_REPORT_SOURCE, MachineUpdateModule};
+use crate::CarbideResult;
+use crate::cfg::file::{CarbideConfig, FirmwareConfig};
+use crate::db::{self, desired_firmware};
+use crate::model::machine::ManagedHostStateSnapshot;
 
 pub struct HostFirmwareUpdate {
     pub metrics: HostFirmwareUpdateMetrics,
