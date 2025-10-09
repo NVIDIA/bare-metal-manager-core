@@ -1,7 +1,8 @@
-use crate::errors::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineInterfaceId;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
+
+use crate::errors::{CarbideError, CarbideResult};
 
 ///
 /// A custom boot response is a representation of custom data for booting machines, either with pxe or user-data

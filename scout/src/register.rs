@@ -10,16 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::CarbideClientError;
-use crate::attestation as attest;
-use forge_host_support::{
-    hardware_enumeration::enumerate_hardware, registration, registration::RegistrationError,
-};
-use forge_uuid::machine::MachineId;
 use std::process;
+
+use forge_host_support::hardware_enumeration::enumerate_hardware;
+use forge_host_support::registration;
+use forge_host_support::registration::RegistrationError;
+use forge_uuid::machine::MachineId;
 use tracing::{error, info};
 use tss_esapi::Context;
 use tss_esapi::handles::KeyHandle;
+
+use crate::{CarbideClientError, attestation as attest};
 
 pub async fn run(
     forge_api: &str,

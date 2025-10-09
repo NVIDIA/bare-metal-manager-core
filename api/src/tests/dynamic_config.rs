@@ -9,13 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::setup::parse_carbide_config;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
 
+use crate::setup::parse_carbide_config;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_test_env_with_overrides, get_config,
 };
-use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
 
 #[crate::sqlx_test]
 async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {

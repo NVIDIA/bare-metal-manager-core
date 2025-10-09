@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
+
 use mac_address::{MacAddress, MacParseError};
 use serde::Deserialize;
 use serde::de::Deserializer;
-use std::str::FromStr;
 
 pub mod ip;
 

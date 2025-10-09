@@ -19,10 +19,9 @@ use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use tokio::fs::{self, File};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
-
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
@@ -30,12 +29,11 @@ use super::redfish::RedfishClient;
 use crate::ipmitool::IPMITool;
 use crate::model::expected_machine::ExpectedMachine;
 use crate::model::machine::MachineInterfaceSnapshot;
-use crate::model::site_explorer::LockdownStatus;
-use crate::{
-    model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},
-    redfish::RedfishClientPool,
-    site_explorer::EndpointExplorer,
+use crate::model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
 };
+use crate::redfish::RedfishClientPool;
+use crate::site_explorer::EndpointExplorer;
 
 const UNIFIED_PREINGESTION_BFB_PATH: &str =
     "/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb";

@@ -14,11 +14,15 @@
 // Defines the main MlxConfigProfile type and supporting
 // implementation for our  mlxconfig-profile crate.
 
-use crate::{error::MlxProfileError, serialization::SerializableProfile};
+use std::collections::HashMap;
+use std::path::Path;
+
 use mlxconfig_runner::{ComparisonResult, ExecOptions, MlxConfigRunner, SyncResult};
 use mlxconfig_variables::{IntoMlxValue, MlxConfigValue, MlxVariableRegistry};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::Path};
+
+use crate::error::MlxProfileError;
+use crate::serialization::SerializableProfile;
 
 // MlxConfigProfile is a configuration profile that defines a complete set of
 // variable values to apply to a device (DPU, SuperNIC, etc) -- any device whose

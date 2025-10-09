@@ -11,7 +11,8 @@
  */
 
 use std::collections::HashMap;
-use std::{path::Path, sync::Arc};
+use std::path::Path;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 

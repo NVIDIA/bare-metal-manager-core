@@ -10,33 +10,26 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    net::{IpAddr, Ipv4Addr},
-    str::FromStr,
-    sync::{Arc, atomic::Ordering},
-    time::Duration,
-};
+use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
+use ::rpc::errors::RpcDataConversionError;
 pub use ::rpc::forge as rpc;
-use ::rpc::{
-    errors::RpcDataConversionError,
-    forge::{BmcEndpointRequest, SkuIdList},
-    forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair,
-    protos::{
-        forge::{
-            EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
-            InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
-            MachineCredentialsUpdateResponse,
-        },
-        measured_boot as measured_boot_pb, mlx_device as mlx_device_pb,
-    },
+use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
+use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use ::rpc::protos::forge::{
+    EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
+    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse,
 };
+use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use chrono::TimeZone;
-use forge_secrets::{
-    certificates::CertificateProvider,
-    credentials::{BmcCredentialType, CredentialKey, CredentialProvider},
-};
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use forge_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use itertools::Itertools;
 use libredfish::{RoleId, SystemPowerControl};
@@ -52,56 +45,48 @@ use tss_esapi::{
 use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
+use crate::cfg::file::CarbideConfig;
+use crate::db::machine::{self};
+use crate::db::network_devices::NetworkDeviceSearchConfig;
+use crate::db::{self, DatabaseError, ObjectFilter, attestation as db_attest};
+use crate::handlers::instance;
+use crate::handlers::machine_validation::{
+    add_machine_validation_test, add_update_machine_validation_external_config,
+    get_machine_validation_external_config, get_machine_validation_external_configs,
+    get_machine_validation_results, get_machine_validation_runs, get_machine_validation_tests,
+    machine_validation_test_enable_disable_test, machine_validation_test_next_version,
+    machine_validation_test_verfied, mark_machine_validation_complete,
+    on_demand_machine_validation, persist_validation_result,
+    remove_machine_validation_external_config, update_machine_validation_run,
+    update_machine_validation_test,
+};
+use crate::handlers::utils::convert_and_log_machine_id;
+use crate::ib::IBFabricManager;
+use crate::logging::log_limiter::LogLimiter;
 use crate::model::firmware::DesiredFirmwareVersions;
+use crate::model::hardware_info::HardwareInfo;
 use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
-use crate::model::machine::LoadSnapshotOptions;
+use crate::model::ib_partition::PartitionKey;
+use crate::model::machine::machine_id::{
+    from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
+};
 use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::network::ManagedHostQuarantineState;
+use crate::model::machine::{
+    BomValidating, CleanupState, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
+    FailureSource, LoadSnapshotOptions, Machine, MachineState, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+    get_action_for_dpu_state,
+};
 use crate::model::machine_validation::{MachineValidationState, MachineValidationStatus};
+use crate::model::metadata::Metadata;
+use crate::redfish::{RedfishAuth, RedfishClientPool};
+use crate::resource_pool::common::CommonPools;
+use crate::site_explorer::EndpointExplorer;
+use crate::storage::NvmeshClientPool;
 use crate::{
-    CarbideError, CarbideResult, attestation as attest, auth,
-    cfg::file::CarbideConfig,
-    db::{
-        self, DatabaseError, ObjectFilter, attestation as db_attest,
-        machine::{self},
-        network_devices::NetworkDeviceSearchConfig,
-    },
-    dynamic_settings, ethernet_virtualization,
-    handlers::{
-        instance,
-        machine_validation::{
-            add_machine_validation_test, add_update_machine_validation_external_config,
-            get_machine_validation_external_config, get_machine_validation_external_configs,
-            get_machine_validation_results, get_machine_validation_runs,
-            get_machine_validation_tests, machine_validation_test_enable_disable_test,
-            machine_validation_test_next_version, machine_validation_test_verfied,
-            mark_machine_validation_complete, on_demand_machine_validation,
-            persist_validation_result, remove_machine_validation_external_config,
-            update_machine_validation_run, update_machine_validation_test,
-        },
-        utils::convert_and_log_machine_id,
-    },
-    ib::IBFabricManager,
-    logging::log_limiter::LogLimiter,
-    measured_boot,
-    model::{
-        hardware_info::HardwareInfo,
-        ib_partition::PartitionKey,
-        machine::{
-            BomValidating, CleanupState, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
-            FailureSource, Machine, MachineState, MachineValidatingState, ManagedHostState,
-            ManagedHostStateSnapshot, MeasuringState, ValidationState, get_action_for_dpu_state,
-            machine_id::{
-                from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
-            },
-            network::ManagedHostQuarantineState,
-        },
-        metadata::Metadata,
-    },
-    redfish::{RedfishAuth, RedfishClientPool},
-    resource_pool,
-    resource_pool::common::CommonPools,
-    site_explorer::EndpointExplorer,
-    storage::NvmeshClientPool,
+    CarbideError, CarbideResult, attestation as attest, auth, dynamic_settings,
+    ethernet_virtualization, measured_boot, resource_pool,
 };
 
 pub struct Api {

@@ -10,14 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::machine::MachineId;
 use serde_json::json;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
-use crate::db;
 use crate::model::bmc_info::BmcInfo;
-use crate::{CarbideError, CarbideResult};
-use forge_uuid::machine::MachineId;
+use crate::{CarbideError, CarbideResult, db};
 
 pub async fn update_bmc_network_into_topologies(
     txn: &mut PgConnection,

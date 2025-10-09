@@ -14,17 +14,17 @@ use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use crate::db;
+use common::api_fixtures::create_test_env;
+use rpc::forge::forge_server::Forge;
+use sqlx::migrate::MigrateDatabase;
+
 use crate::model::resource_pool::{
     OwnerType, ResourcePool, ResourcePoolError, ResourcePoolStats as St, ValueType,
 };
 use crate::resource_pool::all;
 use crate::resource_pool::common::VPC_VNI;
-use crate::tests;
 use crate::tests::common;
-use common::api_fixtures::create_test_env;
-use rpc::forge::forge_server::Forge;
-use sqlx::migrate::MigrateDatabase;
+use crate::{db, tests};
 
 // Define an IPv4 pool from a range via the admin grpc
 #[crate::sqlx_test]

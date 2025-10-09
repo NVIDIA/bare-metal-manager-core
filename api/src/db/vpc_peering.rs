@@ -12,13 +12,15 @@
 
 use std::cmp::{max, min};
 
+use forge_network::virtualization::VpcVirtualizationType;
+use forge_uuid::vpc::VpcId;
+use forge_uuid::vpc_peering::VpcPeeringId;
+use sqlx::PgConnection;
+use uuid::Uuid;
+
 use crate::CarbideError;
 use crate::db::{self, DatabaseError};
 use crate::model::vpc::VpcPeering;
-use forge_network::virtualization::VpcVirtualizationType;
-use forge_uuid::{vpc::VpcId, vpc_peering::VpcPeeringId};
-use sqlx::PgConnection;
-use uuid::Uuid;
 
 pub async fn create(
     txn: &mut PgConnection,

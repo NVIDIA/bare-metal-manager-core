@@ -10,26 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::db;
-use crate::model::machine::InstallDpuOsState;
-use crate::model::{
-    instance::status::tenant::TenantState,
-    machine::{
-        DpuInitState, FailureDetails, InstanceState, MachineLastRebootRequestedMode, MachineState,
-        ManagedHostState, ReprovisionState,
-    },
-};
-use crate::redfish::test_support::RedfishSimAction;
-use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
+use std::collections::HashMap;
+
 use chrono::Utc;
-use common::api_fixtures::create_managed_host_multi_dpu;
-use common::api_fixtures::{create_test_env, reboot_completed};
+use common::api_fixtures::{create_managed_host_multi_dpu, create_test_env, reboot_completed};
 use libredfish::SystemPowerControl;
 use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
-use std::collections::HashMap;
 
+use crate::db;
+use crate::model::instance::status::tenant::TenantState;
+use crate::model::machine::{
+    DpuInitState, FailureDetails, InstallDpuOsState, InstanceState, MachineLastRebootRequestedMode,
+    MachineState, ManagedHostState, ReprovisionState,
+};
+use crate::redfish::test_support::RedfishSimAction;
+use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use crate::tests::common::api_fixtures::{

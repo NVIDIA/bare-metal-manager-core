@@ -10,47 +10,43 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
 use chrono::Utc;
 use config_version::ConfigVersion;
+use forge_network::sanitized_mac;
+use forge_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use managed_host::ManagedHost;
 use sqlx::{PgConnection, PgPool};
-use std::sync::atomic::Ordering;
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-};
-use tokio::{sync::oneshot, task::JoinSet};
+use tokio::sync::oneshot;
+use tokio::task::JoinSet;
 use tracing::Instrument;
 use version_compare::Cmp;
 
+use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
+use crate::db::{self, DatabaseError, ObjectFilter, machine};
+use crate::model::bmc_info::BmcInfo;
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::machine_id::host_id_from_dpu_hardware_info;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::{
-    CarbideError, CarbideResult,
-    cfg::file::{FirmwareConfig, SiteExplorerConfig},
-    db::{self, DatabaseError, ObjectFilter, machine},
-    model::{
-        bmc_info::BmcInfo,
-        hardware_info::HardwareInfo,
-        machine::{
-            DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
-            machine_id::host_id_from_dpu_hardware_info,
-        },
-        metadata::Metadata,
-        site_explorer::{
-            EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-            ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState,
-            PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
-        },
-    },
-    resource_pool::common::CommonPools,
+use crate::model::machine::{
+    DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
 };
-use forge_network::sanitized_mac;
-use forge_uuid::machine::{MachineId, MachineType};
+use crate::model::metadata::Metadata;
+use crate::model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
+    ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState, PreingestionState,
+    Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
+};
+use crate::resource_pool::common::CommonPools;
+use crate::{CarbideError, CarbideResult};
 
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
@@ -62,6 +58,8 @@ mod redfish;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 
 mod managed_host;
+pub use managed_host::is_endpoint_in_managed_host;
+
 use self::metrics::exploration_error_to_metric_label;
 use crate::db::{ObjectColumnFilter, predicted_machine_interface};
 use crate::model::expected_machine::ExpectedMachine;
@@ -69,7 +67,6 @@ use crate::model::firmware::FirmwareComponentType;
 use crate::model::machine::Machine;
 use crate::model::network_segment::NetworkSegmentType;
 use crate::model::predicted_machine_interface::NewPredictedMachineInterface;
-pub use managed_host::is_endpoint_in_managed_host;
 
 #[derive(Debug, Clone)]
 pub struct Endpoint {

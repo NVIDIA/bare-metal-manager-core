@@ -10,17 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::UuidConversionError;
-use crate::grpc_uuid_message;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::{
     postgres::{PgHasArrayType, PgTypeInfo},
     {FromRow, Type},
 };
+
+use crate::{UuidConversionError, grpc_uuid_message};
 
 /// InstanceId is a strongly typed UUID specific to an instance ID,
 /// with trait implementations allowing it to be passed around as

@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
 use clap::{Args, Subcommand, ValueEnum};
+
+use crate::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
 
 // DeviceArgs represents the arguments for device-related commands.
 #[derive(Args)]

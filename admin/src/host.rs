@@ -10,14 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::host_reprovisioning_request::Mode;
+use forge_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
-use crate::{
-    cfg::cli_options::HealthOverrideTemplates, machine::get_health_report, rpc::ApiClient,
-};
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use forge_uuid::machine::MachineId;
+use crate::cfg::cli_options::HealthOverrideTemplates;
+use crate::machine::get_health_report;
+use crate::rpc::ApiClient;
 
 pub async fn trigger_reprovisioning(
     host_id: MachineId,

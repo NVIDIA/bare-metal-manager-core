@@ -1,5 +1,6 @@
-use crate::cmd::device::args::DeviceArgs;
 use clap::{command, Parser, Subcommand};
+
+use crate::cmd::device::args::DeviceArgs;
 pub mod device;
 
 // Cli represents the main CLI structure for the application.

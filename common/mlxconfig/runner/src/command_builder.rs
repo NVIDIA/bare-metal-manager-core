@@ -14,9 +14,13 @@
 // Command builder for constructing mlxconfig CLI commands with proper
 // argument formatting and assignment generation.
 
-use crate::{error::MlxRunnerError, exec_options::ExecOptions};
+use std::path::Path;
+use std::process::Command;
+
 use mlxconfig_variables::{MlxConfigValue, MlxValueType};
-use std::{path::Path, process::Command};
+
+use crate::error::MlxRunnerError;
+use crate::exec_options::ExecOptions;
 
 // CommandSpec represents the parameters needed to build a Command.
 // This allows us to recreate Command instances for retry logic since

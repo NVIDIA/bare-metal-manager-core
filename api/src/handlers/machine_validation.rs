@@ -9,26 +9,24 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine_validation::MachineValidationResult;
-use crate::model::machine_validation::{
-    MachineValidation, MachineValidationState, MachineValidationStatus,
-};
-use crate::{
-    CarbideError,
-    api::{Api, log_request_data},
-    cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode},
-    db::{self, DatabaseError, machine_validation_suites},
-    handlers::utils::convert_and_log_machine_id,
-    model::machine::{
-        FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
-        ValidationState,
-    },
-};
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use config_version::ConfigVersion;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
+
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+use crate::cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode};
+use crate::db::{self, DatabaseError, machine_validation_suites};
+use crate::handlers::utils::convert_and_log_machine_id;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::{
+    FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
+    ValidationState,
+};
+use crate::model::machine_validation::{
+    MachineValidation, MachineValidationResult, MachineValidationState, MachineValidationStatus,
+};
 
 // machine has completed validation
 pub(crate) async fn mark_machine_validation_complete(

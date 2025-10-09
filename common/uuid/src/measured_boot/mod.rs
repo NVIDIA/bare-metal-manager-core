@@ -24,14 +24,10 @@
  *  mad because it cant bind it as a UUID.
 */
 
-use super::DbPrimaryUuid;
-use crate::UuidConversionError;
-use crate::machine::MachineId;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-use crate::grpc_uuid_message;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::{
     encode::IsNull,
@@ -39,6 +35,10 @@ use sqlx::{
     postgres::PgTypeInfo,
     {Database, FromRow, Postgres, Type},
 };
+
+use super::DbPrimaryUuid;
+use crate::machine::MachineId;
+use crate::{UuidConversionError, grpc_uuid_message};
 
 /// TrustedMachineId is a special adaptation of a
 /// Carbide MachineId, which has support for being

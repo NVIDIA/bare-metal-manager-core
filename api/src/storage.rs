@@ -15,6 +15,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 use libnvmesh::{Nvmesh, NvmeshApiError};
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -28,8 +30,6 @@ use crate::model::storage::{
     StorageVolume, StorageVolumeAttributes, StorageVolumeFilter,
 };
 use crate::model::tenant::TenantOrganizationId;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {

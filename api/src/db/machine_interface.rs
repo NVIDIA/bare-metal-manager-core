@@ -14,6 +14,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+use forge_uuid::domain::DomainId;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
@@ -27,9 +30,6 @@ use crate::model::machine::MachineInterfaceSnapshot;
 use crate::model::network_segment::NetworkSegment;
 use crate::model::predicted_machine_interface::PredictedMachineInterface;
 use crate::{CarbideError, CarbideResult, db};
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkPrefixId;
-use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";

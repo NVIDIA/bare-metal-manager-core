@@ -15,19 +15,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use bytes::Bytes;
 use http_body_util::Full;
-use hyper::{
-    Method, Request, Response, body,
-    header::{CONTENT_LENGTH, CONTENT_TYPE},
-    service::service_fn,
-};
-use hyper_util::{
-    rt::{TokioExecutor, TokioIo},
-    server::conn::auto::Builder,
-};
-use opentelemetry::{
-    KeyValue,
-    metrics::{Meter, MeterProvider},
-};
+use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response, body};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions as semconv;
 use prometheus::{Encoder, TextEncoder};

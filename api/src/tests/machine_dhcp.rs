@@ -12,18 +12,18 @@
 
 use std::str::FromStr;
 
-use crate::CarbideError;
-use crate::db::{self, ObjectColumnFilter, dhcp_entry};
-use forge_uuid::machine::MachineInterfaceId;
-use itertools::Itertools;
-use mac_address::MacAddress;
-use rpc::forge::ManagedHostNetworkConfigRequest;
-use rpc::forge::{DhcpDiscovery, forge_server::Forge};
-
-use crate::tests::common;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
 };
+use forge_uuid::machine::MachineInterfaceId;
+use itertools::Itertools;
+use mac_address::MacAddress;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{DhcpDiscovery, ManagedHostNetworkConfigRequest};
+
+use crate::CarbideError;
+use crate::db::{self, ObjectColumnFilter, dhcp_entry};
+use crate::tests::common;
 
 #[crate::sqlx_test]
 async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

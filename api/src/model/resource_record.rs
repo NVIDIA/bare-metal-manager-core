@@ -1,6 +1,7 @@
+use std::net::IpAddr;
+
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use std::net::IpAddr;
 
 #[derive(Debug, Clone)]
 pub struct ResourceRecord {

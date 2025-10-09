@@ -21,10 +21,8 @@ use std::str::FromStr;
 use ::rpc::forge::DpuInfo;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::{
-    instance_type::InstanceTypeId,
-    machine::{MachineId, MachineType},
-};
+use forge_uuid::instance_type::InstanceTypeId;
+use forge_uuid::machine::{MachineId, MachineType};
 use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -35,7 +33,6 @@ use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
 use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, queries};
-use crate::db;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::MachineInventory;
 use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
@@ -51,7 +48,7 @@ use crate::model::machine::{
 use crate::model::metadata::Metadata;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
-use crate::{CarbideError, CarbideResult, resource_pool};
+use crate::{CarbideError, CarbideResult, db, resource_pool};
 
 #[derive(Serialize)]
 struct ReprovisionRequestRestart {
@@ -2127,10 +2124,13 @@ pub async fn count_healthy_unhealthy_host_machines(
 
 #[cfg(test)]
 mod test {
-    use crate::model::machine::machine_search_config::MachineSearchConfig;
-    use crate::{model::machine::ManagedHostState, model::metadata::Metadata};
-    use forge_uuid::machine::MachineId;
     use std::str::FromStr;
+
+    use forge_uuid::machine::MachineId;
+
+    use crate::model::machine::ManagedHostState;
+    use crate::model::machine::machine_search_config::MachineSearchConfig;
+    use crate::model::metadata::Metadata;
 
     #[crate::sqlx_test]
 

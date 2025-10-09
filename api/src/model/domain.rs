@@ -1,10 +1,11 @@
-use crate::errors::CarbideError;
 use chrono::{DateTime, Utc};
 use forge_uuid::domain::DomainId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Error, FromRow, Row};
 use tracing::log::debug;
+
+use crate::errors::CarbideError;
 
 /// A DNS domain. Used by carbide-dns for resolving FQDNs.
 /// We create an initial one startup. Each segment can have a different domain,

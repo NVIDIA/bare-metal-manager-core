@@ -14,21 +14,10 @@
  * gRPC handlers for measurement profile related API calls.
  */
 
-use tonic::Status;
+use std::collections::HashMap;
 
-use crate::measured_boot::db;
-use crate::measured_boot::interface::profile::{
-    export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
-    get_machines_for_profile_id, get_machines_for_profile_name,
-};
-use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use forge_uuid::measured_boot::MeasurementSystemProfileId;
 use measured_boot::profile::MeasurementSystemProfile;
-use rpc::protos::measured_boot::delete_measurement_system_profile_request;
-use rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
-use rpc::protos::measured_boot::list_measurement_system_profile_machines_request;
-use rpc::protos::measured_boot::rename_measurement_system_profile_request;
-use rpc::protos::measured_boot::show_measurement_system_profile_request;
 use rpc::protos::measured_boot::{
     CreateMeasurementSystemProfileRequest, CreateMeasurementSystemProfileResponse,
     DeleteMeasurementSystemProfileRequest, DeleteMeasurementSystemProfileResponse,
@@ -38,10 +27,20 @@ use rpc::protos::measured_boot::{
     MeasurementSystemProfileRecordPb, RenameMeasurementSystemProfileRequest,
     RenameMeasurementSystemProfileResponse, ShowMeasurementSystemProfileRequest,
     ShowMeasurementSystemProfileResponse, ShowMeasurementSystemProfilesRequest,
-    ShowMeasurementSystemProfilesResponse,
+    ShowMeasurementSystemProfilesResponse, delete_measurement_system_profile_request,
+    list_measurement_system_profile_bundles_request,
+    list_measurement_system_profile_machines_request, rename_measurement_system_profile_request,
+    show_measurement_system_profile_request,
 };
 use sqlx::{PgConnection, Pool, Postgres};
-use std::collections::HashMap;
+use tonic::Status;
+
+use crate::measured_boot::db;
+use crate::measured_boot::interface::profile::{
+    export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
+    get_machines_for_profile_id, get_machines_for_profile_name,
+};
+use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_create_system_measurement_profile handles the
 /// CreateMeasurementSystemProfile API endpoint.

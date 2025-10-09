@@ -15,14 +15,16 @@
 // structures with all of our super fancy proper variable/value validation
 // and array (and/or sparse array) handling.
 
-use crate::{
-    error::MlxRunnerError,
-    exec_options::ExecOptions,
-    result_types::{QueriedDeviceInfo, QueriedVariable, QueryResult},
-};
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+
 use mlxconfig_variables::{MlxConfigValue, MlxVariableRegistry, MlxVariableSpec};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::Path};
+
+use crate::error::MlxRunnerError;
+use crate::exec_options::ExecOptions;
+use crate::result_types::{QueriedDeviceInfo, QueriedVariable, QueryResult};
 
 // JsonResponseParser handles parsing of mlxconfig JSON responses
 // and conversion to strongly-typed QueryResult structures.

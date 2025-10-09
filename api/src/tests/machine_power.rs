@@ -14,12 +14,12 @@ use rpc::forge::{
     MaintenanceOperation, MaintenanceRequest, PowerOptionRequest, PowerOptionUpdateRequest,
 };
 
-use crate::db::{self, managed_host::load_snapshot};
+use crate::db::managed_host::load_snapshot;
+use crate::db::{self};
 use crate::model::machine::LoadSnapshotOptions;
+use crate::model::power_manager::PowerState;
 use crate::redfish::RedfishClientPool;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
-
-use crate::model::power_manager::PowerState;
 
 #[crate::sqlx_test]
 async fn test_power_manager_create_entry_on_host_creation(

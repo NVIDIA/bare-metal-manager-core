@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+use async_trait::async_trait;
 
 use crate::CarbideError;
 use crate::ib::IBFabricManagerConfig;

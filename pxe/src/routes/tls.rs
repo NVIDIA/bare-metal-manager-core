@@ -9,14 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use axum::{
-    Router,
-    body::Body,
-    extract::{Request, State},
-    http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
-    routing::get,
-};
+use axum::Router;
+use axum::body::Body;
+use axum::extract::{Request, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
 use tower_http::services::ServeFile;
 
 use crate::common::AppState;

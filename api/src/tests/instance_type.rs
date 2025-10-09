@@ -14,13 +14,11 @@ use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 use tonic::Code;
 
-use crate::tests::common::api_fixtures::{
-    create_managed_host, create_test_env,
-    instance::{
-        advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
-        single_interface_network_config,
-    },
+use crate::tests::common::api_fixtures::instance::{
+    advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
+    single_interface_network_config,
 };
+use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[crate::sqlx_test]
 async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

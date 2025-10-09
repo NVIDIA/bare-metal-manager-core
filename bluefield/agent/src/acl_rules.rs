@@ -14,8 +14,7 @@ use std::collections::BTreeMap;
 
 use ipnetwork::Ipv4Network;
 
-use crate::acl::{Chain, Target};
-use crate::acl::{IpTablesRule, IpTablesRuleset, RulesFile};
+use crate::acl::{Chain, IpTablesRule, IpTablesRuleset, RulesFile, Target};
 
 pub const PATH: &str = "etc/cumulus/acl/policy.d/60-forge.rules";
 pub const RELOAD_CMD: &str = "cl-acltool -i";
@@ -161,9 +160,7 @@ pub const ARP_SUPPRESSION_RULE: &str = r"
 
 #[cfg(test)]
 mod tests {
-    use super::BTreeMap;
-    use super::Ipv4Network;
-    use super::{AclConfig, InterfaceRules, build};
+    use super::{AclConfig, BTreeMap, InterfaceRules, Ipv4Network, build};
 
     #[test]
     fn test_write_acl() -> Result<(), Box<dyn std::error::Error>> {

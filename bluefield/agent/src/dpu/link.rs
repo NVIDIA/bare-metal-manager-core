@@ -1,8 +1,10 @@
-use crate::pretty_cmd;
+use std::path::PathBuf;
+
 use eyre::Context;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use tracing::log::error;
+
+use crate::pretty_cmd;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct IpLink {

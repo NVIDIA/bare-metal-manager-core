@@ -10,11 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{cell::RefCell, marker::PhantomData};
+use std::cell::RefCell;
+use std::marker::PhantomData;
 
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tracing::{Event, Id, Subscriber, field, span};
-use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context;
+use tracing_subscriber::registry::LookupSpan;
 
 // Returns `Filter` that prevents logs with a level below `WARN` for sqlx
 // We use this solely for stdout and OpenTelemetry logging.
@@ -366,6 +369,7 @@ mod tests {
     #[test]
     fn test_sqlx_subscriber() {
         use std::time::Duration;
+
         use tracing::metadata::{Level, LevelFilter};
 
         let writer = Arc::new(MutexWriter {

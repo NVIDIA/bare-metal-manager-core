@@ -14,8 +14,9 @@ use std::time::Duration;
 
 use eyre::WrapErr;
 use serde::Deserialize;
+use tokio::process::Command as TokioCommand;
 use tokio::sync::OnceCell;
-use tokio::{process::Command as TokioCommand, time::timeout};
+use tokio::time::timeout;
 
 use crate::containerd::container;
 

@@ -9,19 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
+use std::ops::DerefMut;
+
+use common::api_fixtures::{create_test_env, populate_network_security_groups};
+use config_version::ConfigVersion;
+use forge_network::virtualization::VpcVirtualizationType;
+use forge_uuid::vpc::VpcId;
+use rpc::forge::forge_server::Forge;
+
 use crate::db::vpc::{self};
 use crate::db::{self, ObjectColumnFilter};
 use crate::model::metadata::Metadata;
 use crate::model::vpc::{UpdateVpc, UpdateVpcVirtualization};
 use crate::tests::common;
 use crate::{CarbideError, db_init};
-use common::api_fixtures::{create_test_env, populate_network_security_groups};
-use config_version::ConfigVersion;
-use forge_network::virtualization::VpcVirtualizationType;
-use forge_uuid::vpc::VpcId;
-use rpc::forge::forge_server::Forge;
-use std::collections::HashMap;
-use std::ops::DerefMut;
 
 #[crate::sqlx_test]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

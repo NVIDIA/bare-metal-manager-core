@@ -15,20 +15,18 @@ pub mod network;
 pub mod storage;
 pub mod tenant_config;
 
+use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::network_security_group::{
     NetworkSecurityGroupId, NetworkSecurityGroupIdParseError,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::model::{
-    ConfigValidationError,
-    instance::config::{
-        infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
-        storage::InstanceStorageConfig, tenant_config::TenantConfig,
-    },
-    os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
-};
-use ::rpc::errors::RpcDataConversionError;
+use crate::model::ConfigValidationError;
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::instance::config::network::InstanceNetworkConfig;
+use crate::model::instance::config::storage::InstanceStorageConfig;
+use crate::model::instance::config::tenant_config::TenantConfig;
+use crate::model::os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant};
 
 /// Instance configuration
 ///

@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use lazy_static::lazy_static;
 use prost_types::FieldDescriptorProto;
 use prost_types::field_descriptor_proto::{Label, Type};
-use std::collections::HashMap;
 
 lazy_static! {
     /// Hardcoded list of types that correspond to rust primitives. Taken from [prost-build][0]

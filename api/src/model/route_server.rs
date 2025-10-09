@@ -1,6 +1,7 @@
+use std::net::IpAddr;
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use std::net::IpAddr;
 
 // RouteServerSourceType exists because route server addresses are
 // stored with a source type annotating where the address was sourced

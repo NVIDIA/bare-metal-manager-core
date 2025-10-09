@@ -1,22 +1,20 @@
-use crate::model::machine::ManagedHostStateSnapshot;
-use crate::{
-    CarbideError, CarbideResult, cfg::file::CarbideConfig,
-    machine_update_manager::MachineUpdateManager,
-};
-use async_trait::async_trait;
-use sqlx::PgConnection;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-    sync::Arc,
-};
+
+use async_trait::async_trait;
+use forge_uuid::machine::MachineId;
+use sqlx::PgConnection;
 
 use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
 use super::machine_update_module::MachineUpdateModule;
+use crate::cfg::file::CarbideConfig;
 use crate::db::dpu_machine_update;
+use crate::machine_update_manager::MachineUpdateManager;
 use crate::model::dpu_machine_update::DpuMachineUpdate;
-use forge_uuid::machine::MachineId;
+use crate::model::machine::ManagedHostStateSnapshot;
+use crate::{CarbideError, CarbideResult};
 
 /// DpuNicFirmwareUpdate is a module used [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager)
 /// to ensure that DPU NIC firmware matches the expected version of the carbide release.

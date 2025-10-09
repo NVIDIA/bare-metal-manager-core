@@ -15,14 +15,15 @@
  *  tables in the database, leveraging the journal-specific record types.
 */
 
-use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
 };
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
+
+use crate::db::DatabaseError;
+use crate::measured_boot::interface::common;
 
 /// insert_measurement_journal_record is a very basic insert of a
 /// new row into the measurement_journals table. Is it expected that

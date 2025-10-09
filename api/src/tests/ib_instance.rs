@@ -12,21 +12,22 @@
 
 use std::collections::{HashMap, HashSet};
 
+use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
+use common::api_fixtures::instance::{config_for_ib_config, create_instance_with_ib_config};
+use common::api_fixtures::{TestEnv, create_managed_host};
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::machine::MachineId;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{IbPartitionSearchConfig, IbPartitionStatus, TenantState};
+use tonic::Request;
+
+use crate::api::Api;
 use crate::cfg::file::IBFabricConfig;
 use crate::ib::{Filter, IBFabric, IBFabricManager};
 use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
+use crate::model::machine::ManagedHostState;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
-use crate::{api::Api, model::machine::ManagedHostState};
-use common::api_fixtures::{
-    TestEnv, create_managed_host,
-    ib_partition::{DEFAULT_TENANT, create_ib_partition},
-    instance::{config_for_ib_config, create_instance_with_ib_config},
-};
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::machine::MachineId;
-use rpc::forge::{IbPartitionSearchConfig, IbPartitionStatus, TenantState, forge_server::Forge};
-use tonic::Request;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api

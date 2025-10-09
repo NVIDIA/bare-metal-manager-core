@@ -13,24 +13,17 @@
 use chrono::Utc;
 use libredfish::SystemPowerControl;
 
-use crate::{
-    model::{
-        machine::ManagedHostStateSnapshot,
-        power_manager::{
-            PowerHandlingOutcome, PowerOptions, PowerState, UsablePowerState,
-            are_all_dpus_up_after_power_operation,
-            get_updated_power_options_for_desired_on_state_off,
-            update_power_options_for_desired_on_state_on,
-        },
-    },
-    state_controller::{
-        machine::{
-            context::MachineStateHandlerContextObjects,
-            handler::{PowerOptionConfig, handler_host_power_control, host_power_state},
-        },
-        state_handler::{StateHandlerContext, StateHandlerError},
-    },
+use crate::model::machine::ManagedHostStateSnapshot;
+use crate::model::power_manager::{
+    PowerHandlingOutcome, PowerOptions, PowerState, UsablePowerState,
+    are_all_dpus_up_after_power_operation, get_updated_power_options_for_desired_on_state_off,
+    update_power_options_for_desired_on_state_on,
 };
+use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
+use crate::state_controller::machine::handler::{
+    PowerOptionConfig, handler_host_power_control, host_power_state,
+};
+use crate::state_controller::state_handler::{StateHandlerContext, StateHandlerError};
 
 // Handle power related stuff and return updated power options.
 pub async fn handle_power(

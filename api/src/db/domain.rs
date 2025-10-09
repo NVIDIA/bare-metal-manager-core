@@ -10,11 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::domain::DomainId;
+use sqlx::PgConnection;
+
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::model::domain::{Domain, NewDomain};
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::domain::DomainId;
-use sqlx::PgConnection;
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 

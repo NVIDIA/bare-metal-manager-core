@@ -1,9 +1,10 @@
-use crate::web::routes;
 use axum::Router;
 use common::api_fixtures::TestEnv;
-use hyper::http::{Request, request::Builder};
+use hyper::http::Request;
+use hyper::http::request::Builder;
 
 use crate::tests::common;
+use crate::web::routes;
 mod machine_health;
 mod managed_host;
 

@@ -1,3 +1,6 @@
+use forge_uuid::instance::InstanceId;
+use sqlx::PgConnection;
+
 use crate::db;
 use crate::errors::CarbideResult;
 use crate::model::instance::config::network::{
@@ -5,8 +8,6 @@ use crate::model::instance::config::network::{
 };
 use crate::model::machine::Machine;
 use crate::model::network_segment::NetworkSegmentType;
-use forge_uuid::instance::InstanceId;
-use sqlx::PgConnection;
 /// Allocate IP's for this network config, filling the InstanceInterfaceConfigs with the newly
 /// allocated IP's.
 pub async fn with_allocated_ips(

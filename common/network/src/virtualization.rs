@@ -13,11 +13,10 @@
 use std::fmt;
 use std::str::FromStr;
 
-#[cfg(feature = "ipnetwork")]
-use ipnetwork::IpNetwork;
-
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+#[cfg(feature = "ipnetwork")]
+use ipnetwork::IpNetwork;
 
 /// DEFAULT_NETWORK_VIRTUALIZATION_TYPE is what to default to if the Cloud API
 /// doesn't send it to Carbide (which it never does), or if the Carbide API

@@ -14,9 +14,11 @@
 
 use std::collections::HashMap;
 
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::Meter;
+
 use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::state_controller::metrics::MetricsEmitter;
-use opentelemetry::{KeyValue, metrics::Meter};
 
 #[derive(Debug, Default, Clone)]
 pub struct NetworkSegmentMetrics {

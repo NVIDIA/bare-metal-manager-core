@@ -14,30 +14,29 @@
 //! `measurement profile` subcommand dispatcher + backing functions.
 //!
 
-use crate::measurement::MachineIdList;
-use crate::measurement::global;
-use crate::measurement::global::cmds::{IdentifierType, get_identifier};
-use crate::measurement::profile::args::{
-    CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
-};
-use crate::rpc::ApiClient;
+use std::str::FromStr;
+
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::delete_measurement_system_profile_request;
-use ::rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
-use ::rpc::protos::measured_boot::list_measurement_system_profile_machines_request;
-use ::rpc::protos::measured_boot::rename_measurement_system_profile_request;
-use ::rpc::protos::measured_boot::show_measurement_system_profile_request;
 use ::rpc::protos::measured_boot::{
     CreateMeasurementSystemProfileRequest, DeleteMeasurementSystemProfileRequest, KvPair,
     ListMeasurementSystemProfileBundlesRequest, ListMeasurementSystemProfileMachinesRequest,
     RenameMeasurementSystemProfileRequest, ShowMeasurementSystemProfileRequest,
+    delete_measurement_system_profile_request, list_measurement_system_profile_bundles_request,
+    list_measurement_system_profile_machines_request, rename_measurement_system_profile_request,
+    show_measurement_system_profile_request,
 };
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::MeasurementSystemProfileRecord;
 use serde::Serialize;
-use std::str::FromStr;
+
+use crate::measurement::global::cmds::{IdentifierType, get_identifier};
+use crate::measurement::profile::args::{
+    CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
+};
+use crate::measurement::{MachineIdList, global};
+use crate::rpc::ApiClient;
 
 /// dispatch matches + dispatches the correct command for
 /// the `profile` subcommand (e.g. create, delete, etc).

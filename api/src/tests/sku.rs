@@ -4,23 +4,21 @@ pub mod tests {
     use forge_uuid::machine::MachineId;
     use sqlx::PgConnection;
 
+    use crate::db::sku::CURRENT_SKU_VERSION;
+    use crate::db::{self, DatabaseError, ObjectFilter};
     use crate::model::expected_machine::ExpectedMachineData;
     use crate::model::machine::machine_search_config::MachineSearchConfig;
-    use crate::{
-        db::{self, DatabaseError, ObjectFilter, sku::CURRENT_SKU_VERSION},
-        model::{
-            machine::{
-                BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
-                ManagedHostState, ValidationState,
-            },
-            metadata::Metadata,
-            sku::Sku,
-        },
-        tests::common::api_fixtures::{
-            TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host,
-            create_managed_host_with_config, create_test_env, create_test_env_with_overrides,
-            get_config, managed_host::ManagedHostConfig,
-        },
+    use crate::model::machine::{
+        BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
+        ManagedHostState, ValidationState,
+    };
+    use crate::model::metadata::Metadata;
+    use crate::model::sku::Sku;
+    use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+    use crate::tests::common::api_fixtures::{
+        TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host,
+        create_managed_host_with_config, create_test_env, create_test_env_with_overrides,
+        get_config,
     };
 
     pub const FULL_SKU_DATA: &str = r#"

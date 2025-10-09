@@ -10,9 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, net::IpAddr};
+use std::collections::HashMap;
+use std::net::IpAddr;
 
 use chrono::{TimeDelta, Utc};
+use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use sqlx::PgConnection;
 
@@ -20,8 +22,6 @@ use super::DatabaseError;
 use crate::CarbideResult;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::hardware_info::HardwareInfo;
-use forge_uuid::machine::MachineId;
-
 #[cfg(test)]
 use crate::model::hardware_info::HardwareInfoV1;
 use crate::model::machine::topology::{DiscoveryData, MachineTopology, TopologyData};

@@ -11,6 +11,7 @@
  */
 
 use std::time::Duration;
+
 use tracing_subscriber::fmt;
 
 fn main() -> eyre::Result<()> {

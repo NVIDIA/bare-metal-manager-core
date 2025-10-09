@@ -1,14 +1,16 @@
-use crate::errors::{CarbideError, CarbideResult};
-use crate::model::machine::MachineValidationFilter;
+use std::fmt::{Debug, Display};
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use std::fmt::{Debug, Display};
-use std::str::FromStr;
 use uuid::Uuid;
+
+use crate::errors::{CarbideError, CarbideResult};
+use crate::model::machine::MachineValidationFilter;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
 pub enum MachineValidationState {

@@ -14,19 +14,12 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::sync::OnceCell;
 
-use sqlx::ConnectOptions;
-use sqlx::Connection;
-use sqlx::Executor;
-use sqlx::Postgres;
 use sqlx::pool::PoolOptions;
-use sqlx::postgres::PgConnectOptions;
-use sqlx::postgres::PgPool;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::testing::TestArgs;
-use sqlx::testing::TestContext;
-use sqlx::testing::TestTermination;
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::testing::{TestArgs, TestContext, TestTermination};
+use sqlx::{ConnectOptions, Connection, Executor, Postgres};
+use tokio::sync::OnceCell;
 
 static POOL: OnceCell<PgPool> = OnceCell::const_new();
 static DB_NUMBER: AtomicUsize = AtomicUsize::new(0);

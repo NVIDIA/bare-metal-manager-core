@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+
 use mlxconfig_profile::serialization::SerializableProfile;
 use mlxconfig_profile::MlxProfileError;
 use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
-use std::collections::HashMap;
 
 #[test]
 fn test_serializable_profile_creation() {

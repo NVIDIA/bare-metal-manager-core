@@ -10,29 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
+use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::PgConnection;
 use tonic::Status;
 
+use crate::CarbideError;
 use crate::cfg::file::VpcPeeringPolicy;
-use crate::db::ObjectColumnFilter;
+use crate::db::vpc::{self};
 use crate::db::vpc_peering::get_prefixes_by_vpcs;
-use crate::model::network_security_group::NetworkSecurityGroupRuleNet;
+use crate::db::{self, ObjectColumnFilter};
+use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+use crate::model::network_security_group::{NetworkSecurityGroup, NetworkSecurityGroupRuleNet};
 use crate::model::network_segment::NetworkSegment;
 use crate::resource_pool::common::CommonPools;
-use crate::{
-    CarbideError,
-    db::{
-        self,
-        vpc::{self},
-    },
-    model::{
-        instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
-        network_security_group::NetworkSecurityGroup,
-    },
-};
-use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
-use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {

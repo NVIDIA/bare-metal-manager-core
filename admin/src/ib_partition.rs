@@ -12,12 +12,13 @@
 
 use std::fmt::Write;
 
-use super::cfg::cli_options::ShowIbPartition;
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use forge_uuid::infiniband::IBPartitionId;
 use prettytable::{Table, row};
+
+use super::cfg::cli_options::ShowIbPartition;
+use crate::rpc::ApiClient;
 
 pub async fn handle_show(
     args: ShowIbPartition,

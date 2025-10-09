@@ -1,6 +1,7 @@
-use serde::{Serialize, Serializer};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
+
+use serde::{Serialize, Serializer};
 
 pub mod cmd;
 mod host_port_pair;

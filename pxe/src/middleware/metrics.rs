@@ -71,19 +71,15 @@
 //! - `code`: the response status code.
 //! - Additional labels from [`ExtraMetricLabels`] extension of [`Request`] or [`Response`],
 //!   if exists.
-use std::{
-    borrow::Cow,
-    future::Future,
-    num::Saturating,
-    pin::Pin,
-    task::{Context, Poll, ready},
-    time::Instant,
-};
+use std::borrow::Cow;
+use std::future::Future;
+use std::num::Saturating;
+use std::pin::Pin;
+use std::task::{Context, Poll, ready};
+use std::time::Instant;
 
-use axum::{
-    extract::MatchedPath,
-    http::{Method, Request, Response, StatusCode},
-};
+use axum::extract::MatchedPath;
+use axum::http::{Method, Request, Response, StatusCode};
 use bytes::Buf;
 use http_body::{Body, Frame, SizeHint};
 use metrics::{Gauge, Label, counter, gauge, histogram};

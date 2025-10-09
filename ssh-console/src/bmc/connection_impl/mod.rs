@@ -13,9 +13,10 @@
 pub mod ipmi;
 pub mod ssh;
 
-use crate::bmc::pending_output_line::PendingOutputLine;
 use chrono::{DateTime, SecondsFormat, Utc};
 use tokio::sync::oneshot;
+
+use crate::bmc::pending_output_line::PendingOutputLine;
 
 fn echo_connected_message(
     tx: oneshot::Sender<Vec<u8>>,

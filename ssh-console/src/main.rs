@@ -9,11 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::net::AddrParseError;
+use std::path::PathBuf;
+
 use clap::Parser;
 use ssh_console::config::{Config, ConfigError, Defaults};
 use ssh_console::shutdown_handle::ShutdownHandle;
-use std::net::AddrParseError;
-use std::path::PathBuf;
 use tracing::metadata::LevelFilter;
 
 #[tokio::main(flavor = "multi_thread")]

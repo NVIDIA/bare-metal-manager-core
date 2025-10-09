@@ -1,7 +1,8 @@
+use std::borrow::Cow;
+
 use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 use eyre::Context;
 use ssh_console_mock_api_server::MockHost;
-use std::borrow::Cow;
 
 pub async fn assert_metrics(metrics_str: String, mock_hosts: &[MockHost]) -> eyre::Result<()> {
     let metrics: ParsedPrometheusMetrics = metrics_str.parse().context("Error parsing metrics")?;

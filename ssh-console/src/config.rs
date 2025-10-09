@@ -10,7 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::bmc::vendor::{BmcVendor, SshBmcVendor};
+use std::default::Default;
+use std::net::{IpAddr, SocketAddr};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::time::Duration;
+
 use duration_str::deserialize_duration;
 use forge_tls::client_config::ClientCert;
 use forge_uuid::machine::MachineIdParseError;
@@ -20,11 +25,8 @@ use russh::keys::ssh_key::Fingerprint;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use size::Size;
-use std::default::Default;
-use std::net::{IpAddr, SocketAddr};
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::time::Duration;
+
+use crate::bmc::vendor::{BmcVendor, SshBmcVendor};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 /// Configuration for ssh-console. Fields are documented as comments in the output of [`Config::into_annotated_config_file`].

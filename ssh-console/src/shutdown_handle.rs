@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use futures_util::FutureExt;
 use std::future;
+
+use futures_util::FutureExt;
 use tokio::sync::oneshot;
 
 /// Convenience trait for a task with a shutdown handle (in the form of a [`oneshot::Sender<()>`])

@@ -10,10 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::Oauth2Layer;
-use crate::api::Api;
-use crate::auth::AuthContext;
-use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
+use std::sync::Arc;
+
 use askama::Template;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
@@ -24,7 +22,11 @@ use hyper::http::StatusCode;
 use rpc::forge::RedfishAction;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
-use std::sync::Arc;
+
+use super::Oauth2Layer;
+use crate::api::Api;
+use crate::auth::AuthContext;
+use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
 
 #[derive(Template)]
 #[template(path = "redfish_actions.html")]
@@ -198,10 +200,11 @@ pub async fn cancel(AxumState(state): AxumState<Arc<Api>>, request_id: String) -
 }
 
 pub mod filters {
+    use std::fmt::Write;
+
     use askama_escape::Escaper;
     use itertools::Itertools;
     use rpc::forge::OptionalRedfishActionResult;
-    use std::fmt::Write;
     use utils::managed_host_display::to_time;
 
     pub fn date_fmt(value: &rpc::Timestamp) -> ::askama::Result<String> {

@@ -9,13 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{
-    io,
-    net::{AddrParseError, Ipv4Addr},
-    str::Utf8Error,
-};
+use std::io;
+use std::net::{AddrParseError, Ipv4Addr};
+use std::str::Utf8Error;
 
-use dhcproto::v4::{MessageType, OptionCode, relay::RelayCode};
+use dhcproto::v4::relay::RelayCode;
+use dhcproto::v4::{MessageType, OptionCode};
 use thiserror::Error;
 
 #[derive(Error, Debug)]

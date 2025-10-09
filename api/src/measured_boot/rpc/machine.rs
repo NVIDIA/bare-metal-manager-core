@@ -14,22 +14,23 @@
  * gRPC handlers for measured boot mock-machine related API calls.
  */
 
+use std::str::FromStr;
+
+use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineId;
+use measured_boot::pcr::PcrRegisterValue;
+use rpc::protos::measured_boot::{
+    AttestCandidateMachineRequest, AttestCandidateMachineResponse, ListCandidateMachinesRequest,
+    ListCandidateMachinesResponse, ShowCandidateMachineRequest, ShowCandidateMachineResponse,
+    ShowCandidateMachinesRequest, ShowCandidateMachinesResponse, show_candidate_machine_request,
+};
+use sqlx::{Pool, Postgres};
+use tonic::Status;
+
 use crate::CarbideError;
 use crate::measured_boot::db;
 use crate::measured_boot::interface::machine::get_candidate_machine_records;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineId;
-use measured_boot::pcr::PcrRegisterValue;
-use rpc::protos::measured_boot::show_candidate_machine_request;
-use rpc::protos::measured_boot::{
-    AttestCandidateMachineRequest, AttestCandidateMachineResponse, ListCandidateMachinesRequest,
-    ListCandidateMachinesResponse, ShowCandidateMachineRequest, ShowCandidateMachineResponse,
-    ShowCandidateMachinesRequest, ShowCandidateMachinesResponse,
-};
-use sqlx::{Pool, Postgres};
-use std::str::FromStr;
-use tonic::Status;
 
 /// handle_attest_candidate_machine handles the AttestCandidateMachine API endpoint.
 pub async fn handle_attest_candidate_machine(

@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::path::Path;
+use std::str::FromStr;
+
 use carbide::{Command, Options};
 use clap::CommandFactory;
 use forge_secrets::forge_vault::VaultConfig;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
-use std::path::Path;
-use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {

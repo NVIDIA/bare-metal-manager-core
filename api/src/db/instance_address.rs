@@ -12,15 +12,14 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
 
+use forge_network::virtualization::get_host_ip;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{Acquire, FromRow, PgConnection, query_as};
 
 use super::{DatabaseError, ObjectColumnFilter, network_segment};
-use crate::model::network_segment::{
-    NetworkSegment, NetworkSegmentSearchConfig, NetworkSegmentType,
-};
-
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::ConfigValidationError;
 use crate::model::address_selection_strategy::AddressSelectionStrategy;
@@ -30,11 +29,10 @@ use crate::model::instance::config::network::{
 use crate::model::instance_address::InstanceAddress;
 use crate::model::machine::Machine;
 use crate::model::network_prefix::NetworkPrefix;
-use crate::model::network_segment::NetworkSegmentControllerState;
+use crate::model::network_segment::{
+    NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
+};
 use crate::{CarbideError, CarbideResult, db};
-use forge_network::virtualization::get_host_ip;
-use forge_uuid::network::NetworkPrefixId;
-use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
 
 #[cfg(test)]
 #[derive(Copy, Clone)]
@@ -584,15 +582,17 @@ pub async fn allocate_svi_ip(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
-    use crate::model::network_segment::NetworkSegmentType;
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
     use forge_uuid::vpc::VpcId;
-    use std::collections::HashMap;
-    use std::str::FromStr;
     use uuid::Uuid;
+
+    use super::*;
+    use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+    use crate::model::network_segment::NetworkSegmentType;
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {
         let vpc_id = VpcId::from_str("11609f10-c11d-1101-3261-6293ea0c0100").unwrap();

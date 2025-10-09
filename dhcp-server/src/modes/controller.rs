@@ -9,7 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{net::IpAddr, str::FromStr};
+use std::net::IpAddr;
+use std::str::FromStr;
 
 use ::rpc::forge::DhcpDiscovery;
 use lru::LruCache;
@@ -18,13 +19,11 @@ use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use super::DhcpMode;
-use crate::{
-    Config,
-    cache::{self, CacheEntry},
-    errors::DhcpError,
-    rpc::client::discover_dhcp,
-    vendor_class::VendorClass,
-};
+use crate::Config;
+use crate::cache::{self, CacheEntry};
+use crate::errors::DhcpError;
+use crate::rpc::client::discover_dhcp;
+use crate::vendor_class::VendorClass;
 
 #[derive(Debug)]
 pub struct Controller {}

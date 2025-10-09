@@ -9,21 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::{
-    db::{self, machine_interface::associate_interface_with_dpu_machine},
-    model::hardware_info::{Cpu, CpuInfo, HardwareInfo, HardwareInfoV1},
-    model::machine::machine_id::from_hardware_info,
-};
-use forge_uuid::machine::{MachineId, MachineType};
+use std::str::FromStr;
 
-use crate::db::{ObjectColumnFilter, network_segment};
+use common::api_fixtures::dpu::create_dpu_machine;
+use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
+use common::api_fixtures::{create_managed_host, create_test_env};
+use forge_uuid::machine::{MachineId, MachineType};
+use rpc::forge::forge_server::Forge;
+
+use crate::db::machine_interface::associate_interface_with_dpu_machine;
+use crate::db::{self, ObjectColumnFilter, network_segment};
+use crate::model::hardware_info::{Cpu, CpuInfo, HardwareInfo, HardwareInfoV1};
+use crate::model::machine::machine_id::from_hardware_info;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::model::machine::topology::TopologyDataV1;
 use crate::tests::common;
-use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
-use common::api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine};
-use rpc::forge::forge_server::Forge;
-use std::str::FromStr;
 
 #[crate::sqlx_test]
 async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

@@ -10,20 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    any::TypeId, cell::RefCell, collections::BTreeMap, io::Write, marker::PhantomData, sync::Arc,
-};
+use std::any::TypeId;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::marker::PhantomData;
+use std::sync::Arc;
 
-use tracing::{
-    Event, Subscriber,
-    field::{self, Field, Visit},
-    span::{self, Attributes},
-};
-use tracing_subscriber::{
-    Layer,
-    layer::Context,
-    registry::{LookupSpan, SpanRef},
-};
+use tracing::field::{self, Field, Visit};
+use tracing::span::{self, Attributes};
+use tracing::{Event, Subscriber};
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context;
+use tracing_subscriber::registry::{LookupSpan, SpanRef};
 
 /// Construct a new `LogFmtLayer`
 pub fn layer<S>() -> LogFmtLayer<S>
@@ -488,8 +487,10 @@ fn clear_format_buffer(buf: &mut Vec<u8>) {
 mod tests {
     use std::sync::Mutex;
 
-    use tracing::{Level, level_filters::LevelFilter};
-    use tracing_subscriber::{EnvFilter, prelude::*};
+    use tracing::Level;
+    use tracing::level_filters::LevelFilter;
+    use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::prelude::*;
 
     use super::*;
 

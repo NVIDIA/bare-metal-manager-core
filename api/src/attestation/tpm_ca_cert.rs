@@ -10,11 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::attestation::get_ek_cert_by_machine_id;
-use crate::db::attestation as db_attest;
-use crate::db::attestation::ek_cert_verification_status;
-use crate::model::hardware_info::TpmEkCertificate;
-use crate::{CarbideError, CarbideResult};
 use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use sha2::{Digest, Sha256};
@@ -23,6 +18,12 @@ use x509_parser::certificate::X509Certificate;
 use x509_parser::extensions::ParsedExtension;
 use x509_parser::oid_registry;
 use x509_parser::prelude::{FromDer, GeneralName};
+
+use crate::attestation::get_ek_cert_by_machine_id;
+use crate::db::attestation as db_attest;
+use crate::db::attestation::ek_cert_verification_status;
+use crate::model::hardware_info::TpmEkCertificate;
+use crate::{CarbideError, CarbideResult};
 
 pub fn extract_ca_fields(
     ca_cert_bytes: &[u8],

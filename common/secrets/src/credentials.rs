@@ -1,9 +1,11 @@
-use async_trait::async_trait;
 use core::fmt;
-use mac_address::MacAddress;
-use rand::{Rng, seq::SliceRandom};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use async_trait::async_trait;
+use mac_address::MacAddress;
+use rand::Rng;
+use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 const PASSWORD_LEN: usize = 16;

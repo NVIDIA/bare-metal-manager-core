@@ -10,16 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::time::Duration;
+
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Counter, Histogram, Meter};
+
 use crate::logging::metrics_utils::SharedMetricsHolder;
-use crate::{
-    logging::sqlx_query_tracing,
-    state_controller::{io::StateControllerIO, state_handler::StateHandlerError},
-};
-use opentelemetry::{
-    KeyValue,
-    metrics::{Counter, Histogram, Meter},
-};
-use std::{collections::HashMap, marker::PhantomData, time::Duration};
+use crate::logging::sqlx_query_tracing;
+use crate::state_controller::io::StateControllerIO;
+use crate::state_controller::state_handler::StateHandlerError;
 
 #[derive(Debug, Hash, PartialEq, Eq, serde::Serialize, Clone)]
 pub(crate) struct FullState {

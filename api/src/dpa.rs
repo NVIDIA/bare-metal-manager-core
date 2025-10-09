@@ -10,19 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::api::Api;
-use crate::db;
-use crate::model::dpa_interface::DpaInterfaceNetworkStatusObservation;
+use std::str::FromStr;
+use std::sync::Arc;
+
 use ::rpc::protos::dpa_rpc::{Metadata, Pfvni, SetVni};
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::traits::ProtobufRegistration;
 use rumqttc::QoS;
-use std::str::FromStr;
-use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 use tracing::error;
+
+use crate::api::Api;
+use crate::db;
+use crate::model::dpa_interface::DpaInterfaceNetworkStatusObservation;
 
 // We just received a message from a DPA via the MQTT broker. Handle that message here.
 async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) {

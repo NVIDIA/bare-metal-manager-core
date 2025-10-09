@@ -10,9 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::grpcurl::grpcurl;
+use std::net::SocketAddr;
+use std::{thread, time};
+
 use forge_uuid::machine::MachineId;
-use std::{net::SocketAddr, thread, time};
+
+use crate::grpcurl::grpcurl;
 
 const MAX_RETRY: usize = 30; // Equal to 30s wait time
 

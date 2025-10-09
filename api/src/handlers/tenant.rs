@@ -15,7 +15,8 @@ use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::db::DatabaseError;
-use crate::model::{ConfigValidationError, metadata::Metadata};
+use crate::model::ConfigValidationError;
+use crate::model::metadata::Metadata;
 use crate::{CarbideError, db};
 
 /// Ensures that fields unsupported by the tenant DB model are rejected early.
@@ -162,9 +163,10 @@ pub(crate) async fn update(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ::rpc::forge as rpc;
     use tonic::Code;
+
+    use super::*;
 
     #[test]
     fn test_metadata_to_valid_tenant_metadata() {

@@ -23,11 +23,12 @@ pub mod profile;
 pub mod report;
 pub mod site;
 
-use crate::cfg::measurement::{Cmd, GlobalOptions};
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{ToTable, set_summary};
 use forge_uuid::machine::MachineId;
 use serde::Serialize;
+
+use crate::cfg::measurement::{Cmd, GlobalOptions};
+use crate::rpc::ApiClient;
 
 pub async fn dispatch(
     command: &Cmd,

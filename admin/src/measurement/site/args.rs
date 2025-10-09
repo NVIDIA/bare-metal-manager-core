@@ -25,7 +25,6 @@
 */
 
 use clap::Parser;
-
 use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,

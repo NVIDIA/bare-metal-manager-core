@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
+
+use super::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 
 #[crate::sqlx_test]
 async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool) {

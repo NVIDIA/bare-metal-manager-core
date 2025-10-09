@@ -10,19 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::Options;
+use std::net::{SocketAddr, TcpListener};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use std::{env, fs};
+
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum_server::tls_rustls::RustlsConfig;
 use rustls::ServerConfig;
 use rustls_pemfile::Item;
 use rustls_pki_types::PrivateKeyDer;
-use std::net::{SocketAddr, TcpListener};
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::{env, fs};
 use tempfile::{NamedTempFile, TempDir};
+
+use crate::Options;
 
 const TLS_CERT: &[u8] = include_bytes!("../../../test-certs/tls.crt");
 const TLS_KEY: &[u8] = include_bytes!("../../../test-certs/tls.key");

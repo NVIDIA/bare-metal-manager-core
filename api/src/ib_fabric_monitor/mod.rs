@@ -12,39 +12,33 @@
 
 mod metrics;
 
-use chrono::Utc;
-use forge_uuid::{infiniband::IBPartitionId, machine::MachineId};
-use rpc::forge::IbPartitionSearchFilter;
-use sqlx::{PgConnection, PgPool};
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Write,
-    sync::Arc,
-};
-use tokio::sync::oneshot;
-use tracing::Instrument;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
+use std::sync::Arc;
 
-use crate::{
-    CarbideError, CarbideResult,
-    cfg::file::{CarbideConfig, IbFabricDefinition},
-    db::{
-        self, DatabaseError,
-        ib_partition::{IBPartition, IBPartitionSearchConfig},
-    },
-    ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType},
-    model::{
-        ib::{IBNetwork, IBPort, IBPortMembership, IBPortState},
-        ib_partition::PartitionKey,
-        machine::{
-            HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot,
-            infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
-            machine_search_config::MachineSearchConfig,
-        },
-    },
-};
+use chrono::Utc;
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::machine::MachineId;
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
+use rpc::forge::IbPartitionSearchFilter;
+use sqlx::{PgConnection, PgPool};
+use tokio::sync::oneshot;
+use tracing::Instrument;
+
+use crate::cfg::file::{CarbideConfig, IbFabricDefinition};
+use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig};
+use crate::db::{self, DatabaseError};
+use crate::ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType};
+use crate::model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
+use crate::model::ib_partition::PartitionKey;
+use crate::model::machine::infiniband::{
+    MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
+};
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use crate::{CarbideError, CarbideResult};
 
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals
 pub struct IbFabricMonitor {

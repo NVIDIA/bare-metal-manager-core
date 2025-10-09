@@ -12,15 +12,15 @@
 use std::fmt::Write;
 use std::str::FromStr as _;
 
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
+use forge_uuid::domain::DomainId;
+use forge_uuid::network::NetworkSegmentId;
 use prettytable::{Table, row};
 use serde::Deserialize;
 
 use super::cfg::cli_options::ShowNetwork;
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use forge_uuid::domain::DomainId;
-use forge_uuid::network::NetworkSegmentId;
 
 #[derive(Deserialize)]
 struct NetworkState {

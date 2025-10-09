@@ -14,23 +14,23 @@
 //! `measurement journal` subcommand dispatcher + backing functions.
 //!
 
-use crate::measurement::global;
-use crate::measurement::journal::args::{CmdJournal, Delete, List, Promote, Show};
-use crate::measurement::report::{
-    args::Promote as ReportPromoteArgs, cmds::promote as report_promote,
-};
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{
     CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,
 };
-use ::rpc::protos::measured_boot::list_measurement_journal_request;
-use ::rpc::protos::measured_boot::show_measurement_journal_request;
 use ::rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, ListMeasurementJournalRequest, ShowMeasurementJournalRequest,
+    list_measurement_journal_request, show_measurement_journal_request,
 };
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementJournalRecord;
-use measured_boot::{bundle::MeasurementBundle, journal::MeasurementJournal};
 use serde::Serialize;
+
+use crate::measurement::global;
+use crate::measurement::journal::args::{CmdJournal, Delete, List, Promote, Show};
+use crate::measurement::report::args::Promote as ReportPromoteArgs;
+use crate::measurement::report::cmds::promote as report_promote;
+use crate::rpc::ApiClient;
 
 /// dispatch matches + dispatches the correct command for
 /// the `journal` subcommand.

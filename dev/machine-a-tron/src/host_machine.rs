@@ -1,8 +1,15 @@
-use eyre::Context;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
+
+use bmc_mock::{
+    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult,
+    SystemPowerControl,
+};
+use eyre::Context;
+use forge_uuid::machine::MachineId;
+use rpc::forge::IdentifySerialRequest;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Interval;
@@ -10,23 +17,13 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api_client::ApiClient;
-use crate::config::PersistedHostMachine;
+use crate::config::{MachineATronContext, MachineConfig, PersistedHostMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
-use crate::dpu_machine::DpuMachineHandle;
+use crate::dpu_machine::{DpuMachine, DpuMachineHandle};
 use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMachine};
 use crate::machine_utils::create_random_self_signed_cert;
-use crate::{
-    config::{MachineATronContext, MachineConfig},
-    dpu_machine::DpuMachine,
-    saturating_add_duration_to_instant,
-    tui::{HostDetails, UiUpdate},
-};
-use bmc_mock::{
-    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult,
-    SystemPowerControl,
-};
-use forge_uuid::machine::MachineId;
-use rpc::forge::IdentifySerialRequest;
+use crate::saturating_add_duration_to_instant;
+use crate::tui::{HostDetails, UiUpdate};
 
 #[derive(Debug)]
 pub struct HostMachine {

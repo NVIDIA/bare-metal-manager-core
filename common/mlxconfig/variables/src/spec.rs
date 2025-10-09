@@ -16,8 +16,9 @@
 // a builder that is leveraged by a build.rs script to
 // make building a little cleaner.
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "config", rename_all = "snake_case")]

@@ -13,8 +13,10 @@
 // tests/runner_integration_tests.rs
 // Integration tests for MlxConfigRunner functionality
 
+use std::fs;
+use std::time::Duration;
+
 use mlxconfig_runner::{ExecOptions, MlxConfigRunner};
-use std::{fs, time::Duration};
 
 mod common;
 

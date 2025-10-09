@@ -11,13 +11,11 @@
  */
 use rpc::forge::{CreateRemediationRequest, RemediationApplicationStatus};
 
+use crate::db;
 use crate::model::dpu_remediation::{
     ApproveRemediation, EnableRemediation, NewRemediation, Reviewer,
 };
-use crate::{
-    db,
-    tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env},
-};
+use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 
 #[test]
 fn test_try_from_rpc() -> Result<(), Box<dyn std::error::Error>> {

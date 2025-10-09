@@ -10,12 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::logging::metrics_utils::SharedMetricsHolder;
+use std::collections::HashMap;
+use std::time::Instant;
+
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
-use opentelemetry::{KeyValue, metrics::Meter};
-use std::{collections::HashMap, time::Instant};
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::Meter;
+
+use crate::logging::metrics_utils::SharedMetricsHolder;
 
 /// MeasuredBootMetricsCollectorMetrics stores metrics that are gathered in
 /// one a single `MeasuredBootMetricsCollector` run. These metrics are then

@@ -10,28 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use tokio::{sync::oneshot, task::JoinSet};
+use tokio::sync::oneshot;
+use tokio::task::JoinSet;
 use tracing::Instrument;
 
-use crate::{
-    db,
-    db::DatabaseError,
-    logging::sqlx_query_tracing,
-    model::controller_outcome::PersistentStateHandlerOutcome,
-    state_controller::{
-        config::IterationConfig,
-        io::StateControllerIO,
-        metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics},
-        state_handler::{
-            FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome, StateHandlerServices,
-        },
-    },
+use crate::db;
+use crate::db::DatabaseError;
+use crate::logging::sqlx_query_tracing;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use crate::state_controller::config::IterationConfig;
+use crate::state_controller::io::StateControllerIO;
+use crate::state_controller::metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics};
+use crate::state_controller::state_handler::{
+    FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerError,
+    StateHandlerOutcome, StateHandlerServices,
 };
 
 mod builder;

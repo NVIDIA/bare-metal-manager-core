@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge as rpc;
-use sqlx::{Pool, Postgres, Transaction};
 use std::net::IpAddr;
 use std::str::FromStr;
+
+use ::rpc::forge as rpc;
+use sqlx::{Pool, Postgres, Transaction};
 use tonic::Status;
 
 use crate::api::{Api, log_request_data};

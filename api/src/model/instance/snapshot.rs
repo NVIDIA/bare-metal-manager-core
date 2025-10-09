@@ -12,32 +12,29 @@
 
 use std::collections::HashMap;
 
+use ::rpc::errors::RpcDataConversionError;
+use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::instance_type::InstanceTypeId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::network_security_group::NetworkSecurityGroupId;
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
 
 use super::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
+use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::model::instance::config::storage::InstanceStorageConfig;
 use crate::model::instance::config::tenant_config::TenantConfig;
 use crate::model::instance::status::storage::InstanceStorageStatusObservation;
+use crate::model::instance::status::{InstanceStatus, InstanceStatusObservations};
+use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
+use crate::model::machine::{ManagedHostState, ReprovisionRequest};
+use crate::model::metadata::Metadata;
 use crate::model::os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant};
 use crate::model::tenant::TenantOrganizationId;
-use crate::model::{
-    instance::{
-        config::InstanceConfig,
-        status::{InstanceStatus, InstanceStatusObservations},
-    },
-    machine::{
-        ManagedHostState, ReprovisionRequest, infiniband::MachineInfinibandStatusObservation,
-    },
-    metadata::Metadata,
-};
-use ::rpc::errors::RpcDataConversionError;
-use chrono::{DateTime, Utc};
-use forge_uuid::network_security_group::NetworkSecurityGroupId;
-use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
-use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Row};
 
 /// Represents a snapshot view of an `Instance`
 ///

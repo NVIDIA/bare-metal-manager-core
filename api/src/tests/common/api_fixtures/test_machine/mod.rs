@@ -10,12 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::machine::Machine;
-use crate::tests::common::api_fixtures::{Api, TestEnv};
+use std::sync::Arc;
+
 use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
-use std::sync::Arc;
 use tonic::Request;
+
+use crate::model::machine::Machine;
+use crate::tests::common::api_fixtures::{Api, TestEnv};
 
 pub mod interface;
 

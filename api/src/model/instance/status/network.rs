@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::convert::Into;
-use std::{collections::HashMap, net::IpAddr};
+use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
 use chrono::{DateTime, Utc};
@@ -22,15 +23,13 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{
-    SerializableMacAddress,
-    instance::{
-        config::network::{InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId},
-        status::SyncState,
-    },
-    machine::Machine,
-    network_security_group::NetworkSecurityGroupStatusObservation,
+use crate::model::SerializableMacAddress;
+use crate::model::instance::config::network::{
+    InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId,
 };
+use crate::model::instance::status::SyncState;
+use crate::model::machine::Machine;
+use crate::model::network_security_group::NetworkSecurityGroupStatusObservation;
 
 /// Status of the networking subsystem of an instance
 ///
@@ -611,13 +610,14 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, fmt::Write, str::FromStr};
+    use std::collections::HashMap;
+    use std::fmt::Write;
+    use std::str::FromStr;
 
-    use forge_uuid::network::NetworkSegmentId;
+    use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 
     use super::*;
     use crate::model::instance::config::network::InstanceInterfaceConfig;
-    use forge_uuid::network::NetworkPrefixId;
 
     #[test]
     fn deserialize_old_network_status_observation() {

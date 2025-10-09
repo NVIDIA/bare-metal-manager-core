@@ -10,29 +10,29 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::vpc::VpcId;
 use std::time::SystemTime;
-use uuid::uuid;
 
 use config_version::ConfigVersion;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
+use forge_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;
+use uuid::uuid;
 
+use super::common::api_fixtures::TestEnv;
 use crate::cfg::file::default_max_network_security_group_size;
 use crate::model::instance::config::network::DeviceLocator;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
-use crate::tests::common::api_fixtures::instance::interface_network_config_with_devices;
-use crate::tests::common::api_fixtures::{
-    create_test_env,
-    instance::{default_os_config, default_tenant_config, single_interface_network_config},
-    managed_host::ManagedHostConfig,
-    populate_network_security_groups, site_explorer,
+use crate::tests::common::api_fixtures::instance::{
+    default_os_config, default_tenant_config, interface_network_config_with_devices,
+    single_interface_network_config,
 };
-
-use super::common::api_fixtures::TestEnv;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::{
+    create_test_env, populate_network_security_groups, site_explorer,
+};
 
 async fn update_network_status_observation(
     env: &TestEnv,

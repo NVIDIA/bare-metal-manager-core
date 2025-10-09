@@ -10,21 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::handlers::measured_boot::rpc_forge::forge_agent_control_response::Action;
-use crate::model::machine::InstanceState;
-use crate::model::machine::LoadSnapshotOptions;
-use crate::model::machine::Machine;
-use crate::model::machine::ManagedHostState;
-use crate::model::machine::ManagedHostStateSnapshot;
-use crate::model::machine::ReprovisionState;
-use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
-use crate::tests::common::api_fixtures::{Api, TestEnv, TestMachine};
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
-use std::collections::HashMap;
-use std::sync::Arc;
 use tonic::Request;
+
+use crate::handlers::measured_boot::rpc_forge::forge_agent_control_response::Action;
+use crate::model::machine::{
+    InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
+    ReprovisionState,
+};
+use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
+use crate::tests::common::api_fixtures::{Api, TestEnv, TestMachine};
 
 pub struct TestManagedHost {
     pub id: MachineId,

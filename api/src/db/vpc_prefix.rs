@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+pub use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{FromRow, PgConnection, QueryBuilder, Row};
@@ -21,7 +22,6 @@ use crate::model::network_prefix::NetworkPrefix;
 use crate::model::vpc_prefix::{
     DeleteVpcPrefix, NewVpcPrefix, PrefixMatch, UpdateVpcPrefix, VpcPrefix,
 };
-pub use forge_uuid::vpc::{VpcId, VpcPrefixId};
 
 async fn update_stats(
     prefixes: &mut [VpcPrefix],

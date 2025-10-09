@@ -13,17 +13,17 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use super::log::{build_diff, maybe_colorize};
-use super::{FileEnsure, FileSpec, SummaryFormat, SyncOptions, SyncStatus};
-use crate::logln;
 use colored::Colorize;
 use nix::unistd::{Gid, Uid, chown};
 use sha2::{Digest, Sha256};
 use uzers::{get_group_by_name, get_user_by_name};
+
+use super::log::{build_diff, maybe_colorize};
+use super::{FileEnsure, FileSpec, SummaryFormat, SyncOptions, SyncStatus};
+use crate::logln;
 
 /// sync is the main entrypoint into duppet doing a sync. It
 /// takes the hashmap of file output path and content, as well

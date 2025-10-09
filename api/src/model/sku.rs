@@ -1,11 +1,10 @@
-use std::{
-    collections::HashMap,
-    fmt::{Display, Write},
-};
+use std::collections::HashMap;
+use std::fmt::{Display, Write};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Row, postgres::PgRow};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
 
 use super::hardware_info::CpuInfo;
 

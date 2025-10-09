@@ -9,13 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::errors::CarbideError;
-use crate::model::instance::config::InstanceConfig;
-use crate::model::metadata::Metadata;
 use config_version::ConfigVersion;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::instance_type::InstanceTypeId;
 use forge_uuid::machine::MachineId;
+
+use crate::errors::CarbideError;
+use crate::model::instance::config::InstanceConfig;
+use crate::model::metadata::Metadata;
 
 pub mod config;
 pub mod snapshot;

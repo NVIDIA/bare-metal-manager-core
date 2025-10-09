@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use sqlx::{PgConnection, types::Json};
+use sqlx::PgConnection;
+use sqlx::types::Json;
 
-use crate::{
-    CarbideError,
-    db::{self, DatabaseError},
-    model::redfish::{ActionRequest, BMCResponse},
-};
+use crate::CarbideError;
+use crate::db::{self, DatabaseError};
+use crate::model::redfish::{ActionRequest, BMCResponse};
 
 pub async fn list_requests(
     api: &crate::api::Api,

@@ -11,12 +11,12 @@
  */
 use std::ops::DerefMut;
 
-use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 use tonic::Code;
 
 use crate::tests::common;
+use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[crate::sqlx_test()]
 async fn test_find_explored_endpoint_ids(

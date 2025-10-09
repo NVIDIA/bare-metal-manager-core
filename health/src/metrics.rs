@@ -14,31 +14,32 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use crate::HealthError;
-use base64::{Engine as _, engine::general_purpose};
+use base64::Engine as _;
+use base64::engine::general_purpose;
 use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
 };
 use lazy_static::lazy_static;
-use libredfish::model::power::{PowerControl, PowerSupply, Voltages};
+use libredfish::model::power::{Power, PowerControl, PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
 use libredfish::model::sensor::{GPUSensors, ReadingType};
+use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::storage::Drives;
-use libredfish::model::thermal::{Fan, LeakDetector, Temperature};
+use libredfish::model::thermal::{Fan, LeakDetector, Temperature, Thermal};
 use libredfish::model::{ResourceHealth, ResourceState, ResourceStatus};
-use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::{PowerState, Redfish, RedfishClientPool, RedfishError};
-use opentelemetry::Key;
-use opentelemetry::KeyValue;
 use opentelemetry::logs::{AnyValue, LogRecord, Logger};
 use opentelemetry::metrics::Meter;
+use opentelemetry::{Key, KeyValue};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use report::HealthCheck;
 use rpc::forge_api_client::ForgeApiClient;
 use sha2::{Digest, Sha256};
 use tokio::sync::MutexGuard;
+
+use crate::HealthError;
 
 lazy_static! {
     static ref STATIC_MACHINE_ID_STRS: Mutex<HashMap<String, &'static str>> = Default::default();

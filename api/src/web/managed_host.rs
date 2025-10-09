@@ -30,8 +30,7 @@ use crate::api::Api;
 use crate::db::{DatabaseError, managed_host};
 use crate::model;
 use crate::model::machine;
-use crate::model::machine::LoadSnapshotOptions;
-use crate::model::machine::{Machine, ManagedHostStateSnapshot};
+use crate::model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 
 const UNKNOWN: &str = "Unknown";
 

@@ -10,11 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::TestEnv;
-use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use ::rpc::forge as rpc;
 use forge_uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
+
+use super::TestEnv;
+use crate::tests::common::api_fixtures::instance::default_tenant_config;
 
 pub async fn create_vpc(
     env: &TestEnv,

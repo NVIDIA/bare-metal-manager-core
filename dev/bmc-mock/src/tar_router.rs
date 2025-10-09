@@ -22,7 +22,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time;
 
-use crate::SetSystemPowerReq;
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::http::{HeaderMap, Request, StatusCode};
@@ -34,6 +33,8 @@ use eyre::Context;
 use flate2::read::GzDecoder;
 use regex::Regex;
 use serde::Deserialize;
+
+use crate::SetSystemPowerReq;
 
 const MAX_HISTORY_ENTRIES: usize = 1000;
 pub type EntryMap = Arc<Mutex<HashMap<String, String>>>;

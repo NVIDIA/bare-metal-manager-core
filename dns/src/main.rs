@@ -12,7 +12,9 @@
 use cfg::{Command, Options};
 use clap::CommandFactory;
 use tracing::metadata::LevelFilter;
-use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
+use tracing_subscriber::filter::EnvFilter;
+use tracing_subscriber::fmt;
+use tracing_subscriber::prelude::*;
 
 mod cfg;
 mod dns;

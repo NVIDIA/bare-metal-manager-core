@@ -12,9 +12,10 @@
 
 //! Defines custom metrics that are collected and emitted by the Machine State Controller
 
+use opentelemetry::metrics::Meter;
+
 use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::state_controller::metrics::MetricsEmitter;
-use opentelemetry::metrics::Meter;
 
 #[derive(Debug, Default, Clone)]
 pub struct DpaInterfaceMetrics {}

@@ -10,15 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use errors::MachineValidationError;
-use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
-
 use std::cmp::min;
+use std::io::Write;
 use std::time::Duration;
 
+use errors::MachineValidationError;
 use forge_uuid::machine::MachineId;
-use std::io::Write;
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
 
 mod errors;
 mod machine_validation;

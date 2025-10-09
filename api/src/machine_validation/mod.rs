@@ -12,13 +12,15 @@
 
 mod metrics;
 
-use std::{default::Default, sync::Arc};
+use std::default::Default;
+use std::sync::Arc;
+
+use tokio::sync::oneshot;
 
 use self::metrics::MachineValidationMetrics;
 use crate::cfg::file::MachineValidationConfig;
 use crate::db::{DatabaseError, ObjectFilter};
 use crate::{CarbideResult, db};
-use tokio::sync::oneshot;
 
 pub struct MachineValidationManager {
     database_connection: sqlx::PgPool,

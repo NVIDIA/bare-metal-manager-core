@@ -1,15 +1,16 @@
-use ::rpc::forge as rpc;
 use std::fmt::{Display, Formatter};
-use version_compare::Cmp;
+use std::net::IpAddr;
+use std::str::FromStr;
 
-use crate::{CarbideError, CarbideResult};
+use ::rpc::forge as rpc;
 use eyre::{Report, eyre};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use std::net::IpAddr;
-use std::str::FromStr;
+use version_compare::Cmp;
+
+use crate::{CarbideError, CarbideResult};
 // TODO(chet): Once SocketAddr::parse_ascii is no longer an experimental
 // feature, it would be good to parse bmc_info.ip to verify it's a valid IP
 // address.

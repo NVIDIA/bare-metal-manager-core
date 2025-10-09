@@ -10,22 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::logging::setup::Logging;
-use crate::logging::{
-    metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint},
-    setup::create_metrics,
-    setup::setup_logging,
-};
-use crate::redfish::RedfishClientPoolImpl;
-use crate::{CarbideError, dynamic_settings, setup};
+use std::sync::Arc;
+
 use eyre::WrapErr;
 use forge_secrets::forge_vault;
 use forge_secrets::forge_vault::VaultConfig;
-use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver, Sender};
 use tracing::subscriber::NoSubscriber;
 use utils::HostPortPair;
+
+use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
+use crate::logging::setup::{Logging, create_metrics, setup_logging};
+use crate::redfish::RedfishClientPoolImpl;
+use crate::{CarbideError, dynamic_settings, setup};
 
 pub async fn run(
     debug: u8,

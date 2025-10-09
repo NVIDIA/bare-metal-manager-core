@@ -1,4 +1,5 @@
-use std::{error::Error, fmt};
+use std::error::Error;
+use std::fmt;
 
 pub mod domain;
 pub mod dpa_interface;

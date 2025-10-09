@@ -12,27 +12,26 @@
 use std::net::IpAddr;
 use std::ops::Deref;
 
-use crate::db::instance_address::UsedOverlayNetworkIpResolver;
-use crate::db::machine_interface::UsedAdminNetworkIpResolver;
-use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use crate::model::address_selection_strategy::AddressSelectionStrategy;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::network_segment::{
-    NetworkSegment, NetworkSegmentSearchConfig, NetworkSegmentType, NewNetworkSegment,
-};
-use crate::{CarbideError, CarbideResult};
-use crate::{
-    db::{self, DatabaseError},
-    model::network_segment::NetworkSegmentControllerState,
-};
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
-use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use sqlx::PgConnection;
+
+use crate::db::instance_address::UsedOverlayNetworkIpResolver;
+use crate::db::machine_interface::UsedAdminNetworkIpResolver;
+use crate::db::{self, ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
+use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::model::address_selection_strategy::AddressSelectionStrategy;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use crate::model::network_segment::{
+    NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
+    NewNetworkSegment,
+};
+use crate::{CarbideError, CarbideResult};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;

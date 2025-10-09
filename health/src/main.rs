@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::rpc::forge::{self as rpc};
+use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use cfg::{ConcurrencyOption, Options};
 use chrono::{DateTime, Utc};
@@ -27,15 +28,11 @@ use forge_uuid::machine::MachineId;
 use futures::future;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
-use hyper::{
-    Method, Request, Response, body,
-    header::{CONTENT_LENGTH, CONTENT_TYPE},
-    service::service_fn,
-};
+use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response, body};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto;
-
-use ::rpc::forge_api_client::ForgeApiClient;
 use opentelemetry::logs::{Logger, LoggerProvider};
 use opentelemetry::metrics::{Histogram, MeterProvider};
 use opentelemetry_otlp::{LogExporter, WithExportConfig};

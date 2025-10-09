@@ -10,17 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::SocketAddr;
+
 use forge_ssh::ssh::SshConfig;
+use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 
 use super::metrics::SiteExplorationMetrics;
 use crate::model::expected_machine::ExpectedMachine;
-use crate::model::{
-    machine::MachineInterfaceSnapshot,
-    site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus},
+use crate::model::machine::MachineInterfaceSnapshot;
+use crate::model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
 };
-use libredfish::RoleId;
-use std::net::SocketAddr;
 
 /// This trait defines how the `SiteExplorer` will query information about endpoints
 #[async_trait::async_trait]

@@ -9,15 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use prettytable::{Table, row};
 use std::fmt::Write;
+
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::{Timestamp, forge as forgerpc};
+use forge_uuid::domain::DomainId;
+use prettytable::{Table, row};
 use tracing::warn;
 
 use super::cfg::cli_options::ShowDomain;
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::{Timestamp, forge as forgerpc};
-use forge_uuid::domain::DomainId;
 
 // timestamp_or_default returns a String representation of
 // the given timestamp Option, or, if the Option is None,

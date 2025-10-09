@@ -10,33 +10,29 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::hardware_info::HardwareInfo;
-use crate::tests::common::api_fixtures::{create_test_env, dpu::dpu_discover_dhcp};
-use crate::{
-    model::machine::{
-        ManagedHostState, ManagedHostStateSnapshot, machine_id::host_id_from_dpu_hardware_info,
-    },
-    state_controller::{
-        config::IterationConfig,
-        controller::StateController,
-        machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
-        state_handler::{
-            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing,
-        },
-    },
-};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
 use forge_uuid::machine::MachineId;
-use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, forge::forge_server::Forge};
+use rpc::forge::forge_server::Forge;
+use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use sqlx::PgConnection;
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
 use tonic::Request;
+
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::machine_id::host_id_from_dpu_hardware_info;
+use crate::model::machine::{ManagedHostState, ManagedHostStateSnapshot};
+use crate::state_controller::config::IterationConfig;
+use crate::state_controller::controller::StateController;
+use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
+use crate::state_controller::machine::io::MachineStateControllerIO;
+use crate::state_controller::state_handler::{
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing,
+};
+use crate::tests::common::api_fixtures::create_test_env;
+use crate::tests::common::api_fixtures::dpu::dpu_discover_dhcp;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestMachineStateHandler {

@@ -9,10 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::{
-    forge as rpc,
-    forge_tls_client::{self, ApiConfig, ForgeClientConfig},
-};
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use forge_uuid::machine::MachineInterfaceId;
 
 pub(crate) mod cloud_init;

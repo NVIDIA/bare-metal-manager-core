@@ -9,7 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::Event;
+use std::collections::VecDeque;
+use std::path::Path;
+use std::str::FromStr;
+
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
 use forge_tls::client_config::ClientCert;
@@ -17,9 +20,8 @@ use forge_uuid::machine::MachineId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
-use std::collections::VecDeque;
-use std::path::Path;
-use std::str::FromStr;
+
+use crate::Event;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ReportingError {

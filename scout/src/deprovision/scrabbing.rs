@@ -9,21 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::fs;
+use std::str::FromStr;
+
 use ::rpc::forge as rpc;
+use forge_host_support::hardware_enumeration::discovery_ibs;
+use forge_uuid::machine::MachineId;
 use regex::Regex;
 use scout::CarbideClientError;
 use serde::Deserialize;
 use smbioslib::SMBiosSystemInformation;
-use std::fs;
-use std::str::FromStr;
 
-use crate::CarbideClientResult;
-use crate::IN_QEMU_VM;
 use crate::cfg::Options;
 use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
-use forge_host_support::hardware_enumeration::discovery_ibs;
-use forge_uuid::machine::MachineId;
+use crate::{CarbideClientResult, IN_QEMU_VM};
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
     let name = match efivar::efi::Variable::from_str(

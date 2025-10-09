@@ -1,25 +1,23 @@
-use std::{
-    fmt::Write,
-    fs::File,
-    io::{BufRead, BufReader},
-    net::{IpAddr, Ipv4Addr},
-    str::FromStr,
-    time::Duration,
-};
+use std::fmt::Write;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
+use std::time::Duration;
 
 use diff::Result as DiffResult;
 use eyre::{OptionExt, WrapErr};
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
 use forge_uuid::machine::MachineId;
-use hickory_resolver::{Name, config::ResolverConfig};
+use hickory_resolver::Name;
+use hickory_resolver::config::ResolverConfig;
 use hyper::service::Service;
 use resolv_conf::Config;
-use rpc::{
-    Instance, Timestamp,
-    forge::{InstancePhoneHomeLastContactRequest, ManagedHostNetworkConfigRequest, VersionRequest},
-    forge_resolver,
-    forge_tls_client::ForgeClientT,
+use rpc::forge::{
+    InstancePhoneHomeLastContactRequest, ManagedHostNetworkConfigRequest, VersionRequest,
 };
+use rpc::forge_tls_client::ForgeClientT;
+use rpc::{Instance, Timestamp, forge_resolver};
 
 pub fn compare_lines(left: &str, right: &str, strip_behavior: Option<StripType>) -> CompareResult {
     let (left, right) = match strip_behavior {

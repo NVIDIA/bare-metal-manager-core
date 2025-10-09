@@ -1,23 +1,21 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Local};
-use http::{HeaderMap, HeaderValue, Uri, header::CONTENT_TYPE, uri::Authority};
+use http::header::CONTENT_TYPE;
+use http::uri::Authority;
+use http::{HeaderMap, HeaderValue, Uri};
 use sqlx::PgPool;
 use utils::HostPortPair;
 
-use crate::{
-    CarbideError,
-    api::log_request_data,
-    auth::external_user_info,
-    db::{
-        DatabaseError,
-        redfish_actions::{
-            approve_request, delete_request, fetch_request, find_serials, insert_request,
-            list_requests, set_applied, update_response,
-        },
-    },
-    model::redfish::BMCResponse,
+use crate::CarbideError;
+use crate::api::log_request_data;
+use crate::auth::external_user_info;
+use crate::db::DatabaseError;
+use crate::db::redfish_actions::{
+    approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
+    set_applied, update_response,
 };
+use crate::model::redfish::BMCResponse;
 
 // TODO: put this in carbide config?
 pub const NUM_REQUIRED_APPROVALS: usize = 2;

@@ -12,21 +12,20 @@
 
 //! State Controller implementation for Machines
 
-use crate::{
-    measured_boot::db::machine::{get_measurement_bundle_state, get_measurement_machine_state},
-    model::machine::{
-        FailureCause, FailureDetails, FailureSource, MeasuringState, StateMachineArea,
-    },
-};
-
+use eyre::eyre;
 use forge_uuid::machine::MachineId;
+use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use sqlx::PgConnection;
 
 use super::state_handler::{MeasuringProblem, StateHandlerError};
 use crate::db::attestation::ek_cert_verification_status;
+use crate::measured_boot::db::machine::{
+    get_measurement_bundle_state, get_measurement_machine_state,
+};
 use crate::model::attestation::EkCertVerificationStatus;
-use eyre::eyre;
-use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
-use sqlx::PgConnection;
+use crate::model::machine::{
+    FailureCause, FailureDetails, FailureSource, MeasuringState, StateMachineArea,
+};
 
 pub mod context;
 pub mod handler;

@@ -10,17 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::forge as rpc;
+use ::rpc::forge::PrefixMatchType;
 use ipnetwork::IpNetwork;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::vpc_prefix as db;
-use crate::db::{DatabaseError, ObjectColumnFilter};
+use crate::db::{DatabaseError, ObjectColumnFilter, vpc_prefix as db};
 use crate::model::network_prefix::NetworkPrefix;
 use crate::model::vpc_prefix;
-use ::rpc::forge as rpc;
-use ::rpc::forge::PrefixMatchType;
 pub async fn create(
     api: &Api,
     request: Request<rpc::VpcPrefixCreationRequest>,

@@ -1,11 +1,22 @@
-use mac_address::MacAddress;
-use rand::Rng;
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+
+use bmc_mock::{
+    BmcCommand, BmcMockError, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
+    POWER_CYCLE_DELAY, PowerStateQuerying, SetSystemPowerError, SetSystemPowerReq,
+    SetSystemPowerResult, SystemPowerControl,
+};
+use forge_uuid::machine::MachineId;
+use mac_address::MacAddress;
+use rand::Rng;
+use rpc::forge::{
+    MachineArchitecture, MachineDiscoveryResult, MachineType, ManagedHostNetworkConfigResponse,
+};
+use rpc::forge_agent_control_response::Action;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -20,16 +31,6 @@ use crate::machine_utils::{
     send_pxe_boot_request,
 };
 use crate::{PersistedDpuMachine, PersistedHostMachine, dhcp_wrapper};
-use bmc_mock::{
-    BmcCommand, BmcMockError, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
-    POWER_CYCLE_DELAY, PowerStateQuerying, SetSystemPowerError, SetSystemPowerReq,
-    SetSystemPowerResult, SystemPowerControl,
-};
-use forge_uuid::machine::MachineId;
-use rpc::forge::{
-    MachineArchitecture, MachineDiscoveryResult, MachineType, ManagedHostNetworkConfigResponse,
-};
-use rpc::forge_agent_control_response::Action;
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
 ///

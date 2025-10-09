@@ -15,15 +15,15 @@
  *  tables in the database, leveraging the bundle-specific record types.
 */
 
-use super::pcr::PcrRegisterValue;
-use super::records::{MeasurementBundleState, MeasurementBundleValueRecord};
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
-use serde::Serialize;
-
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
 use rpc::errors::RpcDataConversionError;
+use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
+use serde::Serialize;
+
+use super::pcr::PcrRegisterValue;
+use super::records::{MeasurementBundleState, MeasurementBundleValueRecord};
 
 /// MeasurementBundle is a composition of a MeasurementBundleRecord,
 /// whose attributes are essentially copied directly it, as well as

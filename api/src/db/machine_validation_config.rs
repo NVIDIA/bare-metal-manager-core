@@ -12,8 +12,9 @@
 use config_version::ConfigVersion;
 use sqlx::PgConnection;
 
+use crate::db::DatabaseError;
 use crate::model::machine_validation::MachineValidationExternalConfig;
-use crate::{CarbideError, CarbideResult, db::DatabaseError};
+use crate::{CarbideError, CarbideResult};
 
 pub async fn find_config_by_name(
     txn: &mut PgConnection,

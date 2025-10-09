@@ -14,15 +14,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Histogram, Meter};
+
 use crate::logging::metrics_utils::SharedMetricsHolder;
-use crate::{
-    model::{hardware_info::MachineInventorySoftwareComponent, tenant::TenantOrganizationId},
-    state_controller::metrics::MetricsEmitter,
-};
-use opentelemetry::{
-    KeyValue,
-    metrics::{Histogram, Meter},
-};
+use crate::model::hardware_info::MachineInventorySoftwareComponent;
+use crate::model::tenant::TenantOrganizationId;
+use crate::state_controller::metrics::MetricsEmitter;
 
 #[derive(Debug, Default)]
 pub struct MachineMetrics {

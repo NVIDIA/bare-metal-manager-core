@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::CONFIG;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client::ForgeClientConfig;
+
+use crate::CONFIG;
 
 pub fn build_forge_client_config() -> ForgeClientConfig {
     let forge_root_ca_path = &CONFIG

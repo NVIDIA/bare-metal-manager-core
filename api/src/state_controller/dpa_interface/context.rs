@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::state_controller::{
-    dpa_interface::metrics::DpaInterfaceMetrics, state_handler::StateHandlerContextObjects,
-};
+use crate::state_controller::dpa_interface::metrics::DpaInterfaceMetrics;
+use crate::state_controller::state_handler::StateHandlerContextObjects;
 
 pub struct DpaInterfaceStateHandlerContextObjects {}
 

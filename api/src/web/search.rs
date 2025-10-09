@@ -19,14 +19,14 @@ use askama::Template;
 //use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use forge_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
+use rpc::forge::IdentifySerialResponse;
 use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
 use crate::api::Api;
-use forge_uuid::machine::{MachineId, MachineType};
-use rpc::forge::IdentifySerialResponse;
 
 pub async fn find(
     AxumState(state): AxumState<Arc<Api>>,

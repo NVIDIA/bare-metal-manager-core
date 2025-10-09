@@ -12,11 +12,9 @@
 use rpc::forge::DhcpRecord;
 use tokio::net::UdpSocket;
 
-use crate::{
-    Config,
-    errors::DhcpError,
-    vendor_class::{MachineArchitecture, VendorClass},
-};
+use crate::Config;
+use crate::errors::DhcpError;
+use crate::vendor_class::{MachineArchitecture, VendorClass};
 
 macro_rules! socket_opr {
     ($socket:expr, $statement:expr, $retry:expr) => {

@@ -13,9 +13,10 @@
 // Tests for common/mac_address_pool.rs
 // They can't be in the common file because otherwise every test crate would also run those tests.
 
-use crate::tests::common;
 use common::mac_address_pool::{MacAddressPool, MacAddressPoolConfig};
 use mac_address::MacAddress;
+
+use crate::tests::common;
 
 #[test]
 fn allocate_addresses() {

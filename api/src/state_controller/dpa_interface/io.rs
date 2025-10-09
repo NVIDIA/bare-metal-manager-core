@@ -13,25 +13,17 @@
 //! State Controller IO implementation for dpa interfaces
 
 use config_version::{ConfigVersion, Versioned};
+use forge_uuid::dpa_interface::DpaInterfaceId;
 use sqlx::PgConnection;
 
-use crate::model::dpa_interface::DpaInterface;
-use crate::{
-    db,
-    db::DatabaseError,
-    model::{
-        StateSla,
-        controller_outcome::PersistentStateHandlerOutcome,
-        dpa_interface::{self, DpaInterfaceControllerState},
-    },
-    state_controller::{
-        dpa_interface::{
-            context::DpaInterfaceStateHandlerContextObjects, metrics::DpaInterfaceMetricsEmitter,
-        },
-        io::StateControllerIO,
-    },
-};
-use forge_uuid::dpa_interface::DpaInterfaceId;
+use crate::db;
+use crate::db::DatabaseError;
+use crate::model::StateSla;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use crate::model::dpa_interface::{self, DpaInterface, DpaInterfaceControllerState};
+use crate::state_controller::dpa_interface::context::DpaInterfaceStateHandlerContextObjects;
+use crate::state_controller::dpa_interface::metrics::DpaInterfaceMetricsEmitter;
+use crate::state_controller::io::StateControllerIO;
 
 /// State Controller IO implementation for dpa interfaces
 #[derive(Default, Debug)]

@@ -10,40 +10,38 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{
-    api::Api,
-    cfg::file::IBFabricConfig,
-    db,
-    ib::{self, IBFabricManager},
-    model,
-    model::{
-        hardware_info::TpmEkCertificate,
-        machine::{InstanceState, ManagedHostState},
-    },
-};
+use std::collections::HashSet;
+use std::net::IpAddr;
+use std::str::FromStr;
+
+use ::rpc::forge::forge_server::Forge;
 use ::rpc::forge::{
     AdminForceDeleteMachineRequest, IbPartitionSearchConfig, IbPartitionStatus,
-    InstancesByIdsRequest, TenantState, forge_server::Forge,
+    InstancesByIdsRequest, TenantState,
+};
+use common::api_fixtures::dpu::create_dpu_machine;
+use common::api_fixtures::host::host_discover_dhcp;
+use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
+use common::api_fixtures::instance::create_instance_with_ib_config;
+use common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED;
+use common::api_fixtures::{
+    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu, create_test_env,
+    get_instance_type_fixture_id,
 };
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::{MachineId, MachineType};
 use sqlx::{PgConnection, Row};
-use std::{collections::HashSet, net::IpAddr, str::FromStr};
 use tonic::Request;
 
-use crate::attestation as attest;
+use crate::api::Api;
+use crate::cfg::file::IBFabricConfig;
+use crate::ib::{self, IBFabricManager};
+use crate::model::hardware_info::TpmEkCertificate;
 use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::tests::common;
-use common::api_fixtures::{
-    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu, create_test_env,
-    dpu::create_dpu_machine,
-    get_instance_type_fixture_id,
-    host::host_discover_dhcp,
-    ib_partition::{DEFAULT_TENANT, create_ib_partition},
-    instance::create_instance_with_ib_config,
-    tpm_attestation::EK_CERT_SERIALIZED,
-};
+use crate::{attestation as attest, db, model};
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api

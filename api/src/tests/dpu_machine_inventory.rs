@@ -11,10 +11,8 @@
  */
 
 use ::rpc::forge as rpc;
-use common::api_fixtures::{
-    create_managed_host, create_test_env,
-    dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION},
-};
+use common::api_fixtures::dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION};
+use common::api_fixtures::{create_managed_host, create_test_env};
 
 use crate::tests::common;
 

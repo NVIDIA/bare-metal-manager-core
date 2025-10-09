@@ -1,7 +1,8 @@
-use opentelemetry::metrics::Meter;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
+
+use opentelemetry::metrics::Meter;
 
 pub struct DpuNicFirmwareUpdateMetrics {
     pub pending_firmware_updates: Arc<AtomicU64>,

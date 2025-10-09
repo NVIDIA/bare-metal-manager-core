@@ -22,18 +22,14 @@ pub use measured_boot::{
 };
 
 pub mod tpm_ca_cert;
-use sqlx::{PgConnection, Pool};
-pub use tpm_ca_cert::extract_ca_fields;
-pub use tpm_ca_cert::match_insert_new_ek_cert_status_against_ca;
+use forge_uuid::machine::MachineId;
+use sqlx::{PgConnection, Pool, Postgres};
+pub use tpm_ca_cert::{extract_ca_fields, match_insert_new_ek_cert_status_against_ca};
 
-use crate::CarbideResult;
-use crate::db::DatabaseError;
-use crate::db::ObjectFilter;
+use crate::db::{DatabaseError, ObjectFilter};
 use crate::model::hardware_info::TpmEkCertificate;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::{CarbideError, db};
-use forge_uuid::machine::MachineId;
-use sqlx::Postgres;
+use crate::{CarbideError, CarbideResult, db};
 
 pub async fn get_ek_cert_by_machine_id(
     txn: &mut PgConnection,

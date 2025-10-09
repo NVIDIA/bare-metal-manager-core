@@ -16,12 +16,11 @@
  */
 
 use std::collections::BTreeSet;
-use std::fmt::Display;
+use std::fmt::{Display, Write};
+use std::str::FromStr;
 
 use askama_escape::Escaper;
 use forge_uuid::machine::MachineId;
-use std::fmt::Write;
-use std::str::FromStr;
 
 /// Generates HTML links for Machine IDs
 pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {

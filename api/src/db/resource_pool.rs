@@ -16,11 +16,11 @@ use config_version::ConfigVersion;
 use sqlx::{PgConnection, Postgres};
 
 use super::BIND_LIMIT;
+use crate::db::DatabaseError;
 use crate::model::resource_pool::{
-    OwnerType, ResourcePool, ResourcePoolEntry, ResourcePoolError, ResourcePoolSnapshot,
-    ResourcePoolStats,
+    OwnerType, ResourcePool, ResourcePoolEntry, ResourcePoolEntryState, ResourcePoolError,
+    ResourcePoolSnapshot, ResourcePoolStats,
 };
-use crate::{db::DatabaseError, model::resource_pool::ResourcePoolEntryState};
 
 /// Put some resources into the pool, so they can be allocated later.
 /// This needs to be called before `allocate` can return anything.

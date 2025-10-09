@@ -15,6 +15,8 @@ mod tui;
 mod tui_host_logs;
 mod vpc;
 
+use std::time::{Duration, Instant};
+
 pub use bmc_mock_wrapper::BmcMockRegistry;
 pub use config::{
     MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig, PersistedDpuMachine,
@@ -28,7 +30,6 @@ pub use mock_ssh_server::{
     Credentials as MockSshCredentials, MockSshServerHandle, PromptBehavior,
     spawn as spawn_mock_ssh_server,
 };
-use std::time::{Duration, Instant};
 pub use tui::{Tui, UiUpdate};
 pub use tui_host_logs::TuiHostLogs;
 

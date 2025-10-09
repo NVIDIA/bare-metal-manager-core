@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_test_env_with_overrides, network_segment::create_network_segment,
-    vpc::create_vpc,
-};
 use ::rpc::forge as rpc;
 use forge_uuid::network::NetworkSegmentId;
 use rpc::forge_server::Forge;
+
+use crate::tests::common::api_fixtures::network_segment::create_network_segment;
+use crate::tests::common::api_fixtures::vpc::create_vpc;
+use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
 
 #[crate::sqlx_test]
 async fn test_find_network_segment_ids(pool: sqlx::PgPool) {

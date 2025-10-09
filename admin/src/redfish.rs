@@ -10,19 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, path::Path, str::FromStr, time::Duration};
+use std::collections::HashMap;
+use std::path::Path;
+use std::str::FromStr;
+use std::time::Duration;
 
 use color_eyre::eyre::eyre;
+use libredfish::model::oem::nvidia_dpu::NicMode;
+use libredfish::model::software_inventory::SoftwareInventory;
+use libredfish::model::task::{Task, TaskState};
+use libredfish::model::update_service::ComponentType;
+use libredfish::model::{LinkStatus, ResourceStatus};
 use libredfish::{
     Boot, Chassis, EnabledDisabled, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish,
     RedfishError, RoleId, SystemPowerControl,
-    model::{
-        LinkStatus, ResourceStatus,
-        oem::nvidia_dpu::NicMode,
-        software_inventory::SoftwareInventory,
-        task::{Task, TaskState},
-        update_service::ComponentType,
-    },
 };
 use mac_address::MacAddress;
 use prettytable::{Table, row};

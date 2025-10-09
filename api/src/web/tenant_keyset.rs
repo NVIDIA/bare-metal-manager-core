@@ -20,9 +20,8 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use crate::api::Api;
-
 use super::filters;
+use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "tenant_keyset_show.html")]

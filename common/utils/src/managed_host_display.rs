@@ -10,15 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use byte_unit::UnitType;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Display;
 use std::sync::Arc;
 use std::time::SystemTime;
-use tracing::warn;
 
+use byte_unit::UnitType;
+use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
@@ -29,6 +27,8 @@ use rpc::forge::{
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost};
 use rpc::{DiscoveryInfo, Machine, Timestamp};
+use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 macro_rules! get_dmi_data_from_machine {
     ($m:ident, $d:ident) => {

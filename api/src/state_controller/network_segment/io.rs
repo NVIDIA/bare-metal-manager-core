@@ -13,26 +13,16 @@
 //! State Controller IO implementation for network segments
 
 use config_version::{ConfigVersion, Versioned};
+use forge_uuid::network::NetworkSegmentId;
 use sqlx::PgConnection;
 
-use crate::db::ObjectColumnFilter;
-use crate::model::network_segment::NetworkSegment;
-use crate::{
-    db::{self, DatabaseError},
-    model::{
-        StateSla,
-        controller_outcome::PersistentStateHandlerOutcome,
-        network_segment::{self, NetworkSegmentControllerState},
-    },
-    state_controller::{
-        io::StateControllerIO,
-        network_segment::{
-            context::NetworkSegmentStateHandlerContextObjects,
-            metrics::NetworkSegmentMetricsEmitter,
-        },
-    },
-};
-use forge_uuid::network::NetworkSegmentId;
+use crate::db::{self, DatabaseError, ObjectColumnFilter};
+use crate::model::StateSla;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
+use crate::model::network_segment::{self, NetworkSegment, NetworkSegmentControllerState};
+use crate::state_controller::io::StateControllerIO;
+use crate::state_controller::network_segment::context::NetworkSegmentStateHandlerContextObjects;
+use crate::state_controller::network_segment::metrics::NetworkSegmentMetricsEmitter;
 
 /// State Controller IO implementation for network segments
 #[derive(Default, Debug)]

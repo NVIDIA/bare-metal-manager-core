@@ -17,6 +17,17 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use itertools::Itertools;
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::journal::MeasurementJournal;
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::{
+    MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
+};
+use sqlx::PgConnection;
+
 use crate::db::DatabaseError;
 use crate::measured_boot::db;
 use crate::measured_boot::db::machine::bundle_state_to_machine_state;
@@ -28,20 +39,12 @@ use crate::measured_boot::interface::bundle::{
     insert_measurement_bundle_value_records, rename_bundle_for_bundle_id,
     rename_bundle_for_bundle_name, update_state_for_bundle_id,
 };
-use crate::measured_boot::interface::common::pcr_register_values_to_map;
-use crate::measured_boot::interface::report::match_latest_reports;
-use crate::measured_boot::interface::{common, common::acquire_advisory_txn_lock};
-use crate::{CarbideError, CarbideResult};
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use itertools::Itertools;
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::journal::MeasurementJournal;
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::{
-    MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
+use crate::measured_boot::interface::common;
+use crate::measured_boot::interface::common::{
+    acquire_advisory_txn_lock, pcr_register_values_to_map,
 };
-use sqlx::PgConnection;
+use crate::measured_boot::interface::report::match_latest_reports;
+use crate::{CarbideError, CarbideResult};
 
 pub async fn new_with_txn(
     txn: &mut PgConnection,
@@ -789,8 +792,9 @@ async fn get_matching_bundles(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use forge_uuid::measured_boot::MeasurementBundleValueId;
+
+    use super::*;
 
     const MEASUREMENT_BUNDLE_UUID_1: uuid::Uuid = uuid::Uuid::from_bytes([
         0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,

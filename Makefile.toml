@@ -24,6 +24,14 @@ CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
 
+# Nightly is *ONLY* used for check-format-nightly, which enables a
+# more-opinionated rustfmt that sorts imports for us. rust-toolchain.toml is
+# respected for everything else.
+#
+# Make sure to update the RUST_NIGHTLY variable in
+# dev/docker/Dockerfile.build-container-x86_64 if you change this.
+RUST_NIGHTLY = "nightly-2025-10-07"
+
 [tasks.book]
 workspace = false
 command = "find"
@@ -340,7 +348,7 @@ workspace = false
 description = "Tasks that run on workspace level (not crate level) in pre-commit-verify"
 category = "CI"
 # clippy-flow, check-format-flow are default targets provided by cargo-make.
-dependencies = ["clippy-flow", "check-format-flow"]
+dependencies = ["clippy-flow", "check-format-flow", "check-format-nightly"]
 
 [tasks.clippy]
 workspace = false
@@ -444,3 +452,29 @@ run_task = "package-component-in-container"
 workspace = false
 env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-in-container"
+
+[tasks.setup-nightly-rustfmt]
+description = "Install pinned nightly toolchain and rustfmt component for running format-nightly and check-format-nightly"
+category = "Formatting"
+script = [
+  "rustup toolchain install ${RUST_NIGHTLY} --profile minimal",
+  "rustup component add --toolchain ${RUST_NIGHTLY} rustfmt"
+]
+
+[tasks.format-nightly]
+workspace = false
+description = "Format with nightly rustfmt options for grouping and sorting import statements"
+category = "Formatting"
+dependencies = ["setup-nightly-rustfmt"]
+script = [
+  "cargo +${RUST_NIGHTLY} fmt --all -- --config imports_granularity=Module,group_imports=StdExternalCrate"
+]
+
+[tasks.check-format-nightly]
+workspace = false
+description = "Check format with nightly rustfmt options for grouping and sorting import statements"
+category = "Formatting"
+dependencies = ["setup-nightly-rustfmt"]
+script = [
+  "cargo +${RUST_NIGHTLY} fmt --all -- --config imports_granularity=Module,group_imports=StdExternalCrate --check"
+]

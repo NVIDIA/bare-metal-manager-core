@@ -1,6 +1,7 @@
-use crate::db::DatabaseError;
 use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
+
+use crate::db::DatabaseError;
 
 pub type IsFirstObservation = bool;
 

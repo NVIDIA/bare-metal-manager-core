@@ -1,15 +1,17 @@
-use crate::util::fixtures::{
-    API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
-};
+use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
+use std::time::Duration;
+
 use eyre::Context;
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
 use size::Size;
 use ssh_console::config::Defaults;
-use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
-use std::time::Duration;
 use temp_dir::TempDir;
+
+use crate::util::fixtures::{
+    API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
+};
 
 #[derive(Default)]
 pub struct ConfigOverrides {

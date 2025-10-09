@@ -11,12 +11,12 @@
  */
 
 use ::rpc::forge as rpc;
+use forge_uuid::machine::MachineInterfaceId;
 
 use crate::api::Api;
 use crate::db;
 use crate::db::DatabaseError;
 use crate::model::machine_boot_override::MachineBootOverride;
-use forge_uuid::machine::MachineInterfaceId;
 
 pub(crate) async fn get(
     api: &Api,

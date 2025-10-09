@@ -9,35 +9,26 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use forge_tls::client_config::ClientCert;
-use rpc::forge_tls_client;
-use rpc::forge_tls_client::ApiConfig;
-use rpc::forge_tls_client::ForgeClientConfig;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufReader;
-use std::io::Write;
+use std::io::{BufReader, Write};
 use std::path::Path;
-use tracing::error;
-use tracing::info;
-use tracing::trace;
+
+use chrono::Utc;
+use forge_tls::client_config::ClientCert;
+use forge_uuid::machine::MachineId;
+use rpc::forge_tls_client;
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use serde::{Deserialize, Serialize};
+use tracing::{error, info, trace};
 use utils::cmd::TokioCmd;
 
-use crate::IMAGE_LIST_FILE;
-use crate::MACHINE_VALIDATION_IMAGE_FILE;
-use crate::MACHINE_VALIDATION_IMAGE_PATH;
-use crate::MACHINE_VALIDATION_RUNNER_BASE_PATH;
-use crate::MACHINE_VALIDATION_RUNNER_TAG;
-use crate::MACHINE_VALIDATION_SERVER;
-use crate::MachineValidation;
-use crate::MachineValidationError;
-use crate::MachineValidationFilter;
-use crate::MachineValidationManager;
-use crate::MachineValidationOptions;
-use crate::SCHME;
-use chrono::Utc;
-use forge_uuid::machine::MachineId;
-use serde::{Deserialize, Serialize};
+use crate::{
+    IMAGE_LIST_FILE, MACHINE_VALIDATION_IMAGE_FILE, MACHINE_VALIDATION_IMAGE_PATH,
+    MACHINE_VALIDATION_RUNNER_BASE_PATH, MACHINE_VALIDATION_RUNNER_TAG, MACHINE_VALIDATION_SERVER,
+    MachineValidation, MachineValidationError, MachineValidationFilter, MachineValidationManager,
+    MachineValidationOptions, SCHME,
+};
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 pub const DEFAULT_TIMEOUT: u64 = 3600;
 

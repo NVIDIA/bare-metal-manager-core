@@ -1,7 +1,8 @@
+use std::str::FromStr;
+
 use mac_address::MacAddress;
 use mlxconfig_device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
 use mlxconfig_device::info::MlxDeviceInfo;
-use std::str::FromStr;
 
 /// create_test_device creates a sample device for testing purposes.
 fn create_test_device() -> MlxDeviceInfo {

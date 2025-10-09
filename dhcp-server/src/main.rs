@@ -19,7 +19,9 @@ mod rpc;
 mod util;
 mod vendor_class;
 
-use std::{error::Error, net::SocketAddr, sync::Arc};
+use std::error::Error;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use cache::CacheEntry;
@@ -27,15 +29,15 @@ use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
 use lru::LruCache;
-use modes::{
-    DhcpMode,
-    controller::Controller,
-    dpu::{Dpu, get_host_config},
-};
-use tokio::{net::UdpSocket, sync::Mutex};
+use modes::DhcpMode;
+use modes::controller::Controller;
+use modes::dpu::{Dpu, get_host_config};
+use tokio::net::UdpSocket;
+use tokio::sync::Mutex;
 use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{EnvFilter, prelude::*};
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::prelude::*;
 use utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 
 use crate::util::get_socket;
@@ -338,28 +340,23 @@ async fn process(
 
 #[cfg(test)]
 mod test {
-    use std::{
-        env,
-        net::{Ipv4Addr, SocketAddrV4},
-        path::PathBuf,
-        str::FromStr,
-        sync::Arc,
-    };
+    use std::env;
+    use std::net::{Ipv4Addr, SocketAddrV4};
+    use std::path::PathBuf;
+    use std::str::FromStr;
+    use std::sync::Arc;
 
     use chrono::{DateTime, Utc};
-    use dhcproto::{
-        Decodable, Decoder, Encodable,
-        v4::{DhcpOption, Message, MessageType, OptionCode},
-    };
+    use dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode};
+    use dhcproto::{Decodable, Decoder, Encodable};
     use lru::LruCache;
-
-    use crate::{
-        DhcpMode, Test, TestArm, cache, command_line::Args, errors::DhcpError, init,
-        packet_handler, process,
-    };
-
-    use tokio::{net::UdpSocket, sync::Mutex};
+    use tokio::net::UdpSocket;
+    use tokio::sync::Mutex;
     use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
+
+    use crate::command_line::Args;
+    use crate::errors::DhcpError;
+    use crate::{DhcpMode, Test, TestArm, cache, init, packet_handler, process};
 
     fn get_test_args() -> Args {
         let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

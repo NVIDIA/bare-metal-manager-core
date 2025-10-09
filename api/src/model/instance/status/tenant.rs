@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::{Deserialize, Serialize};
-
 use ::rpc::errors::RpcDataConversionError;
+use serde::{Deserialize, Serialize};
 
 /// The most recent tenant related status
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,15 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::{
-    CarbideError,
-    api::{Api, log_request_data},
-    db,
-    db::DatabaseError,
-    handlers::utils::convert_and_log_machine_id,
-};
 use ::rpc::forge::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
 use tonic::{Request, Response, Status};
+
+use crate::api::{Api, log_request_data};
+use crate::db::DatabaseError;
+use crate::handlers::utils::convert_and_log_machine_id;
+use crate::{CarbideError, db};
 
 pub(crate) async fn handle_machine_hardware_info_update(
     api: &Api,

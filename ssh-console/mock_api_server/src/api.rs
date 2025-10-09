@@ -1,3 +1,8 @@
+use forge_uuid::machine::MachineId;
+use forge_version::v;
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
 use crate::MockApiServer;
 use crate::generated::forge::forge_server::Forge;
 use crate::generated::forge::{
@@ -5,10 +10,6 @@ use crate::generated::forge::{
     Machine, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse, VersionRequest,
 };
 use crate::generated::{common, forge};
-use forge_uuid::machine::MachineId;
-use forge_version::v;
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 #[tonic::async_trait]
 impl Forge for MockApiServer {

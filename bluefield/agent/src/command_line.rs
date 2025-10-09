@@ -9,13 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{net::Ipv4Addr, path::PathBuf};
+use std::net::Ipv4Addr;
+use std::path::PathBuf;
 
 use clap::Parser;
-
-use crate::network_monitor::NetworkPingerType;
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
+
+use crate::network_monitor::NetworkPingerType;
 
 #[derive(Parser)]
 #[clap(name = "forge-dpu-agent")]

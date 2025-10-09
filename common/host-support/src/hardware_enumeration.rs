@@ -9,6 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
+use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::process::Command;
+use std::str::Utf8Error;
+
 use ::rpc::machine_discovery as rpc_discovery;
 use ::utils::cmd::CmdError;
 use ::utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
@@ -16,16 +25,6 @@ use base64::prelude::*;
 use libudev::Device;
 use procfs::{CpuInfo, FromRead};
 use rpc::machine_discovery::MemoryDevice;
-use std::fs::File;
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Write,
-    fs,
-    io::{BufRead, BufReader},
-    path::Path,
-    process::Command,
-    str::Utf8Error,
-};
 use tracing::{error, warn};
 use uname::uname;
 use utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};

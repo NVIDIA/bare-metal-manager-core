@@ -17,9 +17,8 @@ use chrono::{DateTime, Utc};
 use forge_uuid::infiniband::IBPartitionId;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{
-    ib_partition::PartitionKey, instance::config::infiniband::InstanceInfinibandConfig,
-};
+use crate::model::ib_partition::PartitionKey;
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
 
 /// The infiniband status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field

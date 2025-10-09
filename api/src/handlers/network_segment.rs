@@ -17,11 +17,10 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
-use crate::model::network_segment::NetworkSegment;
-use crate::model::network_segment::NetworkSegmentControllerState;
-use crate::model::network_segment::NetworkSegmentSearchConfig;
-use crate::model::network_segment::NetworkSegmentType;
-use crate::model::network_segment::NewNetworkSegment;
+use crate::model::network_segment::{
+    NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
+    NewNetworkSegment,
+};
 use crate::{CarbideError, db};
 
 pub(crate) async fn find_ids(

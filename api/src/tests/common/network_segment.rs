@@ -9,9 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::api_fixtures::TestEnv;
-use crate::api::Api;
-use crate::db;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
@@ -20,6 +17,10 @@ use rpc::forge::{
 };
 use sqlx::PgConnection;
 use tonic::Request;
+
+use super::api_fixtures::TestEnv;
+use crate::api::Api;
+use crate::db;
 
 pub struct NetworkSegmentHelper {
     inner: NetworkSegmentCreationRequest,

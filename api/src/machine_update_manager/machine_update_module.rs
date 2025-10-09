@@ -10,17 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::{self, Display, Formatter},
-};
+use std::collections::{HashMap, HashSet};
+use std::fmt::{self, Display, Formatter};
 
 use async_trait::async_trait;
+use forge_uuid::machine::MachineId;
 use lazy_static::lazy_static;
 use sqlx::PgConnection;
 
-use crate::{CarbideResult, model::machine::ManagedHostStateSnapshot};
-use forge_uuid::machine::MachineId;
+use crate::CarbideResult;
+use crate::model::machine::ManagedHostStateSnapshot;
 
 /// Used by [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager) to initiate
 /// machine updates.  A module is responsible for managing its own updates and accurately reporting

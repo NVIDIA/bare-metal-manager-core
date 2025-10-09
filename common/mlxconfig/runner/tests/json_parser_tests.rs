@@ -13,10 +13,12 @@
 // tests/json_parser_tests.rs
 // Tests for JsonResponseParser functionality
 
-use mlxconfig_runner::{json_parser::JsonResponseParser, ExecOptions};
+use std::fs;
+
+use mlxconfig_runner::json_parser::JsonResponseParser;
+use mlxconfig_runner::ExecOptions;
 use mlxconfig_variables::MlxValueType;
 use serde_json::json;
-use std::fs;
 
 mod common;
 

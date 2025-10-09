@@ -9,43 +9,39 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, fmt, net::SocketAddr, path::PathBuf};
+use std::collections::HashMap;
+use std::fmt;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
-use clap::{ArgGroup, Parser, ValueEnum, ValueHint, builder::BoolishValueParser};
+use clap::builder::BoolishValueParser;
+use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_ssh::ssh::{
     DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
     DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
 };
-use forge_uuid::{
-    domain::DomainId,
-    dpa_interface::DpaInterfaceId,
-    dpu_remediations::RemediationId,
-    infiniband::IBPartitionId,
-    instance::InstanceId,
-    machine::{MachineId, MachineInterfaceId},
-    network::NetworkSegmentId,
-    vpc::{VpcId, VpcPrefixId},
-    vpc_peering::VpcPeeringId,
-};
+use forge_uuid::domain::DomainId;
+use forge_uuid::dpa_interface::DpaInterfaceId;
+use forge_uuid::dpu_remediations::RemediationId;
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::{VpcId, VpcPrefixId};
+use forge_uuid::vpc_peering::VpcPeeringId;
 use ipnet::IpNet;
 use libredfish::model::update_service::ComponentType;
 use mac_address::MacAddress;
-use rpc::{
-    InstanceInfinibandConfig,
-    admin_cli::OutputFormat,
-    forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig},
-};
+use rpc::InstanceInfinibandConfig;
+use rpc::admin_cli::OutputFormat;
+use rpc::forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig};
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
-use crate::{
-    cfg::{
-        instance_type, measurement, network_security_group,
-        storage::{OsImageActions, StorageActions},
-    },
-    vpc_prefix::VpcPrefixSelector,
-};
+use crate::cfg::storage::{OsImageActions, StorageActions};
+use crate::cfg::{instance_type, measurement, network_security_group};
+use crate::vpc_prefix::VpcPrefixSelector;
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
 

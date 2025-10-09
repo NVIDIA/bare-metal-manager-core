@@ -9,12 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db;
+use forge_uuid::domain::DomainId;
+
 use crate::db::ObjectColumnFilter;
 use crate::db::domain::{self};
 use crate::model::domain::{Domain, NewDomain, Soa};
-use crate::{CarbideError, CarbideResult};
-use forge_uuid::domain::DomainId;
+use crate::{CarbideError, CarbideResult, db};
 
 #[crate::sqlx_test]
 async fn create_delete_valid_domain(pool: sqlx::PgPool) {

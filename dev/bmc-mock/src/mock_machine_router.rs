@@ -1,8 +1,8 @@
-use crate::bmc_state::BmcState;
-use crate::{
-    DpuMachineInfo, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, PowerStateQuerying,
-    SetSystemPowerReq, call_router_with_new_request, rf,
-};
+use std::collections::HashMap;
+use std::convert::Infallible;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
 use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
@@ -15,11 +15,13 @@ use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::{BootOption, ComputerSystem, ODataId};
 use libredfish::{Chassis, EthernetInterface, NetworkAdapter, OData, PCIeDevice};
 use regex::{Captures, Regex};
-use std::collections::HashMap;
-use std::convert::Infallible;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
+
+use crate::bmc_state::BmcState;
+use crate::{
+    DpuMachineInfo, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, PowerStateQuerying,
+    SetSystemPowerReq, call_router_with_new_request, rf,
+};
 
 lazy_static! {
     static ref UEFI_DEVICE_PATH_MAC_ADDRESS_REGEX: Regex =

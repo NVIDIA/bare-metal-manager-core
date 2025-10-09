@@ -11,14 +11,15 @@
  */
 
 use core::fmt;
-use std::{fmt::Display, net::IpAddr};
-
-use itertools::Itertools;
-use sqlx::{FromRow, Row, postgres::PgRow};
-
-use crate::db::DatabaseError;
+use std::fmt::Display;
+use std::net::IpAddr;
 
 use forge_uuid::machine::MachineId;
+use itertools::Itertools;
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
+
+use crate::db::DatabaseError;
 
 // When topology data is received,
 //  -> If corresponding Switch entry does not exist, create one.

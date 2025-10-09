@@ -13,31 +13,27 @@
 pub mod tests {
     use std::str::FromStr;
 
-    use crate::attestation::cli_make_cred;
-    use crate::attestation::do_compare_pub_key_against_cert;
-    use crate::model::hardware_info::HardwareInfo;
-    use crate::model::hardware_info::TpmEkCertificate;
-    use crate::tests::common;
-    use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
-    use crate::tests::common::api_fixtures::host::host_discover_dhcp;
-    use common::api_fixtures::TestEnvOverrides;
-    use common::api_fixtures::create_test_env;
-    use common::api_fixtures::create_test_env_with_overrides;
-    use common::api_fixtures::get_config;
     use common::api_fixtures::tpm_attestation::{
         AK_NAME, AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, AK_PUB_SERIALIZED_2, ATTEST_SERIALIZED,
         ATTEST_SERIALIZED_2, ATTEST_SERIALIZED_SHORT, CRED_SERIALIZED, EK_CERT_SERIALIZED,
         EK_PUB_SERIALIZED, PCR_VALUES, PCR_VALUES_SHORT, SESSION_KEY, SIGNATURE_SERIALIZED,
         SIGNATURE_SERIALIZED_2, SIGNATURE_SERIALIZED_INVALID,
     };
+    use common::api_fixtures::{
+        TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
+    };
     use forge_uuid::machine::MachineId;
-    use rpc::DiscoveryData;
-    use rpc::DiscoveryInfo;
-    use rpc::MachineDiscoveryInfo;
     use rpc::forge::AttestQuoteRequest;
     use rpc::forge::forge_server::Forge;
     use rpc::machine_discovery::AttestKeyInfo;
+    use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
     use tonic::Code;
+
+    use crate::attestation::{cli_make_cred, do_compare_pub_key_against_cert};
+    use crate::model::hardware_info::{HardwareInfo, TpmEkCertificate};
+    use crate::tests::common;
+    use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
+    use crate::tests::common::api_fixtures::host::host_discover_dhcp;
 
     #[crate::sqlx_test]
     async fn test_discover_machine_key_ek_unmarshall_returns_error(pool: sqlx::PgPool) {
@@ -298,10 +294,8 @@ pub mod tests {
     #[crate::sqlx_test(fixtures("create_cred_pub_key"))]
     async fn test_verify_quote_cannot_verify_signature_fails_returns_error(pool: sqlx::PgPool) {
         use tss_esapi::structures::Signature;
-        use tss_esapi::structures::Signature::RsaPss;
-        use tss_esapi::structures::Signature::RsaSsa;
-        use tss_esapi::traits::Marshall;
-        use tss_esapi::traits::UnMarshall;
+        use tss_esapi::structures::Signature::{RsaPss, RsaSsa};
+        use tss_esapi::traits::{Marshall, UnMarshall};
 
         let env = create_test_env(pool).await;
         let host_id =
@@ -439,19 +433,15 @@ pub mod tests {
 
     // carbide/api/attestation.rs tests
 
-    use crate::CarbideError::AttestBindKeyError;
-    use crate::attestation::verify_pcr_hash;
-    use crate::attestation::verify_signature;
     use num_bigint_dig::BigUint;
     use rsa::RsaPublicKey;
     use tonic::Request;
-    use tss_esapi::structures::Attest;
-    use tss_esapi::structures::EccPoint;
-    use tss_esapi::structures::Public;
-    use tss_esapi::structures::Signature;
     use tss_esapi::structures::Signature::RsaPss;
-    use tss_esapi::traits::Marshall;
-    use tss_esapi::traits::UnMarshall;
+    use tss_esapi::structures::{Attest, EccPoint, Public, Signature};
+    use tss_esapi::traits::{Marshall, UnMarshall};
+
+    use crate::CarbideError::AttestBindKeyError;
+    use crate::attestation::{verify_pcr_hash, verify_signature};
 
     #[test]
     fn test_compare_pub_key_against_cert_corrupt_ek_pub_returns_error() {
@@ -882,10 +872,9 @@ pub mod tests {
         use tss_esapi::attributes::ObjectAttributesBuilder;
         use tss_esapi::interface_types::algorithm::PublicAlgorithm;
         use tss_esapi::interface_types::ecc::EccCurve;
-        use tss_esapi::structures::EccScheme;
-        use tss_esapi::structures::KeyDerivationFunctionScheme;
-        use tss_esapi::structures::PublicBuilder;
-        use tss_esapi::structures::PublicEccParametersBuilder;
+        use tss_esapi::structures::{
+            EccScheme, KeyDerivationFunctionScheme, PublicBuilder, PublicEccParametersBuilder,
+        };
 
         let object_attributes = ObjectAttributesBuilder::new()
             .with_user_with_auth(true)
@@ -955,13 +944,11 @@ pub mod tests {
 
     pub fn get_ext_rsa_pub() -> Public {
         use tss_esapi::attributes::ObjectAttributesBuilder;
-        use tss_esapi::interface_types::algorithm::PublicAlgorithm;
-        use tss_esapi::interface_types::algorithm::RsaSchemeAlgorithm;
+        use tss_esapi::interface_types::algorithm::{PublicAlgorithm, RsaSchemeAlgorithm};
         use tss_esapi::interface_types::key_bits::RsaKeyBits;
-        use tss_esapi::structures::PublicBuilder;
-        use tss_esapi::structures::PublicKeyRsa;
-        use tss_esapi::structures::PublicRsaParametersBuilder;
-        use tss_esapi::structures::RsaScheme;
+        use tss_esapi::structures::{
+            PublicBuilder, PublicKeyRsa, PublicRsaParametersBuilder, RsaScheme,
+        };
 
         let object_attributes = ObjectAttributesBuilder::new()
             .with_user_with_auth(true)

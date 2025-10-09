@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fs::File;
+use std::io::Write;
+
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
 use mac_address::MacAddress;
-use std::fs::File;
-use std::io::Write;
 use tonic::Response;
 
 use crate::api::Api;

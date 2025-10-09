@@ -97,13 +97,14 @@ impl MetricHolder {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 
     use super::*;
-    use crate::{
-        preingestion_manager::metrics::PreingestionMetrics, tests::common::test_meter::TestMeter,
-    };
-    use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
+    use crate::preingestion_manager::metrics::PreingestionMetrics;
+    use crate::tests::common::test_meter::TestMeter;
 
     #[test]
     fn test_metrics_collector() {

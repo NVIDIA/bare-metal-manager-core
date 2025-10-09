@@ -10,13 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::env;
-use std::fs;
-use std::io::ErrorKind;
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
+use std::{env, fs};
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};

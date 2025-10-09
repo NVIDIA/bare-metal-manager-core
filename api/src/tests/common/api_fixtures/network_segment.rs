@@ -14,14 +14,15 @@
 // in the fixtures folder. This file just contains the UUID references
 // for those.
 
-use crate::api::Api;
-use ::rpc::forge::forge_server::Forge;
-use forge_uuid::network::NetworkSegmentId;
-use ipnetwork::IpNetwork;
 use std::net::{IpAddr, Ipv4Addr};
 
+use ::rpc::forge::forge_server::Forge;
+use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
+use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
+
+use crate::api::Api;
 
 lazy_static! {
     pub static ref FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY: IpNetwork =

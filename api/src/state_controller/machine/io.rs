@@ -13,27 +13,20 @@
 //! State Controller IO implementation for Machines
 
 use config_version::{ConfigVersion, Versioned};
+use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
-use crate::model::machine::HostHealthConfig;
+use crate::db::{self, DatabaseError};
+use crate::model::StateSla;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{MachineValidatingState, ValidationState};
-use crate::{
-    db::{self, DatabaseError},
-    model::{
-        StateSla,
-        controller_outcome::PersistentStateHandlerOutcome,
-        machine::{
-            self, DpuDiscoveringState, DpuInitState, ManagedHostState, ManagedHostStateSnapshot,
-            MeasuringState,
-        },
-    },
-    state_controller::{
-        io::StateControllerIO,
-        machine::{context::MachineStateHandlerContextObjects, metrics::MachineMetricsEmitter},
-    },
+use crate::model::machine::{
+    self, DpuDiscoveringState, DpuInitState, HostHealthConfig, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
 };
-use forge_uuid::machine::MachineId;
+use crate::state_controller::io::StateControllerIO;
+use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
+use crate::state_controller::machine::metrics::MachineMetricsEmitter;
 
 // This should be updated on each new model introdunction
 pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;

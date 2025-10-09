@@ -15,11 +15,11 @@ use std::time::SystemTime;
 use ::rpc::forge::{
     DpuNetworkStatus, ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
+use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
 use rpc::forge::forge_server::Forge;
 
 use crate::model::machine::network::ManagedHostQuarantineMode;
 use crate::tests::common;
-use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
 
 #[crate::sqlx_test]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {

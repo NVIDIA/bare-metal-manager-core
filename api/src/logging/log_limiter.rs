@@ -10,11 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    hash::Hash,
-    sync::atomic::{AtomicU64, Ordering},
-    time::{Duration, Instant},
-};
+use std::hash::Hash;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 

@@ -10,7 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::IpAddr;
 use std::str::FromStr;
+
+use ipnetwork::IpNetwork;
+use mac_address::MacAddress;
 
 use crate::db;
 use crate::model::address_selection_strategy::AddressSelectionStrategy;
@@ -18,11 +22,7 @@ use crate::model::network_prefix::NewNetworkPrefix;
 use crate::model::network_segment::{
     NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
-use ipnetwork::IpNetwork;
-use std::net::IpAddr;
-
 use crate::tests::common::api_fixtures::create_test_env;
-use mac_address::MacAddress;
 
 #[crate::sqlx_test]
 async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

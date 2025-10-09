@@ -13,8 +13,10 @@
 // tests/exec_options_tests.rs
 // Tests for ExecOptions and related functionality
 
-use mlxconfig_runner::{exec_options::is_destructive_variable, ExecOptions};
 use std::time::Duration;
+
+use mlxconfig_runner::exec_options::is_destructive_variable;
+use mlxconfig_runner::ExecOptions;
 
 #[test]
 fn test_default_exec_options() {

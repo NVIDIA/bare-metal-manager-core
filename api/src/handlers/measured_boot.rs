@@ -10,14 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-pub use ::rpc::forge as rpc_forge;
-pub use ::rpc::machine_discovery as rpc_md;
-
-use crate::CarbideError;
-use crate::{attestation as attest, db::attestation::secret_ak_pub};
+pub use ::rpc::{forge as rpc_forge, machine_discovery as rpc_md};
 use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tonic::Status;
+
+use crate::db::attestation::secret_ak_pub;
+use crate::{CarbideError, attestation as attest};
 
 pub(crate) async fn create_attest_key_bind_challenge(
     txn: &mut PgConnection,

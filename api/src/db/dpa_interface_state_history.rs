@@ -11,11 +11,11 @@
  */
 
 use config_version::ConfigVersion;
+use forge_uuid::dpa_interface::DpaInterfaceId;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceStateHistory};
-use forge_uuid::dpa_interface::DpaInterfaceId;
 
 /// Store each state for debugging purpose.
 pub async fn persist(

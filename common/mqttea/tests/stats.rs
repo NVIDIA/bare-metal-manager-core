@@ -14,10 +14,11 @@
 // Unit tests for statistics tracking functionality including queue statistics
 // for received messages and publish statistics for sent messages.
 
-use mqttea::stats::{PublishStatsTracker, QueueStatsTracker};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use mqttea::stats::{PublishStatsTracker, QueueStatsTracker};
 
 // Tests for QueueStatsTracker creation and initial state
 #[test]

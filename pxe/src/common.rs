@@ -9,13 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::{config::RuntimeConfig, extractors::machine_architecture};
 use axum_template::engine::Engine;
 use forge_uuid::machine::MachineInterfaceId;
 use metrics_exporter_prometheus::PrometheusHandle;
 use rpc::forge::CloudInitInstructions;
 use serde::{Deserialize, Serialize};
 use tera::Tera;
+
+use crate::config::RuntimeConfig;
+use crate::extractors::machine_architecture;
 // use crate::middleware::metrics::RequestMetrics;
 
 #[derive(Debug)]

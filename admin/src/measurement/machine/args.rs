@@ -21,10 +21,11 @@
  *  - `mock-machine list``: Lists all mock machines.
 */
 
-use crate::cfg::measurement::parse_pcr_register_values;
 use clap::Parser;
 use forge_uuid::machine::MachineId;
 use measured_boot::pcr::PcrRegisterValue;
+
+use crate::cfg::measurement::parse_pcr_register_values;
 
 /// CmdMachine provides a container for the `mock-machine`
 /// subcommand, which itself contains other subcommands

@@ -9,19 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use axum::{extract::FromRequestParts, http::request::Parts};
+use axum::extract::FromRequestParts;
+use axum::http::request::Parts;
 use axum_client_ip::ClientIp;
 use forge_tls::client_config::ClientCert;
-use rpc::{
-    forge::CloudInitInstructionsRequest,
-    forge_tls_client,
-    forge_tls_client::{ApiConfig, ForgeClientConfig},
-};
+use rpc::forge::CloudInitInstructionsRequest;
+use rpc::forge_tls_client;
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 
-use crate::{
-    common::{AppState, Machine},
-    rpc_error::PxeRequestError,
-};
+use crate::common::{AppState, Machine};
+use crate::rpc_error::PxeRequestError;
 
 impl FromRequestParts<AppState> for Machine {
     type Rejection = PxeRequestError;

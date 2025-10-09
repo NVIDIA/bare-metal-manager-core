@@ -11,12 +11,14 @@
  */
 
 // use std::fmt::Write;
-use crate::errors::CarbideError;
-use crate::model::hardware_info::HardwareInfo;
+use std::str::FromStr;
+
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use sha2::{Digest, Sha256};
-use std::str::FromStr;
+
+use crate::errors::CarbideError;
+use crate::model::hardware_info::HardwareInfo;
 
 /// Generates a temporary Machine ID for a host from the hardware fingerprint
 /// of the attached DPU
@@ -109,10 +111,10 @@ pub fn try_parse_machine_id(id: &str) -> Result<MachineId, CarbideError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::hardware_info::TpmEkCertificate;
     use forge_uuid::machine::MACHINE_ID_LENGTH;
 
     use super::*;
+    use crate::model::hardware_info::TpmEkCertificate;
 
     const TEST_DATA_DIR: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),

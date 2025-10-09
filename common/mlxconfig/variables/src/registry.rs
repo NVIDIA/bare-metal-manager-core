@@ -16,9 +16,10 @@
 // as any device filters, as in devices which are allowed to use
 // this registry.
 
-use crate::variable::MlxConfigVariable;
 use mlxconfig_device::filters::{DeviceFilter, DeviceFilterSet};
 use serde::{Deserialize, Serialize};
+
+use crate::variable::MlxConfigVariable;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MlxVariableRegistry {

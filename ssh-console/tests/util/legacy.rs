@@ -10,19 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::util::fixtures::{
-    API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
-};
-use crate::util::{BaselineTestEnvironment, MockBmcHandle, log_stdout_and_stderr};
-use api_test_helper::utils::REPO_ROOT;
-use eyre::Context;
-use lazy_static::lazy_static;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::Stdio;
+
+use api_test_helper::utils::REPO_ROOT;
+use eyre::Context;
+use lazy_static::lazy_static;
 use temp_dir::TempDir;
+
+use crate::util::fixtures::{
+    API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
+};
+use crate::util::{BaselineTestEnvironment, MockBmcHandle, log_stdout_and_stderr};
 
 lazy_static! {
     pub static ref LEGACY_SSH_CONSOLE_DIR: PathBuf =

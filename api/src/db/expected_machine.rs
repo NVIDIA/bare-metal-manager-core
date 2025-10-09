@@ -17,9 +17,8 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::DatabaseError;
-use crate::CarbideError;
-use crate::CarbideResult;
 use crate::model::expected_machine::{ExpectedMachine, ExpectedMachineData, LinkedExpectedMachine};
+use crate::{CarbideError, CarbideResult};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 

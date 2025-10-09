@@ -16,8 +16,9 @@
 // Contains shared registry bits like serialization formats and
 // message metadata that are used throughout this code.
 
-use crate::errors::MqtteaClientError;
 use rumqttc::QoS;
+
+use crate::errors::MqtteaClientError;
 
 // SerializationFormat defines the supported message serialization
 // formats. This is a core registry concept used for routing messages

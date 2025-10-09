@@ -14,9 +14,10 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use super::logging::level_filter::ActiveLevel;
 use arc_swap::ArcSwap;
 use utils::HostPortPair;
+
+use super::logging::level_filter::ActiveLevel;
 
 pub struct DynamicSettings {
     /// RUST_LOG level

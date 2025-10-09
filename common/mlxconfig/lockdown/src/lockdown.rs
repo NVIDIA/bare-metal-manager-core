@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::error::{MlxError, MlxResult};
-use crate::runner::FlintRunner;
 use chrono;
 use serde::{Deserialize, Serialize};
+
+use crate::error::{MlxError, MlxResult};
+use crate::runner::FlintRunner;
 
 // LockStatus represents the current lock status of a device.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

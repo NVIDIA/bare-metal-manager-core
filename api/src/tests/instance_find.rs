@@ -10,15 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::db;
-use crate::tests::common::api_fixtures::{
-    create_managed_host, create_test_env, instance::default_tenant_config,
-};
-
 use ::rpc::forge as rpc;
 use base64::prelude::*;
 use forge_uuid::instance::InstanceId;
 use rpc::forge_server::Forge;
+
+use crate::db;
+use crate::tests::common::api_fixtures::instance::default_tenant_config;
+use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[crate::sqlx_test]
 async fn test_find_instance_ids(pool: sqlx::PgPool) {

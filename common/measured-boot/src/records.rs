@@ -22,15 +22,22 @@
  *  what type of key is being passed around. A bunch of uuid::Uuid is meh.
 */
 
+use std::convert::Into;
+use std::error::Error;
+use std::fmt;
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
-use forge_uuid::DbTable;
-use forge_uuid::UuidEmptyStringError;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
     MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
 };
+use forge_uuid::{DbTable, UuidEmptyStringError};
+#[cfg(feature = "cli")]
+use rpc::admin_cli::{ToTable, serde_just_print_summary};
+use rpc::errors::RpcDataConversionError;
 use rpc::protos::measured_boot::{
     CandidateMachineSummaryPb, MeasurementApprovedMachineRecordPb,
     MeasurementApprovedProfileRecordPb, MeasurementApprovedTypePb, MeasurementBundleRecordPb,
@@ -39,23 +46,14 @@ use rpc::protos::measured_boot::{
     MeasurementSystemProfileAttrRecordPb, MeasurementSystemProfileRecordPb,
 };
 use serde::{Deserialize, Serialize};
-use std::convert::Into;
-use std::error::Error;
-use std::fmt;
-use std::str::FromStr;
-use tonic::Status;
-
-#[cfg(feature = "cli")]
-use rpc::admin_cli::{ToTable, serde_just_print_summary};
-
-use super::pcr::PcrRegisterValue;
-
-use rpc::errors::RpcDataConversionError;
 #[cfg(feature = "sqlx")]
 use sqlx::{
     postgres::PgRow,
     {FromRow, Row},
 };
+use tonic::Status;
+
+use super::pcr::PcrRegisterValue;
 
 /// ProtoParseError is an error used for reporting back failures
 /// to parse a protobuf message back into its record or model.

@@ -11,10 +11,8 @@
  */
 use std::fmt::{Debug, Display};
 
-use axum::{
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum_client_ip::Rejection;
 use forge_uuid::UuidConversionError;
 use rpc::errors::RpcDataConversionError;

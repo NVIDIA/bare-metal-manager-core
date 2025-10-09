@@ -10,20 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{
-    db,
-    tests::common::api_fixtures::{create_managed_host, create_test_env},
-};
-use forge_uuid::{machine::MachineId, vpc::VpcId};
+use forge_uuid::machine::MachineId;
+use forge_uuid::vpc::VpcId;
+use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
     VpcPeeringList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest, VpcVirtualizationType,
-    forge_server::Forge,
 };
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
 use super::common::api_fixtures::{self, TestEnv};
+use crate::db;
+use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 async fn create_test_vpcs(env: &TestEnv, count: i32) -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..count {

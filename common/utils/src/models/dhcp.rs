@@ -1,15 +1,14 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    fs,
-    net::Ipv4Addr,
-    str::FromStr,
-};
+use std::collections::{BTreeMap, HashMap};
+use std::fs;
+use std::net::Ipv4Addr;
+use std::str::FromStr;
 
 use forge_uuid::UuidConversionError;
 use forge_uuid::machine::MachineInterfaceId;
 use ipnetwork::Ipv4Network;
+use rpc::InterfaceFunctionType;
 use rpc::errors::RpcDataConversionError;
-use rpc::{InterfaceFunctionType, forge::ManagedHostNetworkConfigResponse};
+use rpc::forge::ManagedHostNetworkConfigResponse;
 use serde::{Deserialize, Serialize};
 
 /// This structure is used in dhcp-server and dpu-agent. dpu-agent passes these information to

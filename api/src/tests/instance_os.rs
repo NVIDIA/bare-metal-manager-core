@@ -10,16 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common;
-
-use common::api_fixtures::{
-    create_managed_host, create_test_env,
-    instance::{default_os_config, default_tenant_config, single_interface_network_config},
+use common::api_fixtures::instance::{
+    default_os_config, default_tenant_config, single_interface_network_config,
 };
-
+use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+
+use crate::tests::common;
 
 fn verify_os_in_tenant_config(
     tenant_config: &rpc::forge::TenantConfig,

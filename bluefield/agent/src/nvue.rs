@@ -14,7 +14,8 @@ use std::fs;
 use std::path::Path;
 
 use eyre::WrapErr;
-use forge_network::{sanitized_mac, virtualization::VpcVirtualizationType};
+use forge_network::sanitized_mac;
+use forge_network::virtualization::VpcVirtualizationType;
 use gtmpl_derive::Gtmpl;
 use mac_address::MacAddress;
 use serde::Deserialize;

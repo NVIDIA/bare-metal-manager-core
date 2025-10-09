@@ -10,15 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use sqlx::PgConnection;
 
 use super::ObjectFilter;
 use crate::db::DatabaseError;
-use crate::model::tenant::TenantPublicKeyValidationRequest;
-use crate::model::{metadata::Metadata, tenant::Tenant};
+use crate::model::metadata::Metadata;
+use crate::model::tenant::{Tenant, TenantPublicKeyValidationRequest};
 use crate::{CarbideError, CarbideResult, db};
-use ::rpc::forge as rpc;
 
 type OrganizationID = String;
 

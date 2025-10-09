@@ -28,9 +28,10 @@ pub use utils::IntegrationTestEnvironment;
 
 pub fn setup_logging() {
     use tracing::metadata::LevelFilter;
-    use tracing_subscriber::{
-        filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt,
-    };
+    use tracing_subscriber::filter::EnvFilter;
+    use tracing_subscriber::fmt::TestWriter;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::util::SubscriberInitExt;
 
     if let Err(e) = tracing_subscriber::registry()
         .with(

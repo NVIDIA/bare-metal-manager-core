@@ -12,7 +12,8 @@
 
 use forge_uuid::machine::MachineId;
 
-use crate::{CarbideError, api::log_machine_id};
+use crate::CarbideError;
+use crate::api::log_machine_id;
 
 /// Converts a MachineID from RPC format to Model format
 /// and logs the MachineID as MachineID for the current request.

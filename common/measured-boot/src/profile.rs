@@ -15,15 +15,16 @@
  *  tables in the database, leveraging the profile-specific record types.
 */
 
-use super::records::MeasurementSystemProfileAttrRecord;
-use chrono::{DateTime, Utc};
-use forge_uuid::measured_boot::MeasurementSystemProfileId;
-use rpc::protos::measured_boot::MeasurementSystemProfilePb;
-use serde::Serialize;
 use std::convert::{Into, TryFrom};
 
+use chrono::{DateTime, Utc};
+use forge_uuid::measured_boot::MeasurementSystemProfileId;
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
+use rpc::protos::measured_boot::MeasurementSystemProfilePb;
+use serde::Serialize;
+
+use super::records::MeasurementSystemProfileAttrRecord;
 
 /// MeasurementSystemProfile is a composition of a MeasurementSystemProfileRecord,
 /// whose attributes are essentially copied directly it, as well as

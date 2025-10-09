@@ -9,8 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::level_filter::ActiveLevel;
-use crate::logging::sqlx_query_tracing;
+use std::fmt::Debug;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use arc_swap::ArcSwap;
 use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
@@ -21,13 +23,14 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::{Sampler, ShouldSample};
 use opentelemetry_semantic_conventions as semcov;
-use std::fmt::Debug;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tracing_subscriber::{
-    Layer, filter, filter::EnvFilter, filter::LevelFilter, layer::Filter, prelude::*,
-    util::SubscriberInitExt,
-};
+use tracing_subscriber::filter::{EnvFilter, LevelFilter};
+use tracing_subscriber::layer::Filter;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{Layer, filter};
+
+use super::level_filter::ActiveLevel;
+use crate::logging::sqlx_query_tracing;
 
 #[derive(Debug, Clone, Default)]
 pub struct Logging {

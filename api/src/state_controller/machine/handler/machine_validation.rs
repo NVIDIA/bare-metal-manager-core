@@ -10,27 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
-use crate::model::machine_validation::{MachineValidationState, MachineValidationStatus};
-use crate::{
-    db::{self},
-    model::machine::{
-        FailureCause, MachineState, MachineValidatingState, ManagedHostState,
-        ManagedHostStateSnapshot, ValidationState,
-    },
-    state_controller::{
-        machine::{
-            context::MachineStateHandlerContextObjects,
-            handler::{handler_host_power_control, rebooted, trigger_reboot_if_needed},
-        },
-        state_handler::{
-            StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing, transition,
-            wait,
-        },
-    },
-};
 use libredfish::SystemPowerControl;
 use sqlx::PgConnection;
+
+use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
+use crate::db::{self};
+use crate::model::machine::{
+    FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
+    ValidationState,
+};
+use crate::model::machine_validation::{MachineValidationState, MachineValidationStatus};
+use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
+use crate::state_controller::machine::handler::{
+    handler_host_power_control, rebooted, trigger_reboot_if_needed,
+};
+use crate::state_controller::state_handler::{
+    StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing, transition, wait,
+};
 
 pub(crate) async fn handle_machine_validation_state(
     txn: &mut PgConnection,

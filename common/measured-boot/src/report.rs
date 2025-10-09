@@ -15,19 +15,20 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
-use super::records::MeasurementReportValueRecord;
+use std::str::FromStr;
+
 use chrono::Utc;
 use forge_uuid::UuidEmptyStringError;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementReportId;
-use rpc::protos::measured_boot::MeasurementReportPb;
-use serde::Serialize;
-use std::str::FromStr;
-
-use super::pcr::PcrRegisterValue;
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
 use rpc::errors::RpcDataConversionError;
+use rpc::protos::measured_boot::MeasurementReportPb;
+use serde::Serialize;
+
+use super::pcr::PcrRegisterValue;
+use super::records::MeasurementReportValueRecord;
 
 /// MeasurementReport is a composition of a MeasurementReportRecord,
 /// whose attributes are essentially copied directly it, as well as

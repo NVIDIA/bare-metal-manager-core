@@ -1,17 +1,15 @@
 use ::rpc::forge as rpc;
-use sqlx::PgConnection;
-
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{
-    DpuInitState, FailureCause, FailureDetails, MeasuringState, ReprovisionState, ValidationState,
-};
-use crate::{
-    CarbideError,
-    db::{self},
-    model::machine::{InstanceState, ManagedHostState},
-};
 use forge_uuid::machine::{MachineInterfaceId, MachineType};
 use mac_address::MacAddress;
+use sqlx::PgConnection;
+
+use crate::CarbideError;
+use crate::db::{self};
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::{
+    DpuInitState, FailureCause, FailureDetails, InstanceState, ManagedHostState, MeasuringState,
+    ReprovisionState, ValidationState,
+};
 
 const QCOW_IMAGER_IPXE: &str =
     "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";

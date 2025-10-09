@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Row, postgres::PgRow, types::Json};
+use sqlx::postgres::PgRow;
+use sqlx::types::Json;
+use sqlx::{FromRow, Row};
 
 pub struct ActionRequest {
     pub request_id: i64,

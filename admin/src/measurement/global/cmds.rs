@@ -15,9 +15,10 @@
 //! functions used by main.
 //!
 
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+
 use crate::cfg::measurement::GlobalOptions;
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 /// CliData is a simple struct containing the single database connection
 /// and parsed arguments, which is passed down to all subcommands.

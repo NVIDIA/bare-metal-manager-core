@@ -13,18 +13,15 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use prettytable::Cell;
-use prettytable::Row;
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::forge as forgerpc;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use prettytable::{Cell, Row, Table};
 use tracing::warn;
 
 use super::cfg::cli_options::ShowMachineInterfaces;
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-
 use crate::cfg::cli_options::DeleteMachineInterfaces;
 use crate::rpc::ApiClient;
-use ::rpc::forge as forgerpc;
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
-use prettytable::Table;
 
 pub async fn handle_show(
     args: ShowMachineInterfaces,

@@ -1,6 +1,7 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU32, Ordering};
 
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 

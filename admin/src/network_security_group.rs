@@ -12,19 +12,17 @@
 
 use std::collections::HashSet;
 
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
 use super::CarbideCliError;
-
 use crate::cfg::network_security_group::{
     AttachNetworkSecurityGroup, CreateNetworkSecurityGroup, DeleteNetworkSecurityGroup,
     DetachNetworkSecurityGroup, ShowNetworkSecurityGroup, ShowNetworkSecurityGroupAttachments,
     UpdateNetworkSecurityGroup,
 };
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::admin_cli::OutputFormat;
-use ::rpc::forge as forgerpc;
 
 /// Produces a table for printing a non-JSON representation of a
 /// network security group to standard out.

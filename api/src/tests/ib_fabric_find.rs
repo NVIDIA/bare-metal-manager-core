@@ -10,12 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{
-    cfg::file::IBFabricConfig,
-    tests::common::api_fixtures::{self},
-};
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
+
+use crate::cfg::file::IBFabricConfig;
+use crate::tests::common::api_fixtures::{self};
 
 #[crate::sqlx_test]
 async fn test_find_ib_fabric_ids_disabled(pool: sqlx::PgPool) {

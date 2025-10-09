@@ -1,48 +1,42 @@
-use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
-use super::{
-    discovery_completed, dpu::create_machine_inventory, inject_machine_measurements,
-    network_configured,
-};
-use crate::db::machine_interface::find_by_mac_address;
-use crate::model::machine::{
-    BomValidating, BomValidatingContext, MachineValidatingState, MeasuringState, ValidationState,
-};
-use crate::tests::common::api_fixtures::{
-    TestEnv, TestManagedHost,
-    dpu::DpuConfig,
-    forge_agent_control, get_machine_validation_runs,
-    host::host_uefi_setup,
-    machine_validation_completed,
-    managed_host::ManagedHostConfig,
-    network_segment::{
-        FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-        FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
-    },
-    persist_machine_validation_result, update_machine_validation_run,
-};
-use crate::{
-    db,
-    model::{
-        hardware_info::HardwareInfo,
-        machine::{
-            DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownInfo, LockdownMode,
-            LockdownState, MachineState, ManagedHostState, ManagedHostStateSnapshot,
-        },
-        site_explorer::EndpointExplorationReport,
-    },
-};
+use std::collections::HashMap;
+use std::future::Future;
+use std::iter;
+use std::net::IpAddr;
+
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
 use health_report::HealthReport;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{self, HardwareHealthReport};
+use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
-use rpc::{
-    DiscoveryData, DiscoveryInfo,
-    forge::{self, HardwareHealthReport, forge_server::Forge},
-    forge_agent_control_response::Action,
-};
-use std::{collections::HashMap, future::Future, iter, net::IpAddr};
+use rpc::{DiscoveryData, DiscoveryInfo};
 use tonic::Request;
+
+use super::dpu::create_machine_inventory;
+use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
+use super::{discovery_completed, inject_machine_measurements, network_configured};
+use crate::db;
+use crate::db::machine_interface::find_by_mac_address;
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::{
+    BomValidating, BomValidatingContext, DpuInitState, FailureCause, FailureDetails, FailureSource,
+    LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+};
+use crate::model::site_explorer::EndpointExplorationReport;
+use crate::tests::common::api_fixtures::dpu::DpuConfig;
+use crate::tests::common::api_fixtures::host::host_uefi_setup;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::network_segment::{
+    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+};
+use crate::tests::common::api_fixtures::{
+    TestEnv, TestManagedHost, forge_agent_control, get_machine_validation_runs,
+    machine_validation_completed, persist_machine_validation_result, update_machine_validation_run,
+};
 
 /// MockExploredHost presents a fluent interface for declaring a mock host and running it through
 /// the site-explorer ingestion lifecycle. Its methods are intended to be chained together to

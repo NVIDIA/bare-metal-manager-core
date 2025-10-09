@@ -15,16 +15,18 @@
 //!
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::show_candidate_machine_request;
-use ::rpc::protos::measured_boot::{AttestCandidateMachineRequest, ShowCandidateMachineRequest};
+use ::rpc::protos::measured_boot::{
+    AttestCandidateMachineRequest, ShowCandidateMachineRequest, show_candidate_machine_request,
+};
+use measured_boot::machine::CandidateMachine;
 use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::{machine::CandidateMachine, report::MeasurementReport};
+use measured_boot::records::CandidateMachineSummary;
+use measured_boot::report::MeasurementReport;
+use serde::Serialize;
 
 use crate::measurement::global;
 use crate::measurement::machine::args::{Attest, CmdMachine, Show};
 use crate::rpc::ApiClient;
-use measured_boot::records::CandidateMachineSummary;
-use serde::Serialize;
 
 /// dispatch matches + dispatches the correct command
 /// for the `mock-machine` subcommand.

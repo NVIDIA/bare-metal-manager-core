@@ -1,8 +1,9 @@
-use crate::cfg::cli_options::RouteServer;
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, output};
 use ::rpc::forge as rpc;
 use prettytable::{Cell, Row, Table};
+
+use crate::cfg::cli_options::RouteServer;
+use crate::rpc::ApiClient;
 
 // dispatch is a dispatch handler for admin CLI
 // route-server subcommands.

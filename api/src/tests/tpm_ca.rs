@@ -2,30 +2,25 @@ pub mod tests {
 
     use std::str::FromStr;
 
+    use common::api_fixtures::dpu::create_dpu_machine;
+    use common::api_fixtures::host::host_discover_dhcp;
+    use common::api_fixtures::tpm_attestation::{
+        CA_CERT_SERIALIZED, CA2_CERT_SERIALIZED, EK_CERT_SERIALIZED, EK2_CERT_SERIALIZED,
+    };
+    use common::api_fixtures::{TestEnv, create_test_env};
+    use forge_uuid::machine::MachineId;
+    use rpc::forge::forge_server::Forge;
+    use rpc::forge::{TpmCaCert, TpmCaCertDetail, TpmCaCertId, TpmEkCertStatus};
+    use sha2::{Digest, Sha256};
+
     use crate::attestation::get_ek_cert_by_machine_id;
     use crate::attestation::tpm_ca_cert::match_update_existing_ek_cert_status_against_ca;
+    use crate::db;
     use crate::db::ObjectColumnFilter;
     use crate::model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use crate::model::machine::machine_id::from_hardware_info;
     use crate::model::network_segment;
     use crate::tests::common;
-
-    use common::api_fixtures::TestEnv;
-    use common::api_fixtures::create_test_env;
-    use common::api_fixtures::dpu::create_dpu_machine;
-    use common::api_fixtures::host::host_discover_dhcp;
-    use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, CA2_CERT_SERIALIZED};
-    use common::api_fixtures::tpm_attestation::{EK_CERT_SERIALIZED, EK2_CERT_SERIALIZED};
-    use rpc::forge::TpmCaCertDetail;
-    use rpc::forge::TpmCaCertId;
-    use rpc::forge::TpmEkCertStatus;
-    use sha2::{Digest, Sha256};
-
-    use crate::db;
-    use forge_uuid::machine::MachineId;
-
-    use rpc::forge::TpmCaCert;
-    use rpc::forge::forge_server::Forge;
 
     #[crate::sqlx_test]
     async fn test_get_ek_cert_by_machine_id_machine_not_found_returns_error(pool: sqlx::PgPool) {

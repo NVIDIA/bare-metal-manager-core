@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::state_controller::{
-    machine::metrics::MachineMetrics, state_handler::StateHandlerContextObjects,
-};
+use crate::state_controller::machine::metrics::MachineMetrics;
+use crate::state_controller::state_handler::StateHandlerContextObjects;
 
 pub struct MachineStateHandlerContextObjects {}
 

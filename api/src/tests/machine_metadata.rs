@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{CarbideError, tests::common};
-
 use common::api_fixtures::{create_managed_host, create_test_env};
 use rpc::forge::forge_server::Forge;
+
+use crate::CarbideError;
+use crate::tests::common;
 
 #[crate::sqlx_test]
 async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

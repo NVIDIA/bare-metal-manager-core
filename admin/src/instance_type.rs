@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::forge::{self as forgerpc, FindInstanceTypesByIdsRequest};
+use forge_uuid::machine::MachineId;
 use prettytable::{Table, row};
 use rpc::TenantState;
 use rpc::forge::{
@@ -18,16 +21,11 @@ use rpc::forge::{
 };
 
 use super::CarbideCliError;
-
 use crate::cfg::instance_type::{
     AssociateInstanceType, CreateInstanceType, DeleteInstanceType, DisassociateInstanceType,
     ShowInstanceType, UpdateInstanceType,
 };
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::admin_cli::OutputFormat;
-use ::rpc::forge::{self as forgerpc, FindInstanceTypesByIdsRequest};
-use forge_uuid::machine::MachineId;
 
 /// Produces a table for printing a non-JSON representation of a
 /// instance type to standard out.

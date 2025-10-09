@@ -12,15 +12,11 @@
 
 //! A logging middleware for carbide API server requests
 
-use std::{
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use opentelemetry::{
-    KeyValue,
-    metrics::{Histogram, Meter},
-};
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Histogram, Meter};
 use tracing::Instrument;
 
 use crate::logging::sqlx_query_tracing;

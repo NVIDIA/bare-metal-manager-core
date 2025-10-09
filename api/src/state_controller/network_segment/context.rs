@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::state_controller::{
-    network_segment::metrics::NetworkSegmentMetrics, state_handler::StateHandlerContextObjects,
-};
+use crate::state_controller::network_segment::metrics::NetworkSegmentMetrics;
+use crate::state_controller::state_handler::StateHandlerContextObjects;
 
 pub struct NetworkSegmentStateHandlerContextObjects {}
 

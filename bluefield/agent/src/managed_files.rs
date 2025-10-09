@@ -1,9 +1,11 @@
-use crate::duppet::{self, FileEnsure, SyncOptions};
-use crate::periodic_config_fetcher::PeriodicConfigFetcher;
-use forge_uuid::machine::MachineId;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+use forge_uuid::machine::MachineId;
+
+use crate::duppet::{self, FileEnsure, SyncOptions};
+use crate::periodic_config_fetcher::PeriodicConfigFetcher;
 
 pub fn main_sync(
     sync_options: SyncOptions,

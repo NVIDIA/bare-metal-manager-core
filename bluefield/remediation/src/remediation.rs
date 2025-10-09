@@ -9,18 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, error::Error, path::Path, process::Stdio, time::Duration};
+use std::collections::HashMap;
+use std::error::Error;
+use std::path::Path;
+use std::process::Stdio;
+use std::time::Duration;
 
-use forge_uuid::{dpu_remediations::RemediationId, machine::MachineId};
+use forge_uuid::dpu_remediations::RemediationId;
+use forge_uuid::machine::MachineId;
 use rand::Rng;
-use rpc::{
-    Metadata,
-    forge::{
-        GetNextRemediationForMachineRequest, RemediationApplicationStatus,
-        RemediationAppliedRequest,
-    },
-    forge_tls_client::ForgeClientConfig,
+use rpc::Metadata;
+use rpc::forge::{
+    GetNextRemediationForMachineRequest, RemediationApplicationStatus, RemediationAppliedRequest,
 };
+use rpc::forge_tls_client::ForgeClientConfig;
 
 const MIN_INITIAL_DELAY_TIME_SECS: u64 = 48; // 80% of 60
 const MAX_INITIAL_DELAY_TIME_SECS: u64 = 72; // 120% of 60

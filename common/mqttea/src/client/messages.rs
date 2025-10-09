@@ -18,8 +18,9 @@
 // It contains all information needed to route and deserialize an
 // incoming message to the appropriate handler.
 
-use rumqttc::Publish;
 use std::sync::Arc;
+
+use rumqttc::Publish;
 use tokio::sync::RwLock;
 use tracing::debug;
 

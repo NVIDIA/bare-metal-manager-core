@@ -9,34 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::api::{Api, log_machine_id, log_request_data};
-use crate::db::{self, DatabaseError, network_security_group};
-use crate::model::instance::DeleteInstance;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::{
-    CarbideError, CarbideResult,
-    handlers::utils::convert_and_log_machine_id,
-    ib::IBFabricManager,
-    instance::{
-        InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
-        validate_ib_partition_ownership,
-    },
-    model::{
-        ConfigValidationError,
-        instance::config::{
-            InstanceConfig,
-            infiniband::InstanceInfinibandConfig,
-            network::{InstanceNetworkConfig, NetworkDetails},
-            tenant_config::TenantConfig,
-        },
-        instance::snapshot::InstanceSnapshot,
-        machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot},
-        metadata::Metadata,
-        os::OperatingSystem,
-    },
-    redfish::RedfishAuth,
-    resource_pool::common::CommonPools,
-};
+use std::collections::HashMap;
+use std::str::FromStr;
+use std::sync::Arc;
+
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use forge_uuid::infiniband::IBPartitionId;
@@ -47,10 +23,32 @@ use health_report::{
 };
 use itertools::Itertools as _;
 use serde_json::json;
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
+
+use crate::api::{Api, log_machine_id, log_request_data};
+use crate::db::{self, DatabaseError, network_security_group};
+use crate::handlers::utils::convert_and_log_machine_id;
+use crate::ib::IBFabricManager;
+use crate::instance::{
+    InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
+    validate_ib_partition_ownership,
+};
+use crate::model::ConfigValidationError;
+use crate::model::instance::DeleteInstance;
+use crate::model::instance::config::InstanceConfig;
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
+use crate::model::instance::config::tenant_config::TenantConfig;
+use crate::model::instance::snapshot::InstanceSnapshot;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::{
+    InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+};
+use crate::model::metadata::Metadata;
+use crate::model::os::OperatingSystem;
+use crate::redfish::RedfishAuth;
+use crate::resource_pool::common::CommonPools;
+use crate::{CarbideError, CarbideResult};
 
 pub(crate) async fn allocate(
     api: &Api,

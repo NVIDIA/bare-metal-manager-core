@@ -1,38 +1,26 @@
-use crate::{
-    machine_update_manager::machine_update_module::{
-        HOST_UPDATE_HEALTH_REPORT_SOURCE, create_host_update_health_report,
-    },
-    model::machine::ManagedHostStateSnapshot,
-    tests::common,
-};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use crate::model::dpu_machine_update::DpuMachineUpdate;
-use crate::tests::common::api_fixtures::create_managed_host;
-use crate::{
-    CarbideResult,
-    cfg::file::CarbideConfig,
-    db,
-    machine_update_manager::{
-        MachineUpdateManager,
-        machine_update_module::{
-            AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, MachineUpdateModule,
-        },
-    },
-};
 use async_trait::async_trait;
 use common::api_fixtures::create_test_env;
-use figment::{
-    Figment,
-    providers::{Format, Toml},
-};
+use figment::Figment;
+use figment::providers::{Format, Toml};
 use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-    sync::{Arc, Mutex},
-    time::Duration,
+
+use crate::cfg::file::CarbideConfig;
+use crate::machine_update_manager::MachineUpdateManager;
+use crate::machine_update_manager::machine_update_module::{
+    AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, HOST_UPDATE_HEALTH_REPORT_SOURCE,
+    MachineUpdateModule, create_host_update_health_report,
 };
+use crate::model::dpu_machine_update::DpuMachineUpdate;
+use crate::model::machine::ManagedHostStateSnapshot;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::create_managed_host;
+use crate::{CarbideResult, db};
 
 const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 

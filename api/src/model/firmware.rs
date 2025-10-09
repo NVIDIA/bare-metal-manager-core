@@ -1,10 +1,12 @@
-use crate::model::site_explorer::EndpointExplorationReport;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
+
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+
+use crate::model::site_explorer::EndpointExplorationReport;
 
 /// Firmware versions this carbide instance wants to install onto hosts
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]

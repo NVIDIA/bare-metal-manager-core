@@ -10,17 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::IpAddr;
+use std::str::FromStr;
+
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use config_version::ConfigVersion;
-use std::{net::IpAddr, str::FromStr};
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
-use crate::{
-    CarbideError,
-    api::{Api, log_request_data},
-    db::{self, DatabaseError},
-};
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+use crate::db::{self, DatabaseError};
 
 pub(crate) async fn find_explored_endpoint_ids(
     api: &Api,

@@ -15,18 +15,20 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::ib::ufmclient::UFMCert;
 use http_body_util::BodyExt;
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use hyper::http::StatusCode;
 use hyper::{Method, Uri};
 use hyper_rustls::HttpsConnector;
 use hyper_timeout::TimeoutConnector;
-use hyper_util::client::legacy::{Client as HyperClient, connect::HttpConnector};
+use hyper_util::client::legacy::Client as HyperClient;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use rpc::forge_tls_client::DummyTlsVerifier;
 use rustls::{ClientConfig, ConfigBuilder, RootCertStore, WantsVerifier};
 use thiserror::Error;
+
+use crate::ib::ufmclient::UFMCert;
 
 #[derive(Error, Debug)]
 pub enum RestError {

@@ -24,9 +24,8 @@ pub mod traits;
 // Re-export main types for convenience
 pub use error::MlxRunnerError;
 pub use exec_options::ExecOptions;
+// Re-export from dependencies for convenience
+pub use mlxconfig_variables::{MlxConfigValue, MlxConfigVariable, MlxVariableRegistry};
 pub use result_types::*;
 pub use runner::MlxConfigRunner;
 pub use traits::{MlxConfigQueryable, MlxConfigSettable};
-
-// Re-export from dependencies for convenience
-pub use mlxconfig_variables::{MlxConfigValue, MlxConfigVariable, MlxVariableRegistry};

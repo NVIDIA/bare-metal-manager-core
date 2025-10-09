@@ -1,5 +1,3 @@
-use dhcp::mock_api_server;
-use dhcproto::{Decodable, Decoder, v4};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
@@ -9,11 +7,12 @@ use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
 
+use dhcp::mock_api_server;
+use dhcproto::{Decodable, Decoder, v4};
+
 mod common;
 
-use common::DHCPFactory;
-use common::Kea;
-use common::RELAY_IP;
+use common::{DHCPFactory, Kea, RELAY_IP};
 
 // Must be u8 to be used a idx (last part of MAC and link IP)
 // Must not exceed Kea config 'packet-queue-size', below, or packets  will be dropped.

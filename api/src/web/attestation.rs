@@ -16,18 +16,17 @@ use std::sync::Arc;
 use askama::Template;
 use axum::extract::{Path as AxumPath, Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse};
-
+use forge_uuid::measured_boot::MeasurementReportId;
+use hyper::http::StatusCode;
 use measured_boot::site::{MachineAttestationSummary, MachineAttestationSummaryList};
 use measured_boot::{
     bundle as mbbundle, journal as mbjournal, profile as mbprofile, report as mbreport,
 };
+use rpc::forge::forge_server::Forge;
 use rpc::protos::measured_boot as mbprotos;
 
 use super::filters;
 use crate::api::Api;
-use forge_uuid::measured_boot::MeasurementReportId;
-use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
 
 const PCR_SLOT_MAX_NUM: usize = 12;
 

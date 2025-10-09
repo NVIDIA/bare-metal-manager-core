@@ -9,13 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::BTreeMap, net::SocketAddr};
+use std::collections::BTreeMap;
+use std::net::SocketAddr;
 
-use axum::{
-    extract::{ConnectInfo, Request},
-    middleware::Next,
-    response::Response,
-};
+use axum::extract::{ConnectInfo, Request};
+use axum::middleware::Next;
+use axum::response::Response;
 
 pub(crate) async fn logger(
     ConnectInfo(socket_addr): ConnectInfo<SocketAddr>,

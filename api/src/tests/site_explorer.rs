@@ -10,57 +10,57 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::str::FromStr;
+use std::sync::Arc;
 
-use crate::cfg::file::DpuConfig as InitialDpuConfig;
-use crate::db::sku::CURRENT_SKU_VERSION;
-use crate::model::expected_machine::ExpectedMachineData;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{InstallDpuOsState, Machine, SetSecureBootState};
-use crate::model::resource_pool::ResourcePoolStats;
-use crate::tests::common;
-use crate::tests::common::{
-    api_fixtures,
-    api_fixtures::{
-        TestEnvOverrides,
-        dpu::DpuConfig,
-        managed_host::ManagedHostConfig,
-        network_segment::{
-            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-            create_host_inband_network_segment,
-        },
-        site_explorer::MockExploredHost,
-    },
-    test_meter::TestMeter,
-};
-use crate::{
-    CarbideError,
-    cfg::file::SiteExplorerConfig,
-    db::{self, DatabaseError, ObjectColumnFilter, ObjectFilter},
-    model::{
-        hardware_info::HardwareInfo,
-        machine::{DpuDiscoveringState, DpuInitState, ManagedHostState, ManagedHostStateSnapshot},
-        metadata::Metadata,
-        site_explorer::{
-            ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-            ExploredDpu, ExploredManagedHost, UefiDevicePath,
-        },
-    },
-    site_explorer::SiteExplorer,
-    state_controller::machine::handler::MachineStateHandlerBuilder,
-};
-use common::api_fixtures::{TestEnv, endpoint_explorer::MockEndpointExplorer};
-use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
+use common::api_fixtures::TestEnv;
+use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
+use forge_uuid::machine::MachineId;
+use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use rpc::{
-    BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
-    forge::{DhcpDiscovery, GetSiteExplorationRequest, forge_server::Forge},
-    site_explorer::{ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost},
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{DhcpDiscovery, GetSiteExplorationRequest};
+use rpc::site_explorer::{
+    ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost,
 };
+use rpc::{BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 use utils::models::arch::CpuArchitecture;
+
+use crate::CarbideError;
+use crate::cfg::file::{DpuConfig as InitialDpuConfig, SiteExplorerConfig};
+use crate::db::sku::CURRENT_SKU_VERSION;
+use crate::db::{self, DatabaseError, ObjectColumnFilter, ObjectFilter};
+use crate::model::expected_machine::ExpectedMachineData;
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::machine::{
+    DpuDiscoveringState, DpuInitState, InstallDpuOsState, Machine, ManagedHostState,
+    ManagedHostStateSnapshot, SetSecureBootState,
+};
+use crate::model::metadata::Metadata;
+use crate::model::resource_pool::ResourcePoolStats;
+use crate::model::site_explorer::{
+    ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
+    ExploredManagedHost, UefiDevicePath,
+};
+use crate::site_explorer::SiteExplorer;
+use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
+use crate::tests::common;
+use crate::tests::common::api_fixtures;
+use crate::tests::common::api_fixtures::TestEnvOverrides;
+use crate::tests::common::api_fixtures::dpu::DpuConfig;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::network_segment::{
+    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+    create_host_inband_network_segment,
+};
+use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
+use crate::tests::common::test_meter::TestMeter;
 
 #[derive(Clone, Debug)]
 struct FakeMachine {

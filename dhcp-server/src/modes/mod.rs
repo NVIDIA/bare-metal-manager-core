@@ -9,19 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{net::SocketAddrV4, sync::Arc};
+use std::net::SocketAddrV4;
+use std::sync::Arc;
 
 use lru::LruCache;
 use rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tokio::sync::Mutex;
 use tonic::async_trait;
 
-use crate::{
-    Config,
-    cache::CacheEntry,
-    errors::DhcpError,
-    packet_handler::{DecodedPacket, Packet},
-};
+use crate::Config;
+use crate::cache::CacheEntry;
+use crate::errors::DhcpError;
+use crate::packet_handler::{DecodedPacket, Packet};
 
 pub mod controller;
 pub mod dpu;

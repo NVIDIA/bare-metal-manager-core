@@ -15,15 +15,8 @@
  *  database to match candidate machines to profiles and bundles.
 */
 
-use crate::db::DatabaseError;
-use crate::measured_boot::db::journal::get_latest_journal_for_id;
-use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
-use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::machine::{
-    get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
-};
-use crate::model::machine::topology::TopologyData;
-use crate::{CarbideError, CarbideResult};
+use std::collections::HashMap;
+
 use chrono::Utc;
 use forge_uuid::DbTable;
 use forge_uuid::machine::{MachineId, MachineType};
@@ -33,7 +26,16 @@ use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use rpc::protos::measured_boot::CandidateMachineSummaryPb;
 use serde::Serialize;
 use sqlx::{FromRow, PgConnection};
-use std::collections::HashMap;
+
+use crate::db::DatabaseError;
+use crate::measured_boot::db::journal::get_latest_journal_for_id;
+use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
+use crate::measured_boot::interface::common;
+use crate::measured_boot::interface::machine::{
+    get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
+};
+use crate::model::machine::topology::TopologyData;
+use crate::{CarbideError, CarbideResult};
 
 /// CandidateMachineRecord defines a single row from
 /// the machine_topologies table. Sort of. Where other records

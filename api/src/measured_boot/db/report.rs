@@ -15,23 +15,8 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
-use crate::measured_boot::db;
-use crate::measured_boot::db::machine::bundle_state_to_machine_state;
-use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::pcr_register_values_to_map;
-use crate::measured_boot::interface::report::{update_report_tstamp, update_report_values_tstamp};
-use crate::measured_boot::interface::{
-    report::{
-        delete_report_for_id, delete_report_values_for_id, get_measurement_report_record_by_id,
-        get_measurement_report_values_for_report_id, insert_measurement_report_record,
-        insert_measurement_report_value_records,
-    },
-    site::{
-        get_approval_for_machine_id, get_approval_for_profile_id,
-        remove_from_approved_machines_by_approval_id, remove_from_approved_profiles_by_approval_id,
-    },
-};
-use crate::{CarbideError, CarbideResult};
+use std::collections::HashMap;
+
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
@@ -45,7 +30,21 @@ use measured_boot::records::{
 };
 use measured_boot::report::MeasurementReport;
 use sqlx::PgConnection;
-use std::collections::HashMap;
+
+use crate::measured_boot::db;
+use crate::measured_boot::db::machine::bundle_state_to_machine_state;
+use crate::measured_boot::interface::common;
+use crate::measured_boot::interface::common::pcr_register_values_to_map;
+use crate::measured_boot::interface::report::{
+    delete_report_for_id, delete_report_values_for_id, get_measurement_report_record_by_id,
+    get_measurement_report_values_for_report_id, insert_measurement_report_record,
+    insert_measurement_report_value_records, update_report_tstamp, update_report_values_tstamp,
+};
+use crate::measured_boot::interface::site::{
+    get_approval_for_machine_id, get_approval_for_profile_id,
+    remove_from_approved_machines_by_approval_id, remove_from_approved_profiles_by_approval_id,
+};
+use crate::{CarbideError, CarbideResult};
 
 pub async fn new_with_txn(
     txn: &mut PgConnection,

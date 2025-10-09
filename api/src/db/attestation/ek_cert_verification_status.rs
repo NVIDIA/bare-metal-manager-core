@@ -10,11 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
+use crate::CarbideResult;
+use crate::db::DatabaseError;
 use crate::model::attestation::EkCertVerificationStatus;
-use crate::{CarbideResult, db::DatabaseError};
-use forge_uuid::machine::MachineId;
 
 pub async fn get_by_ek_sha256(
     txn: &mut PgConnection,

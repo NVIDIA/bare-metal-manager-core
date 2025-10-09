@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::error::{MlxError, MlxResult};
 use std::process::{Command, Stdio};
+
+use crate::error::{MlxError, MlxResult};
 
 // FlintRunner is a wrapper for executing flint commands.
 pub struct FlintRunner {

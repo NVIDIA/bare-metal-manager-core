@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use std::ffi::CStr;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
@@ -20,8 +21,6 @@ use metrics_endpoint::HealthController;
 use once_cell::sync::Lazy;
 use opentelemetry::metrics::Counter;
 use rpc::forge_tls_client::ForgeClientConfig;
-use std::net::SocketAddr;
-use std::sync::atomic::AtomicI64;
 use tokio::runtime::{Builder, Runtime};
 
 mod cache;

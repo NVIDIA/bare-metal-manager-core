@@ -10,19 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
-use rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
-use tokio::runtime::Runtime;
-use tokio::time::{interval, timeout};
-
-use crate::{CONFIG, CarbideDhcpContext, CarbideDhcpMetrics, tls};
 
 use ::metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use metrics_endpoint::{HealthController, MetricsSetup};
 use opentelemetry::KeyValue;
+use rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use tokio::runtime::Runtime;
+use tokio::time::{interval, timeout};
+
+use crate::{CONFIG, CarbideDhcpContext, CarbideDhcpMetrics, tls};
 
 const METRICS_CAPTURE_FREQUENCY: Duration = Duration::from_secs(30);
 const READINESS_CHECK_FREQUENCY: Duration = Duration::from_secs(30);
@@ -216,8 +216,9 @@ pub fn set_service_healthy(healthy: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use prometheus::{Encoder, TextEncoder};
+
+    use super::*;
 
     #[test]
     fn test_metrics() {

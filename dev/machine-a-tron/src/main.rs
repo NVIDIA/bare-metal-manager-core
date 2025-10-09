@@ -1,3 +1,10 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::error::Error;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
 use bmc_mock::{BmcMockHandle, HostnameQuerying, ListenerOrAddress, TarGzOption};
 use clap::Parser;
 use figment::Figment;
@@ -6,23 +13,17 @@ use forge_tls::client_config::{
     get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
 };
 use machine_a_tron::{
-    AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MockSshServerHandle,
-    PromptBehavior, spawn_mock_ssh_server,
-};
-use machine_a_tron::{
-    MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs, api_throttler,
+    AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MachineATronArgs,
+    MachineATronConfig, MachineATronContext, MockSshServerHandle, PromptBehavior, Tui, TuiHostLogs,
+    api_throttler, spawn_mock_ssh_server,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::error::Error;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
-use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
+use tracing_subscriber::filter::{EnvFilter, LevelFilter};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{fmt, registry};
 
 fn init_log(
     filename: &Option<String>,

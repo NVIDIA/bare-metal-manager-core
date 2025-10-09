@@ -9,21 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{fmt::Write, pin::Pin};
+use std::fmt::Write;
+use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use forge_uuid::{dpu_remediations::RemediationId, machine::MachineId};
+use forge_uuid::dpu_remediations::RemediationId;
+use forge_uuid::machine::MachineId;
 use prettytable::{Table, row};
 use rpc::forge::{AppliedRemediationIdList, AppliedRemediationList, Remediation, RemediationList};
 
-use crate::{
-    async_write, async_writeln,
-    cfg::cli_options::{
-        ApproveDpuRemediation, CreateDpuRemediation, DisableDpuRemediation, EnableDpuRemediation,
-        ListAppliedRemediations, RevokeDpuRemediation, ShowRemediation,
-    },
-    rpc::ApiClient,
+use crate::cfg::cli_options::{
+    ApproveDpuRemediation, CreateDpuRemediation, DisableDpuRemediation, EnableDpuRemediation,
+    ListAppliedRemediations, RevokeDpuRemediation, ShowRemediation,
 };
+use crate::rpc::ApiClient;
+use crate::{async_write, async_writeln};
 
 pub async fn create_dpu_remediation(
     create_remediation: CreateDpuRemediation,

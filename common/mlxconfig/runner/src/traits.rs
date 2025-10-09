@@ -23,13 +23,15 @@
 // the devices. Doing this allows us to be more flexible at the
 // call sites.
 
-use crate::error::MlxRunnerError;
+use std::collections::HashMap;
+
 use mlxconfig_variables::{
     IntoMlxValue, MlxConfigValue, MlxConfigVariable, MlxValueType, MlxVariableRegistry,
     MlxVariableSpec,
 };
 use regex::Regex;
-use std::collections::HashMap;
+
+use crate::error::MlxRunnerError;
 
 // MlxConfigSettable is a trait for types that can be converted to
 // a Vec<MlxConfigValue> for set/sync operations.

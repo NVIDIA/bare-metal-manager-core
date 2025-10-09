@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::{
-    grpcurl::{grpcurl, grpcurl_id},
-    machine::wait_for_state,
-};
-use forge_uuid::machine::MachineId;
 use std::net::SocketAddr;
+
+use forge_uuid::machine::MachineId;
+
+use super::grpcurl::{grpcurl, grpcurl_id};
+use super::machine::wait_for_state;
 
 pub async fn create(
     addrs: &[SocketAddr],

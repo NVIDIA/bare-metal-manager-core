@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
 use prettytable::{Cell, Row, Table, row};
 
 use crate::cfg::cli_options::Version;
 use crate::rpc::ApiClient;
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
 
 macro_rules! r {
     ($table: ident, $value:ident, $field_name:ident) => {

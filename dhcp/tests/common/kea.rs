@@ -1,11 +1,11 @@
-use serde_json::json;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
+
+use serde_json::json;
 use tempfile::TempDir;
 
 pub struct Kea {

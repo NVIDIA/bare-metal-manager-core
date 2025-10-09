@@ -1,7 +1,8 @@
-use crate::filters::{DeviceFilter, DeviceFilterSet};
-use crate::info::MlxDeviceInfo;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::filters::{DeviceFilter, DeviceFilterSet};
+use crate::info::MlxDeviceInfo;
 
 // MlxDeviceReport represents a complete device discovery report
 // with metadata and filtered device results.

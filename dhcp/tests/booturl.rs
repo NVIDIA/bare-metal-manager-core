@@ -7,9 +7,7 @@ use dhcproto::{Decodable, Decoder, v4};
 
 mod common;
 
-use common::DHCPFactory;
-use common::Kea;
-use common::RELAY_IP;
+use common::{DHCPFactory, Kea, RELAY_IP};
 
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 

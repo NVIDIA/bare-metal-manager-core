@@ -12,41 +12,32 @@
 
 //! Contains DPU related fixtures
 
-use std::{
-    net::IpAddr,
-    sync::atomic::{AtomicU32, Ordering},
-};
+use std::net::IpAddr;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use super::site_explorer;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::tests::common::{
-    api_fixtures::{
-        FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost, managed_host::ManagedHostConfig,
-    },
-    mac_address_pool,
-};
-use crate::{
-    cfg::file::DpuConfig as InitialDpuConfig,
-    db,
-    model::{
-        hardware_info::HardwareInfo,
-        site_explorer::{
-            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-            EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager,
-            PowerState, Service, UefiDevicePath,
-        },
-    },
-};
-use forge_uuid::machine::MachineId;
-use forge_uuid::machine::MachineInterfaceId;
-use libredfish::{OData, PCIeDevice, model::oem::nvidia_dpu::NicMode};
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use libredfish::model::oem::nvidia_dpu::NicMode;
+use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
-use rpc::{
-    DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
-    forge::{DhcpDiscovery, forge_server::Forge},
-};
+use rpc::forge::DhcpDiscovery;
+use rpc::forge::forge_server::Forge;
+use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use sqlx::PgConnection;
 use tonic::Request;
+
+use super::site_explorer;
+use crate::cfg::file::DpuConfig as InitialDpuConfig;
+use crate::db;
+use crate::model::hardware_info::HardwareInfo;
+use crate::model::machine::machine_search_config::MachineSearchConfig;
+use crate::model::site_explorer::{
+    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
+    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, PowerState,
+    Service, UefiDevicePath,
+};
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost};
+use crate::tests::common::mac_address_pool;
 
 /// The version identifier that is used by dpu-agent in unit-tests
 pub const TEST_DPU_AGENT_VERSION: &str = "test";

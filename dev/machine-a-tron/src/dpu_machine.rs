@@ -1,22 +1,23 @@
-use eyre::Context;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
+
+use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
+use eyre::Context;
+use forge_uuid::machine::MachineId;
+use rpc::forge::IdentifySerialRequest;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Interval;
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::config::PersistedDpuMachine;
+use crate::config::{MachineATronContext, PersistedDpuMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay, DpuDhcpRelayServer};
 use crate::host_machine::HandleMessageResult;
 use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, PersistedMachine};
 use crate::tui::HostDetails;
-use crate::{MachineConfig, config::MachineATronContext, saturating_add_duration_to_instant};
-use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
-use forge_uuid::machine::MachineId;
-use rpc::forge::IdentifySerialRequest;
+use crate::{MachineConfig, saturating_add_duration_to_instant};
 
 #[derive(Debug)]
 pub struct DpuMachine {

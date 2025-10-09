@@ -9,12 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::utils::LOCALHOST_CERTS;
-use forge_secrets::forge_vault::VaultConfig;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+
+use forge_secrets::forge_vault::VaultConfig;
 use tokio::sync::oneshot::{Receiver, Sender};
 use utils::HostPortPair;
+
+use crate::utils::LOCALHOST_CERTS;
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
 

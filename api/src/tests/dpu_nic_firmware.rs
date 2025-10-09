@@ -1,19 +1,18 @@
+use std::collections::HashSet;
+use std::string::ToString;
+
+use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
+
 use crate::CarbideResult;
-use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
+use crate::machine_update_manager::dpu_nic_firmware::DpuNicFirmwareUpdate;
+use crate::machine_update_manager::machine_update_module::{
+    AutomaticFirmwareUpdateReference, HOST_UPDATE_HEALTH_REPORT_SOURCE, MachineUpdateModule,
+};
 use crate::model::machine::LoadSnapshotOptions;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestManagedHost;
 use crate::tests::common::api_fixtures::test_managed_host::TestManagedHostSnapshots;
 use crate::tests::dpu_machine_update::{get_all_snapshots, update_nic_firmware_version};
-
-use std::collections::HashSet;
-use std::string::ToString;
-
-use crate::machine_update_manager::{
-    dpu_nic_firmware::DpuNicFirmwareUpdate,
-    machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
-};
-use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 
 #[crate::sqlx_test]
 async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

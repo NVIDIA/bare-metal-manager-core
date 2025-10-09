@@ -9,24 +9,26 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
 use eyre::Context;
 use futures_util::FutureExt;
 use lazy_static::lazy_static;
 use russh::ChannelMsg;
 use russh::keys::PrivateKeyWithHashAlg;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 use temp_dir::TempDir;
 use tokio::sync::{mpsc, oneshot};
 
 mod util;
 
-use crate::util::ssh_client::PermissiveSshClient;
-use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 use api_test_helper::utils::REPO_ROOT;
 use ssh_console::shutdown_handle::ShutdownHandle;
 use util::{legacy, new_ssh_console};
+
+use crate::util::ssh_client::PermissiveSshClient;
+use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 
 #[allow(dead_code)]
 static TENANT_SSH_KEY: &str = include_str!("fixtures/tenant_ssh_key");

@@ -10,17 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    sync::{Arc, atomic::AtomicBool},
-    time::Duration,
-};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
-use ::rpc::{Instance, forge as rpc, forge_tls_client::ForgeClientConfig};
+use ::rpc::forge_tls_client::ForgeClientConfig;
+use ::rpc::{Instance, forge as rpc};
 use arc_swap::ArcSwapOption;
 use config_version::ConfigVersion;
 use eyre::Context;
 use forge_dpu_agent_utils::utils::create_forge_client;
-use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId, machine::MachineId};
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 use tracing::{error, trace, warn};
 
 use crate::util::{get_periodic_dpu_config, get_sitename};

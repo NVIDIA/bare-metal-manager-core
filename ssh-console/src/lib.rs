@@ -23,14 +23,15 @@ pub mod config;
 pub mod shutdown_handle;
 
 // Used by fuzz tests
+use std::sync::Arc;
+
 pub use bmc::vendor::{EscapeSequence, IPMITOOL_ESCAPE_SEQUENCE};
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
 use crate::config::Config;
 use crate::metrics::MetricsState;
 use crate::shutdown_handle::{ReadyHandle, ShutdownHandle};
-use std::sync::Arc;
-use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
 
 pub static POWER_RESET_COMMAND: &str = "power reset";
 

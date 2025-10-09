@@ -10,19 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::SocketAddr;
+use std::sync::Arc;
+
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::body::Incoming;
+use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use hyper::server::conn::http1;
-use hyper::{
-    Method, Request, Response,
-    header::{CONTENT_LENGTH, CONTENT_TYPE},
-    service::service_fn,
-};
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response};
 use hyper_util::rt::TokioIo;
 use prometheus::{Encoder, TextEncoder};
-use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 

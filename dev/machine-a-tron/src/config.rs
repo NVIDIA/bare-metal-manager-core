@@ -1,7 +1,9 @@
-use crate::BmcRegistrationMode;
-use crate::api_client::ApiClient;
-use crate::api_throttler::ApiThrottler;
-use crate::machine_state_machine::OsImage;
+use std::collections::{BTreeMap, HashMap};
+use std::net::Ipv4Addr;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
 use axum::Router;
 use bmc_mock::{DpuMachineInfo, HostMachineInfo};
 use clap::Parser;
@@ -13,12 +15,12 @@ use rpc::forge_tls_client::ForgeClientConfig;
 use rpc::protos::forge_api_client::ForgeApiClient;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::{BTreeMap, HashMap};
-use std::net::Ipv4Addr;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 use uuid::Uuid;
+
+use crate::BmcRegistrationMode;
+use crate::api_client::ApiClient;
+use crate::api_throttler::ApiThrottler;
+use crate::machine_state_machine::OsImage;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "machine-sim")]

@@ -10,6 +10,25 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::borrow::Cow;
+use std::fmt::Debug;
+use std::net::SocketAddr;
+use std::os::fd::{AsRawFd, OwnedFd};
+use std::process::{ExitStatus, Stdio};
+use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
+use forge_uuid::machine::MachineId;
+use nix::errno::Errno;
+use nix::pty::OpenptyResult;
+use nix::unistd;
+use opentelemetry::KeyValue;
+use russh::ChannelMsg;
+use tokio::io::unix::AsyncFd;
+use tokio::process::Child;
+use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinHandle;
+
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::connection_impl::echo_connected_message;
@@ -20,23 +39,6 @@ use crate::config::Config;
 use crate::io_util::{
     self, PtyAllocError, set_controlling_terminal_on_exec, write_data_to_async_fd,
 };
-use chrono::{DateTime, Utc};
-use forge_uuid::machine::MachineId;
-use nix::errno::Errno;
-use nix::pty::OpenptyResult;
-use nix::unistd;
-use opentelemetry::KeyValue;
-use russh::ChannelMsg;
-use std::borrow::Cow;
-use std::fmt::Debug;
-use std::net::SocketAddr;
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::process::{ExitStatus, Stdio};
-use std::sync::Arc;
-use tokio::io::unix::AsyncFd;
-use tokio::process::Child;
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::task::JoinHandle;
 
 /// Spawn ipmitool in the background to connect to the given BMC specified by `connection_details`,
 /// and proxy data between it and the SSH frontend.

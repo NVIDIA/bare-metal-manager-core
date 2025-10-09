@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::ConfigValidationError;
 use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::model::ConfigValidationError;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IpxeOperatingSystem {

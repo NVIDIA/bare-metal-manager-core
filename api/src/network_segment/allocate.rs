@@ -1,9 +1,7 @@
 use std::net::Ipv4Addr;
 
-use forge_uuid::{
-    network::NetworkSegmentId,
-    vpc::{VpcId, VpcPrefixId},
-};
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use sqlx::PgConnection;

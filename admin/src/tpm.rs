@@ -10,18 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    fs::{self, File},
-    io::Read,
-    path::Path,
-};
+use std::fs::{self, File};
+use std::io::Read;
+use std::path::Path;
 
-use crate::CarbideCliError;
-use crate::rpc::ApiClient;
 use x509_parser::certificate::X509Certificate;
 use x509_parser::pem::parse_x509_pem;
 use x509_parser::prelude::FromDer;
 use x509_parser::validate::*;
+
+use crate::CarbideCliError;
+use crate::rpc::ApiClient;
 
 pub async fn show_ca_certs(api_client: &ApiClient) -> Result<(), CarbideCliError> {
     let ca_certs = api_client.0.tpm_show_ca_certs().await?.tpm_ca_cert_details;

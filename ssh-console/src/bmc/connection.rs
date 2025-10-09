@@ -10,6 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fmt::Debug;
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use rpc::forge;
+use rpc::forge_api_client::ForgeApiClient;
+use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinHandle;
+
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::connection_impl;
 use crate::bmc::connection_impl::{ipmi, ssh};
@@ -17,17 +30,6 @@ use crate::bmc::message_proxy::{ToBmcMessage, ToFrontendMessage};
 use crate::bmc::vendor::{BmcVendor, BmcVendorDetectionError, SshBmcVendor};
 use crate::config::{Config, ConfigError};
 use crate::shutdown_handle::ShutdownHandle;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
-use rpc::forge;
-use rpc::forge_api_client::ForgeApiClient;
-use std::fmt::Debug;
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::task::JoinHandle;
 
 pub async fn spawn(
     connection_details: ConnectionDetails,

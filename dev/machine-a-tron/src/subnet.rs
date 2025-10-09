@@ -1,14 +1,13 @@
-use ::rpc::Timestamp;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use crate::{
-    config::MachineATronContext,
-    tui::{SubnetDetails, UiUpdate},
-};
+use ::rpc::Timestamp;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
 use tonic::Status;
+
+use crate::config::MachineATronContext;
+use crate::tui::{SubnetDetails, UiUpdate};
 
 #[derive(Debug, Clone)]
 pub struct Subnet {

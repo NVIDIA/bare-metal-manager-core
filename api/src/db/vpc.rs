@@ -11,6 +11,8 @@
  */
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 use sqlx::PgConnection;
 
 use super::{
@@ -19,7 +21,6 @@ use super::{
 use crate::api::Api;
 use crate::model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use crate::{CarbideError, CarbideResult, db};
-use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 
 #[derive(Clone, Copy)]
 pub struct VniColumn;

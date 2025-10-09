@@ -9,19 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::model::expected_machine::{ExpectedMachine, ExpectedMachineData};
-use crate::tests::common;
-use crate::{
-    CarbideError,
-    db::{self},
-    model::{metadata::Metadata, site_explorer::EndpointExplorationReport},
-};
+use std::default::Default;
+
 use common::api_fixtures::create_test_env;
 use mac_address::MacAddress;
-use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest, forge_server::Forge};
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::PgConnection;
-use std::default::Default;
 use uuid::Uuid;
+
+use crate::CarbideError;
+use crate::db::{self};
+use crate::model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use crate::model::metadata::Metadata;
+use crate::model::site_explorer::EndpointExplorationReport;
+use crate::tests::common;
 
 // Test DB Functionality
 async fn get_expected_machine_1(txn: &mut PgConnection) -> Option<ExpectedMachine> {

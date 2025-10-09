@@ -18,8 +18,9 @@
 // lookup, and format-specific registration methods. Each client
 // gets its own registry instance for complete isolation.
 
-use regex::Regex;
 use std::collections::HashMap;
+
+use regex::Regex;
 use tracing::debug;
 
 use super::entry::MqttRegistryEntry;

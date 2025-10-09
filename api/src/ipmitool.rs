@@ -10,15 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-use std::net::IpAddr;
-use utils::cmd::{CmdError, CmdResult, TokioCmd};
-
 use forge_uuid::machine::MachineId;
+use utils::cmd::{CmdError, CmdResult, TokioCmd};
 
 #[async_trait]
 pub trait IPMITool: Send + Sync + 'static {
@@ -196,8 +195,9 @@ impl IPMITool for IPMIToolTestImpl {
 
 #[cfg(test)]
 mod test {
-    use forge_secrets::credentials::{Credentials, TestCredentialProvider};
     use std::sync::Arc;
+
+    use forge_secrets::credentials::{Credentials, TestCredentialProvider};
 
     #[test]
     pub fn test_ipmitool_new() {

@@ -17,9 +17,10 @@
 // the spec -- the spec says what type of variable it is, and any
 // corresponding options depending on the type.
 
+use serde::{Deserialize, Serialize};
+
 use crate::spec::MlxVariableSpec;
 use crate::{IntoMlxValue, MlxConfigValue, MlxValueError};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MlxConfigVariable {

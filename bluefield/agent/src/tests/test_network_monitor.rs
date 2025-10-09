@@ -3,9 +3,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crate::instrumentation::NetworkMonitorMetricsState;
-use crate::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, NetworkMonitorError, Ping};
-use crate::tests::common;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use axum::Router;
@@ -23,6 +20,10 @@ use tokio::sync::{Mutex, watch};
 use tokio::time::sleep;
 use tonic::async_trait;
 use tracing::info;
+
+use crate::instrumentation::NetworkMonitorMetricsState;
+use crate::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, NetworkMonitorError, Ping};
+use crate::tests::common;
 
 // DPU machine ids for testing purposes
 const DPU_ID: &str = "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg";

@@ -12,9 +12,10 @@
 
 use std::str::FromStr;
 
-use crate::model::StateSla;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
+
+use crate::model::StateSla;
 
 mod slas;
 

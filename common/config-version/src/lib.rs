@@ -10,14 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    ops::{Deref, DerefMut},
-    str::FromStr,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::ops::{Deref, DerefMut};
+use std::str::FromStr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-
 #[cfg(feature = "sqlx")]
 use sqlx::{
     encode::IsNull,

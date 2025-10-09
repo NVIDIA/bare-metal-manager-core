@@ -9,17 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::{
-    common::MachineInterface, extractors::machine_architecture::MachineArchitecture,
-    rpc_error::PxeRequestError,
-};
-use axum::{
-    extract::{FromRequestParts, Path, Query},
-    http::request::Parts,
-};
+use std::collections::HashMap;
+
+use axum::extract::{FromRequestParts, Path, Query};
+use axum::http::request::Parts;
 use forge_uuid::machine::MachineInterfaceId;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::common::MachineInterface;
+use crate::extractors::machine_architecture::MachineArchitecture;
+use crate::rpc_error::PxeRequestError;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct MaybeMachineInterface {

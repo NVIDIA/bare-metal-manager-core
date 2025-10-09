@@ -11,8 +11,7 @@
  */
 
 use clap::Parser;
-use mlxconfig_lockdown::cmd::args::Cli;
-use mlxconfig_lockdown::cmd::args::{Commands, LockdownAction, OutputFormat};
+use mlxconfig_lockdown::cmd::args::{Cli, Commands, LockdownAction, OutputFormat};
 use mlxconfig_lockdown::cmd::cmds::run_cli;
 
 #[test]

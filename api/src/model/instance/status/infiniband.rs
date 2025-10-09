@@ -10,15 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::errors::RpcDataConversionError;
 use config_version::Versioned;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{
-    instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
-    machine::infiniband::{MachineInfinibandStatusObservation, ib_config_synced},
-};
-use ::rpc::errors::RpcDataConversionError;
+use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::model::instance::status::SyncState;
+use crate::model::machine::infiniband::{MachineInfinibandStatusObservation, ib_config_synced};
 
 /// Status of the infiniband subsystem of an instance
 ///

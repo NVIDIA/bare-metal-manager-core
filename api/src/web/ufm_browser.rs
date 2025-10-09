@@ -10,14 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::api::Api;
+use std::sync::Arc;
+
 use askama::Template;
 use axum::extract::{Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
-use std::sync::Arc;
+
+use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "ufm_browser.html")]
