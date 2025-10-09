@@ -1816,6 +1816,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .bom_validation
                 .auto_generate_missing_sku_interval
                 .as_secs(),
+            dpu_secure_boot_enabled: value.dpu_config.dpu_enable_secure_boot,
         }
     }
 }
