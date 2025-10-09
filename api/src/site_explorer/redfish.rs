@@ -1075,10 +1075,15 @@ pub(crate) fn map_redfish_client_creation_error(
     error: RedfishClientCreationError,
 ) -> EndpointExplorationError {
     match error {
-        RedfishClientCreationError::MissingCredentials { key, cause } => {
+        RedfishClientCreationError::MissingCredentials { key } => {
             EndpointExplorationError::MissingCredentials {
                 key,
-                cause: format!("{cause:#}"),
+                cause: "credentials are missing in the secret engine".into(),
+            }
+        }
+        RedfishClientCreationError::SecretEngineError { cause } => {
+            EndpointExplorationError::SecretsEngineError {
+                cause: format!("secret engine error occurred: {cause:#}"),
             }
         }
         RedfishClientCreationError::RedfishError(e) => map_redfish_error(e),

@@ -901,10 +901,14 @@ pub enum EndpointExplorationError {
         response_body: Option<String>,
         response_code: Option<u16>,
     },
-    #[error("Missing credential {key}: {cause}")]
+    #[error("Missing credential {key}")]
     MissingCredentials {
         #[serde(default)]
         key: String,
+        cause: String,
+    },
+    #[error("Secrets engine error occurred: {cause}")]
+    SecretsEngineError {
         #[serde(default)]
         cause: String,
     },

@@ -366,17 +366,10 @@ pub(crate) async fn get_dpu_ssh_credential(
             machine_id: machine_id.to_string(),
         })
         .await
-        .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-            Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
-                CarbideError::NotFoundError {
-                    kind: "dpu-ssh-cred",
-                    id: machine_id.to_string(),
-                }
-            }
-            Ok(ce) => CarbideError::internal(format!("Vault error: {ce}")),
-            Err(err) => {
-                CarbideError::internal(format!("Error getting SSH credentials for DPU: {err:?}"))
-            }
+        .map_err(|err| CarbideError::internal(format!("Secret manager error: {err}")))?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "dpu-ssh-cred",
+            id: machine_id.to_string(),
         })?;
 
     let (username, password) = match credentials {

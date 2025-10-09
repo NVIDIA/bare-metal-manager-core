@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use forge_secrets::SecretsError;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
 };
@@ -33,8 +34,10 @@ use crate::{CarbideError, CarbideResult};
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
-    #[error("Missing credential {key}: {cause}")]
-    MissingCredentials { key: String, cause: eyre::Report },
+    #[error("Missing credential {key}")]
+    MissingCredentials { key: String },
+    #[error("Missing credential: {cause}")]
+    SecretEngineError { cause: SecretsError },
     #[error("Failed redfish request {0}")]
     RedfishError(RedfishError),
     #[error("Invalid Header {0}")]
@@ -45,6 +48,12 @@ pub enum RedfishClientCreationError {
     MissingBmcEndpoint(String),
     #[error("Database Error Loading Machine Interface")]
     MachineInterfaceLoadError(#[from] crate::db::DatabaseError),
+}
+
+impl From<SecretsError> for RedfishClientCreationError {
+    fn from(cause: SecretsError) -> Self {
+        RedfishClientCreationError::SecretEngineError { cause }
+    }
 }
 
 pub enum RedfishAuth {
@@ -150,10 +159,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         let credentials = self
             .credential_provider()
             .get_credentials(credential_key.clone())
-            .await
-            .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+            .await?
+            .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
                 key: credential_key.to_key_str(),
-                cause,
             })?;
 
         let (_, current_password) = match credentials {
@@ -222,7 +230,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 .get_credentials(CredentialKey::DpuUefi {
                     credential_type: CredentialType::DpuHardwareDefault,
                 })
-                .await
+                .await?
                 .unwrap_or(Credentials::UsernamePassword {
                     username: "".to_string(),
                     password: "bluefield".to_string(),
@@ -238,10 +246,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             let credentials = self
                 .credential_provider()
                 .get_credentials(credential_key.clone())
-                .await
-                .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                .await?
+                .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
                     key: credential_key.to_key_str(),
-                    cause,
                 })?;
 
             (_, new_password) = match credentials {
@@ -255,10 +262,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             let credentials = self
                 .credential_provider()
                 .get_credentials(credential_key.clone())
-                .await
-                .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                .await?
+                .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
                     key: credential_key.to_key_str(),
-                    cause,
                 })?;
 
             (_, new_password) = match credentials {
@@ -328,10 +334,9 @@ impl RedfishClientPool for RedfishClientPoolImpl {
                 let credentials = self
                     .credential_provider
                     .get_credentials(credential_key.clone())
-                    .await
-                    .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                    .await?
+                    .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
                         key: credential_key.to_key_str(),
-                        cause,
                     })?;
 
                 let (username, password) = match credentials {

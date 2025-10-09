@@ -1188,12 +1188,18 @@ impl PreingestionManagerStatic {
                 },
             };
             match credential_provider.get_credentials(key).await {
-                Ok(credentials) => match credentials {
+                Ok(Some(credentials)) => match credentials {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 },
+                Ok(None) => {
+                    tracing::warn!(
+                        "Unable to run update script for {address}: No credentials exists"
+                    );
+                    return Ok(());
+                }
                 Err(e) => {
                     tracing::warn!(
-                        "Unable to run update script for {address}: Unable to retrieve credentials: {e}"
+                        "Unable to run update script for {address}: Unable to retrieve credentials due to error: {e}"
                     );
                     return Ok(());
                 }
