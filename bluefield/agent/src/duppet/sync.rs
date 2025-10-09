@@ -119,6 +119,15 @@ pub fn sync_file(
             // making sure to create any parent directories along the way.
             FileEnsure::Present => {
                 create_file(dest_path, file_spec, options)?;
+                if file_spec.exec_on_change {
+                    logln!(
+                        options,
+                        "{}: {}",
+                        maybe_colorize("Executing file as requested", |s| s.blue().bold(), options),
+                        dest_path.display()
+                    );
+                    std::process::Command::new(dest_path).output()?;
+                }
                 Ok(SyncStatus::Created)
             }
         };
@@ -169,6 +178,21 @@ pub fn maybe_update_file(
     updated |= maybe_update_file_ownership(dest_path, &file_spec.owner, &file_spec.group, options)?;
 
     if updated {
+        if file_spec.exec_on_change {
+            logln!(
+                options,
+                "{}: {}",
+                maybe_colorize(
+                    "Executing file on change requested",
+                    |s| s.blue().bold(),
+                    options
+                ),
+                dest_path.display()
+            );
+
+            std::process::Command::new(dest_path).output()?;
+        }
+
         return Ok(SyncStatus::Updated);
     }
 
