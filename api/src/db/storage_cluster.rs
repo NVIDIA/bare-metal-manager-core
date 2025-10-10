@@ -12,11 +12,11 @@
 
 use chrono::{DateTime, Utc};
 use libnvmesh::nvmesh_model as nvmesh;
+use model::storage::{StorageCluster, StorageClusterAttributes};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::db::DatabaseError;
-use crate::model::storage::{StorageCluster, StorageClusterAttributes};
 
 // actual carbide storage objects handling happens here
 // calls go to api/src/storage.rs for nvmesh cluster mgmt api

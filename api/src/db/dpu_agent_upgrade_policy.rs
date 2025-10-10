@@ -9,10 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use model::machine::upgrade_policy::AgentUpgradePolicy;
 use sqlx::{PgConnection, Row};
 
 use crate::db::DatabaseError;
-use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 
 pub async fn get(txn: &mut PgConnection) -> Result<Option<AgentUpgradePolicy>, DatabaseError> {
     let query = "SELECT policy FROM dpu_agent_upgrade_policy ORDER BY created DESC LIMIT 1";

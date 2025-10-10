@@ -1,13 +1,13 @@
 use ::rpc::forge as rpc;
+use model::dpu_remediation::{
+    ApproveRemediation, DisableRemediation, EnableRemediation, NewRemediation, RevokeRemediation,
+};
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::db::DatabaseError;
 use crate::db::dpu_remediation::AppliedRemediationIdQueryType;
 use crate::errors::CarbideError;
-use crate::model::dpu_remediation::{
-    ApproveRemediation, DisableRemediation, EnableRemediation, NewRemediation, RevokeRemediation,
-};
 use crate::{auth, db};
 
 /// all of the requests that modify a remediation _require_ an external_user_name from a client cert.

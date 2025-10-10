@@ -13,13 +13,13 @@ use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
+use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use sqlx::PgConnection;
 
 use super::{
     ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc,
 };
 use crate::api::Api;
-use crate::model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use crate::{CarbideError, CarbideResult, db};
 
 #[derive(Clone, Copy)]
@@ -339,7 +339,7 @@ pub async fn update_virtualization(
     let network_segments = db::network_segment::find_by(
         txn,
         ObjectColumnFilter::One(network_segment::VpcColumn, &vpc.id),
-        crate::model::network_segment::NetworkSegmentSearchConfig::default(),
+        model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 

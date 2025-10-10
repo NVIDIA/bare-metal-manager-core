@@ -1,15 +1,15 @@
 use ::rpc::forge as rpc;
 use forge_uuid::machine::{MachineInterfaceId, MachineType};
 use mac_address::MacAddress;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{
+    DpuInitState, FailureCause, FailureDetails, InstanceState, ManagedHostState, MeasuringState,
+    ReprovisionState, ValidationState,
+};
 use sqlx::PgConnection;
 
 use crate::CarbideError;
 use crate::db::{self};
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{
-    DpuInitState, FailureCause, FailureDetails, InstanceState, ManagedHostState, MeasuringState,
-    ReprovisionState, ValidationState,
-};
 
 const QCOW_IMAGER_IPXE: &str =
     "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
@@ -301,7 +301,7 @@ exit ||
                         }
 
                         match instance.config.os.variant {
-                            crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
+                            model::os::OperatingSystemVariant::Ipxe(ipxe) => {
                                 let mut tenant_ipxe = ipxe.ipxe_script;
                                 let vendor_serial_console = format!(" console={console}");
                                 if !tenant_ipxe.contains(&vendor_serial_console) {
@@ -315,7 +315,7 @@ exit ||
                                 }
                                 tenant_ipxe
                             }
-                            crate::model::os::OperatingSystemVariant::OsImage(id) => {
+                            model::os::OperatingSystemVariant::OsImage(id) => {
                                 let os_image = db::os_image::get(txn, id).await?;
                                 if os_image.attributes.create_volume {
                                     // this is a block storage os image

@@ -1,5 +1,8 @@
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{BomValidating, ManagedHostState};
+use model::sku::Sku;
 use rpc::forge::SkuIdList;
 use tonic::{Request, Response};
 
@@ -7,9 +10,6 @@ use crate::api::{Api, log_request_data};
 use crate::db::machine::find_machine_ids_by_sku_id;
 use crate::db::{self, DatabaseError};
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{BomValidating, ManagedHostState};
-use crate::model::sku::Sku;
 use crate::{CarbideError, CarbideResult};
 
 pub(crate) async fn create(

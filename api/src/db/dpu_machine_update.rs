@@ -1,6 +1,9 @@
 use std::ops::DerefMut;
 
-use sqlx::{Acquire, PgConnection};
+use model::dpu_machine_update::DpuMachineUpdate;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{LoadSnapshotOptions, ManagedHostState, ReprovisionRequest};
+use sqlx::{Connection, PgConnection};
 
 use crate::CarbideError;
 use crate::cfg::file::CarbideConfig;
@@ -9,9 +12,6 @@ use crate::machine_update_manager::machine_update_module::{
     AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,
     HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
-use crate::model::dpu_machine_update::DpuMachineUpdate;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{LoadSnapshotOptions, ManagedHostState, ReprovisionRequest};
 
 pub async fn get_fw_updates_running_count(txn: &mut PgConnection) -> Result<i64, DatabaseError> {
     let query = r#"SELECT COUNT(*) as count FROM machines m

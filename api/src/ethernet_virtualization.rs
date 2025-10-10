@@ -14,6 +14,9 @@ use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use ipnetwork::{IpNetwork, Ipv4Network};
+use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+use model::network_security_group::{NetworkSecurityGroup, NetworkSecurityGroupRuleNet};
+use model::network_segment::NetworkSegment;
 use sqlx::PgConnection;
 use tonic::Status;
 
@@ -22,9 +25,6 @@ use crate::cfg::file::VpcPeeringPolicy;
 use crate::db::vpc::{self};
 use crate::db::vpc_peering::get_prefixes_by_vpcs;
 use crate::db::{self, ObjectColumnFilter};
-use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
-use crate::model::network_security_group::{NetworkSecurityGroup, NetworkSecurityGroupRuleNet};
-use crate::model::network_segment::NetworkSegment;
 use crate::resource_pool::common::CommonPools;
 
 #[derive(Default, Clone)]

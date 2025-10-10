@@ -11,11 +11,11 @@
  */
 
 use forge_uuid::machine::MachineId;
+use model::attestation::EkCertVerificationStatus;
 use sqlx::PgConnection;
 
 use crate::CarbideResult;
 use crate::db::DatabaseError;
-use crate::model::attestation::EkCertVerificationStatus;
 
 pub async fn get_by_ek_sha256(
     txn: &mut PgConnection,

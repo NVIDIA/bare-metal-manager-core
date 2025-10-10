@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use model::dpa_interface::{DpaInterfaceNetworkStatusObservation, NewDpaInterface};
 use tonic::{Request, Response};
 
 use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
-use crate::model::dpa_interface::{DpaInterfaceNetworkStatusObservation, NewDpaInterface};
 use crate::{CarbideError, CarbideResult, db};
 
 pub(crate) async fn create(

@@ -12,10 +12,10 @@
 
 use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
+use model::dhcp_record::DhcpRecord;
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::model::dhcp_record::DhcpRecord;
 
 pub async fn find_by_mac_address(
     txn: &mut PgConnection,

@@ -5,18 +5,18 @@ use chrono::Utc;
 use forge_uuid::machine::MachineId;
 use futures_util::stream::StreamExt;
 use itertools::Itertools;
+use model::hardware_info::HardwareInfo;
+use model::machine::Machine;
+use model::machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband};
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::sku::{
+    Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentInfinibandDevices,
+    SkuComponentMemory, SkuComponentStorage, SkuComponents, diff_skus,
+};
 use sqlx::{Acquire, PgConnection};
 
 use crate::CarbideError;
 use crate::db::{self, DatabaseError};
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::Machine;
-use crate::model::machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband};
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::sku::{
-    Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentInfinibandDevices,
-    SkuComponentMemory, SkuComponentStorage, SkuComponents, diff_skus,
-};
 
 /// The current version of the SKU format.  The state machine will create older
 /// versions from hardware using the currently assigned sku's version so that

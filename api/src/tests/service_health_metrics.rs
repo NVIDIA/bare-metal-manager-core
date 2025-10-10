@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
+use model::resource_pool::ResourcePoolStats;
 use sqlx::PgPool;
 
 use crate::logging::service_health_metrics::{
     ServiceHealthContext, start_export_service_health_metrics,
 };
-use crate::model::resource_pool::ResourcePoolStats;
 use crate::tests::common::test_meter::TestMeter;
 
 #[crate::sqlx_test]

@@ -15,6 +15,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use model::ib::{
+    IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
+};
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::ufmclient::{
@@ -23,9 +26,6 @@ use super::ufmclient::{
 };
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
-use crate::model::ib::{
-    IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
-};
 
 pub struct RestIBFabric {
     ufm: Ufm,

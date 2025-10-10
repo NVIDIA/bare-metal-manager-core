@@ -13,6 +13,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use model::controller_outcome::PersistentStateHandlerOutcome;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tracing::Instrument;
@@ -20,7 +21,6 @@ use tracing::Instrument;
 use crate::db;
 use crate::db::DatabaseError;
 use crate::logging::sqlx_query_tracing;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics};

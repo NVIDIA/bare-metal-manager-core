@@ -13,14 +13,14 @@
 use std::str::FromStr;
 
 use config_version::ConfigVersion;
+use model::resource_pool::{
+    OwnerType, ResourcePool, ResourcePoolEntry, ResourcePoolEntryState, ResourcePoolError,
+    ResourcePoolSnapshot, ResourcePoolStats,
+};
 use sqlx::{PgConnection, Postgres};
 
 use super::BIND_LIMIT;
 use crate::db::DatabaseError;
-use crate::model::resource_pool::{
-    OwnerType, ResourcePool, ResourcePoolEntry, ResourcePoolEntryState, ResourcePoolError,
-    ResourcePoolSnapshot, ResourcePoolStats,
-};
 
 /// Put some resources into the pool, so they can be allocated later.
 /// This needs to be called before `allocate` can return anything.

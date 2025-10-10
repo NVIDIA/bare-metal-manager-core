@@ -19,6 +19,7 @@ use forge_ssh::ssh::{
 };
 use libredfish::RoleId;
 use mac_address::MacAddress;
+use model::machine::MachineInterfaceSnapshot;
 use rpc::forge::BmcCredentialStatusResponse;
 use tokio::net::lookup_host;
 use tonic::{Response, Status};
@@ -27,7 +28,6 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
 use crate::db::machine_interface::find_by_ip;
-use crate::model::machine::MachineInterfaceSnapshot;
 
 // Ad-hoc BMC exploration
 pub(crate) async fn explore(

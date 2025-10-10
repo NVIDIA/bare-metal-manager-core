@@ -15,17 +15,17 @@ use eyre::eyre;
 use forge_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
+use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::dpa_interface::{
+    DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkConfig,
+    DpaInterfaceNetworkStatusObservation, NewDpaInterface,
+};
+use model::machine::LoadSnapshotOptions;
 use sqlx::PgConnection;
 
 use super::{DatabaseError, dpa_interface_state_history};
 use crate::db;
 use crate::db::managed_host;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::dpa_interface::{
-    DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkConfig,
-    DpaInterfaceNetworkStatusObservation, NewDpaInterface,
-};
-use crate::model::machine::LoadSnapshotOptions;
 
 pub async fn persist(
     value: NewDpaInterface,
@@ -327,12 +327,12 @@ mod test {
 
     use forge_uuid::machine::MachineId;
     use mac_address::MacAddress;
+    use model::dpa_interface::NewDpaInterface;
+    use model::machine::ManagedHostState;
+    use model::metadata::Metadata;
 
     use crate::db;
     use crate::db::machine;
-    use crate::model::dpa_interface::NewDpaInterface;
-    use crate::model::machine::ManagedHostState;
-    use crate::model::metadata::Metadata;
 
     #[crate::sqlx_test]
 

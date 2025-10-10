@@ -35,6 +35,23 @@ use itertools::Itertools;
 use libredfish::{RoleId, SystemPowerControl};
 use mac_address::MacAddress;
 use mlxconfig_device::report::MlxDeviceReport;
+use model::firmware::DesiredFirmwareVersions;
+use model::hardware_info::HardwareInfo;
+use model::ib::DEFAULT_IB_FABRIC_NAME;
+use model::ib_partition::PartitionKey;
+use model::machine::machine_id::{
+    from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
+};
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::network::ManagedHostQuarantineState;
+use model::machine::{
+    BomValidating, CleanupState, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
+    FailureSource, LoadSnapshotOptions, Machine, MachineState, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+    get_action_for_dpu_state,
+};
+use model::machine_validation::{MachineValidationState, MachineValidationStatus};
+use model::metadata::Metadata;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 #[cfg(feature = "linux-build")]
@@ -64,23 +81,6 @@ use crate::handlers::machine_validation::{
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
-use crate::model::firmware::DesiredFirmwareVersions;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
-use crate::model::ib_partition::PartitionKey;
-use crate::model::machine::machine_id::{
-    from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
-};
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::network::ManagedHostQuarantineState;
-use crate::model::machine::{
-    BomValidating, CleanupState, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
-    FailureSource, LoadSnapshotOptions, Machine, MachineState, MachineValidatingState,
-    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
-    get_action_for_dpu_state,
-};
-use crate::model::machine_validation::{MachineValidationState, MachineValidationStatus};
-use crate::model::metadata::Metadata;
 use crate::redfish::{RedfishAuth, RedfishClientPool};
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
@@ -4674,7 +4674,7 @@ impl Forge for Api {
                     .host_snapshot
                     .power_options
                     .map(|x| x.desired_power_state)
-                    && power_state == crate::model::power_manager::PowerState::On
+                    && power_state == model::power_manager::PowerState::On
                     && action == libredfish::SystemPowerControl::ForceOff
                 {
                     msg = Some(

@@ -16,15 +16,13 @@ use std::net::IpAddr;
 use chrono::{TimeDelta, Utc};
 use forge_uuid::machine::MachineId;
 use itertools::Itertools;
+use model::bmc_info::BmcInfo;
+use model::hardware_info::HardwareInfo;
+use model::machine::topology::{DiscoveryData, MachineTopology, TopologyData};
 use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::CarbideResult;
-use crate::model::bmc_info::BmcInfo;
-use crate::model::hardware_info::HardwareInfo;
-#[cfg(test)]
-use crate::model::hardware_info::HardwareInfoV1;
-use crate::model::machine::topology::{DiscoveryData, MachineTopology, TopologyData};
 
 async fn update(
     txn: &mut PgConnection,
@@ -282,8 +280,66 @@ pub async fn set_topology_update_needed(
 // TODO: Remove when there's no longer a need to handle the old topology format
 #[cfg(test)]
 pub(crate) mod test_helpers {
+    use model::hardware_info::{
+        BlockDevice, Cpu, DmiData, DpuData, Gpu, InfinibandInterface, MemoryDevice,
+        NetworkInterface, NvmeDevice, TpmEkCertificate,
+    };
+    use serde::{Deserialize, Serialize};
+    use utils::models::arch::CpuArchitecture;
+
     use super::*;
-    use crate::model::machine::topology::{DiscoveryDataV1, TopologyDataV1};
+
+    // TODO: Remove when there's no longer a need to handle the old topology format
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct HardwareInfoV1 {
+        #[serde(default)]
+        pub network_interfaces: Vec<NetworkInterface>,
+        #[serde(default)]
+        pub infiniband_interfaces: Vec<InfinibandInterface>,
+        #[serde(default)]
+        pub cpus: Vec<Cpu>,
+        #[serde(default)]
+        pub block_devices: Vec<BlockDevice>,
+        // This should be called machine_arch, but it's serialized directly in/out of a JSONB field in
+        // the DB, so renaming it requires a migration or custom Serialize impl.
+        pub machine_type: CpuArchitecture,
+        #[serde(default)]
+        pub nvme_devices: Vec<NvmeDevice>,
+        #[serde(default)]
+        pub dmi_data: Option<DmiData>,
+        pub tpm_ek_certificate: Option<TpmEkCertificate>,
+        #[serde(default)]
+        pub dpu_info: Option<DpuData>,
+        #[serde(default)]
+        pub gpus: Vec<Gpu>,
+        #[serde(default)]
+        pub memory_devices: Vec<MemoryDevice>,
+    }
+
+    // TODO: Remove when there's no longer a need to handle the old topology format
+    #[cfg(test)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct DiscoveryDataV1 {
+        /// Stores the hardware information that was fetched during discovery
+        /// **Note that this field is renamed to uppercase because
+        /// that is how the originally utilized protobuf message looked in serialized
+        /// format**
+        #[serde(rename = "Info")]
+        pub info: HardwareInfoV1,
+    }
+
+    // TODO: Remove when there's no longer a need to handle the old topology format
+    #[cfg(test)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct TopologyDataV1 {
+        /// Stores the hardware information that was fetched during discovery
+        pub discovery_data: DiscoveryDataV1,
+        /// The BMC information of the machine
+        /// Note that this field is currently side-injected via the
+        /// `crate::crate::db::ipmi::BmcMetaDataUpdateRequest::update_bmc_meta_data`
+        /// Therefore no `write` function can be found here.
+        pub bmc_info: BmcInfo,
+    }
 
     pub async fn update_v1(
         txn: &mut PgConnection,

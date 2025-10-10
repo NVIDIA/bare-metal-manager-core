@@ -14,13 +14,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use model::ib::{
+    IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
+};
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
-use crate::model::ib::{
-    IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
-};
 
 pub struct MockIBFabric {
     state: Arc<Mutex<State>>,

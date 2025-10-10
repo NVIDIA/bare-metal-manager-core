@@ -1,12 +1,12 @@
 use axum::body::Body;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
+use model::hardware_info::HardwareInfo;
+use model::machine::LoadSnapshotOptions;
 use tower::ServiceExt;
 use utils::ManagedHostOutput;
 
 use crate::db::managed_host;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::LoadSnapshotOptions;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{

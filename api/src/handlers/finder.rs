@@ -21,12 +21,12 @@ use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineInterfaceId;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
+use model::network_segment::NetworkSegmentSearchConfig;
+use model::resource_pool::ResourcePoolEntryState;
+use model::route_server::RouteServerSourceType;
 
 use crate::api::Api;
 use crate::db::{DatabaseError, ObjectColumnFilter, domain, instance, network_segment, vpc};
-use crate::model::network_segment::NetworkSegmentSearchConfig;
-use crate::model::resource_pool::ResourcePoolEntryState;
-use crate::model::route_server::RouteServerSourceType;
 use crate::{CarbideError, db};
 
 pub(crate) async fn find_ip_address(

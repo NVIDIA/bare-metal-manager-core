@@ -30,18 +30,18 @@ use common::api_fixtures::{
 };
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::{MachineId, MachineType};
+use model::hardware_info::TpmEkCertificate;
+use model::ib::DEFAULT_IB_FABRIC_NAME;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{InstanceState, ManagedHostState};
 use sqlx::{PgConnection, Row};
 use tonic::Request;
 
 use crate::api::Api;
 use crate::cfg::file::IBFabricConfig;
 use crate::ib::{self, IBFabricManager};
-use crate::model::hardware_info::TpmEkCertificate;
-use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::tests::common;
-use crate::{attestation as attest, db, model};
+use crate::{attestation as attest, db};
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api

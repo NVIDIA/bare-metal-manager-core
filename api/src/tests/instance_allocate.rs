@@ -15,10 +15,10 @@ use ::rpc::forge::ManagedHostNetworkConfigRequest;
 use forge::forge_server::Forge;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use model::machine::ManagedHostStateSnapshot;
 use rpc::forge;
 
 use crate::db;
-use crate::model::machine::ManagedHostStateSnapshot;
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;

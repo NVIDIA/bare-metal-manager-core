@@ -27,25 +27,25 @@ use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
+use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::hardware_info::MachineInventory;
+use model::machine::infiniband::MachineInfinibandStatusObservation;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::network::{
+    MachineNetworkStatusObservation, ManagedHostNetworkConfig, ManagedHostQuarantineState,
+};
+use model::machine::upgrade_policy::AgentUpgradePolicy;
+use model::machine::{
+    FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+};
+use model::metadata::Metadata;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
 use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, queries};
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::hardware_info::MachineInventory;
-use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::network::{
-    MachineNetworkStatusObservation, ManagedHostNetworkConfig, ManagedHostQuarantineState,
-};
-use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
-use crate::model::machine::{
-    FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
-};
-use crate::model::metadata::Metadata;
 use crate::resource_pool::ResourcePoolError;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
@@ -1150,9 +1150,9 @@ pub async fn clear_failure_details(
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let failure_details = FailureDetails {
-        cause: crate::model::machine::FailureCause::NoError,
+        cause: model::machine::FailureCause::NoError,
         failed_at: chrono::Utc::now(),
-        source: crate::model::machine::FailureSource::NoError,
+        source: model::machine::FailureSource::NoError,
     };
 
     let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
@@ -2111,7 +2111,7 @@ impl<'r> FromRow<'r, PgRow> for _HealthReportWrapper {
 }
 
 pub async fn count_healthy_unhealthy_host_machines(
-    all_machines: &HashMap<MachineId, crate::model::machine::ManagedHostStateSnapshot>,
+    all_machines: &HashMap<MachineId, model::machine::ManagedHostStateSnapshot>,
 ) -> Result<(i32, i32), DatabaseError> {
     let without_fault_count = all_machines
         .iter()
@@ -2132,10 +2132,9 @@ mod test {
     use std::str::FromStr;
 
     use forge_uuid::machine::MachineId;
-
-    use crate::model::machine::ManagedHostState;
-    use crate::model::machine::machine_search_config::MachineSearchConfig;
-    use crate::model::metadata::Metadata;
+    use model::machine::ManagedHostState;
+    use model::machine::machine_search_config::MachineSearchConfig;
+    use model::metadata::Metadata;
 
     #[crate::sqlx_test]
 

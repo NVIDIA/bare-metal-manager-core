@@ -26,6 +26,13 @@ use measured_boot::bundle::MeasurementBundle;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 use measured_boot::report::MeasurementReport;
+use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::hardware_info::TpmEkCertificate;
+use model::machine::{
+    DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownInfo, LockdownMode,
+    LockdownState, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
+    ValidationState,
+};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
@@ -33,13 +40,6 @@ use tonic::Request;
 
 use crate::db;
 use crate::measured_boot::db as mbdb;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::hardware_info::TpmEkCertificate;
-use crate::model::machine::{
-    DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownInfo, LockdownMode,
-    LockdownState, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
-    ValidationState,
-};
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
 };
@@ -156,11 +156,11 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
         &host,
         &mut txn,
         FailureDetails {
-            cause: crate::model::machine::FailureCause::NVMECleanFailed {
+            cause: model::machine::FailureCause::NVMECleanFailed {
                 err: "failed in module xyz.".to_string(),
             },
             failed_at: chrono::Utc::now(),
-            source: crate::model::machine::FailureSource::Scout,
+            source: model::machine::FailureSource::Scout,
         },
     )
     .await
@@ -221,7 +221,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: crate::model::machine::FailureCause::NVMECleanFailed { .. },
+                cause: model::machine::FailureCause::NVMECleanFailed { .. },
                 ..
             },
             retry_count: 0,
@@ -259,7 +259,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: crate::model::machine::FailureCause::NVMECleanFailed { .. },
+                cause: model::machine::FailureCause::NVMECleanFailed { .. },
                 ..
             },
             retry_count: 1,
@@ -430,11 +430,11 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         &host,
         &mut txn,
         FailureDetails {
-            cause: crate::model::machine::FailureCause::Discovery {
+            cause: model::machine::FailureCause::Discovery {
                 err: "host discovery failed".to_string(),
             },
             failed_at: chrono::Utc::now(),
-            source: crate::model::machine::FailureSource::Scout,
+            source: model::machine::FailureSource::Scout,
         },
     )
     .await
@@ -675,7 +675,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     let host_machine = mh.host().db_machine(&mut txn).await;
     txn.rollback().await.unwrap();
     let _expected_state = ManagedHostState::DPUInit {
-        dpu_states: crate::model::machine::DpuInitStates {
+        dpu_states: model::machine::DpuInitStates {
             states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig)]),
         },
     };
@@ -817,7 +817,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: crate::model::machine::FailureCause::MeasurementsRetired { .. },
+                cause: model::machine::FailureCause::MeasurementsRetired { .. },
                 ..
             },
             ..
@@ -918,7 +918,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: crate::model::machine::FailureCause::MeasurementsRetired { .. },
+                cause: model::machine::FailureCause::MeasurementsRetired { .. },
                 ..
             },
             ..
@@ -959,7 +959,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: crate::model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                cause: model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
                 ..
             },
             ..
@@ -997,7 +997,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: crate::model::machine::FailureCause::MeasurementsRevoked { .. },
+                cause: model::machine::FailureCause::MeasurementsRevoked { .. },
                 ..
             },
             ..
@@ -1069,7 +1069,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: crate::model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                cause: model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
                 ..
             },
             ..

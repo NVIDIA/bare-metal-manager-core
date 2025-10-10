@@ -17,13 +17,13 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
 use mac_address::MacAddress;
+use model::ib::DEFAULT_IB_FABRIC_NAME;
 use tonic::Response;
 
 use crate::api::Api;
 use crate::credentials::UpdateCredentials;
 use crate::db::DatabaseError;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::{CarbideError, db};
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.

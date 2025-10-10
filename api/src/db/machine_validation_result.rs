@@ -1,11 +1,11 @@
 use forge_uuid::machine::MachineId;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_validation::MachineValidationResult;
 use sqlx::PgConnection;
 
 use crate::db;
 use crate::db::{DatabaseError, ObjectFilter, machine_validation_suites};
 use crate::errors::{CarbideError, CarbideResult};
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine_validation::MachineValidationResult;
 
 pub async fn find_by_machine_id(
     txn: &mut PgConnection,

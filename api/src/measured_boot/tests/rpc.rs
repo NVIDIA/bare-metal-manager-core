@@ -22,13 +22,13 @@ mod tests {
     use forge_uuid::measured_boot::TrustedMachineId;
     use measured_boot::pcr::PcrRegisterValue;
     use measured_boot::records::MeasurementApprovedMachineRecord;
+    use model::machine::ManagedHostState;
+    use model::metadata::Metadata;
     use rpc::protos::measured_boot as mbrpc;
 
     use crate::measured_boot::db;
     use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
-    use crate::model::machine::ManagedHostState;
-    use crate::model::metadata::Metadata;
 
     // test_measurement_system_profiles is used to test all of the different
     // API handler functions that work with measured boot system profiles,

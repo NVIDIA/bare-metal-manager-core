@@ -1,14 +1,14 @@
 use chrono::Utc;
 use health_report::HealthReport;
+use model::machine::{
+    BomValidating, BomValidatingContext, MachineState, MachineValidatingState, ManagedHostState,
+    ManagedHostStateSnapshot, ValidationState,
+};
+use model::sku::diff_skus;
 use sqlx::PgConnection;
 
 use super::{HostHandlerParams, discovered_after_state_transition};
 use crate::db;
-use crate::model::machine::{
-    BomValidating, BomValidatingContext, MachineState, MachineValidatingState, ManagedHostState,
-    ManagedHostStateSnapshot, ValidationState,
-};
-use crate::model::sku::diff_skus;
 use crate::state_controller::machine::handler::trigger_reboot_if_needed;
 use crate::state_controller::state_handler::{
     StateHandlerError, StateHandlerOutcome, StateHandlerServices, do_nothing, transition, wait,
@@ -64,7 +64,7 @@ async fn match_sku_for_machine(
     txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &ManagedHostStateSnapshot,
-) -> Result<Option<crate::model::sku::Sku>, StateHandlerError> {
+) -> Result<Option<model::sku::Sku>, StateHandlerError> {
     let sku_status = mh_snapshot.host_snapshot.hw_sku_status.as_ref();
     if sku_status.is_none()
         || sku_status.is_some_and(|ss| {
@@ -335,7 +335,7 @@ async fn advance_to_machine_validating(
         txn,
         &mh_snapshot.host_snapshot.id,
         context.clone(),
-        crate::model::machine::MachineValidationFilter::default(),
+        model::machine::MachineValidationFilter::default(),
     )
     .await?;
     Ok(transition!(ManagedHostState::Validation {

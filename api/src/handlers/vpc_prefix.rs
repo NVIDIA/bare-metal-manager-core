@@ -13,13 +13,13 @@
 use ::rpc::forge as rpc;
 use ::rpc::forge::PrefixMatchType;
 use ipnetwork::IpNetwork;
+use model::network_prefix::NetworkPrefix;
+use model::vpc_prefix;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::db::{DatabaseError, ObjectColumnFilter, vpc_prefix as db};
-use crate::model::network_prefix::NetworkPrefix;
-use crate::model::vpc_prefix;
 pub async fn create(
     api: &Api,
     request: Request<rpc::VpcPrefixCreationRequest>,
@@ -195,7 +195,7 @@ pub async fn search(
                     "Unknown PrefixMatchType value: {prefix_match_type}"
                 ))
             })?;
-            use crate::model::vpc_prefix::PrefixMatch;
+            use model::vpc_prefix::PrefixMatch;
             let prefix_match = match prefix_match_type {
                 PrefixMatchType::PrefixExact => PrefixMatch::Exact(prefix),
                 PrefixMatchType::PrefixContains => PrefixMatch::Contains(prefix),

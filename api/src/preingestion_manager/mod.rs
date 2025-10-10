@@ -22,6 +22,10 @@ use forge_secrets::credentials::{
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, RedfishError, SystemPowerControl};
+use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
+use model::site_explorer::{
+    ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState,
+};
 use opentelemetry::metrics::Meter;
 use sqlx::{PgConnection, PgPool};
 use tokio::fs::File;
@@ -32,10 +36,6 @@ use tokio::task::JoinSet;
 use crate::cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal};
 use crate::db::DatabaseError;
 use crate::firmware_downloader::FirmwareDownloader;
-use crate::model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
-use crate::model::site_explorer::{
-    ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState,
-};
 use crate::preingestion_manager::metrics::PreingestionMetrics;
 use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
 use crate::{CarbideError, CarbideResult, db};

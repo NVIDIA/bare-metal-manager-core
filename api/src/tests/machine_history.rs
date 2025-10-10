@@ -12,10 +12,10 @@
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
+use model::machine::{MachineStateHistory, ManagedHostState};
 use rpc::forge::forge_server::Forge;
 
 use crate::db::{self};
-use crate::model::machine::{MachineStateHistory, ManagedHostState};
 use crate::tests::common;
 
 #[crate::sqlx_test]
@@ -59,7 +59,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let machine = db::machine::find_one(
             &mut txn,
             &dpu_machine_id,
-            crate::model::machine::machine_search_config::MachineSearchConfig {
+            model::machine::machine_search_config::MachineSearchConfig {
                 include_history: true,
                 ..Default::default()
             },
@@ -75,7 +75,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let machine = db::machine::find_one(
             &mut txn,
             &dpu_machine_id,
-            crate::model::machine::machine_search_config::MachineSearchConfig::default(),
+            model::machine::machine_search_config::MachineSearchConfig::default(),
         )
         .await?
         .unwrap();
@@ -182,7 +182,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
-        crate::model::machine::machine_search_config::MachineSearchConfig {
+        model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },
@@ -209,7 +209,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
-        crate::model::machine::machine_search_config::MachineSearchConfig {
+        model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },
@@ -289,7 +289,7 @@ async fn test_old_machine_state_history(
     let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
-        crate::model::machine::machine_search_config::MachineSearchConfig {
+        model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },

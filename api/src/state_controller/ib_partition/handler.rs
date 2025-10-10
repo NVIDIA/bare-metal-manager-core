@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use forge_uuid::infiniband::IBPartitionId;
+use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
+use model::ib_partition::IBPartitionControllerState;
 use sqlx::PgConnection;
 
 use crate::db::ib_partition::{IBPartition, IBPartitionStatus};
 use crate::ib::{GetPartitionOptions, IBFabricManagerConfig};
-use crate::model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
-use crate::model::ib_partition::IBPartitionControllerState;
 use crate::state_controller::ib_partition::context::IBPartitionStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted, do_nothing,

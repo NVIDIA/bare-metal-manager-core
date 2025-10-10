@@ -14,16 +14,16 @@
 
 use config_version::{ConfigVersion, Versioned};
 use forge_uuid::machine::MachineId;
-use sqlx::PgConnection;
-
-use crate::db::{self, DatabaseError};
-use crate::model::StateSla;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{
+use model::StateSla;
+use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{
     self, DpuDiscoveringState, DpuInitState, HostHealthConfig, MachineValidatingState,
     ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
 };
+use sqlx::PgConnection;
+
+use crate::db::{self, DatabaseError};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::metrics::MachineMetricsEmitter;
@@ -72,7 +72,7 @@ impl StateControllerIO for MachineStateControllerIO {
         let mut retstate = db::managed_host::load_snapshot(
             txn,
             machine_id,
-            crate::model::machine::LoadSnapshotOptions {
+            model::machine::LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: true,
                 host_health_config: self.host_health,
@@ -119,7 +119,7 @@ impl StateControllerIO for MachineStateControllerIO {
     }
 
     fn metric_state_names(state: &ManagedHostState) -> (&'static str, &'static str) {
-        use crate::model::machine::{CleanupState, InstanceState, MachineState};
+        use model::machine::{CleanupState, InstanceState, MachineState};
 
         fn dpuinit_state_name(dpu_state: &DpuInitState) -> &'static str {
             match dpu_state {

@@ -14,12 +14,12 @@
 
 use config_version::{ConfigVersion, Versioned};
 use forge_uuid::network::NetworkSegmentId;
+use model::StateSla;
+use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::network_segment::{self, NetworkSegment, NetworkSegmentControllerState};
 use sqlx::PgConnection;
 
 use crate::db::{self, DatabaseError, ObjectColumnFilter};
-use crate::model::StateSla;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::network_segment::{self, NetworkSegment, NetworkSegmentControllerState};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::network_segment::context::NetworkSegmentStateHandlerContextObjects;
 use crate::state_controller::network_segment::metrics::NetworkSegmentMetricsEmitter;
@@ -56,7 +56,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         let mut segments = db::network_segment::find_by(
             txn,
             ObjectColumnFilter::One(db::network_segment::IdColumn, segment_id),
-            crate::model::network_segment::NetworkSegmentSearchConfig {
+            model::network_segment::NetworkSegmentSearchConfig {
                 include_num_free_ips: true,
                 include_history: false,
             },
@@ -117,7 +117,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     }
 
     fn metric_state_names(state: &NetworkSegmentControllerState) -> (&'static str, &'static str) {
-        use crate::model::network_segment::NetworkSegmentDeletionState;
+        use model::network_segment::NetworkSegmentDeletionState;
 
         fn deletion_state_name(deletion_state: &NetworkSegmentDeletionState) -> &'static str {
             match deletion_state {

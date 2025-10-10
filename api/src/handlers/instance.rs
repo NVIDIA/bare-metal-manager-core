@@ -22,6 +22,19 @@ use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
 };
 use itertools::Itertools as _;
+use model::ConfigValidationError;
+use model::instance::DeleteInstance;
+use model::instance::config::InstanceConfig;
+use model::instance::config::infiniband::InstanceInfinibandConfig;
+use model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
+use model::instance::config::tenant_config::TenantConfig;
+use model::instance::snapshot::InstanceSnapshot;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{
+    InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+};
+use model::metadata::Metadata;
+use model::os::OperatingSystem;
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
@@ -33,19 +46,6 @@ use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
     validate_ib_partition_ownership,
 };
-use crate::model::ConfigValidationError;
-use crate::model::instance::DeleteInstance;
-use crate::model::instance::config::InstanceConfig;
-use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
-use crate::model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
-use crate::model::instance::config::tenant_config::TenantConfig;
-use crate::model::instance::snapshot::InstanceSnapshot;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{
-    InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
-};
-use crate::model::metadata::Metadata;
-use crate::model::os::OperatingSystem;
 use crate::redfish::RedfishAuth;
 use crate::resource_pool::common::CommonPools;
 use crate::{CarbideError, CarbideResult};
@@ -374,7 +374,7 @@ async fn handle_instance_release_from_repair_tenant(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine_id: &MachineId,
     issue: Option<&rpc::Issue>,
-    machine: &crate::model::machine::Machine,
+    machine: &model::machine::Machine,
 ) -> Result<(), CarbideError> {
     let has_request_repair = machine
         .health_report_overrides
@@ -1272,7 +1272,7 @@ pub async fn force_delete_instance(
         .to_owned();
 
     let ib_fabric = ib_fabric_manager
-        .connect(crate::model::ib::DEFAULT_IB_FABRIC_NAME)
+        .connect(model::ib::DEFAULT_IB_FABRIC_NAME)
         .await?;
 
     // Collect the ib partition and ib ports information about this machine

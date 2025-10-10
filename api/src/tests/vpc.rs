@@ -16,12 +16,12 @@ use common::api_fixtures::{create_test_env, populate_network_security_groups};
 use config_version::ConfigVersion;
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::vpc::VpcId;
+use model::metadata::Metadata;
+use model::vpc::{UpdateVpc, UpdateVpcVirtualization};
 use rpc::forge::forge_server::Forge;
 
 use crate::db::vpc::{self};
 use crate::db::{self, ObjectColumnFilter};
-use crate::model::metadata::Metadata;
-use crate::model::vpc::{UpdateVpc, UpdateVpcVirtualization};
 use crate::tests::common;
 use crate::{CarbideError, db_init};
 

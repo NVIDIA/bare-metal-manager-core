@@ -11,11 +11,11 @@
  */
 use config_version::ConfigVersion;
 use forge_uuid::machine::MachineId;
+use model::machine::{MachineStateHistory, ManagedHostState};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgConnection};
 
 use crate::db::DatabaseError;
-use crate::model::machine::{MachineStateHistory, ManagedHostState};
 
 /// History of Machine states for a single Machine
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ struct DbMachineStateHistory {
     //timestamp: DateTime<Utc>,
 }
 
-impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory {
+impl From<DbMachineStateHistory> for model::machine::MachineStateHistory {
     fn from(event: DbMachineStateHistory) -> Self {
         Self {
             state: event.state,

@@ -17,16 +17,14 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
-
-use super::create_random_self_signed_cert;
-use crate::model::hardware_info::{
-    HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate,
-};
-use crate::model::machine::ManagedHostState;
-use crate::model::site_explorer::{
+use model::hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate};
+use model::machine::ManagedHostState;
+use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState, Service, UefiDevicePath,
 };
+
+use super::create_random_self_signed_cert;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::host::X86_INFO_JSON;
 use crate::tests::common::{ib_guid_pool, mac_address_pool};

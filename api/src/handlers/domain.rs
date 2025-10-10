@@ -11,13 +11,13 @@
  */
 
 use ::rpc::forge as rpc;
+use model::domain::NewDomain;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
 use crate::db::domain::{self};
 use crate::db::{self, DatabaseError, ObjectColumnFilter};
-use crate::model::domain::NewDomain;
 
 pub(crate) async fn create(
     api: &Api,

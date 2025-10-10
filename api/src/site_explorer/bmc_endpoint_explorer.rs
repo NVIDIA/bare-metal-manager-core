@@ -18,6 +18,9 @@ use forge_ssh::ssh::SshConfig;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
+use model::expected_machine::ExpectedMachine;
+use model::machine::MachineInterfaceSnapshot;
+use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
@@ -27,11 +30,6 @@ use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
 use crate::ipmitool::IPMITool;
-use crate::model::expected_machine::ExpectedMachine;
-use crate::model::machine::MachineInterfaceSnapshot;
-use crate::model::site_explorer::{
-    EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
-};
 use crate::redfish::RedfishClientPool;
 use crate::site_explorer::EndpointExplorer;
 

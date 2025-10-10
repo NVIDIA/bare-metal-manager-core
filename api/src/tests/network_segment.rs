@@ -23,6 +23,15 @@ use common::network_segment::{
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
+use model::address_selection_strategy::AddressSelectionStrategy;
+use model::network_prefix::NewNetworkPrefix;
+use model::network_segment;
+use model::network_segment::{
+    NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegment, NetworkSegmentControllerState,
+    NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
+};
+use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
+use model::vpc::UpdateVpcVirtualization;
 use rpc::forge::NetworkSegmentSearchConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
@@ -30,15 +39,6 @@ use tonic::Request;
 use crate::db::ObjectColumnFilter;
 use crate::db::network_segment::VpcColumn;
 use crate::db::vpc::IdColumn;
-use crate::model::address_selection_strategy::AddressSelectionStrategy;
-use crate::model::network_prefix::NewNetworkPrefix;
-use crate::model::network_segment;
-use crate::model::network_segment::{
-    NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegment, NetworkSegmentControllerState,
-    NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
-};
-use crate::model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
-use crate::model::vpc::UpdateVpcVirtualization;
 use crate::resource_pool::common::VLANID;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
@@ -479,7 +479,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     txn.commit().await?;
 
     // Now create them again. It should succeed but not create any more
-    use crate::model::network_segment::NetworkSegmentSearchConfig; // override global rpc one
+    use model::network_segment::NetworkSegmentSearchConfig; // override global rpc one
     let search_cfg = NetworkSegmentSearchConfig::default();
     let mut txn = db_pool.begin().await?;
     let num_before = db::network_segment::find_by(

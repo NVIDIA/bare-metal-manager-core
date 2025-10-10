@@ -13,11 +13,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::expected_machine::{ExpectedMachine, ExpectedMachineData, LinkedExpectedMachine};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::DatabaseError;
-use crate::model::expected_machine::{ExpectedMachine, ExpectedMachineData, LinkedExpectedMachine};
 use crate::{CarbideError, CarbideResult};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";

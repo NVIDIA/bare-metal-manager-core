@@ -2,13 +2,13 @@ use std::collections::HashSet;
 use std::string::ToString;
 
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
+use model::machine::LoadSnapshotOptions;
 
 use crate::CarbideResult;
 use crate::machine_update_manager::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use crate::machine_update_manager::machine_update_module::{
     AutomaticFirmwareUpdateReference, HOST_UPDATE_HEALTH_REPORT_SOURCE, MachineUpdateModule,
 };
-use crate::model::machine::LoadSnapshotOptions;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestManagedHost;
 use crate::tests::common::api_fixtures::test_managed_host::TestManagedHostSnapshots;

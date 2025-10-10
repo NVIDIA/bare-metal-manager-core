@@ -16,6 +16,7 @@ use config_version::ConfigVersion;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::VpcId;
+use model::instance::config::network::DeviceLocator;
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;
@@ -23,7 +24,6 @@ use uuid::uuid;
 
 use super::common::api_fixtures::TestEnv;
 use crate::cfg::file::default_max_network_security_group_size;
-use crate::model::instance::config::network::DeviceLocator;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, interface_network_config_with_devices,

@@ -18,12 +18,12 @@ use std::str::FromStr;
 
 use forge_uuid::machine::MachineId;
 use measured_boot::machine::CandidateMachine;
+use model::hardware_info::HardwareInfo;
+use model::machine::ManagedHostState;
+use model::metadata::Metadata;
 use sqlx::PgConnection;
 
 use crate::measured_boot::db;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::ManagedHostState;
-use crate::model::metadata::Metadata;
 
 pub fn load_topology_json(path: &str) -> HardwareInfo {
     const TEST_DATA_DIR: &str = concat!(

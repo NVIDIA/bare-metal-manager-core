@@ -15,14 +15,14 @@ use std::sync::Arc;
 
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
+use model::machine::{
+    InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
+    ReprovisionState,
+};
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::handlers::measured_boot::rpc_forge::forge_agent_control_response::Action;
-use crate::model::machine::{
-    InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
-    ReprovisionState,
-};
 use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
 use crate::tests::common::api_fixtures::{Api, TestEnv, TestMachine};
 
@@ -69,7 +69,7 @@ impl TestManagedHost {
 
     pub fn new_dpu_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
         ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
+            dpu_states: model::machine::DpuReprovisionStates {
                 states: HashMap::from([(self.dpu().id, state)]),
             },
         }
@@ -78,7 +78,7 @@ impl TestManagedHost {
     pub fn new_dpus_reprovision_state(&self, states: &[&ReprovisionState]) -> ManagedHostState {
         assert_eq!(states.len(), self.dpu_ids.len());
         ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
+            dpu_states: model::machine::DpuReprovisionStates {
                 states: self
                     .dpu_ids
                     .iter()
@@ -92,7 +92,7 @@ impl TestManagedHost {
     pub fn new_dpu_assigned_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
+                dpu_states: model::machine::DpuReprovisionStates {
                     states: HashMap::from([(self.dpu().id, state)]),
                 },
             },

@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 use forge_uuid::domain::DomainId;
+use model::domain::{Domain, NewDomain, Soa};
 
 use crate::db::ObjectColumnFilter;
 use crate::db::domain::{self};
-use crate::model::domain::{Domain, NewDomain, Soa};
 use crate::{CarbideError, CarbideResult, db};
 
 #[crate::sqlx_test]

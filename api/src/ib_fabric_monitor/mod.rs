@@ -22,6 +22,13 @@ use forge_uuid::machine::MachineId;
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
+use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
+use model::ib_partition::PartitionKey;
+use model::machine::infiniband::{
+    MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
+};
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use rpc::forge::IbPartitionSearchFilter;
 use sqlx::{PgConnection, PgPool};
 use tokio::sync::oneshot;
@@ -31,13 +38,6 @@ use crate::cfg::file::{CarbideConfig, IbFabricDefinition};
 use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig};
 use crate::db::{self, DatabaseError};
 use crate::ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType};
-use crate::model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
-use crate::model::ib_partition::PartitionKey;
-use crate::model::machine::infiniband::{
-    MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
-};
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use crate::{CarbideError, CarbideResult};
 
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals

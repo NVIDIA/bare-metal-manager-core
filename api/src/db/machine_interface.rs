@@ -20,15 +20,15 @@ use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
+use model::address_selection_strategy::AddressSelectionStrategy;
+use model::hardware_info::HardwareInfo;
+use model::machine::MachineInterfaceSnapshot;
+use model::network_segment::NetworkSegment;
+use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{Acquire, FromRow, PgConnection};
 
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use crate::model::address_selection_strategy::AddressSelectionStrategy;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::MachineInterfaceSnapshot;
-use crate::model::network_segment::NetworkSegment;
-use crate::model::predicted_machine_interface::PredictedMachineInterface;
 use crate::{CarbideError, CarbideResult, db};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";

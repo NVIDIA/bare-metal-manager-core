@@ -20,6 +20,9 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use futures_util::TryFutureExt;
 use hyper::http::StatusCode;
 use itertools::Itertools;
+use model;
+use model::machine;
+use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use utils::managed_host_display::get_memory_details;
@@ -28,9 +31,6 @@ use utils::{ManagedHostMetadata, reason_to_user_string};
 use super::filters;
 use crate::api::Api;
 use crate::db::{DatabaseError, managed_host};
-use crate::model;
-use crate::model::machine;
-use crate::model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 
 const UNKNOWN: &str = "Unknown";
 

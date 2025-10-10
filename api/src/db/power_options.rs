@@ -11,10 +11,10 @@
  */
 use config_version::ConfigVersion;
 use forge_uuid::machine::MachineId;
+use model::power_manager::{PowerOptions, PowerState};
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::model::power_manager::{PowerOptions, PowerState};
 
 /// Create a power option entry for a host into db.
 pub async fn create(

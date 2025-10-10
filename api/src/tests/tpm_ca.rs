@@ -9,6 +9,9 @@ pub mod tests {
     };
     use common::api_fixtures::{TestEnv, create_test_env};
     use forge_uuid::machine::MachineId;
+    use model::hardware_info::{HardwareInfo, TpmEkCertificate};
+    use model::machine::machine_id::from_hardware_info;
+    use model::network_segment;
     use rpc::forge::forge_server::Forge;
     use rpc::forge::{TpmCaCert, TpmCaCertDetail, TpmCaCertId, TpmEkCertStatus};
     use sha2::{Digest, Sha256};
@@ -17,9 +20,6 @@ pub mod tests {
     use crate::attestation::tpm_ca_cert::match_update_existing_ek_cert_status_against_ca;
     use crate::db;
     use crate::db::ObjectColumnFilter;
-    use crate::model::hardware_info::{HardwareInfo, TpmEkCertificate};
-    use crate::model::machine::machine_id::from_hardware_info;
-    use crate::model::network_segment;
     use crate::tests::common;
 
     #[crate::sqlx_test]
@@ -67,7 +67,7 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            model::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
         .await
         .unwrap();
@@ -118,7 +118,7 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            model::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
         .await
         .unwrap();
@@ -453,7 +453,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -493,7 +493,7 @@ pub mod tests {
         // verify
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from tpm_ca_certs;";
-        let all_ca_certs = sqlx::query_as::<_, crate::model::attestation::TpmCaCert>(query)
+        let all_ca_certs = sqlx::query_as::<_, model::attestation::TpmCaCert>(query)
             .fetch_all(&mut *txn)
             .await?;
 
@@ -549,7 +549,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status ORDER BY serial_num;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1004,7 +1004,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1049,7 +1049,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1117,7 +1117,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1143,7 +1143,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, crate::model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1180,7 +1180,7 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            model::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
         .await
         .unwrap();

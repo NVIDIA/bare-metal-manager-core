@@ -15,16 +15,16 @@ use std::collections::HashMap;
 use chrono::Utc;
 use common::api_fixtures::{create_managed_host_multi_dpu, create_test_env, reboot_completed};
 use libredfish::SystemPowerControl;
+use model::instance::status::tenant::TenantState;
+use model::machine::{
+    DpuInitState, FailureDetails, InstallDpuOsState, InstanceState, MachineLastRebootRequestedMode,
+    MachineState, ManagedHostState, ReprovisionState,
+};
 use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
 
 use crate::db;
-use crate::model::instance::status::tenant::TenantState;
-use crate::model::machine::{
-    DpuInitState, FailureDetails, InstallDpuOsState, InstanceState, MachineLastRebootRequestedMode,
-    MachineState, ManagedHostState, ReprovisionState,
-};
 use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
@@ -1151,7 +1151,7 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
         &mh.host().id,
         4,
         ManagedHostState::DPUInit {
-            dpu_states: crate::model::machine::DpuInitStates {
+            dpu_states: model::machine::DpuInitStates {
                 states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig)]),
             },
         },
@@ -1221,7 +1221,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     );
 
     let _expected_state = ManagedHostState::DPUReprovision {
-        dpu_states: crate::model::machine::DpuReprovisionStates {
+        dpu_states: model::machine::DpuReprovisionStates {
             states: HashMap::from([(mh.dpu().id, ReprovisionState::WaitingForNetworkInstall)]),
         },
     };
@@ -1667,10 +1667,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let dpu = mh.dpu().db_machine(&mut txn).await;
     let failed_at = Utc::now();
     let deserialized = FailureDetails {
-        cause: crate::model::machine::FailureCause::NVMECleanFailed {
+        cause: model::machine::FailureCause::NVMECleanFailed {
             err: "error1".to_string(),
         },
-        source: crate::model::machine::FailureSource::Scout,
+        source: model::machine::FailureSource::Scout,
         failed_at,
     };
     db::machine::update_failure_details(&dpu, &mut txn, deserialized)
@@ -1684,10 +1684,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         &ManagedHostState::Assigned {
             instance_state: InstanceState::Failed {
                 details: FailureDetails {
-                    cause: crate::model::machine::FailureCause::NVMECleanFailed {
+                    cause: model::machine::FailureCause::NVMECleanFailed {
                         err: "error1".to_string()
                     },
-                    source: crate::model::machine::FailureSource::Scout,
+                    source: model::machine::FailureSource::Scout,
                     failed_at
                 },
                 machine_id: dpu.id

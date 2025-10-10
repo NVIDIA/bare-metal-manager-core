@@ -15,13 +15,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+pub use model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 
 #[cfg(test)]
 pub use self::iface::Filter;
 pub use self::iface::{
     GetPartitionOptions, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions,
 };
-pub use crate::model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 use crate::{CarbideError, cfg};
 
 mod disable;

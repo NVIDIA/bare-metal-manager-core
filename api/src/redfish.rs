@@ -24,12 +24,12 @@ use libredfish::model::BootProgress;
 use libredfish::{
     EnabledDisabled, Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl,
 };
+use model::machine::Machine;
 use sqlx::PgConnection;
 use utils::HostPortPair;
 
 use crate::db::{self};
 use crate::ipmitool::IPMITool;
-use crate::model::machine::Machine;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -446,13 +446,12 @@ pub async fn host_power_control(
                         "@Message.ExtendedInfo": [{"MessageId":"SMC.v1_0_0.OemBiosSettingFileAlreadyExists","Severity":"Warning","Resolution":"No resolution is required.",
                         "Message":"Bios setting file already exists.","MessageArgs":[""],"RelatedProperties":[""]}]}}
                 */
-                crate::model::machine::ManagedHostState::HostInit {
-                    machine_state:
-                        crate::model::machine::MachineState::WaitingForPlatformConfiguration,
+                model::machine::ManagedHostState::HostInit {
+                    machine_state: model::machine::MachineState::WaitingForPlatformConfiguration,
                 }
-                | crate::model::machine::ManagedHostState::HostInit {
+                | model::machine::ManagedHostState::HostInit {
                     machine_state:
-                        crate::model::machine::MachineState::SetBootOrder {
+                        model::machine::MachineState::SetBootOrder {
                             set_boot_order_info: _,
                         },
                 } => {}

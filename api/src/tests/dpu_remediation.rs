@@ -9,12 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use model::dpu_remediation::{ApproveRemediation, EnableRemediation, NewRemediation, Reviewer};
 use rpc::forge::{CreateRemediationRequest, RemediationApplicationStatus};
 
 use crate::db;
-use crate::model::dpu_remediation::{
-    ApproveRemediation, EnableRemediation, NewRemediation, Reviewer,
-};
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 
 #[test]

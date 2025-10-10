@@ -8,6 +8,8 @@ use common::api_fixtures::create_test_env;
 use figment::Figment;
 use figment::providers::{Format, Toml};
 use forge_uuid::machine::MachineId;
+use model::dpu_machine_update::DpuMachineUpdate;
+use model::machine::ManagedHostStateSnapshot;
 use sqlx::PgConnection;
 
 use crate::cfg::file::CarbideConfig;
@@ -16,8 +18,6 @@ use crate::machine_update_manager::machine_update_module::{
     AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, HOST_UPDATE_HEALTH_REPORT_SOURCE,
     MachineUpdateModule, create_host_update_health_report,
 };
-use crate::model::dpu_machine_update::DpuMachineUpdate;
-use crate::model::machine::ManagedHostStateSnapshot;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host;
 use crate::{CarbideResult, db};

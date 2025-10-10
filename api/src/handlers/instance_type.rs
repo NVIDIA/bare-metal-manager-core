@@ -15,14 +15,14 @@ use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
 use forge_uuid::machine::MachineId;
+use model::instance_type::InstanceTypeMachineCapabilityFilter;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::api::{Api, log_request_data};
 use crate::db::{DatabaseError, ObjectFilter, instance, instance_type};
-use crate::model::instance_type::InstanceTypeMachineCapabilityFilter;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::metadata::Metadata;
 use crate::{CarbideError, db};
 
 pub(crate) async fn create(

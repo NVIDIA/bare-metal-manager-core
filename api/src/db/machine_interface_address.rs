@@ -12,10 +12,10 @@
 use std::net::IpAddr;
 
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use model::network_segment::NetworkSegmentType;
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
-use crate::model::network_segment::NetworkSegmentType;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {

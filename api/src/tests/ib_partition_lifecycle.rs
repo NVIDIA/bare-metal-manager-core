@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 
 use forge_uuid::infiniband::IBPartitionId;
+use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
@@ -25,7 +26,6 @@ use crate::db::ib_partition::{
 };
 use crate::db::{self, ObjectColumnFilter};
 use crate::ib::{IBFabricManagerConfig, IBFabricManagerType};
-use crate::model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 

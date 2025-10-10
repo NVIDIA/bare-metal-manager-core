@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use model::machine_validation::MachineValidationTest;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
-use crate::model::machine_validation::MachineValidationTest;
 
 #[derive(Clone, Debug)]
 pub struct MachineValidationMetrics {

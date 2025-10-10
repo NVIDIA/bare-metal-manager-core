@@ -22,6 +22,13 @@ use common::api_fixtures::{
     self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
 };
 use forge_uuid::machine::MachineId;
+use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
+use model::instance::status::tenant::TenantState;
+use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
+use model::site_explorer::{
+    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
+    InitialResetPhase, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
+};
 use regex::Regex;
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
@@ -35,13 +42,6 @@ use crate::cfg::file::{CarbideConfig, TimePeriod};
 use crate::db::{self, DatabaseError};
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::machine_update_manager::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
-use crate::model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
-use crate::model::instance::status::tenant::TenantState;
-use crate::model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
-use crate::model::site_explorer::{
-    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
-    InitialResetPhase, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
-};
 use crate::preingestion_manager::PreingestionManager;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};

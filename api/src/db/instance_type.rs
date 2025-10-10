@@ -12,12 +12,12 @@
 
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
+use model::instance_type::{InstanceType, InstanceTypeMachineCapabilityFilter};
+use model::metadata::Metadata;
 use sqlx::{PgConnection, Postgres};
 
 use crate::CarbideError;
 use crate::db::DatabaseError;
-use crate::model::instance_type::{InstanceType, InstanceTypeMachineCapabilityFilter};
-use crate::model::metadata::Metadata;
 
 /// Creates a new InstanceType DB record.  It enforces a unique `name` by
 /// only creating if there is no active record found with the same name.
@@ -198,10 +198,11 @@ pub(crate) async fn soft_delete(
 mod tests {
     use std::collections::HashMap;
 
+    use model::instance_type::InstanceTypeMachineCapabilityFilter;
+    use model::machine::capabilities::{MachineCapabilityDeviceType, MachineCapabilityType};
+    use model::metadata::Metadata;
+
     use super::*;
-    use crate::model::instance_type::InstanceTypeMachineCapabilityFilter;
-    use crate::model::machine::capabilities::{MachineCapabilityDeviceType, MachineCapabilityType};
-    use crate::model::metadata::Metadata;
 
     #[crate::sqlx_test]
     async fn instance_type_crud(pool: sqlx::PgPool) {

@@ -19,6 +19,12 @@ use ::rpc::{common as rpc_common, forge as rpc};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
 use itertools::Itertools;
+use model::hardware_info::MachineInventory;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::network::MachineNetworkStatusObservation;
+use model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
+use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
+use model::network_segment::NetworkSegmentSearchConfig;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
@@ -29,12 +35,6 @@ use crate::db::{
 };
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
-use crate::model::hardware_info::MachineInventory;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::network::MachineNetworkStatusObservation;
-use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
-use crate::model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
-use crate::model::network_segment::NetworkSegmentSearchConfig;
 use crate::{CarbideError, db, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
@@ -44,7 +44,7 @@ const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
 pub(crate) async fn get_managed_host_network_config_inner(
     api: &Api,
     dpu_machine_id: MachineId,
-    snapshot: crate::model::machine::ManagedHostStateSnapshot,
+    snapshot: model::machine::ManagedHostStateSnapshot,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, tonic::Status> {
     let dpu_snapshot = match snapshot

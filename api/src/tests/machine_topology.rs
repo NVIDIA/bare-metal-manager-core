@@ -15,14 +15,14 @@ use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use forge_uuid::machine::{MachineId, MachineType};
+use model::hardware_info::{Cpu, CpuInfo, HardwareInfo};
+use model::machine::machine_id::from_hardware_info;
+use model::machine::machine_search_config::MachineSearchConfig;
 use rpc::forge::forge_server::Forge;
 
 use crate::db::machine_interface::associate_interface_with_dpu_machine;
+use crate::db::machine_topology::test_helpers::{HardwareInfoV1, TopologyDataV1};
 use crate::db::{self, ObjectColumnFilter, network_segment};
-use crate::model::hardware_info::{Cpu, CpuInfo, HardwareInfo, HardwareInfoV1};
-use crate::model::machine::machine_id::from_hardware_info;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::topology::TopologyDataV1;
 use crate::tests::common;
 
 #[crate::sqlx_test]
@@ -60,7 +60,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let segment = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-        crate::model::network_segment::NetworkSegmentSearchConfig::default(),
+        model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
@@ -72,7 +72,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &dpu.host_mac_address,
         Some(env.domain.into()),
         true,
-        crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+        model::address_selection_strategy::AddressSelectionStrategy::Automatic,
     )
     .await
     .unwrap();
@@ -212,7 +212,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let segment = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-        crate::model::network_segment::NetworkSegmentSearchConfig::default(),
+        model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
@@ -224,7 +224,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         &dpu.host_mac_address,
         Some(env.domain.into()),
         true,
-        crate::model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+        model::address_selection_strategy::AddressSelectionStrategy::Automatic,
     )
     .await
     .unwrap();

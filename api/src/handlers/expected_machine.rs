@@ -13,6 +13,7 @@
 use ::rpc::forge as rpc;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
+use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use regex::Regex;
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
@@ -20,7 +21,6 @@ use uuid::Uuid;
 
 use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
-use crate::model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use crate::{CarbideError, db};
 
 lazy_static! {

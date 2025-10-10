@@ -1,10 +1,10 @@
 use std::net::IpAddr;
 
+use model::route_server::{RouteServer, RouteServerSourceType};
 use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::db::BIND_LIMIT;
-use crate::model::route_server::{RouteServer, RouteServerSourceType};
 use crate::{CarbideError, CarbideResult};
 
 // replace will replace all addresses for the given source type

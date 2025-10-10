@@ -13,13 +13,13 @@
 use std::str::FromStr;
 
 use health_report::OverrideMode;
+use model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
 use rpc::forge::HealthOverrideOrigin;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::db::machine::update_dpu_agent_health_report;
 use crate::db::{self};
-use crate::model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
     network_configured_with_health, remove_health_report_override, send_health_report_override,
@@ -591,14 +591,14 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
     let mut txn = env.pool.begin().await?;
     let machine_ids = crate::db::machine::find_machine_ids(
         &mut txn,
-        crate::model::machine::machine_search_config::MachineSearchConfig::default(),
+        model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
-    let options = crate::model::machine::LoadSnapshotOptions {
+    let options = model::machine::LoadSnapshotOptions {
         include_history: false,
         include_instance_data: false,
         host_health_config: HostHealthConfig {
-            hardware_health_reports: crate::model::machine::HardwareHealthReportsConfig::Enabled,
+            hardware_health_reports: model::machine::HardwareHealthReportsConfig::Enabled,
             dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
             prevent_allocations_on_stale_dpu_agent_version: false,
         },
@@ -638,14 +638,14 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
     let mut txn = env.pool.begin().await?;
     let machine_ids = crate::db::machine::find_machine_ids(
         &mut txn,
-        crate::model::machine::machine_search_config::MachineSearchConfig::default(),
+        model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
-    let options = crate::model::machine::LoadSnapshotOptions {
+    let options = model::machine::LoadSnapshotOptions {
         include_history: false,
         include_instance_data: false,
         host_health_config: HostHealthConfig {
-            hardware_health_reports: crate::model::machine::HardwareHealthReportsConfig::Enabled,
+            hardware_health_reports: model::machine::HardwareHealthReportsConfig::Enabled,
             dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
             prevent_allocations_on_stale_dpu_agent_version: false,
         },
@@ -706,7 +706,7 @@ fn hr(
 async fn load_snapshot(
     env: &TestEnv,
     host_machine_id: &::forge_uuid::machine::MachineId,
-) -> Result<crate::model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
+) -> Result<model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
     let host_health_config = HostHealthConfig {
         hardware_health_reports: HardwareHealthReportsConfig::Enabled,
