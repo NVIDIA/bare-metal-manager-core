@@ -17,11 +17,11 @@ use common::api_fixtures::host::host_discover_dhcp;
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_test_env};
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::hardware_info::HardwareInfo;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::db;
-use crate::model::hardware_info::HardwareInfo;
 use crate::tests::common;
 
 #[crate::sqlx_test]

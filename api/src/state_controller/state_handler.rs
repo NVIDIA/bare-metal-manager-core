@@ -14,6 +14,15 @@ use std::sync::Arc;
 
 use forge_uuid::machine::MachineId;
 use libredfish::RedfishError;
+use model::controller_outcome::{PersistentSourceReference, PersistentStateHandlerOutcome};
+use model::machine::{
+    DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState,
+    DpuInitStates, DpuReprovisionStates, HostReprovisionState, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, Machine, MachineNextStateResolver, MachineState,
+    ManagedHostState, ManagedHostStateSnapshot, ReprovisionState,
+};
+use model::power_manager::PowerOptions;
+use model::resource_pool::ResourcePoolError;
 use mqttea::MqtteaClient;
 use sqlx::PgConnection;
 
@@ -21,15 +30,6 @@ use crate::cfg::file::CarbideConfig;
 use crate::db::DatabaseError;
 use crate::ib::IBFabricManager;
 use crate::ipmitool::IPMITool;
-use crate::model::controller_outcome::{PersistentSourceReference, PersistentStateHandlerOutcome};
-use crate::model::machine::{
-    DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState,
-    DpuInitStates, DpuReprovisionStates, HostReprovisionState, InstallDpuOsState,
-    InstanceNextStateResolver, InstanceState, Machine, MachineNextStateResolver, MachineState,
-    ManagedHostState, ManagedHostStateSnapshot, ReprovisionState,
-};
-use crate::model::power_manager::PowerOptions;
-use crate::model::resource_pool::ResourcePoolError;
 use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
 use crate::resource_pool::common::IbPools;
 use crate::storage::{NvmeshClientPool, StorageError};

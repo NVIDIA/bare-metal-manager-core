@@ -13,6 +13,9 @@ use std::default::Default;
 
 use common::api_fixtures::create_test_env;
 use mac_address::MacAddress;
+use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::metadata::Metadata;
+use model::site_explorer::EndpointExplorationReport;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::PgConnection;
@@ -20,9 +23,6 @@ use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::db::{self};
-use crate::model::expected_machine::{ExpectedMachine, ExpectedMachineData};
-use crate::model::metadata::Metadata;
-use crate::model::site_explorer::EndpointExplorationReport;
 use crate::tests::common;
 
 // Test DB Functionality

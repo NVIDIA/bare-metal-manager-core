@@ -7,6 +7,13 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
 use health_report::HealthReport;
+use model::hardware_info::HardwareInfo;
+use model::machine::{
+    BomValidating, BomValidatingContext, DpuInitState, FailureCause, FailureDetails, FailureSource,
+    LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+};
+use model::site_explorer::EndpointExplorationReport;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self, HardwareHealthReport};
 use rpc::forge_agent_control_response::Action;
@@ -19,13 +26,6 @@ use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIA
 use super::{discovery_completed, inject_machine_measurements, network_configured};
 use crate::db;
 use crate::db::machine_interface::find_by_mac_address;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::{
-    BomValidating, BomValidatingContext, DpuInitState, FailureCause, FailureDetails, FailureSource,
-    LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
-    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
-};
-use crate::model::site_explorer::EndpointExplorationReport;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::host::host_uefi_setup;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -330,7 +330,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 10 + (10 * self.dpu_machine_ids.len() as u32),
                 ManagedHostState::DPUInit {
-                    dpu_states: crate::model::machine::DpuInitStates {
+                    dpu_states: model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -379,7 +379,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 20,
                 ManagedHostState::DPUInit {
-                    dpu_states: crate::model::machine::DpuInitStates {
+                    dpu_states: model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -435,7 +435,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 20,
                 ManagedHostState::DPUInit {
-                    dpu_states: crate::model::machine::DpuInitStates {
+                    dpu_states: model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -478,7 +478,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 20,
                 ManagedHostState::DPUInit {
-                    dpu_states: crate::model::machine::DpuInitStates {
+                    dpu_states: model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -850,7 +850,7 @@ impl<'a> MockExploredHost<'a> {
                 let machine = db::machine::find_one(
                     &mut txn,
                     &self.dpu_machine_ids[&0],
-                    crate::model::machine::machine_search_config::MachineSearchConfig::default(),
+                    model::machine::machine_search_config::MachineSearchConfig::default(),
                 )
                 .await
                 .unwrap()

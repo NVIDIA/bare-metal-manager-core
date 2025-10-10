@@ -34,6 +34,17 @@ use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use measured_boot::pcr::PcrRegisterValue;
+use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
+use model::hardware_info::TpmEkCertificate;
+use model::instance_type::InstanceTypeMachineCapabilityFilter;
+use model::machine::capabilities::MachineCapabilityType;
+use model::machine::{
+    FailureDetails, HostHealthConfig, Machine, MachineLastRebootRequested, MachineValidatingState,
+    ManagedHostState, ValidationState,
+};
+use model::metadata::Metadata;
+use model::network_security_group;
+use model::tenant::TenantOrganizationId;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
@@ -67,17 +78,6 @@ use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::ipmitool::IPMIToolTestImpl;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
-use crate::model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
-use crate::model::hardware_info::TpmEkCertificate;
-use crate::model::instance_type::InstanceTypeMachineCapabilityFilter;
-use crate::model::machine::capabilities::MachineCapabilityType;
-use crate::model::machine::{
-    FailureDetails, HostHealthConfig, Machine, MachineLastRebootRequested, MachineValidatingState,
-    ManagedHostState, ValidationState,
-};
-use crate::model::metadata::Metadata;
-use crate::model::network_security_group;
-use crate::model::tenant::TenantOrganizationId;
 use crate::redfish::test_support::RedfishSim;
 use crate::resource_pool::common::CommonPools;
 use crate::resource_pool::{self};
@@ -293,18 +293,16 @@ impl TestEnv {
             ManagedHostState::DPUInit { .. } => state.clone(),
             ManagedHostState::HostInit { machine_state } => {
                 let mc = match machine_state {
-                    crate::model::machine::MachineState::Init => machine_state,
-                    crate::model::machine::MachineState::WaitingForPlatformConfiguration => {
-                        machine_state
-                    }
-                    crate::model::machine::MachineState::SetBootOrder { .. } => machine_state,
-                    crate::model::machine::MachineState::UefiSetup { .. } => machine_state,
-                    crate::model::machine::MachineState::WaitingForDiscovery => machine_state,
-                    crate::model::machine::MachineState::Discovered { .. } => machine_state,
-                    crate::model::machine::MachineState::WaitingForLockdown { .. } => machine_state,
-                    crate::model::machine::MachineState::Measuring { .. } => machine_state,
+                    model::machine::MachineState::Init => machine_state,
+                    model::machine::MachineState::WaitingForPlatformConfiguration => machine_state,
+                    model::machine::MachineState::SetBootOrder { .. } => machine_state,
+                    model::machine::MachineState::UefiSetup { .. } => machine_state,
+                    model::machine::MachineState::WaitingForDiscovery => machine_state,
+                    model::machine::MachineState::Discovered { .. } => machine_state,
+                    model::machine::MachineState::WaitingForLockdown { .. } => machine_state,
+                    model::machine::MachineState::Measuring { .. } => machine_state,
 
-                    crate::model::machine::MachineState::EnableIpmiOverLan => machine_state,
+                    model::machine::MachineState::EnableIpmiOverLan => machine_state,
                 };
                 ManagedHostState::HostInit { machine_state: mc }
             }
@@ -348,7 +346,7 @@ impl TestEnv {
                             } else if context == "OnDemand" {
                                 id = machine.on_demand_machine_validation_id.unwrap_or_default();
                             }
-                            crate::model::machine::ManagedHostState::Validation {
+                            model::machine::ManagedHostState::Validation {
                                 validation_state: ValidationState::MachineValidation {
                                     machine_validation: MachineValidatingState::MachineValidating {
                                         context,
@@ -406,7 +404,7 @@ impl TestEnv {
             let machine = db::machine::find_one(
                 &mut txn,
                 host_machine_id,
-                crate::model::machine::machine_search_config::MachineSearchConfig::default(),
+                model::machine::machine_search_config::MachineSearchConfig::default(),
             )
             .await
             .unwrap()
@@ -420,7 +418,7 @@ impl TestEnv {
         let machine = db::machine::find_one(
             &mut txn,
             host_machine_id,
-            crate::model::machine::machine_search_config::MachineSearchConfig::default(),
+            model::machine::machine_search_config::MachineSearchConfig::default(),
         )
         .await
         .unwrap()

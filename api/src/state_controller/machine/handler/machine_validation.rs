@@ -11,15 +11,15 @@
  */
 
 use libredfish::SystemPowerControl;
+use model::machine::{
+    FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
+    ValidationState,
+};
+use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use sqlx::PgConnection;
 
 use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
 use crate::db::{self};
-use crate::model::machine::{
-    FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
-    ValidationState,
-};
-use crate::model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
     handler_host_power_control, rebooted, trigger_reboot_if_needed,

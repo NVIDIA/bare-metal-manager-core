@@ -15,16 +15,16 @@
 use eyre::eyre;
 use forge_uuid::machine::MachineId;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use model::attestation::EkCertVerificationStatus;
+use model::machine::{
+    FailureCause, FailureDetails, FailureSource, MeasuringState, StateMachineArea,
+};
 use sqlx::PgConnection;
 
 use super::state_handler::{MeasuringProblem, StateHandlerError};
 use crate::db::attestation::ek_cert_verification_status;
 use crate::measured_boot::db::machine::{
     get_measurement_bundle_state, get_measurement_machine_state,
-};
-use crate::model::attestation::EkCertVerificationStatus;
-use crate::model::machine::{
-    FailureCause, FailureDetails, FailureSource, MeasuringState, StateMachineArea,
 };
 
 pub mod context;

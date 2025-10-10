@@ -16,9 +16,9 @@ use ::rpc::forge::{
     DpuNetworkStatus, ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
+use model::machine::network::ManagedHostQuarantineMode;
 use rpc::forge::forge_server::Forge;
 
-use crate::model::machine::network::ManagedHostQuarantineMode;
 use crate::tests::common;
 
 #[crate::sqlx_test]

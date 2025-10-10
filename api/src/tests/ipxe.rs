@@ -4,11 +4,11 @@ use common::api_fixtures::{TestEnv, create_test_env};
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
+use model::machine::{DpuInitState, MachineState, ManagedHostState};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery};
 
 use crate::db::{self};
-use crate::model::machine::{DpuInitState, MachineState, ManagedHostState};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
@@ -26,7 +26,7 @@ async fn move_machine_to_needed_state(
     let machine = db::machine::find_one(
         &mut txn,
         &machine_id,
-        crate::model::machine::machine_search_config::MachineSearchConfig::default(),
+        model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await
     .unwrap()
@@ -97,7 +97,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     assert_eq!(
         machine.current_state(),
         &ManagedHostState::DPUInit {
-            dpu_states: crate::model::machine::DpuInitStates {
+            dpu_states: model::machine::DpuInitStates {
                 states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig,)]),
             },
         }
@@ -250,7 +250,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     move_machine_to_needed_state(
         host_id,
         &ManagedHostState::WaitingForCleanup {
-            cleanup_state: crate::model::machine::CleanupState::Init,
+            cleanup_state: model::machine::CleanupState::Init,
         },
         &env.pool,
     )
@@ -341,7 +341,7 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
     move_machine_to_needed_state(
         dpu_id,
         &ManagedHostState::DPUInit {
-            dpu_states: crate::model::machine::DpuInitStates {
+            dpu_states: model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_id, DpuInitState::Init)]),
             },
         },

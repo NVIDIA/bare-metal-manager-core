@@ -1,0 +1,75 @@
+[package]
+name = "carbide-api-model"
+version = "0.0.1"
+edition.workspace = true
+description = "Domain models for carbide-api"
+license-file.workspace = true
+authors.workspace = true
+
+[lib]
+name = "model"
+
+[dependencies]
+# [local-dependencies]
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
+bmc-vendor = { path = "../../common/bmc-vendor" }
+config-version = { path = "../../common/config-version", features = ["sqlx"] }
+forge-host-support = { path = "../../common/host-support", default-features = false }
+forge-network = { path = "../../common/network", features = ["sqlx"] }
+forge-version = { path = "../../common/version" }
+health-report = { path = "../../common/health-report" }
+rpc = { path = "../../rpc", features = ["sqlx"] }
+utils = { path = "../../common/utils", features = ["sqlx"] }
+forge-uuid = { path = "../../common/uuid", features = ["sqlx"] }
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
+
+#these are alphabetized
+async-trait = "0.1.88"
+base64 = "0.22.1"
+casbin = { version = "2.0", features = ["glob"] }
+chrono = "0.4.34"
+duration-str = "0.12.0"
+eyre = "*"
+ipnetwork = { workspace = true, features = ["serde"] }
+itertools = "*"
+lazy_static = "1.5.0"
+libnvmesh = { workspace = true }
+libredfish = { workspace = true }
+mac_address = { version = "1.1.2", features = ["serde"] }
+once_cell = "1.13.1"
+rand = "0.9"
+regex = "1.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "*"
+serde_regex = "*"
+sha2 = "0.10.3"
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
+strum = "0.26.3"
+strum_macros = "0.26.4"
+thiserror = "2.0"
+tracing = "*"
+tss-esapi = { version = "7.5.0", optional = true }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+version-compare = "0.2.0"
+#these are alphabetized
+
+[features]
+default = ["linux-build"]
+linux-build = [
+    "tss-esapi",
+    "sqlx-testing/linux-build",
+    "api-test-helper/linux-build",
+    "forge-host-support/linux-build",
+]
+
+[build-dependencies]
+forge-version = { path = "../../common/version" }
+
+[dev-dependencies]
+lazy_static = "1.4.0"
+api-test-helper = { path = "../../common/api-test-helper", default-features = false }
+sqlx-testing = { path = "../../common/sqlx-testing", default-features = false }
+prost = "0.14"
+
+[lints]
+workspace = true

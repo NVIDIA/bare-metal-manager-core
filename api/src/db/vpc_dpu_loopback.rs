@@ -2,12 +2,12 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::VpcId;
+use model::vpc::VpcDpuLoopback;
 use sqlx::PgConnection;
 
 use crate::db;
 use crate::db::DatabaseError;
 use crate::errors::CarbideError;
-use crate::model::vpc::VpcDpuLoopback;
 
 pub async fn persist(
     value: VpcDpuLoopback,

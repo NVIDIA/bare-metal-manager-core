@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use model::attestation::SecretAkPub;
 use sqlx::PgConnection;
 
 use crate::CarbideResult;
 use crate::db::DatabaseError;
-use crate::model::attestation::SecretAkPub;
 
 pub async fn insert(
     txn: &mut PgConnection,

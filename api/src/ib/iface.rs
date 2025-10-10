@@ -14,10 +14,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use model::ib::{IBNetwork, IBPort, IBPortState, IBQosConf};
 
 use crate::CarbideError;
 use crate::ib::IBFabricManagerConfig;
-use crate::model::ib::{IBNetwork, IBPort, IBPortState, IBQosConf};
 
 #[derive(Default)]
 pub struct Filter {

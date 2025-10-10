@@ -14,18 +14,18 @@ use std::collections::HashMap;
 
 use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
+use model::domain::NewDomain;
+use model::firmware::AgentUpgradePolicyChoice;
+use model::machine::upgrade_policy::AgentUpgradePolicy;
+use model::metadata::Metadata;
+use model::network_segment::{NetworkDefinition, NewNetworkSegment};
+use model::vpc::NewVpc;
 use sqlx::{Pool, Postgres};
 
 use crate::api::Api;
 use crate::db::domain::{self};
 use crate::db::vpc::{self};
 use crate::db::{DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_segment};
-use crate::model::domain::NewDomain;
-use crate::model::firmware::AgentUpgradePolicyChoice;
-use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
-use crate::model::metadata::Metadata;
-use crate::model::network_segment::{NetworkDefinition, NewNetworkSegment};
-use crate::model::vpc::NewVpc;
 use crate::{CarbideError, db};
 
 /// Create a Domain if we don't already have one.
@@ -112,7 +112,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
     let all_segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::<network_segment::IdColumn>::All,
-        crate::model::network_segment::NetworkSegmentSearchConfig::default(),
+        model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 

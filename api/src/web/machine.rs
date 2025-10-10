@@ -19,6 +19,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use forge_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
+use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
 use serde::Deserialize;
@@ -27,7 +28,6 @@ use utils::managed_host_display::to_time;
 use super::filters;
 use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
 use crate::api::Api;
-use crate::model::machine::network::ManagedHostQuarantineState;
 
 #[derive(Template)]
 #[template(path = "machine_show.html")]

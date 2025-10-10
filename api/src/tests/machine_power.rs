@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use model::machine::LoadSnapshotOptions;
+use model::power_manager::PowerState;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     MaintenanceOperation, MaintenanceRequest, PowerOptionRequest, PowerOptionUpdateRequest,
@@ -16,8 +18,6 @@ use rpc::forge::{
 
 use crate::db::managed_host::load_snapshot;
 use crate::db::{self};
-use crate::model::machine::LoadSnapshotOptions;
-use crate::model::power_manager::PowerState;
 use crate::redfish::RedfishClientPool;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 

@@ -16,10 +16,10 @@ use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use sqlx::{Acquire, PgConnection};
 
 use super::DatabaseError;
-use crate::model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 
 #[cfg(test)]
 #[derive(Clone, Copy)]

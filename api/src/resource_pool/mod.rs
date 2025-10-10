@@ -14,10 +14,9 @@ pub(crate) mod common;
 pub(crate) mod define;
 pub use define::ResourcePoolDef;
 pub(crate) use define::{DefineResourcePoolError, define_all_from};
+// These are currently only used by api-test
 #[cfg(test)]
 pub use define::{Range, ResourcePoolType};
+pub(crate) use model::resource_pool::{OwnerType, ResourcePool, ResourcePoolError, ValueType};
 
 pub(crate) use crate::db::resource_pool::{all, find_value, stats};
-// These are currently only used by api-test
-pub(crate) use crate::model::resource_pool::OwnerType;
-pub(crate) use crate::model::resource_pool::{ResourcePool, ResourcePoolError, ValueType};

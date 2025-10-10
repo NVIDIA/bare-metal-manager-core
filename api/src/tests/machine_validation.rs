@@ -19,6 +19,10 @@ use common::api_fixtures::{
     get_machine_validation_runs, on_demand_machine_validation, update_machine_validation_run,
 };
 use config_version::ConfigVersion;
+use model::machine::{
+    FailureCause, FailureDetails, FailureSource, MachineState, MachineValidatingState,
+    MachineValidationFilter, ManagedHostState, ValidationState,
+};
 use rpc::Timestamp;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{MachineValidationTestNextVersionRequest, MachineValidationTestVerfiedRequest};
@@ -27,10 +31,6 @@ use crate::cfg::file::{
     MachineValidationConfig, MachineValidationTestConfig, MachineValidationTestSelectionMode,
 };
 use crate::handlers::machine_validation::apply_config_on_startup;
-use crate::model::machine::{
-    FailureCause, FailureDetails, FailureSource, MachineState, MachineValidatingState,
-    MachineValidationFilter, ManagedHostState, ValidationState,
-};
 use crate::tests::common;
 
 #[crate::sqlx_test]

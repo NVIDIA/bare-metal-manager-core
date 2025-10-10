@@ -18,6 +18,8 @@ use std::process::Command;
 use byteorder::{BigEndian, ByteOrder};
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementReportId;
+use model::hardware_info::TpmEkCertificate;
+use model::machine::MeasuringState;
 use num_bigint_dig::BigUint;
 use pkcs1::LineEnding;
 use rsa::RsaPublicKey;
@@ -33,8 +35,6 @@ use x509_parser::prelude::FromDer;
 use x509_parser::public_key::PublicKey as x509_parser_pub_key;
 
 use crate::attestation::get_ek_cert_by_machine_id;
-use crate::model::hardware_info::TpmEkCertificate;
-use crate::model::machine::MeasuringState;
 use crate::state_controller::machine::{MeasuringOutcome, handle_measuring_state};
 use crate::{CarbideError, CarbideResult};
 

@@ -14,11 +14,11 @@ use std::collections::{HashMap, HashSet};
 
 use common::api_fixtures::create_managed_host;
 use forge_uuid::machine::MachineId;
+use model::ib::{IBNetwork, IBQosConf};
+use model::ib_partition::PartitionKey;
 
 use crate::cfg::file::IBFabricConfig;
-use crate::ib::{GetPartitionOptions, IBFabric};
-use crate::model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
-use crate::model::ib_partition::PartitionKey;
+use crate::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};

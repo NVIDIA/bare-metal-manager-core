@@ -1,6 +1,7 @@
 use std::net::IpAddr;
 
 use forge_uuid::machine::MachineId;
+use model::site_explorer::ExploredManagedHost;
 use sqlx::PgConnection;
 
 /*
@@ -16,7 +17,6 @@ use sqlx::PgConnection;
  */
 use crate::db;
 use crate::db::DatabaseError;
-use crate::model::site_explorer::ExploredManagedHost;
 
 /// ManagedHost wraps an ExploredManagedHost along with a machine id.
 /// This helper structure is used by the create_managed_host to create a managed host

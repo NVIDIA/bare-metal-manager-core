@@ -11,16 +11,16 @@
  */
 
 use forge_uuid::machine::MachineId;
+use model::machine::MachineValidationFilter;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_validation::{
+    MachineValidation, MachineValidationState, MachineValidationStatus,
+};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::ObjectFilter;
 use crate::db::DatabaseError;
-use crate::model::machine::MachineValidationFilter;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine_validation::{
-    MachineValidation, MachineValidationState, MachineValidationStatus,
-};
 use crate::{CarbideError, CarbideResult, db};
 
 pub async fn find_by(

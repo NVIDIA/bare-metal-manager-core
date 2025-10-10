@@ -13,10 +13,10 @@
 use std::sync::Arc;
 
 use forge_uuid::machine::MachineId;
+use model::machine::Machine;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
-use crate::model::machine::Machine;
 use crate::tests::common::api_fixtures::{Api, TestEnv};
 
 pub mod interface;

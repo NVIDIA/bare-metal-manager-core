@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use model::site_explorer::SiteExplorationReport;
 use sqlx::PgConnection;
 
 use crate::db::{self, DatabaseError};
-use crate::model::site_explorer::SiteExplorationReport;
 
 /// Fetches the latest site exploration report from the database
 pub async fn fetch(txn: &mut PgConnection) -> Result<SiteExplorationReport, DatabaseError> {

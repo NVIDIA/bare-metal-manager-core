@@ -12,13 +12,13 @@
 
 use chrono::Utc;
 use libredfish::SystemPowerControl;
-
-use crate::model::machine::ManagedHostStateSnapshot;
-use crate::model::power_manager::{
+use model::machine::ManagedHostStateSnapshot;
+use model::power_manager::{
     PowerHandlingOutcome, PowerOptions, PowerState, UsablePowerState,
     are_all_dpus_up_after_power_operation, get_updated_power_options_for_desired_on_state_off,
     update_power_options_for_desired_on_state_on,
 };
+
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
     PowerOptionConfig, handler_host_power_control, host_power_state,
@@ -34,11 +34,11 @@ pub async fn handle_power(
 ) -> Result<PowerHandlingOutcome, StateHandlerError> {
     if let Some(power_options) = &mh_snapshot.host_snapshot.power_options {
         match power_options.desired_power_state {
-            crate::model::power_manager::PowerState::On => {
+            model::power_manager::PowerState::On => {
                 handle_power_desired_on(power_options, mh_snapshot, txn, ctx, power_options_config)
                     .await
             }
-            crate::model::power_manager::PowerState::Off => {
+            model::power_manager::PowerState::Off => {
                 get_updated_power_options_desired_off(
                     power_options,
                     mh_snapshot,
@@ -48,7 +48,7 @@ pub async fn handle_power(
                 )
                 .await
             }
-            crate::model::power_manager::PowerState::PowerManagerDisabled => {
+            model::power_manager::PowerState::PowerManagerDisabled => {
                 // Nothing to do
                 Ok(PowerHandlingOutcome::new(None, true, None))
             }

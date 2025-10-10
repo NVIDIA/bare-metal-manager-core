@@ -84,7 +84,7 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     // We now except the fabric to be reported as insecure
     env.ib_fabric_manager
         .get_mock_manager()
-        .set_default_partition_membership(crate::model::ib::IBPortMembership::Full);
+        .set_default_partition_membership(model::ib::IBPortMembership::Full);
     env.run_ib_fabric_monitor_iteration().await;
     assert_eq!(
         env.test_meter

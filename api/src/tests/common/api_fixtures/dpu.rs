@@ -19,6 +19,13 @@ use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
+use model::hardware_info::HardwareInfo;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::site_explorer::{
+    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
+    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, PowerState,
+    Service, UefiDevicePath,
+};
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
@@ -28,13 +35,6 @@ use tonic::Request;
 use super::site_explorer;
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
 use crate::db;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::site_explorer::{
-    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, PowerState,
-    Service, UefiDevicePath,
-};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost};
 use crate::tests::common::mac_address_pool;
@@ -48,9 +48,7 @@ pub const TEST_DOCA_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 pub const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
 
 pub const DPU_INFO_JSON: &[u8] =
-    include_bytes!("../../../../src/model/hardware_info/test_data/dpu_info.json");
-pub const DPU_BF3_INFO_JSON: &[u8] =
-    include_bytes!("../../../../src/model/hardware_info/test_data/dpu_bf3_info.json");
+    include_bytes!("../../../../model/src/hardware_info/test_data/dpu_info.json");
 
 static NEXT_DPU_SERIAL: AtomicU32 = AtomicU32::new(1);
 

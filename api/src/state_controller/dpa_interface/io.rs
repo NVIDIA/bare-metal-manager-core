@@ -14,13 +14,13 @@
 
 use config_version::{ConfigVersion, Versioned};
 use forge_uuid::dpa_interface::DpaInterfaceId;
+use model::StateSla;
+use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::dpa_interface::{self, DpaInterface, DpaInterfaceControllerState};
 use sqlx::PgConnection;
 
 use crate::db;
 use crate::db::DatabaseError;
-use crate::model::StateSla;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::dpa_interface::{self, DpaInterface, DpaInterfaceControllerState};
 use crate::state_controller::dpa_interface::context::DpaInterfaceStateHandlerContextObjects;
 use crate::state_controller::dpa_interface::metrics::DpaInterfaceMetricsEmitter;
 use crate::state_controller::io::StateControllerIO;

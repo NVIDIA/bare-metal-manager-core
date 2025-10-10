@@ -11,12 +11,12 @@
  */
 
 use ::rpc::forge as rpc;
+use model::ConfigValidationError;
+use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::db::DatabaseError;
-use crate::model::ConfigValidationError;
-use crate::model::metadata::Metadata;
 use crate::{CarbideError, db};
 
 /// Ensures that fields unsupported by the tenant DB model are rejected early.

@@ -14,10 +14,10 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use mac_address::MacAddress;
+use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use rpc::forge_server::Forge;
 
 use crate::db;
-use crate::model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use crate::tests::common::api_fixtures::create_test_env;
 
 #[crate::sqlx_test()]

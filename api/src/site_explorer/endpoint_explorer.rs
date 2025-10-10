@@ -15,13 +15,11 @@ use std::net::SocketAddr;
 use forge_ssh::ssh::SshConfig;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
+use model::expected_machine::ExpectedMachine;
+use model::machine::MachineInterfaceSnapshot;
+use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
 
 use super::metrics::SiteExplorationMetrics;
-use crate::model::expected_machine::ExpectedMachine;
-use crate::model::machine::MachineInterfaceSnapshot;
-use crate::model::site_explorer::{
-    EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
-};
 
 /// This trait defines how the `SiteExplorer` will query information about endpoints
 #[async_trait::async_trait]

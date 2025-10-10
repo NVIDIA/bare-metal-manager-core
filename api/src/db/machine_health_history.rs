@@ -13,11 +13,11 @@ use std::hash::Hasher;
 
 use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
+use model::machine::MachineHealthHistoryRecord;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
 use crate::db::DatabaseError;
-use crate::model::machine::MachineHealthHistoryRecord;
 
 /// History of Machine health for a single Machine
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ impl<'r> FromRow<'r, PgRow> for DbMachineHealthHistoryRecord {
     }
 }
 
-impl From<DbMachineHealthHistoryRecord> for crate::model::machine::MachineHealthHistoryRecord {
+impl From<DbMachineHealthHistoryRecord> for model::machine::MachineHealthHistoryRecord {
     fn from(record: DbMachineHealthHistoryRecord) -> Self {
         Self {
             health: record.health,

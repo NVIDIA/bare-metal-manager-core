@@ -64,10 +64,10 @@ pub(crate) async fn handle_machine_hardware_info_update(
     let mut new_hardware_info = machine_topology.topology().discovery_data.info.clone();
     match update_type {
         MachineHardwareInfoUpdateType::Gpus => {
-            let gpus: Vec<crate::model::hardware_info::Gpu> = request_hardware_info
+            let gpus: Vec<model::hardware_info::Gpu> = request_hardware_info
                 .gpus
                 .into_iter()
-                .map(crate::model::hardware_info::Gpu::from)
+                .map(model::hardware_info::Gpu::from)
                 .collect();
             if gpus.is_empty() {
                 new_hardware_info.gpus.clear();

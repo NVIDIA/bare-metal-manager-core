@@ -13,16 +13,16 @@ use config_version::ConfigVersion;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::network_security_group::NetworkSecurityGroupId;
 use forge_uuid::vpc::VpcId;
+use model::metadata::Metadata;
+use model::network_security_group::{
+    NetworkSecurityGroup, NetworkSecurityGroupAttachments,
+    NetworkSecurityGroupPropagationObjectStatus, NetworkSecurityGroupRule,
+};
+use model::tenant::TenantOrganizationId;
 use sqlx::{PgConnection, Postgres};
 
 use crate::CarbideError;
 use crate::db::DatabaseError;
-use crate::model::metadata::Metadata;
-use crate::model::network_security_group::{
-    NetworkSecurityGroup, NetworkSecurityGroupAttachments,
-    NetworkSecurityGroupPropagationObjectStatus, NetworkSecurityGroupRule,
-};
-use crate::model::tenant::TenantOrganizationId;
 
 /// Creates a new NetworkSecurityGroup DB record.  It enforces a unique `name` by
 /// only creating if there is no active record found with the same name.

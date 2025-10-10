@@ -24,6 +24,19 @@ use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use managed_host::ManagedHost;
+use model::bmc_info::BmcInfo;
+use model::hardware_info::HardwareInfo;
+use model::machine::machine_id::host_id_from_dpu_hardware_info;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{
+    DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
+};
+use model::metadata::Metadata;
+use model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
+    ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState, PreingestionState,
+    Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
+};
 use sqlx::{PgConnection, PgPool};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
@@ -32,19 +45,6 @@ use version_compare::Cmp;
 
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
 use crate::db::{self, DatabaseError, ObjectFilter, machine};
-use crate::model::bmc_info::BmcInfo;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::machine_id::host_id_from_dpu_hardware_info;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{
-    DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
-};
-use crate::model::metadata::Metadata;
-use crate::model::site_explorer::{
-    EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState, PreingestionState,
-    Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
-};
 use crate::resource_pool::common::CommonPools;
 use crate::{CarbideError, CarbideResult};
 
@@ -59,14 +59,14 @@ pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 
 mod managed_host;
 pub use managed_host::is_endpoint_in_managed_host;
+use model::expected_machine::ExpectedMachine;
+use model::firmware::FirmwareComponentType;
+use model::machine::Machine;
+use model::network_segment::NetworkSegmentType;
+use model::predicted_machine_interface::NewPredictedMachineInterface;
 
 use self::metrics::exploration_error_to_metric_label;
 use crate::db::{ObjectColumnFilter, predicted_machine_interface};
-use crate::model::expected_machine::ExpectedMachine;
-use crate::model::firmware::FirmwareComponentType;
-use crate::model::machine::Machine;
-use crate::model::network_segment::NetworkSegmentType;
-use crate::model::predicted_machine_interface::NewPredictedMachineInterface;
 
 #[derive(Debug, Clone)]
 pub struct Endpoint {
@@ -2789,8 +2789,9 @@ pub async fn get_machine_state_by_bmc_ip(
 
 #[cfg(test)]
 mod tests {
+    use model::site_explorer::PreingestionState;
+
     use super::*;
-    use crate::model::site_explorer::PreingestionState;
 
     fn load_bf2_ep_report() -> EndpointExplorationReport {
         let path = concat!(

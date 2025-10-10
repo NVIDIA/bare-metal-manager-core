@@ -13,6 +13,9 @@
 //! Contains host related fixtures
 
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use model::hardware_info::HardwareInfo;
+use model::machine::MachineState::UefiSetup;
+use model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::forge::forge_server::Forge;
@@ -24,17 +27,14 @@ use tonic::Request;
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use crate::db;
 use crate::db::{ObjectColumnFilter, network_prefix};
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::MachineState::UefiSetup;
-use crate::model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{TestEnv, forge_agent_control};
 
 pub const X86_INFO_JSON: &[u8] =
-    include_bytes!("../../../../src/model/hardware_info/test_data/x86_info.json");
+    include_bytes!("../../../../model/src/hardware_info/test_data/x86_info.json");
 // TODO: Remove when there's no longer a need to handle the old topology format
 pub const X86_V1_CPU_INFO_JSON: &[u8] =
-    include_bytes!("../../../../src/model/hardware_info/test_data/x86_v1_cpu_info.json");
+    include_bytes!("../../../../model/src/hardware_info/test_data/x86_v1_cpu_info.json");
 
 /// Uses the `discover_dhcp` API to discover a Host with a certain MAC address
 ///

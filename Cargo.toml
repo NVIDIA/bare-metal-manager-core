@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "admin",
     "api",
+    "api/model",
     "bluefield/agent",
     "bluefield/otel/otel-agent",
     "common/api-test-helper",

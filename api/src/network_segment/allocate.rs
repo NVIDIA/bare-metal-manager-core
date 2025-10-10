@@ -4,10 +4,10 @@ use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
+use model::network_prefix::NewNetworkPrefix;
+use model::network_segment::NewNetworkSegment;
 use sqlx::PgConnection;
 
-use crate::model::network_prefix::NewNetworkPrefix;
-use crate::model::network_segment::NewNetworkSegment;
 use crate::{CarbideError, CarbideResult, db};
 
 /// Ipv4PrefixAllocator to allocate a prefix of given length from given vpc_prefix field.
@@ -106,14 +106,14 @@ impl Ipv4PrefixAllocator {
             }],
             vlan_id: None,
             vni: None,
-            segment_type: crate::model::network_segment::NetworkSegmentType::Tenant,
+            segment_type: model::network_segment::NetworkSegmentType::Tenant,
             can_stretch: Some(false), // All segments allocated here are FNN linknets.
         };
 
         let mut segment = db::network_segment::persist(
             ns,
             txn,
-            crate::model::network_segment::NetworkSegmentControllerState::Provisioning,
+            model::network_segment::NetworkSegmentControllerState::Provisioning,
         )
         .await?;
 

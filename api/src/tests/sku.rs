@@ -2,18 +2,18 @@ pub mod tests {
     use std::time::Duration;
 
     use forge_uuid::machine::MachineId;
+    use model::expected_machine::ExpectedMachineData;
+    use model::machine::machine_search_config::MachineSearchConfig;
+    use model::machine::{
+        BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
+        ManagedHostState, ValidationState,
+    };
+    use model::metadata::Metadata;
+    use model::sku::Sku;
     use sqlx::PgConnection;
 
     use crate::db::sku::CURRENT_SKU_VERSION;
     use crate::db::{self, DatabaseError, ObjectFilter};
-    use crate::model::expected_machine::ExpectedMachineData;
-    use crate::model::machine::machine_search_config::MachineSearchConfig;
-    use crate::model::machine::{
-        BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
-        ManagedHostState, ValidationState,
-    };
-    use crate::model::metadata::Metadata;
-    use crate::model::sku::Sku;
     use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
     use crate::tests::common::api_fixtures::{
         TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host,
@@ -832,13 +832,13 @@ pub mod tests {
         assert_eq!(old_sku.schema_version, old_schema_version);
 
         // diff does not check version.  comparing SKUs of different versions will fail
-        let diffs = crate::model::sku::diff_skus(&old_sku, &new_sku);
+        let diffs = model::sku::diff_skus(&old_sku, &new_sku);
         assert!(!diffs.is_empty());
 
-        let diffs = crate::model::sku::diff_skus(&old_sku, &old_sku);
+        let diffs = model::sku::diff_skus(&old_sku, &old_sku);
         assert!(diffs.is_empty());
 
-        let diffs = crate::model::sku::diff_skus(&old_sku, &new_sku);
+        let diffs = model::sku::diff_skus(&old_sku, &new_sku);
         assert!(!diffs.is_empty());
 
         Ok(())
@@ -861,13 +861,13 @@ pub mod tests {
         let sku1 = rpc_sku1.into();
         let sku2 = rpc_sku2.clone().into();
 
-        let diffs = crate::model::sku::diff_skus(&sku1, &sku2);
+        let diffs = model::sku::diff_skus(&sku1, &sku2);
         assert!(diffs.is_empty());
 
         rpc_sku2.components.as_mut().unwrap().cpus[0].thread_count *= 2;
         let sku2 = rpc_sku2.into();
 
-        let diffs = crate::model::sku::diff_skus(&sku1, &sku2);
+        let diffs = model::sku::diff_skus(&sku1, &sku2);
         assert!(!diffs.is_empty());
 
         Ok(())

@@ -12,11 +12,11 @@
 
 use std::net::IpAddr;
 
+use model::site_explorer::{ExploredDpu, ExploredManagedHost};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
 use crate::db::DatabaseError;
-use crate::model::site_explorer::{ExploredDpu, ExploredManagedHost};
 
 #[derive(Debug, Clone)]
 struct DbExploredManagedHost {

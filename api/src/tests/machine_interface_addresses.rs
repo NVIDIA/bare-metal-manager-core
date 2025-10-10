@@ -15,13 +15,13 @@ use std::str::FromStr;
 
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-
-use crate::db;
-use crate::model::address_selection_strategy::AddressSelectionStrategy;
-use crate::model::network_prefix::NewNetworkPrefix;
-use crate::model::network_segment::{
+use model::address_selection_strategy::AddressSelectionStrategy;
+use model::network_prefix::NewNetworkPrefix;
+use model::network_segment::{
     NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
+
+use crate::db;
 use crate::tests::common::api_fixtures::create_test_env;
 
 #[crate::sqlx_test]

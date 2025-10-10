@@ -19,6 +19,11 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials}
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use libnvmesh::{Nvmesh, NvmeshApiError};
+use model::storage::{
+    OsImageAttributes, OsImageStatus, StorageClusterAttributes, StoragePoolAttributes,
+    StorageVolume, StorageVolumeAttributes, StorageVolumeFilter,
+};
+use model::tenant::TenantOrganizationId;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -26,11 +31,6 @@ use uuid::Uuid;
 use crate::api::Api;
 use crate::db;
 use crate::db::DatabaseError;
-use crate::model::storage::{
-    OsImageAttributes, OsImageStatus, StorageClusterAttributes, StoragePoolAttributes,
-    StorageVolume, StorageVolumeAttributes, StorageVolumeFilter,
-};
-use crate::model::tenant::TenantOrganizationId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {

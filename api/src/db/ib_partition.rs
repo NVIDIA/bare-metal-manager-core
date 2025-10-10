@@ -15,16 +15,16 @@ use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use forge_uuid::infiniband::IBPartitionId;
 use futures::StreamExt;
+use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
+use model::ib_partition::{IBPartitionControllerState, PartitionKey, state_sla};
+use model::tenant::TenantOrganizationId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
 use crate::db::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::ib::IBFabricManagerConfig;
-use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
-use crate::model::ib_partition::{IBPartitionControllerState, PartitionKey, state_sla};
-use crate::model::tenant::TenantOrganizationId;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Copy, Clone)]

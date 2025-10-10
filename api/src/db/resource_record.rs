@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use model::resource_record::ResourceRecord;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
-use crate::model::resource_record::ResourceRecord;
 
 pub async fn find(
     txn: &mut PgConnection,

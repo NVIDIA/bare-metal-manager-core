@@ -16,14 +16,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use forge_uuid::machine::MachineId;
+use model::hardware_info::HardwareInfo;
+use model::machine::machine_id::host_id_from_dpu_hardware_info;
+use model::machine::{ManagedHostState, ManagedHostStateSnapshot};
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use sqlx::PgConnection;
 use tonic::Request;
 
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::machine_id::host_id_from_dpu_hardware_info;
-use crate::model::machine::{ManagedHostState, ManagedHostStateSnapshot};
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::StateController;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;

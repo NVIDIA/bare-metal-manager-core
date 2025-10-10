@@ -27,18 +27,18 @@ use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
+use model::DpuModel;
+use model::firmware::{
+    AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
+};
+use model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
+use model::machine::HostHealthConfig;
+use model::network_segment::NetworkDefinition;
+use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utils::HostPortPair;
 
-use crate::model::DpuModel;
-use crate::model::firmware::{
-    AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
-};
-use crate::model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
-use crate::model::machine::HostHealthConfig;
-use crate::model::network_segment::NetworkDefinition;
-use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use crate::resource_pool::{self, ResourcePoolDef};
 use crate::state_controller::config::IterationConfig;
 
@@ -1221,22 +1221,6 @@ impl Default for DpuConfig {
             ]),
             dpu_nic_firmware_update_versions: vec![BF2_NIC.to_string(), BF3_NIC.to_string()],
             dpu_enable_secure_boot: false,
-        }
-    }
-}
-
-impl From<FirmwareComponentType> for libredfish::model::update_service::ComponentType {
-    fn from(fct: FirmwareComponentType) -> libredfish::model::update_service::ComponentType {
-        use libredfish::model::update_service::ComponentType;
-        match fct {
-            FirmwareComponentType::Bmc => ComponentType::BMC,
-            FirmwareComponentType::Uefi => ComponentType::UEFI,
-            FirmwareComponentType::Cec => ComponentType::Unknown,
-            FirmwareComponentType::Nic => ComponentType::Unknown,
-            FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
-            FirmwareComponentType::CombinedBmcUefi => ComponentType::Unknown,
-            FirmwareComponentType::Gpu => ComponentType::Unknown,
-            FirmwareComponentType::Unknown => ComponentType::Unknown,
         }
     }
 }

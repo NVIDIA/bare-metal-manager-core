@@ -11,11 +11,11 @@
  */
 
 use forge_uuid::machine::MachineId;
+use model::bmc_info::BmcInfo;
 use serde_json::json;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
-use crate::model::bmc_info::BmcInfo;
 use crate::{CarbideError, CarbideResult, db};
 
 pub async fn update_bmc_network_into_topologies(

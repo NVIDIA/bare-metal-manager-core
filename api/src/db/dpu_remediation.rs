@@ -2,16 +2,16 @@ use std::ops::DerefMut;
 
 use forge_uuid::dpu_remediations::RemediationId;
 use forge_uuid::machine::MachineId;
+use model::dpu_remediation::{
+    AppliedRemediation, ApproveRemediation, DisableRemediation, EnableRemediation,
+    NewAppliedRemediation, NewRemediation, Remediation, RevokeRemediation,
+};
+use model::metadata::Metadata;
 use rpc::forge::RemediationApplicationStatus;
 use sqlx::Postgres;
 
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::errors::{CarbideError, CarbideResult};
-use crate::model::dpu_remediation::{
-    AppliedRemediation, ApproveRemediation, DisableRemediation, EnableRemediation,
-    NewAppliedRemediation, NewRemediation, Remediation, RevokeRemediation,
-};
-use crate::model::metadata::Metadata;
 
 pub async fn persist_remediation(
     value: NewRemediation,

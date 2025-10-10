@@ -19,6 +19,9 @@ use data_encoding::BASE32_DNSSEC;
 use forge_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId, MachineType};
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::hardware_info::HardwareInfo;
+use model::machine::machine_id::host_id_from_dpu_hardware_info;
+use model::machine::machine_search_config::MachineSearchConfig;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     AssociateMachinesWithInstanceTypeRequest, FindInstanceTypeIdsRequest, MachinesByIdsRequest,
@@ -28,9 +31,6 @@ use tonic::Request;
 
 use crate::db;
 use crate::db::ObjectFilter;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::machine_id::host_id_from_dpu_hardware_info;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host_multi_dpu;
 use crate::tests::sku::tests::FULL_SKU_DATA;

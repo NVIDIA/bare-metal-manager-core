@@ -5,12 +5,12 @@ use std::sync::{Arc, Mutex};
 use forge_ssh::ssh::SshConfig;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
-
-use crate::model::expected_machine::ExpectedMachine;
-use crate::model::machine::MachineInterfaceSnapshot;
-use crate::model::site_explorer::{
+use model::expected_machine::ExpectedMachine;
+use model::machine::MachineInterfaceSnapshot;
+use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
 };
+
 use crate::site_explorer::{EndpointExplorer, SiteExplorationMetrics};
 
 /// EndpointExplorer which returns predefined data

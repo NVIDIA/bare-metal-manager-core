@@ -22,6 +22,19 @@ use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::expected_machine::ExpectedMachineData;
+use model::hardware_info::HardwareInfo;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{
+    DpuDiscoveringState, DpuInitState, InstallDpuOsState, Machine, ManagedHostState,
+    ManagedHostStateSnapshot, SetSecureBootState,
+};
+use model::metadata::Metadata;
+use model::resource_pool::ResourcePoolStats;
+use model::site_explorer::{
+    ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
+    ExploredManagedHost, UefiDevicePath,
+};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{DhcpDiscovery, GetSiteExplorationRequest};
 use rpc::site_explorer::{
@@ -35,19 +48,6 @@ use crate::CarbideError;
 use crate::cfg::file::{DpuConfig as InitialDpuConfig, SiteExplorerConfig};
 use crate::db::sku::CURRENT_SKU_VERSION;
 use crate::db::{self, DatabaseError, ObjectColumnFilter, ObjectFilter};
-use crate::model::expected_machine::ExpectedMachineData;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{
-    DpuDiscoveringState, DpuInitState, InstallDpuOsState, Machine, ManagedHostState,
-    ManagedHostStateSnapshot, SetSecureBootState,
-};
-use crate::model::metadata::Metadata;
-use crate::model::resource_pool::ResourcePoolStats;
-use crate::model::site_explorer::{
-    ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredManagedHost, UefiDevicePath,
-};
 use crate::site_explorer::SiteExplorer;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
@@ -1174,7 +1174,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: crate::model::machine::DpuDiscoveringStates {
+            dpu_states: model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Initializing)]),
             },
         }
@@ -1238,7 +1238,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: crate::model::machine::DpuDiscoveringStates {
+            dpu_states: model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Initializing)]),
             },
         }
@@ -1276,7 +1276,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: crate::model::machine::DpuDiscoveringStates {
+            dpu_states: model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Configuring)]),
             },
         }
@@ -1293,7 +1293,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: crate::model::machine::DpuDiscoveringStates {
+            dpu_states: model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::EnableRshim,)]),
             },
         }
@@ -1310,7 +1310,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: crate::model::machine::DpuDiscoveringStates {
+            dpu_states: model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
                     dpu_machine.id,
                     DpuDiscoveringState::EnableSecureBoot {
@@ -1333,7 +1333,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: crate::model::machine::DpuDiscoveringStates {
+            dpu_states: model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
                     dpu_machine.id,
                     DpuDiscoveringState::EnableSecureBoot {
@@ -1360,7 +1360,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DPUInit {
-            dpu_states: crate::model::machine::DpuInitStates {
+            dpu_states: model::machine::DpuInitStates {
                 states: HashMap::from([(
                     dpu_machine.id,
                     DpuInitState::InstallDpuOs {
@@ -1384,7 +1384,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DPUInit {
-            dpu_states: crate::model::machine::DpuInitStates {
+            dpu_states: model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
             },
         },
@@ -1445,7 +1445,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::DPUInit {
-            dpu_states: crate::model::machine::DpuInitStates {
+            dpu_states: model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
             },
         }
@@ -1652,7 +1652,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     }
 
     let expected_state = ManagedHostState::DpuDiscoveringState {
-        dpu_states: crate::model::machine::DpuDiscoveringStates {
+        dpu_states: model::machine::DpuDiscoveringStates {
             states: dpu_machines
                 .iter()
                 .map(|x| (x.id, DpuDiscoveringState::Initializing))
@@ -1868,13 +1868,13 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let mut txn = env.pool.begin().await?;
 
     // Create the SKU record first
-    let test_sku = crate::model::sku::Sku {
+    let test_sku = model::sku::Sku {
         schema_version: CURRENT_SKU_VERSION,
         id: "Sku1".to_string(),
         description: "Test SKU for site explorer test".to_string(),
         created: chrono::Utc::now(),
-        components: crate::model::sku::SkuComponents {
-            chassis: crate::model::sku::SkuComponentChassis {
+        components: model::sku::SkuComponents {
+            chassis: model::sku::SkuComponentChassis {
                 vendor: "Vendor1".to_string(),
                 model: "Chassis1".to_string(),
                 architecture: "x86_64".to_string(),
@@ -3122,13 +3122,13 @@ async fn test_machine_creation_with_sku(
     let mut txn = env.pool.begin().await?;
 
     // Create the SKU record first
-    let test_sku = crate::model::sku::Sku {
+    let test_sku = model::sku::Sku {
         schema_version: CURRENT_SKU_VERSION,
         id: "Sku1".to_string(),
         description: "Test SKU for site explorer test".to_string(),
         created: chrono::Utc::now(),
-        components: crate::model::sku::SkuComponents {
-            chassis: crate::model::sku::SkuComponentChassis {
+        components: model::sku::SkuComponents {
+            chassis: model::sku::SkuComponentChassis {
                 vendor: "Vendor1".to_string(),
                 model: "Chassis1".to_string(),
                 architecture: "x86_64".to_string(),
@@ -3224,13 +3224,13 @@ async fn test_expected_machine_device_type_metrics(
     // Create test SKUs in database
     let mut txn = env.pool.begin().await?;
 
-    let test_sku_with_device_type = crate::model::sku::Sku {
+    let test_sku_with_device_type = model::sku::Sku {
         schema_version: CURRENT_SKU_VERSION,
         id: test_sku_gpu_id.clone(),
         description: "Test GPU SKU".to_string(),
         created: chrono::Utc::now(),
-        components: crate::model::sku::SkuComponents {
-            chassis: crate::model::sku::SkuComponentChassis {
+        components: model::sku::SkuComponents {
+            chassis: model::sku::SkuComponentChassis {
                 vendor: format!("test_vendor_gpu_{}", uuid::Uuid::new_v4()),
                 model: format!("test_model_gpu_{}", uuid::Uuid::new_v4()),
                 architecture: "x86_64".to_string(),
@@ -3244,13 +3244,13 @@ async fn test_expected_machine_device_type_metrics(
         device_type: Some("gpu".to_string()),
     };
 
-    let test_sku_without_device_type = crate::model::sku::Sku {
+    let test_sku_without_device_type = model::sku::Sku {
         schema_version: CURRENT_SKU_VERSION,
         id: test_sku_no_type_id.clone(),
         description: "Test SKU without device type".to_string(),
         created: chrono::Utc::now(),
-        components: crate::model::sku::SkuComponents {
-            chassis: crate::model::sku::SkuComponentChassis {
+        components: model::sku::SkuComponents {
+            chassis: model::sku::SkuComponentChassis {
                 vendor: format!("test_vendor_no_type_{}", uuid::Uuid::new_v4()),
                 model: format!("test_model_no_type_{}", uuid::Uuid::new_v4()),
                 architecture: "x86_64".to_string(),

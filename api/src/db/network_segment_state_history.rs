@@ -12,19 +12,16 @@
 
 use config_version::ConfigVersion;
 use forge_uuid::network::NetworkSegmentId;
+use model::network_segment::NetworkSegmentControllerState;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
-use crate::model::network_segment::NetworkSegmentControllerState;
 
 #[cfg(test)]
 pub async fn for_segment(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
-) -> Result<
-    Vec<crate::model::network_segment_state_history::NetworkSegmentStateHistory>,
-    DatabaseError,
-> {
+) -> Result<Vec<model::network_segment_state_history::NetworkSegmentStateHistory>, DatabaseError> {
     let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
             FROM network_segment_state_history
             WHERE segment_id=$1

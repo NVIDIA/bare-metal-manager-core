@@ -11,17 +11,17 @@
  */
 
 use forge_uuid::domain::DomainId;
+use model::domain::{Domain, NewDomain};
 use sqlx::PgConnection;
 
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::model::domain::{Domain, NewDomain};
 use crate::{CarbideError, CarbideResult};
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 
 #[test]
 fn test_domain_metadata() {
-    use crate::model::domain::DomainMetadata;
+    use model::domain::DomainMetadata;
     let mut domain_metadata = DomainMetadata::default();
     domain_metadata
         .update_allow_axfr_from(vec!["192.168.1.1".to_string(), "10.0.0.0/24".to_string()]);
@@ -189,7 +189,7 @@ fn test_generate_domain_serial_format() {
     let expected_serial = now.format("%Y%m%d01").to_string().parse::<u32>().unwrap();
 
     // Call the function that generates the serial
-    let serial = crate::model::domain::Soa::generate_new_serial();
+    let serial = model::domain::Soa::generate_new_serial();
 
     assert_eq!(serial, expected_serial);
 }

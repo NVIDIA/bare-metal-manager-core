@@ -19,15 +19,14 @@ use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Redfish, RedfishError};
-use regex::Regex;
-
-use crate::model::site_explorer::{
+use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
     ForgeSetupDiff, ForgeSetupStatus, InternalLockdownStatus, Inventory, LockdownStatus, Manager,
-    NetworkAdapter, PCIeDevice, PowerState, SecureBootStatus, Service, SystemStatus,
-    UefiDevicePath,
+    NetworkAdapter, PCIeDevice, SecureBootStatus, Service, UefiDevicePath,
 };
+use regex::Regex;
+
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
 const NOT_FOUND: u16 = 404;
@@ -853,88 +852,6 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
     }
 
     Ok(chassis)
-}
-
-impl From<libredfish::PowerState> for PowerState {
-    fn from(state: libredfish::PowerState) -> Self {
-        match state {
-            libredfish::PowerState::Off => PowerState::Off,
-            libredfish::PowerState::On => PowerState::On,
-            libredfish::PowerState::PoweringOff => PowerState::PoweringOff,
-            libredfish::PowerState::PoweringOn => PowerState::PoweringOn,
-            libredfish::PowerState::Paused => PowerState::Paused,
-            libredfish::PowerState::Reset => PowerState::PoweringOn,
-        }
-    }
-}
-
-impl From<libredfish::PCIeDevice> for PCIeDevice {
-    fn from(device: libredfish::PCIeDevice) -> Self {
-        PCIeDevice {
-            description: device.description,
-            firmware_version: device.firmware_version,
-            id: device.id,
-            manufacturer: device.manufacturer,
-            name: device.name,
-            part_number: device.part_number,
-            serial_number: device.serial_number,
-            status: device.status.map(|s| s.into()),
-            gpu_vendor: device.gpu_vendor,
-        }
-    }
-}
-impl From<PCIeDevice> for libredfish::PCIeDevice {
-    fn from(device: PCIeDevice) -> Self {
-        libredfish::PCIeDevice {
-            description: device.description,
-            firmware_version: device.firmware_version,
-            id: device.id,
-            manufacturer: device.manufacturer,
-            name: device.name,
-            part_number: device.part_number,
-            serial_number: device.serial_number,
-            status: device.status.map(|s| s.into()),
-            gpu_vendor: device.gpu_vendor,
-            odata: libredfish::OData {
-                odata_id: "odata_id".to_owned(),
-                odata_type: "odata_type".to_owned(),
-                odata_etag: None,
-                odata_context: None,
-            },
-            pcie_functions: None,
-            slot: None,
-        }
-    }
-}
-
-impl From<SystemStatus> for libredfish::model::SystemStatus {
-    fn from(status: SystemStatus) -> Self {
-        libredfish::model::SystemStatus {
-            health: status.health,
-            health_rollup: status.health_rollup,
-            state: Some(status.state),
-        }
-    }
-}
-impl From<libredfish::model::SystemStatus> for SystemStatus {
-    fn from(status: libredfish::model::SystemStatus) -> Self {
-        SystemStatus {
-            health: status.health,
-            health_rollup: status.health_rollup,
-            state: status.state.unwrap_or("".to_string()),
-        }
-    }
-}
-
-impl From<libredfish::model::BootOption> for BootOption {
-    fn from(boot_option: libredfish::model::BootOption) -> Self {
-        BootOption {
-            display_name: boot_option.display_name,
-            id: boot_option.id,
-            boot_option_enabled: boot_option.boot_option_enabled,
-            uefi_device_path: boot_option.uefi_device_path,
-        }
-    }
 }
 
 async fn fetch_boot_order(

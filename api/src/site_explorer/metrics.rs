@@ -14,11 +14,11 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use forge_uuid::machine::MachineType;
+use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
-use crate::model::site_explorer::{EndpointExplorationError, MachineExpectation};
 
 /// Metrics that are gathered in one site exploration run
 #[derive(Clone, Debug)]

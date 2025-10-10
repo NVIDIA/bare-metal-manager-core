@@ -1,10 +1,10 @@
 use libnvmesh::nvmesh_model;
+use model::storage::{StoragePool, StoragePoolAttributes};
+use model::tenant::TenantOrganizationId;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::db::DatabaseError;
-use crate::model::storage::{StoragePool, StoragePoolAttributes};
-use crate::model::tenant::TenantOrganizationId;
 
 pub async fn list(
     txn: &mut PgConnection,

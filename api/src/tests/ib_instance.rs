@@ -17,6 +17,8 @@ use common::api_fixtures::instance::{config_for_ib_config, create_instance_with_
 use common::api_fixtures::{TestEnv, create_managed_host};
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
+use model::ib::DEFAULT_IB_FABRIC_NAME;
+use model::machine::ManagedHostState;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{IbPartitionSearchConfig, IbPartitionStatus, TenantState};
 use tonic::Request;
@@ -24,8 +26,6 @@ use tonic::Request;
 use crate::api::Api;
 use crate::cfg::file::IBFabricConfig;
 use crate::ib::{Filter, IBFabric, IBFabricManager};
-use crate::model::ib::DEFAULT_IB_FABRIC_NAME;
-use crate::model::machine::ManagedHostState;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 

@@ -23,6 +23,7 @@ pub mod tests {
         TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
     };
     use forge_uuid::machine::MachineId;
+    use model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use rpc::forge::AttestQuoteRequest;
     use rpc::forge::forge_server::Forge;
     use rpc::machine_discovery::AttestKeyInfo;
@@ -30,7 +31,6 @@ pub mod tests {
     use tonic::Code;
 
     use crate::attestation::{cli_make_cred, do_compare_pub_key_against_cert};
-    use crate::model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use crate::tests::common;
     use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
     use crate::tests::common::api_fixtures::host::host_discover_dhcp;

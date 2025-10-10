@@ -11,10 +11,10 @@
  */
 
 use forge_uuid::machine::MachineInterfaceId;
+use model::machine_boot_override::MachineBootOverride;
 use sqlx::PgConnection;
 
 use crate::db::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::model::machine_boot_override::MachineBootOverride;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Clone, Copy)]

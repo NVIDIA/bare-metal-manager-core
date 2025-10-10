@@ -23,6 +23,7 @@ use forge_uuid::machine::{MachineId, MachineType};
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::machine::CandidateMachine;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use model::machine::topology::TopologyData;
 use rpc::protos::measured_boot::CandidateMachineSummaryPb;
 use serde::Serialize;
 use sqlx::{FromRow, PgConnection};
@@ -34,7 +35,6 @@ use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::machine::{
     get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
 };
-use crate::model::machine::topology::TopologyData;
 use crate::{CarbideError, CarbideResult};
 
 /// CandidateMachineRecord defines a single row from

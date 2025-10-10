@@ -17,18 +17,18 @@ use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcPrefixId;
+use model::instance::config::network::DeviceLocator;
+use model::instance::snapshot::InstanceSnapshot;
+use model::instance::status::network::InstanceNetworkStatusObservation;
+use model::machine::{
+    CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
+};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::instance_interface_config::NetworkDetails;
 use rpc::{InstanceReleaseRequest, Timestamp};
 
 use super::{TestEnv, inject_machine_measurements, persist_machine_validation_result};
 use crate::db;
-use crate::model::instance::config::network::DeviceLocator;
-use crate::model::instance::snapshot::InstanceSnapshot;
-use crate::model::instance::status::network::InstanceNetworkStatusObservation;
-use crate::model::machine::{
-    CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
-};
 use crate::tests::common::api_fixtures::{RpcInstance, TestManagedHost};
 
 pub struct TestInstanceBuilder<'a, 'b> {
@@ -343,7 +343,7 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
         &mh.host().id,
         10,
         ManagedHostState::Assigned {
-            instance_state: crate::model::machine::InstanceState::Ready,
+            instance_state: model::machine::InstanceState::Ready,
         },
     )
     .await;
@@ -367,8 +367,8 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
         &mh.host().id,
         1,
         ManagedHostState::Assigned {
-            instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
-                retry: crate::model::machine::RetryInfo { count: 0 },
+            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: model::machine::RetryInfo { count: 0 },
             },
         },
     )
@@ -404,7 +404,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
         &mh.host().id,
         2,
         ManagedHostState::Assigned {
-            instance_state: crate::model::machine::InstanceState::WaitingForNetworkReconfig,
+            instance_state: model::machine::InstanceState::WaitingForNetworkReconfig,
         },
     )
     .await;

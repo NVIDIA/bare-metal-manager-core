@@ -12,12 +12,12 @@
 
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
+use model::metadata::Metadata;
+use model::tenant::{Tenant, TenantPublicKeyValidationRequest};
 use sqlx::PgConnection;
 
 use super::ObjectFilter;
 use crate::db::DatabaseError;
-use crate::model::metadata::Metadata;
-use crate::model::tenant::{Tenant, TenantPublicKeyValidationRequest};
 use crate::{CarbideError, CarbideResult, db};
 
 type OrganizationID = String;

@@ -31,6 +31,29 @@ use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
+use model::DpuModel;
+use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
+use model::instance::InstanceNetworkSyncStatus;
+use model::instance::config::network::{
+    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId, NetworkDetails,
+};
+use model::instance::snapshot::InstanceSnapshot;
+use model::machine::LockdownMode::{self, Enable};
+use model::machine::infiniband::ib_config_synced;
+use model::machine::{
+    BomValidating, BomValidatingContext, CleanupState, CreateBossVolumeContext,
+    CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver, DpuInitState,
+    FailureCause, FailureDetails, FailureSource, HostReprovisionState, InitialResetPhase,
+    InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    Machine, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
+    MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
+    SetBootOrderState, SetSecureBootState, StateMachineArea, UefiSetupInfo, UefiSetupState,
+    ValidationState, get_display_ids,
+};
+use model::power_manager::PowerHandlingOutcome;
+use model::site_explorer::ExploredEndpoint;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
 use tokio::io::AsyncBufReadExt;
@@ -45,29 +68,6 @@ use crate::db::host_machine_update::clear_host_reprovisioning_request;
 use crate::db::machine::update_restart_verification_status;
 use crate::db::{self};
 use crate::firmware_downloader::FirmwareDownloader;
-use crate::model::DpuModel;
-use crate::model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
-use crate::model::instance::InstanceNetworkSyncStatus;
-use crate::model::instance::config::network::{
-    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId, NetworkDetails,
-};
-use crate::model::instance::snapshot::InstanceSnapshot;
-use crate::model::machine::LockdownMode::{self, Enable};
-use crate::model::machine::infiniband::ib_config_synced;
-use crate::model::machine::{
-    BomValidating, BomValidatingContext, CleanupState, CreateBossVolumeContext,
-    CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver, DpuInitState,
-    FailureCause, FailureDetails, FailureSource, HostReprovisionState, InitialResetPhase,
-    InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
-    Machine, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
-    MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
-    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
-    SetBootOrderState, SetSecureBootState, StateMachineArea, UefiSetupInfo, UefiSetupState,
-    ValidationState, get_display_ids,
-};
-use crate::model::power_manager::PowerHandlingOutcome;
-use crate::model::site_explorer::ExploredEndpoint;
 use crate::redfish::{self, host_power_control, set_host_uefi_password};
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
@@ -7048,7 +7048,7 @@ async fn handler_restart_dpu(
     db::machine::update_reboot_requested_time(
         &machine.id,
         txn,
-        crate::model::machine::MachineLastRebootRequestedMode::Reboot,
+        model::machine::MachineLastRebootRequestedMode::Reboot,
     )
     .await?;
 

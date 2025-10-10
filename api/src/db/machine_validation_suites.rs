@@ -11,11 +11,11 @@
  */
 
 use config_version::ConfigVersion;
+use model::machine_validation::MachineValidationTest;
 use regex::Regex;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
-use crate::model::machine_validation::MachineValidationTest;
 use crate::{CarbideError, CarbideResult};
 
 /// Method to generate an SQL update query based on the fields that are `Some`

@@ -36,6 +36,24 @@ use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::dpu_machine_update::DpuMachineUpdate;
+use model::instance::config::InstanceConfig;
+use model::instance::config::infiniband::InstanceInfinibandConfig;
+use model::instance::config::network::{
+    DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
+};
+use model::instance::config::storage::InstanceStorageConfig;
+use model::instance::status::network::{
+    InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
+};
+use model::machine::{
+    CleanupState, FailureDetails, InstanceState, MachineState, MachineValidatingState,
+    ManagedHostState, MeasuringState, NetworkConfigUpdateState, ValidationState,
+};
+use model::metadata::Metadata;
+use model::network_security_group::NetworkSecurityGroupStatusObservation;
+use model::network_segment::NetworkSegmentSearchConfig;
+use model::vpc::UpdateVpcVirtualization;
 use rpc::forge::{
     Issue, IssueCategory, NetworkSegmentSearchFilter, OperatingSystem, TpmCaCert, TpmCaCertId,
 };
@@ -50,24 +68,6 @@ use crate::db::network_segment::IdColumn;
 use crate::db::{self, ObjectColumnFilter};
 use crate::dhcp::allocation::UsedIpResolver;
 use crate::instance::{InstanceAllocationRequest, allocate_instance, allocate_network};
-use crate::model::dpu_machine_update::DpuMachineUpdate;
-use crate::model::instance::config::InstanceConfig;
-use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
-use crate::model::instance::config::network::{
-    DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
-};
-use crate::model::instance::config::storage::InstanceStorageConfig;
-use crate::model::instance::status::network::{
-    InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
-};
-use crate::model::machine::{
-    CleanupState, FailureDetails, InstanceState, MachineState, MachineValidatingState,
-    ManagedHostState, MeasuringState, NetworkConfigUpdateState, ValidationState,
-};
-use crate::model::metadata::Metadata;
-use crate::model::network_security_group::NetworkSecurityGroupStatusObservation;
-use crate::model::network_segment::NetworkSegmentSearchConfig;
-use crate::model::vpc::UpdateVpcVirtualization;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::single_interface_network_config_with_vfs;
@@ -460,8 +460,8 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         &mh.host().id,
         1,
         ManagedHostState::Assigned {
-            instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
-                retry: crate::model::machine::RetryInfo { count: 0 },
+            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: model::machine::RetryInfo { count: 0 },
             },
         },
     )
@@ -483,7 +483,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         &mh.host().id,
         2,
         ManagedHostState::Assigned {
-            instance_state: crate::model::machine::InstanceState::WaitingForNetworkReconfig,
+            instance_state: model::machine::InstanceState::WaitingForNetworkReconfig,
         },
     )
     .await;
@@ -524,7 +524,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: crate::model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                cause: model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
                 ..
             },
             ..
@@ -1980,8 +1980,8 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &mh.host().id,
         1,
         ManagedHostState::Assigned {
-            instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
-                retry: crate::model::machine::RetryInfo { count: 0 },
+            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: model::machine::RetryInfo { count: 0 },
             },
         },
     )
@@ -2004,8 +2004,8 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &mh.host().id,
         1,
         ManagedHostState::Assigned {
-            instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
-                retry: crate::model::machine::RetryInfo { count: 1 },
+            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: model::machine::RetryInfo { count: 1 },
             },
         },
     )
@@ -2741,7 +2741,7 @@ async fn create_tenant_overlay_prefix(
 ) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
     let vpc_prefix_id = crate::db::vpc_prefix::persist(
-        crate::model::vpc_prefix::NewVpcPrefix {
+        model::vpc_prefix::NewVpcPrefix {
             id: uuid::Uuid::new_v4().into(),
             prefix: IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
             name: "vpc_prefix_1".to_string(),

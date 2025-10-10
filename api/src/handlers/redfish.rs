@@ -4,6 +4,7 @@ use chrono::{DateTime, Local};
 use http::header::CONTENT_TYPE;
 use http::uri::Authority;
 use http::{HeaderMap, HeaderValue, Uri};
+use model::redfish::BMCResponse;
 use sqlx::PgPool;
 use utils::HostPortPair;
 
@@ -15,7 +16,6 @@ use crate::db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
 };
-use crate::model::redfish::BMCResponse;
 
 // TODO: put this in carbide config?
 pub const NUM_REQUIRED_APPROVALS: usize = 2;

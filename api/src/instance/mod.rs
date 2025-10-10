@@ -20,6 +20,22 @@ use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use model::ConfigValidationError;
+use model::hardware_info::InfinibandInterface;
+use model::instance::NewInstance;
+use model::instance::config::InstanceConfig;
+use model::instance::config::infiniband::InstanceInfinibandConfig;
+use model::instance::config::network::{
+    InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
+};
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{
+    HostHealthConfig, LoadSnapshotOptions, Machine, ManagedHostStateSnapshot, NotAllocatableReason,
+};
+use model::metadata::Metadata;
+use model::os::OperatingSystemVariant;
+use model::tenant::TenantOrganizationId;
+use model::vpc_prefix::VpcPrefix;
 use sqlx::{PgConnection, PgPool};
 
 use crate::api::Api;
@@ -27,22 +43,6 @@ use crate::db::ib_partition::{self, IBPartitionSearchConfig};
 use crate::db::{
     self, DatabaseError, ObjectColumnFilter, ObjectFilter, dpa_interface, network_security_group,
 };
-use crate::model::ConfigValidationError;
-use crate::model::hardware_info::InfinibandInterface;
-use crate::model::instance::NewInstance;
-use crate::model::instance::config::InstanceConfig;
-use crate::model::instance::config::infiniband::InstanceInfinibandConfig;
-use crate::model::instance::config::network::{
-    InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
-};
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{
-    HostHealthConfig, LoadSnapshotOptions, Machine, ManagedHostStateSnapshot, NotAllocatableReason,
-};
-use crate::model::metadata::Metadata;
-use crate::model::os::OperatingSystemVariant;
-use crate::model::tenant::TenantOrganizationId;
-use crate::model::vpc_prefix::VpcPrefix;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::{CarbideError, CarbideResult};
 
@@ -689,15 +689,12 @@ pub async fn validate_ib_partition_ownership(
 #[cfg(test)]
 #[test]
 fn test_sort_ib_by_slot() {
-    let path = concat!(
+    let data = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/model/hardware_info/test_data/x86_info.json"
-    )
-    .to_string();
+        "/model/src/hardware_info/test_data/x86_info.json"
+    ));
 
-    let data = std::fs::read(path).unwrap();
-    let hw_info =
-        serde_json::from_slice::<crate::model::hardware_info::HardwareInfo>(&data).unwrap();
+    let hw_info = serde_json::from_slice::<model::hardware_info::HardwareInfo>(data).unwrap();
     assert!(!hw_info.infiniband_interfaces.is_empty());
 
     let prev = sort_ib_by_slot(hw_info.infiniband_interfaces.as_ref());

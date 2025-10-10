@@ -12,6 +12,7 @@
 
 use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
+use model::hardware_info::TpmEkCertificate;
 use sha2::{Digest, Sha256};
 use sqlx::PgConnection;
 use x509_parser::certificate::X509Certificate;
@@ -22,7 +23,6 @@ use x509_parser::prelude::{FromDer, GeneralName};
 use crate::attestation::get_ek_cert_by_machine_id;
 use crate::db::attestation as db_attest;
 use crate::db::attestation::ek_cert_verification_status;
-use crate::model::hardware_info::TpmEkCertificate;
 use crate::{CarbideError, CarbideResult};
 
 pub fn extract_ca_fields(

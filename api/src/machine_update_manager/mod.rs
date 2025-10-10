@@ -22,18 +22,17 @@ use std::time::Duration;
 
 use forge_uuid::machine::MachineId;
 use host_firmware::HostFirmwareUpdate;
-use machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
+use machine_update_module::{HOST_UPDATE_HEALTH_REPORT_SOURCE, MachineUpdateModule};
+use model::dpu_machine_update::DpuMachineUpdate;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use sqlx::{PgConnection, PgPool};
 use tokio::sync::oneshot;
 
 use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
-use self::machine_update_module::MachineUpdateModule;
 use self::metrics::MachineUpdateManagerMetrics;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
 use crate::db::{DatabaseError, ObjectFilter};
-use crate::model::dpu_machine_update::DpuMachineUpdate;
-use crate::model::machine::machine_search_config::MachineSearchConfig;
-use crate::model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use crate::{CarbideResult, db};
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.

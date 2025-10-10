@@ -13,15 +13,13 @@
 pub use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use model::network_prefix::NetworkPrefix;
+use model::vpc_prefix::{DeleteVpcPrefix, NewVpcPrefix, PrefixMatch, UpdateVpcPrefix, VpcPrefix};
 use sqlx::{FromRow, PgConnection, QueryBuilder, Row};
 
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
 use crate::db;
 use crate::db::vpc::increment_vpc_version;
-use crate::model::network_prefix::NetworkPrefix;
-use crate::model::vpc_prefix::{
-    DeleteVpcPrefix, NewVpcPrefix, PrefixMatch, UpdateVpcPrefix, VpcPrefix,
-};
 
 async fn update_stats(
     prefixes: &mut [VpcPrefix],
@@ -168,7 +166,7 @@ pub async fn search(
     }
 
     if let Some(prefix_match) = prefix_match {
-        use crate::model::vpc_prefix::PrefixMatch::*;
+        use model::vpc_prefix::PrefixMatch::*;
         match prefix_match {
             Exact(prefix) => {
                 query.push(" AND prefix=");
