@@ -119,7 +119,8 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     }
 
     async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
-        let updated_machines = dpu_machine_update::get_updated_machines(txn, &self.config).await?;
+        let updated_machines =
+            dpu_machine_update::get_updated_machines(txn, self.config.host_health).await?;
         tracing::debug!("found {} updated machines", updated_machines.len());
         for updated_machine in updated_machines {
             if self

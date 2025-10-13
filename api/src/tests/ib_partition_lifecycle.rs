@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
-
 use forge_uuid::infiniband::IBPartitionId;
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use rpc::forge::TenantState;
@@ -25,7 +23,6 @@ use crate::db::ib_partition::{
     IBPartition, IBPartitionConfig, IBPartitionSearchConfig, IBPartitionStatus, NewIBPartition,
 };
 use crate::db::{self, ObjectColumnFilter};
-use crate::ib::{IBFabricManagerConfig, IBFabricManagerType};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 
@@ -298,20 +295,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         },
     };
     let mut txn = pool.begin().await?;
-    let mut partition: IBPartition = db::ib_partition::create(
-        new_partition,
-        &mut txn,
-        &IBFabricManagerConfig {
-            endpoints: HashMap::new(),
-            manager_type: IBFabricManagerType::Disable,
-            max_partition_per_tenant: 10,
-            mtu: IBMtu::default(),
-            rate_limit: IBRateLimit::default(),
-            service_level: IBServiceLevel::default(),
-            ..Default::default()
-        },
-    )
-    .await?;
+    let mut partition: IBPartition = db::ib_partition::create(new_partition, &mut txn, 10).await?;
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
