@@ -631,6 +631,22 @@ impl<'a> MockExploredHost<'a> {
             if stop_state == expected_state {
                 return self;
             }
+
+            // If auto_assign_sku_in_fixture is disabled and machine is stuck in WaitingForSkuAssignment,
+            // don't continue waiting - return early to allow tests to inspect this state
+            if !self.managed_host.auto_assign_sku_in_fixture
+                && matches!(
+                    stop_state,
+                    ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::WaitingForSkuAssignment(_)
+                    }
+                )
+            {
+                tracing::info!(
+                    "auto_assign_sku_in_fixture=false and machine in WaitingForSkuAssignment, returning early"
+                );
+                return self;
+            }
         }
         let stop_state =
             self.test_env
@@ -967,6 +983,12 @@ impl<'a> MockExploredHost<'a> {
                 ),
             }
         ) {
+            // Check if auto-assignment is enabled in the fixture config
+            if !self.managed_host.auto_assign_sku_in_fixture {
+                tracing::info!("Skipping auto SKU assignment (auto_assign_sku_in_fixture=false)");
+                return state;
+            }
+
             let mut txn = self.test_env.pool.begin().await.unwrap();
             tracing::info!("generating sku");
             let sku = crate::db::sku::generate_sku_from_machine(&mut txn, host_machine_id)

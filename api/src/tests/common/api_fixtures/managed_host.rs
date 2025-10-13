@@ -42,6 +42,10 @@ pub struct ManagedHostConfig {
     pub non_dpu_macs: Vec<MacAddress>,
     pub expected_state: ManagedHostState,
     pub ib_guids: Vec<String>,
+    /// Control whether the test fixture should automatically generate and assign SKU
+    /// when machine enters WaitingForSkuAssignment state.
+    /// Default: true (maintains backward compatibility)
+    pub auto_assign_sku_in_fixture: bool,
 }
 
 impl ManagedHostConfig {
@@ -101,6 +105,7 @@ impl Default for ManagedHostConfig {
             ib_guids: std::iter::repeat_with(|| ib_guid_pool::IB_GUID_POOL.allocate())
                 .take(6)
                 .collect(),
+            auto_assign_sku_in_fixture: true,
         }
     }
 }
