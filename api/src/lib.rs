@@ -51,7 +51,6 @@ mod measured_boot;
 mod network_segment;
 mod preingestion_manager;
 mod redfish;
-mod resource_pool;
 mod run;
 mod setup;
 mod site_explorer;

@@ -9,11 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+pub mod common;
+pub mod define;
+
 use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+pub use define::{Range, ResourcePoolDef, ResourcePoolType};
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -26,36 +30,6 @@ pub enum ResourcePoolEntryState {
     Free,
     /// The resource is allocated by a certain owner
     Allocated { owner: String, owner_type: String },
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_serialize_resource_pool_entry_state() {
-        let state = ResourcePoolEntryState::Free;
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, r#"{"state":"free"}"#);
-        assert_eq!(
-            serde_json::from_str::<ResourcePoolEntryState>(&serialized).unwrap(),
-            state
-        );
-
-        let state = ResourcePoolEntryState::Allocated {
-            owner: "me".to_string(),
-            owner_type: "my_stuff".to_string(),
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"state":"allocated","owner":"me","owner_type":"my_stuff"}"#
-        );
-        assert_eq!(
-            serde_json::from_str::<ResourcePoolEntryState>(&serialized).unwrap(),
-            state
-        );
-    }
 }
 
 #[derive(Debug)]
@@ -232,4 +206,34 @@ pub enum ResourcePoolError {
         owner_type: String,
         owner_id: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_resource_pool_entry_state() {
+        let state = ResourcePoolEntryState::Free;
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(serialized, r#"{"state":"free"}"#);
+        assert_eq!(
+            serde_json::from_str::<ResourcePoolEntryState>(&serialized).unwrap(),
+            state
+        );
+
+        let state = ResourcePoolEntryState::Allocated {
+            owner: "me".to_string(),
+            owner_type: "my_stuff".to_string(),
+        };
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"state":"allocated","owner":"me","owner_type":"my_stuff"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ResourcePoolEntryState>(&serialized).unwrap(),
+            state
+        );
+    }
 }

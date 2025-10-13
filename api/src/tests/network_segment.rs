@@ -30,6 +30,7 @@ use model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegment, NetworkSegmentControllerState,
     NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
 };
+use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
 use model::vpc::UpdateVpcVirtualization;
 use rpc::forge::NetworkSegmentSearchConfig;
@@ -39,7 +40,6 @@ use tonic::Request;
 use crate::db::ObjectColumnFilter;
 use crate::db::network_segment::VpcColumn;
 use crate::db::vpc::IdColumn;
-use crate::resource_pool::common::VLANID;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::tests::common::api_fixtures::{

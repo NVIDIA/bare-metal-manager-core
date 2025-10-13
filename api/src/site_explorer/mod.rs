@@ -32,6 +32,7 @@ use model::machine::{
     DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
 };
 use model::metadata::Metadata;
+use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState, PreingestionState,
@@ -45,7 +46,6 @@ use version_compare::Cmp;
 
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
 use crate::db::{self, DatabaseError, ObjectFilter, machine};
-use crate::resource_pool::common::CommonPools;
 use crate::{CarbideError, CarbideResult};
 
 mod endpoint_explorer;

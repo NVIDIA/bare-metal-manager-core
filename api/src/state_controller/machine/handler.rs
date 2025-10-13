@@ -53,6 +53,7 @@ use model::machine::{
     ValidationState, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
+use model::resource_pool::common::CommonPools;
 use model::site_explorer::ExploredEndpoint;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
@@ -69,7 +70,6 @@ use crate::db::machine::update_restart_verification_status;
 use crate::db::{self};
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::redfish::{self, host_power_control, set_host_uefi_password};
-use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::{
     MeasuringOutcome, get_measuring_prerequisites, handle_measuring_state,

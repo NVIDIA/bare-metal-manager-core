@@ -1444,6 +1444,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "thiserror 2.0.16",
+ "tokio",
  "tracing",
  "tss-esapi",
  "utils",

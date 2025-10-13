@@ -24,6 +24,7 @@ use futures_util::TryFutureExt;
 use model::expected_machine::ExpectedMachine;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::HostHealthConfig;
+use model::resource_pool::{self};
 use model::route_server::RouteServerSourceType;
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
@@ -35,6 +36,7 @@ use crate::api::Api;
 use crate::cfg::file::{CarbideConfig, ListenMode};
 use crate::db::DatabaseError;
 use crate::db::machine::update_dpu_asns;
+use crate::db::resource_pool::DefineResourcePoolError;
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::firmware_downloader::FirmwareDownloader;
@@ -51,8 +53,6 @@ use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::preingestion_manager::PreingestionManager;
 use crate::redfish::RedfishClientPool;
-use crate::resource_pool::common::CommonPools;
-use crate::resource_pool::{self, DefineResourcePoolError};
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::controller::StateController;
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
@@ -214,7 +214,7 @@ pub async fn start_api(
             .begin()
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
-        resource_pool::define_all_from(
+        db::resource_pool::define_all_from(
             &mut txn,
             carbide_config.pools.as_ref().ok_or_else(|| {
                 DefineResourcePoolError::InvalidArgument(String::from(
@@ -246,7 +246,8 @@ pub async fn start_api(
             .await
             .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
     };
-    let common_pools = CommonPools::create(db_pool.clone(), ib_fabric_ids).await?;
+    let common_pools =
+        db::resource_pool::create_common_pools(db_pool.clone(), ib_fabric_ids).await?;
 
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
         vault_client.clone(),
@@ -395,7 +396,7 @@ pub async fn initialize_and_start_controllers(
         .begin()
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
-    resource_pool::define_all_from(
+    db::resource_pool::define_all_from(
         &mut txn,
         carbide_config.pools.as_ref().ok_or_else(|| {
             DefineResourcePoolError::InvalidArgument(String::from(
@@ -467,11 +468,11 @@ pub async fn initialize_and_start_controllers(
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         for (fabric_id, x) in carbide_config.ib_fabrics.iter() {
-            resource_pool::define::define(
+            db::resource_pool::define(
                 &mut txn,
-                &resource_pool::common::ib_pkey_pool_name(fabric_id),
+                &model::resource_pool::common::ib_pkey_pool_name(fabric_id),
                 &resource_pool::ResourcePoolDef {
-                    pool_type: resource_pool::define::ResourcePoolType::Integer,
+                    pool_type: model::resource_pool::define::ResourcePoolType::Integer,
                     ranges: x.pkeys.clone(),
                     prefix: None,
                 },

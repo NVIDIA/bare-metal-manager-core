@@ -17,6 +17,7 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
 use model::network_security_group::{NetworkSecurityGroup, NetworkSecurityGroupRuleNet};
 use model::network_segment::NetworkSegment;
+use model::resource_pool::common::CommonPools;
 use sqlx::PgConnection;
 use tonic::Status;
 
@@ -25,7 +26,6 @@ use crate::cfg::file::VpcPeeringPolicy;
 use crate::db::vpc::{self};
 use crate::db::vpc_peering::get_prefixes_by_vpcs;
 use crate::db::{self, ObjectColumnFilter};
-use crate::resource_pool::common::CommonPools;
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {

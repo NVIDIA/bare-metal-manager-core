@@ -355,14 +355,14 @@ pub async fn allocate_vni(
     match db::resource_pool::allocate(
         &api.common_pools.ethernet.pool_vni,
         txn,
-        crate::resource_pool::OwnerType::NetworkSegment,
+        model::resource_pool::OwnerType::NetworkSegment,
         owner_id,
     )
     .await
     {
         Ok(val) => Ok(val),
         Err(ResourcePoolDatabaseError::ResourcePool(
-            crate::resource_pool::ResourcePoolError::Empty,
+            model::resource_pool::ResourcePoolError::Empty,
         )) => {
             tracing::error!(owner_id, pool = "vni", "Pool exhausted, cannot allocate");
             Err(CarbideError::ResourceExhausted("pool vni".to_string()))
@@ -385,14 +385,14 @@ pub async fn allocate_vlan_id(
     match db::resource_pool::allocate(
         &api.common_pools.ethernet.pool_vlan_id,
         txn,
-        crate::resource_pool::OwnerType::NetworkSegment,
+        model::resource_pool::OwnerType::NetworkSegment,
         owner_id,
     )
     .await
     {
         Ok(val) => Ok(val),
         Err(ResourcePoolDatabaseError::ResourcePool(
-            crate::resource_pool::ResourcePoolError::Empty,
+            model::resource_pool::ResourcePoolError::Empty,
         )) => {
             tracing::error!(
                 owner_id,

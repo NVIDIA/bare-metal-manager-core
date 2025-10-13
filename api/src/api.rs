@@ -52,6 +52,8 @@ use model::machine::{
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use model::metadata::Metadata;
+use model::resource_pool;
+use model::resource_pool::common::CommonPools;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 #[cfg(feature = "linux-build")]
@@ -82,12 +84,11 @@ use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::redfish::{RedfishAuth, RedfishClientPool};
-use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::storage::NvmeshClientPool;
 use crate::{
     CarbideError, CarbideResult, attestation as attest, auth, dynamic_settings,
-    ethernet_virtualization, measured_boot, resource_pool,
+    ethernet_virtualization, measured_boot,
 };
 
 pub struct Api {

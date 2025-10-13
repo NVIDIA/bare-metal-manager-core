@@ -51,6 +51,7 @@ tracing = "*"
 tss-esapi = { version = "7.5.0", optional = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 version-compare = "0.2.0"
+tokio = { workspace = true }
 #these are alphabetized
 
 [features]
