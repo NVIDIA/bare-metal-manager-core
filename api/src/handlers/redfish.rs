@@ -79,7 +79,15 @@ pub async fn redfish_list_actions(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let result = list_requests(api, request).await?;
+
+    const DB_TXN_NAME: &str = "list redfish actions";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
+    let result = list_requests(request, &mut txn).await?;
 
     Ok(tonic::Response::new(
         rpc::forge::RedfishListActionsResponse {

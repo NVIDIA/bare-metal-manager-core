@@ -5792,40 +5792,6 @@ impl Api {
         }
     }
 
-    /// Allocate a value from the dpa vni resource pool.
-    ///
-    /// If the pool exists but is empty or has en error, return that.
-    pub(crate) async fn pool_allocate_dpa_vni(
-        &self,
-        txn: &mut PgConnection,
-        owner_id: &str,
-    ) -> Result<i32, CarbideError> {
-        match db::resource_pool::allocate(
-            &self.common_pools.dpa.pool_dpa_vni,
-            txn,
-            resource_pool::OwnerType::Dpa,
-            owner_id,
-        )
-        .await
-        {
-            Ok(val) => Ok(val),
-            Err(ResourcePoolDatabaseError::ResourcePool(
-                resource_pool::ResourcePoolError::Empty,
-            )) => {
-                tracing::error!(
-                    owner_id,
-                    pool = "dpa_vni",
-                    "Pool exhausted, cannot allocate"
-                );
-                Err(CarbideError::ResourceExhausted("pool dpa_vni".to_string()))
-            }
-            Err(err) => {
-                tracing::error!(owner_id, error = %err, pool = "dpa_vni", "Error allocating from resource pool");
-                Err(err.into())
-            }
-        }
-    }
-
     /// Allocate a value from the pkey resource pool.
     ///
     /// If the pool doesn't exist return error.
