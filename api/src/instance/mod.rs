@@ -131,7 +131,7 @@ pub async fn allocate_dpa_vni(
         .await
         .map_err(CarbideError::DBError)?;
 
-    db::vpc::allocate_dpa_vni(vpc, txn, api).await?;
+    db::vpc::allocate_dpa_vni(txn, vpc, &api.common_pools.dpa.pool_dpa_vni).await?;
 
     Ok(())
 }

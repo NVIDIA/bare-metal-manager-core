@@ -8,8 +8,8 @@ use crate::CarbideError;
 use crate::db::{self, DatabaseError};
 
 pub async fn list_requests(
-    api: &crate::api::Api,
     request: rpc::forge::RedfishListActionsRequest,
+    txn: &mut PgConnection,
 ) -> Result<Vec<ActionRequest>, DatabaseError> {
     let text_query = format!(
         "SELECT
@@ -41,7 +41,7 @@ pub async fn list_requests(
         sqlx::query_as(&text_query)
     };
     let result: Vec<ActionRequest> = query
-        .fetch_all(&api.database_connection)
+        .fetch_all(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(&text_query, e))?;
     Ok(result)

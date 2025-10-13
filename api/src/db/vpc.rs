@@ -9,18 +9,22 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
+use model::resource_pool;
+use model::resource_pool::ResourcePool;
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use sqlx::PgConnection;
 
 use super::{
     ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc,
 };
-use crate::api::Api;
-use crate::{CarbideError, CarbideResult, db};
+use crate::db;
+use crate::db::resource_pool::ResourcePoolDatabaseError;
+use crate::errors::{CarbideError, CarbideResult};
 
 #[derive(Clone, Copy)]
 pub struct VniColumn;
@@ -151,9 +155,9 @@ pub async fn set_vni(txn: &mut PgConnection, id: VpcId, vni: i32) -> Result<(), 
 }
 
 pub async fn allocate_dpa_vni(
-    mut value: Vpc,
     txn: &mut PgConnection,
-    api: &Api,
+    mut value: Vpc,
+    dpa_vni_resource_pool: &ResourcePool<i32>,
 ) -> Result<(), CarbideError> {
     if let Some(dpa_vni) = value.dpa_vni
         && dpa_vni != 0
@@ -161,12 +165,32 @@ pub async fn allocate_dpa_vni(
         return Ok(());
     };
 
-    // VPC does not have dpa_vni associated with it. Allocate an dpa_vni for VPC now.
+    let owner_id = value.id.to_string();
 
-    value.dpa_vni = Some(
-        api.pool_allocate_dpa_vni(txn, &value.id.to_string())
-            .await?,
-    );
+    // VPC does not have dpa_vni associated with it. Allocate an dpa_vni for VPC now.
+    value.dpa_vni = match db::resource_pool::allocate(
+        dpa_vni_resource_pool,
+        txn,
+        resource_pool::OwnerType::Dpa,
+        &value.id.to_string(),
+    )
+    .await
+    {
+        Ok(val) => Some(val),
+        Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
+            tracing::error!(
+                owner_id,
+                pool = "dpa_vni",
+                "Pool exhausted, cannot allocate"
+            );
+            return Err(CarbideError::ResourceExhausted("pool dpa_vni".to_string()));
+        }
+        Err(err) => {
+            tracing::error!(owner_id, error = %err, pool = "dpa_vni", "Error allocating from resource pool");
+            return Err(err.into());
+        }
+    };
+
     set_dpa_vni(txn, value.id, value.dpa_vni.unwrap()).await?;
 
     Ok(())
