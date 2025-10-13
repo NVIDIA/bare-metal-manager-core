@@ -16,17 +16,17 @@ use ::rpc::errors::RpcDataConversionError;
 use config_version::ConfigVersionParseError;
 use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
-use model::ConfigValidationError;
 use model::errors::ModelError;
 use model::hardware_info::HardwareInfoError;
 use model::network_devices::LldpError;
 use model::site_explorer::EndpointExplorationError;
 use model::tenant::TenantError;
+use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
 
+use crate::db;
 use crate::db::resource_pool::ResourcePoolDatabaseError;
 use crate::dhcp::allocation::DhcpError;
-use crate::{db, resource_pool};
 
 /// Represents various Errors that can occur throughout the system.
 ///

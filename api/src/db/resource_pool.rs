@@ -9,15 +9,24 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 use config_version::ConfigVersion;
+use model::resource_pool;
+use model::resource_pool::common::{
+    CommonPools, DPA_VNI, DpaPools, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP, VLANID, VNI,
+    VPC_DPU_LOOPBACK, VPC_VNI,
+};
+use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 use model::resource_pool::{
     OwnerType, ResourcePool, ResourcePoolEntry, ResourcePoolEntryState, ResourcePoolError,
-    ResourcePoolSnapshot, ResourcePoolStats,
+    ResourcePoolSnapshot, ResourcePoolStats, ValueType,
 };
 use sqlx::{PgConnection, Postgres};
+use tokio::sync::oneshot;
 
 use super::BIND_LIMIT;
 use crate::db::DatabaseError;
@@ -208,4 +217,298 @@ pub enum ResourcePoolDatabaseError {
     ResourcePool(#[from] ResourcePoolError),
     #[error(transparent)]
     Database(#[from] DatabaseError),
+}
+
+/// A pool bigger than this is very likely a mistake
+const MAX_POOL_SIZE: usize = 250_000;
+
+#[derive(thiserror::Error, Debug)]
+pub enum DefineResourcePoolError {
+    #[error("Invalid TOML: {0}")]
+    InvalidToml(#[from] toml::de::Error),
+
+    #[error("{0}")]
+    InvalidArgument(String),
+
+    #[error("Resource pool error: {0}")]
+    ResourcePoolError(#[from] model::resource_pool::ResourcePoolError),
+
+    #[error("Max pool size exceeded. {0} > {1}")]
+    TooBig(usize, usize),
+
+    #[error("Database error: {0}")]
+    DatabaseError(#[from] DatabaseError),
+}
+
+/// Create or edit the resource pools, making them match the given toml string.
+/// Does not delete or shrink pools, is only additive.
+pub async fn define_all_from(
+    txn: &mut PgConnection,
+    pools: &HashMap<String, ResourcePoolDef>,
+) -> Result<(), DefineResourcePoolError> {
+    for (ref name, def) in pools {
+        define(txn, name, def).await?;
+        tracing::info!(pool_name = name, "Pool populated");
+    }
+    Ok(())
+}
+
+pub async fn define(
+    txn: &mut PgConnection,
+    name: &str,
+    def: &ResourcePoolDef,
+) -> Result<(), DefineResourcePoolError> {
+    if name == "pkey" {
+        return Err(DefineResourcePoolError::InvalidArgument(
+            "pkey pool is deprecated. Use ib_fabrics.default.pkeys as replacement".to_string(),
+        ));
+    }
+
+    match (&def.prefix, &def.ranges) {
+        // Neither is given
+        (None, ranges) if ranges.is_empty() => {
+            return Err(DefineResourcePoolError::InvalidArgument(
+                "Please provide one of 'prefix' or 'ranges'".to_string(),
+            ));
+        }
+        // Both are given
+        (Some(_), ranges) if !ranges.is_empty() => {
+            return Err(DefineResourcePoolError::InvalidArgument(
+                "Please provide only one of 'prefix' or 'ranges'".to_string(),
+            ));
+        }
+        // Just prefix
+        (Some(prefix), _) => {
+            define_by_prefix(txn, name, def.pool_type, prefix).await?;
+        }
+        // Just ranges
+        (None, ranges) => {
+            for range in ranges {
+                define_by_range(txn, name, def.pool_type, &range.start, &range.end).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn define_by_prefix(
+    txn: &mut PgConnection,
+    name: &str,
+    pool_type: ResourcePoolType,
+    prefix: &str,
+) -> Result<(), DefineResourcePoolError> {
+    if !matches!(pool_type, ResourcePoolType::Ipv4) {
+        return Err(DefineResourcePoolError::InvalidArgument(
+            "Only type 'ipv4' can take a prefix".to_string(),
+        ));
+    }
+    let values = expand_ip_prefix(prefix)
+        .map_err(|e| DefineResourcePoolError::InvalidArgument(e.to_string()))?;
+    let num_values = values.len();
+    if num_values > MAX_POOL_SIZE {
+        return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
+    }
+    let pool = model::resource_pool::ResourcePool::new(
+        name.to_string(),
+        model::resource_pool::ValueType::Ipv4,
+    );
+    populate(&pool, txn, values).await?;
+    tracing::debug!(
+        pool_name = name,
+        num_values,
+        "Populated IP resource pool from prefix"
+    );
+
+    Ok(())
+}
+
+async fn define_by_range(
+    txn: &mut PgConnection,
+    name: &str,
+    pool_type: ResourcePoolType,
+    range_start: &str,
+    range_end: &str,
+) -> Result<(), DefineResourcePoolError> {
+    match pool_type {
+        ResourcePoolType::Ipv4 => {
+            let values = expand_ip_range(range_start, range_end)
+                .map_err(|e| DefineResourcePoolError::InvalidArgument(e.to_string()))?;
+            let num_values = values.len();
+            if num_values > MAX_POOL_SIZE {
+                return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
+            }
+            let pool = model::resource_pool::ResourcePool::new(
+                name.to_string(),
+                model::resource_pool::ValueType::Ipv4,
+            );
+            populate(&pool, txn, values).await?;
+            tracing::debug!(
+                pool_name = name,
+                num_values,
+                "Populated IP resource pool from range"
+            );
+        }
+        ResourcePoolType::Integer => {
+            let values = expand_int_range(range_start, range_end)
+                .map_err(|e| DefineResourcePoolError::InvalidArgument(e.to_string()))?;
+            let num_values = values.len();
+            if num_values > MAX_POOL_SIZE {
+                return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
+            }
+            let pool = model::resource_pool::ResourcePool::new(
+                name.to_string(),
+                model::resource_pool::ValueType::Integer,
+            );
+            populate(&pool, txn, values).await?;
+            tracing::debug!(pool_name = name, num_values, "Populated int resource pool");
+        }
+    }
+    Ok(())
+}
+
+// Expands a string like "10.180.62.1/26" into all the ip addresses it covers
+fn expand_ip_prefix(network: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
+    let n: ipnetwork::IpNetwork = network.parse()?;
+    let (start_addr, end_addr) = match (n.network(), n.broadcast()) {
+        (IpAddr::V4(start), IpAddr::V4(end)) => (start, end),
+        _ => {
+            eyre::bail!("Invalid IPv4 network: {network}");
+        }
+    };
+    let start: u32 = start_addr.into();
+    let end: u32 = end_addr.into();
+    Ok((start..end).map(Ipv4Addr::from).collect())
+}
+
+// All the IPv4 addresses between start_s and end_s
+fn expand_ip_range(start_s: &str, end_s: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
+    let start_addr: Ipv4Addr = start_s.parse()?;
+    let end_addr: Ipv4Addr = end_s.parse()?;
+    let start: u32 = start_addr.into();
+    let end: u32 = end_addr.into();
+    Ok((start..end).map(Ipv4Addr::from).collect())
+}
+
+// All the numbers between start_s and end_s
+fn expand_int_range(start_s: &str, end_s: &str) -> Result<Vec<i64>, eyre::Report> {
+    let start: i64 = parse_int_range(start_s)?;
+    let end: i64 = parse_int_range(end_s)?;
+    Ok((start..end).collect())
+}
+
+const HEX_PRE: &str = "0x";
+
+fn parse_int_range(data: &str) -> Result<i64, eyre::Report> {
+    let data = data.to_lowercase();
+    let base = if data.starts_with(HEX_PRE) { 16 } else { 10 };
+    let p = data.trim_start_matches(HEX_PRE);
+
+    i64::from_str_radix(p, base).map_err(eyre::Report::from)
+}
+
+/// How often to update the resource pool metrics
+const METRICS_RESOURCEPOOL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+pub async fn create_common_pools(
+    db: sqlx::PgPool,
+    ib_fabric_ids: HashSet<String>,
+) -> eyre::Result<Arc<CommonPools>> {
+    let mut pool_names = Vec::new();
+    let mut optional_pool_names = Vec::new();
+
+    let pool_loopback_ip: Arc<ResourcePool<Ipv4Addr>> =
+        Arc::new(ResourcePool::new(LOOPBACK_IP.to_string(), ValueType::Ipv4));
+    pool_names.push(pool_loopback_ip.name().to_string());
+    let pool_vlan_id: Arc<ResourcePool<i16>> =
+        Arc::new(ResourcePool::new(VLANID.to_string(), ValueType::Integer));
+    pool_names.push(pool_vlan_id.name().to_string());
+    let pool_vni: Arc<ResourcePool<i32>> =
+        Arc::new(ResourcePool::new(VNI.to_string(), ValueType::Integer));
+    pool_names.push(pool_vni.name().to_string());
+    let pool_vpc_vni: Arc<ResourcePool<i32>> =
+        Arc::new(ResourcePool::new(VPC_VNI.to_string(), ValueType::Integer));
+    pool_names.push(pool_vpc_vni.name().to_string());
+    let pool_fnn_asn: Arc<ResourcePool<u32>> =
+        Arc::new(ResourcePool::new(FNN_ASN.to_string(), ValueType::Integer));
+    optional_pool_names.push(pool_fnn_asn.name().to_string());
+
+    let pool_vpc_dpu_loopback_ip: Arc<ResourcePool<Ipv4Addr>> = Arc::new(ResourcePool::new(
+        VPC_DPU_LOOPBACK.to_string(),
+        ValueType::Ipv4,
+    ));
+    //  TODO: This should be removed from optional once FNN become mandatory.
+    optional_pool_names.push(pool_vpc_dpu_loopback_ip.name().to_string());
+
+    // We can't run if any of the mandatory pools are missing
+    for name in &pool_names {
+        if stats(&db, name).await?.free == 0 {
+            eyre::bail!("Resource pool '{name}' missing or full. Edit config file and restart.");
+        }
+    }
+
+    pool_names.extend(optional_pool_names);
+
+    // It's ok for IB partition pools to be missing or full - as long as nobody tries to use partitions
+    let pkey_pools: Arc<HashMap<String, ResourcePool<u16>>> = Arc::new(
+        ib_fabric_ids
+            .into_iter()
+            .map(|fabric_id| {
+                (
+                    fabric_id.clone(),
+                    ResourcePool::new(
+                        resource_pool::common::ib_pkey_pool_name(&fabric_id),
+                        ValueType::Integer,
+                    ),
+                )
+            })
+            .collect(),
+    );
+    pool_names.extend(pkey_pools.values().map(|pool| pool.name().to_string()));
+
+    let pool_dpa_vni: Arc<ResourcePool<i32>> =
+        Arc::new(ResourcePool::new(DPA_VNI.to_string(), ValueType::Integer));
+
+    pool_names.extend(vec![pool_dpa_vni.name().to_string()]);
+
+    // Gather resource pool stats. A different thread sends them to Prometheus.
+    let (stop_sender, mut stop_receiver) = oneshot::channel();
+    let pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let pool_stats_bg = pool_stats.clone();
+    tokio::task::Builder::new()
+        .name("resource_pool metrics")
+        .spawn(async move {
+            loop {
+                let mut next_stats = HashMap::with_capacity(pool_names.len());
+                for name in &pool_names {
+                    if let Ok(st) = stats(&db, name).await {
+                        next_stats.insert(name.to_string(), st);
+                    }
+                }
+                *pool_stats_bg.lock().unwrap() = next_stats;
+
+                tokio::select! {
+                    _ = tokio::time::sleep(METRICS_RESOURCEPOOL_INTERVAL) => {},
+                    _ = &mut stop_receiver => {
+                        tracing::info!("CommonPool metrics stop was requested");
+                        return;
+                    }
+                }
+            }
+        })?;
+
+    Ok(Arc::new(CommonPools {
+        ethernet: EthernetPools {
+            pool_loopback_ip,
+            pool_vlan_id,
+            pool_vni,
+            pool_vpc_vni,
+            pool_fnn_asn,
+            pool_vpc_dpu_loopback_ip,
+        },
+        infiniband: IbPools { pkey_pools },
+        dpa: DpaPools { pool_dpa_vni },
+        pool_stats,
+        _stop_sender: stop_sender,
+    }))
 }

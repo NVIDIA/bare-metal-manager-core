@@ -40,16 +40,16 @@ use model::machine::{
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::metadata::Metadata;
+use model::resource_pool::common::CommonPools;
+use model::resource_pool::{self, ResourcePoolError};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
 use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, queries};
-use crate::resource_pool::ResourcePoolError;
-use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
-use crate::{CarbideError, CarbideResult, db, resource_pool};
+use crate::{CarbideError, CarbideResult, db};
 
 #[derive(Serialize)]
 struct ReprovisionRequestRestart {

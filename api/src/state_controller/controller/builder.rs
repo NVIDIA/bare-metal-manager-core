@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use model::resource_pool::common::IbPools;
 use mqttea::client::MqtteaClient;
 use opentelemetry::metrics::Meter;
 use tokio::sync::oneshot;
@@ -20,7 +21,6 @@ use crate::cfg::file::CarbideConfig;
 use crate::ib::IBFabricManager;
 use crate::ipmitool::IPMITool;
 use crate::redfish::RedfishClientPool;
-use crate::resource_pool::common::IbPools;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{StateController, StateControllerHandle};
 use crate::state_controller::io::StateControllerIO;

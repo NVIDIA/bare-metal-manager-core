@@ -44,6 +44,8 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::network_security_group;
+use model::resource_pool::common::CommonPools;
+use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
@@ -79,8 +81,6 @@ use crate::ipmitool::IPMIToolTestImpl;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
 use crate::redfish::test_support::RedfishSim;
-use crate::resource_pool::common::CommonPools;
-use crate::resource_pool::{self};
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::controller::StateController;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
@@ -1085,14 +1085,15 @@ pub async fn create_test_env_with_overrides(
     // configured site prefixes
     let pool_size = site_fabric_count.max(5);
     let mut txn = db_pool.begin().await.unwrap();
-    resource_pool::define_all_from(&mut txn, &pool_defs(pool_size))
+    db::resource_pool::define_all_from(&mut txn, &pool_defs(pool_size))
         .await
         .unwrap();
     txn.commit().await.unwrap();
 
-    let common_pools = CommonPools::create(db_pool.clone(), ["default".to_string()].into())
-        .await
-        .expect("Creating pools should work");
+    let common_pools =
+        db::resource_pool::create_common_pools(db_pool.clone(), ["default".to_string()].into())
+            .await
+            .expect("Creating pools should work");
 
     let dyn_settings = crate::dynamic_settings::DynamicSettings {
         log_filter: Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
@@ -1519,7 +1520,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         },
     );
     defs.insert(
-        resource_pool::common::VPC_DPU_LOOPBACK.to_string(),
+        model::resource_pool::common::VPC_DPU_LOOPBACK.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Ipv4,
             // Must match a network_prefix in fixtures/create_network_segment.sql
@@ -1531,7 +1532,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         },
     );
     defs.insert(
-        resource_pool::common::LOOPBACK_IP.to_string(),
+        model::resource_pool::common::LOOPBACK_IP.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Ipv4,
             // Must match a network_prefix in fixtures/create_network_segment.sql
@@ -1540,7 +1541,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         },
     );
     defs.insert(
-        resource_pool::common::VNI.to_string(),
+        model::resource_pool::common::VNI.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {
@@ -1551,7 +1552,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         },
     );
     defs.insert(
-        resource_pool::common::VLANID.to_string(),
+        model::resource_pool::common::VLANID.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {
@@ -1562,7 +1563,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         },
     );
     defs.insert(
-        resource_pool::common::VPC_VNI.to_string(),
+        model::resource_pool::common::VPC_VNI.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {
@@ -1573,7 +1574,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         },
     );
     defs.insert(
-        resource_pool::common::DPA_VNI.to_string(),
+        model::resource_pool::common::DPA_VNI.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {
@@ -1584,7 +1585,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         },
     );
     defs.insert(
-        resource_pool::common::FNN_ASN.to_string(),
+        model::resource_pool::common::FNN_ASN.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {

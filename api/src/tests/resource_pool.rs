@@ -15,14 +15,13 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use common::api_fixtures::create_test_env;
+use model::resource_pool::common::VPC_VNI;
 use model::resource_pool::{
     OwnerType, ResourcePool, ResourcePoolError, ResourcePoolStats as St, ValueType,
 };
 use rpc::forge::forge_server::Forge;
 use sqlx::migrate::MigrateDatabase;
 
-use crate::resource_pool::all;
-use crate::resource_pool::common::VPC_VNI;
 use crate::tests::common;
 use crate::{db, tests};
 
@@ -376,7 +375,7 @@ async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     }
 
     // What we're testing
-    let all = all(&mut txn).await?;
+    let all = db::resource_pool::all(&mut txn).await?;
 
     // Verify
     assert_eq!(all.len(), 3);

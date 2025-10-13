@@ -230,7 +230,7 @@ async fn search(
 
         // Look for IP address in resource pools
         ResourcePools => {
-            let mut vec_out = crate::resource_pool::find_value(&mut txn, ip).await?;
+            let mut vec_out = db::resource_pool::find_value(&mut txn, ip).await?;
             let entry = match vec_out.len() {
                 0 => return Ok(None),
                 1 => vec_out.remove(0),

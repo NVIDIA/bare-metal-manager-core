@@ -35,6 +35,7 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::os::OperatingSystem;
+use model::resource_pool::common::CommonPools;
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
@@ -47,7 +48,6 @@ use crate::instance::{
     validate_ib_partition_ownership,
 };
 use crate::redfish::RedfishAuth;
-use crate::resource_pool::common::CommonPools;
 use crate::{CarbideError, CarbideResult};
 
 pub(crate) async fn allocate(

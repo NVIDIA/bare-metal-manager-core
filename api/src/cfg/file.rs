@@ -34,12 +34,12 @@ use model::firmware::{
 use model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 use model::machine::HostHealthConfig;
 use model::network_segment::NetworkDefinition;
+use model::resource_pool::define::ResourcePoolDef;
 use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utils::HostPortPair;
 
-use crate::resource_pool::{self, ResourcePoolDef};
 use crate::state_controller::config::IterationConfig;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
@@ -1630,7 +1630,7 @@ pub struct IbFabricDefinition {
     /// pkey ranges used for the fabric
     /// Note that editing the pkey ranges will never shrink the currently defined
     /// ranges. It can only be used to expand the range
-    pub pkeys: Vec<resource_pool::define::Range>,
+    pub pkeys: Vec<model::resource_pool::define::Range>,
 }
 
 #[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
@@ -1950,9 +1950,9 @@ mod tests {
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
     use libredfish::model::service_root::RedfishVendor;
+    use model::resource_pool;
 
     use super::*;
-    use crate::resource_pool;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 

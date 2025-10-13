@@ -23,6 +23,7 @@ use model::machine::{
 };
 use model::power_manager::PowerOptions;
 use model::resource_pool::ResourcePoolError;
+use model::resource_pool::common::IbPools;
 use mqttea::MqtteaClient;
 use sqlx::PgConnection;
 
@@ -31,7 +32,6 @@ use crate::db::DatabaseError;
 use crate::ib::IBFabricManager;
 use crate::ipmitool::IPMITool;
 use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
-use crate::resource_pool::common::IbPools;
 use crate::storage::{NvmeshClientPool, StorageError};
 
 /// Services that are accessible to the `StateHandler`

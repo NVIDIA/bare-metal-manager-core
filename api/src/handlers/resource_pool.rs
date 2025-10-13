@@ -40,13 +40,13 @@ pub(crate) async fn grow(
         .parse()
         .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
     for (name, def) in table {
-        let d: crate::resource_pool::ResourcePoolDef = def
+        let d: model::resource_pool::ResourcePoolDef = def
             .try_into()
             .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
         pools.insert(name, d);
     }
-    use crate::resource_pool::DefineResourcePoolError as DE;
-    match crate::resource_pool::define_all_from(&mut txn, &pools).await {
+    use crate::db::resource_pool::DefineResourcePoolError as DE;
+    match crate::db::resource_pool::define_all_from(&mut txn, &pools).await {
         Ok(()) => {
             txn.commit()
                 .await
@@ -75,7 +75,7 @@ pub(crate) async fn list(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let snapshot = crate::resource_pool::all(&mut txn)
+    let snapshot = crate::db::resource_pool::all(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 
