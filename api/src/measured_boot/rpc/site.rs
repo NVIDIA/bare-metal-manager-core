@@ -40,8 +40,7 @@ use sqlx::{Pool, Postgres};
 use tonic::Status;
 
 use crate::CarbideError;
-use crate::measured_boot::db;
-use crate::measured_boot::interface::site::{
+use crate::db::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
     insert_into_approved_profiles, list_attestation_summary,
     remove_from_approved_machines_by_approval_id, remove_from_approved_machines_by_machine_id,
@@ -67,7 +66,7 @@ pub async fn handle_import_site_measurements(
     };
 
     // And now import it!
-    let result = db::site::import(&mut txn, &site_model)
+    let result = crate::db::measured_boot::site::import(&mut txn, &site_model)
         .await
         .map_err(|e| Status::internal(format!("site import failed: {e}")))
         .map(|_| ImportSiteMeasurementsResponse {
@@ -85,7 +84,7 @@ pub async fn handle_export_site_measurements(
     _req: ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let site_model = db::site::export(&mut txn)
+    let site_model = crate::db::measured_boot::site::export(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("export failed: {e}")))?;
 

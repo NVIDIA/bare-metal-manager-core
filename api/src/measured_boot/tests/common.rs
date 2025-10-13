@@ -23,8 +23,6 @@ use model::machine::ManagedHostState;
 use model::metadata::Metadata;
 use sqlx::PgConnection;
 
-use crate::measured_boot::db;
-
 pub fn load_topology_json(path: &str) -> HardwareInfo {
     const TEST_DATA_DIR: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -52,7 +50,7 @@ pub async fn create_test_machine(
     )
     .await?;
     crate::db::machine_topology::create_or_update(txn, &machine_id, topology).await?;
-    let machine = db::machine::from_id_with_txn(txn, machine_id).await?;
+    let machine = crate::db::measured_boot::machine::from_id_with_txn(txn, machine_id).await?;
     assert_eq!(machine_id, machine.machine_id);
     Ok(machine)
 }

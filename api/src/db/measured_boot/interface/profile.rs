@@ -25,7 +25,7 @@ use sqlx::query_builder::QueryBuilder;
 use sqlx::{PgConnection, Postgres};
 
 use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
+use crate::db::measured_boot::interface::common;
 
 /// insert_measurement_profile_record is a very basic insert of a
 /// new row into the measurement_system_profiles table, where only a name

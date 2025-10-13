@@ -3725,7 +3725,7 @@ impl Forge for Api {
         // In this case, we're not doing anything with
         // the resulting report (at least not yet), so just
         // throw it away.
-        let report = crate::measured_boot::db::report::new_with_txn(
+        let report = crate::db::measured_boot::report::new_with_txn(
             &mut txn,
             machine_id,
             pcr_values.into_inner().as_slice(),

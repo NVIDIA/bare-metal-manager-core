@@ -42,6 +42,7 @@ pub mod machine_validation_config;
 pub mod machine_validation_result;
 pub mod machine_validation_suites;
 pub mod managed_host;
+pub mod measured_boot;
 pub mod migrations;
 pub mod network_devices;
 pub mod network_prefix;

@@ -27,7 +27,7 @@ use measured_boot::site::MachineAttestationSummary;
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
+use crate::db::measured_boot::interface::common;
 
 pub async fn insert_into_approved_machines(
     txn: &mut PgConnection,

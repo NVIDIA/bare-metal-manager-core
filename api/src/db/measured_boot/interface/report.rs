@@ -22,7 +22,7 @@ use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueReco
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
+use crate::db::measured_boot::interface::common;
 
 /// match_latest_reports takes a list of PcrRegisterValues (i.e. register:shaXXX)
 /// and returns all latest matching report entries for it.

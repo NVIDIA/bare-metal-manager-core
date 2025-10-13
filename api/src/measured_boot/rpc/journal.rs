@@ -27,11 +27,10 @@ use rpc::protos::measured_boot::{
 use sqlx::{Pool, Postgres};
 use tonic::Status;
 
-use crate::errors::CarbideError;
-use crate::measured_boot::db;
-use crate::measured_boot::interface::journal::{
+use crate::db::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
+use crate::errors::CarbideError;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_delete_measurement_journal handles the DeleteMeasurementJournal
@@ -41,7 +40,7 @@ pub async fn handle_delete_measurement_journal(
     req: DeleteMeasurementJournalRequest,
 ) -> Result<DeleteMeasurementJournalResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let journal = db::journal::delete_where_id(
+    let journal = crate::db::measured_boot::journal::delete_where_id(
         &mut txn,
         req.journal_id
             .ok_or(CarbideError::MissingArgument("journal_id"))?,
@@ -66,12 +65,12 @@ pub async fn handle_show_measurement_journal(
     let journal = match req.selector {
         Some(selector) => match selector {
             show_measurement_journal_request::Selector::JournalId(journal_id) => {
-                db::journal::from_id(&mut txn, journal_id)
+                crate::db::measured_boot::journal::from_id(&mut txn, journal_id)
                     .await
                     .map_err(|e| Status::internal(format!("{e}")))?
             }
             show_measurement_journal_request::Selector::LatestForMachineId(machine_id) => {
-                match db::journal::get_latest_journal_for_id(
+                match crate::db::measured_boot::journal::get_latest_journal_for_id(
                     &mut txn,
                     MachineId::from_str(&machine_id).map_err(|e| {
                         Status::invalid_argument(format!("Could not parse MachineId: {e}"))
@@ -104,7 +103,7 @@ pub async fn handle_show_measurement_journals(
     let mut txn = begin_txn(db_conn).await?;
 
     Ok(ShowMeasurementJournalsResponse {
-        journals: db::journal::get_all(&mut txn)
+        journals: crate::db::measured_boot::journal::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("failed to fetch journals: {e}")))?
             .drain(..)

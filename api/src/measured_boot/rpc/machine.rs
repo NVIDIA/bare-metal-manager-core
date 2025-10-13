@@ -28,8 +28,7 @@ use sqlx::{Pool, Postgres};
 use tonic::Status;
 
 use crate::CarbideError;
-use crate::measured_boot::db;
-use crate::measured_boot::interface::machine::get_candidate_machine_records;
+use crate::db::measured_boot::interface::machine::get_candidate_machine_records;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_attest_candidate_machine handles the AttestCandidateMachine API endpoint.
@@ -38,7 +37,7 @@ pub async fn handle_attest_candidate_machine(
     req: AttestCandidateMachineRequest,
 ) -> Result<AttestCandidateMachineResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let report = db::report::new_with_txn(
+    let report = crate::db::measured_boot::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
@@ -63,7 +62,7 @@ pub async fn handle_show_candidate_machine(
     let machine = match req.selector {
         // Show a machine with the given ID.
         Some(show_candidate_machine_request::Selector::MachineId(machine_uuid)) => {
-            db::machine::from_id_with_txn(
+            crate::db::measured_boot::machine::from_id_with_txn(
                 &mut txn,
                 MachineId::from_str(&machine_uuid).map_err(|_| {
                     CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_uuid))
@@ -88,7 +87,7 @@ pub async fn handle_show_candidate_machines(
 ) -> Result<ShowCandidateMachinesResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowCandidateMachinesResponse {
-        machines: db::machine::get_all(&mut txn)
+        machines: crate::db::measured_boot::machine::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .into_iter()

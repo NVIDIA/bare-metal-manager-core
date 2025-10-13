@@ -23,7 +23,7 @@ use sqlx::PgConnection;
 
 use super::state_handler::{MeasuringProblem, StateHandlerError};
 use crate::db::attestation::ek_cert_verification_status;
-use crate::measured_boot::db::machine::{
+use crate::db::measured_boot::machine::{
     get_measurement_bundle_state, get_measurement_machine_state,
 };
 

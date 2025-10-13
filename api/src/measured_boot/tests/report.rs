@@ -28,10 +28,9 @@ mod tests {
     use rand::prelude::*;
     use rpc::forge::forge_server::Forge;
 
-    use crate::measured_boot::db;
-    use crate::measured_boot::interface::common::pcr_register_values_to_map;
-    use crate::measured_boot::interface::report::get_all_measurement_report_records;
-    use crate::measured_boot::interface::report::test_support::get_all_measurement_report_value_records;
+    use crate::db::measured_boot::interface::common::pcr_register_values_to_map;
+    use crate::db::measured_boot::interface::report::get_all_measurement_report_records;
+    use crate::db::measured_boot::interface::report::test_support::get_all_measurement_report_value_records;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use crate::tests::common::api_fixtures::create_test_env;
 
@@ -85,13 +84,16 @@ mod tests {
         assert_eq!(input_value_map.len(), 7);
 
         // Make a report and make sure it looks good.
-        let report = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
+        let report =
+            crate::db::measured_boot::report::new_with_txn(&mut txn, machine.machine_id, &values)
+                .await?;
         assert_eq!(report.machine_id, machine.machine_id);
         assert_eq!(report.pcr_values().len(), 7);
         let report_value_map = pcr_register_values_to_map(&report.pcr_values())?;
 
         // Get the same report and make sure its the same as the report we made.
-        let same_report = db::report::from_id_with_txn(&mut txn, report.report_id).await?;
+        let same_report =
+            crate::db::measured_boot::report::from_id_with_txn(&mut txn, report.report_id).await?;
         assert_eq!(report.report_id, same_report.report_id);
         assert_eq!(report.ts, same_report.ts);
         assert_eq!(same_report.machine_id, machine.machine_id);
@@ -103,15 +105,25 @@ mod tests {
         // Verify that the timestamp has been updated.
 
         // get journal first
-        let journal = db::journal::get_journal_for_report_id(&mut txn, report.report_id).await?;
+        let journal = crate::db::measured_boot::journal::get_journal_for_report_id(
+            &mut txn,
+            report.report_id,
+        )
+        .await?;
 
-        let report2 = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
+        let report2 =
+            crate::db::measured_boot::report::new_with_txn(&mut txn, machine.machine_id, &values)
+                .await?;
         assert_eq!(report2.machine_id, machine.machine_id);
         assert_eq!(report2.report_id, report.report_id);
         assert_eq!(report2.pcr_values().len(), 7);
 
         // check journal too
-        let journal2 = db::journal::get_journal_for_report_id(&mut txn, report.report_id).await?;
+        let journal2 = crate::db::measured_boot::journal::get_journal_for_report_id(
+            &mut txn,
+            report.report_id,
+        )
+        .await?;
         assert_eq!(journal.journal_id, journal2.journal_id);
         assert_eq!(journal.report_id, journal2.report_id);
         assert_eq!(journal.machine_id, journal2.machine_id);
@@ -174,13 +186,16 @@ mod tests {
         assert_eq!(input3_value_map.len(), 7);
 
         // Make a report and make sure it looks good.
-        let report3 = db::report::new_with_txn(&mut txn, machine.machine_id, &values3).await?;
+        let report3 =
+            crate::db::measured_boot::report::new_with_txn(&mut txn, machine.machine_id, &values3)
+                .await?;
         assert_eq!(report3.machine_id, machine.machine_id);
         assert_eq!(report3.pcr_values().len(), 7);
         let report3_value_map = pcr_register_values_to_map(&report3.pcr_values())?;
 
         // Get the same report and make sure its the same as the report we made.
-        let same_report3 = db::report::from_id_with_txn(&mut txn, report3.report_id).await?;
+        let same_report3 =
+            crate::db::measured_boot::report::from_id_with_txn(&mut txn, report3.report_id).await?;
         assert_eq!(report3.report_id, same_report3.report_id);
         assert_eq!(report3.ts, same_report3.ts);
         assert_eq!(same_report3.machine_id, machine.machine_id);
@@ -198,7 +213,7 @@ mod tests {
         }
 
         // And then get everything thus far.
-        let reports = db::report::get_all(&mut txn).await?;
+        let reports = crate::db::measured_boot::report::get_all(&mut txn).await?;
         assert_eq!(reports.len(), 2);
 
         // And now lets do some database record checks.
@@ -233,7 +248,8 @@ mod tests {
         .into_iter()
         .collect();
 
-        let optional_profile = db::profile::load_from_attrs(&mut txn, &attrs).await?;
+        let optional_profile =
+            crate::db::measured_boot::profile::load_from_attrs(&mut txn, &attrs).await?;
         assert!(optional_profile.is_none());
 
         let values: Vec<PcrRegisterValue> = vec![
@@ -270,18 +286,24 @@ mod tests {
         assert_eq!(input_value_map.len(), 7);
 
         // Make a report and make sure the records themselves are correct.
-        let report = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
+        let report =
+            crate::db::measured_boot::report::new_with_txn(&mut txn, machine.machine_id, &values)
+                .await?;
 
         txn.commit().await?;
         let mut txn = pool.begin().await?;
 
         // And NOW there should be a profile.
-        let optional_profile = db::profile::load_from_attrs(&mut txn, &attrs).await?;
+        let optional_profile =
+            crate::db::measured_boot::profile::load_from_attrs(&mut txn, &attrs).await?;
         assert!(optional_profile.is_some());
         let profile = optional_profile.unwrap();
 
-        let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = crate::db::measured_boot::journal::test_support::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 1);
 
         let journal = &journals[0];
@@ -346,13 +368,21 @@ mod tests {
         //
         // ...which means we have what we need to promote a new bundle,
         // which will result in a second journal entry.
-        let report = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
-        let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let report =
+            crate::db::measured_boot::report::new_with_txn(&mut txn, machine.machine_id, &values)
+                .await?;
+        let journals = crate::db::measured_boot::journal::test_support::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 1);
         let is_latest_journal =
-            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+            crate::db::measured_boot::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                report.machine_id,
+            )
+            .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.state, MeasurementMachineState::PendingBundle);
@@ -360,18 +390,28 @@ mod tests {
 
         // Make a bundle with all of the values from the report,
         // and make sure everything gets updated accordingly.
-        let bundle_full =
-            db::report::create_active_bundle_with_txn(&mut txn, &report, &None).await?;
-        let bundles = db::bundle::get_all(&mut txn).await?;
+        let bundle_full = crate::db::measured_boot::report::create_active_bundle_with_txn(
+            &mut txn, &report, &None,
+        )
+        .await?;
+        let bundles = crate::db::measured_boot::bundle::get_all(&mut txn).await?;
         assert_eq!(bundles.len(), 1);
-        let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = crate::db::measured_boot::journal::test_support::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 2);
-        let first_bundle = db::bundle::from_id_with_txn(&mut txn, bundle_full.bundle_id).await?;
+        let first_bundle =
+            crate::db::measured_boot::bundle::from_id_with_txn(&mut txn, bundle_full.bundle_id)
+                .await?;
         assert_eq!(first_bundle.pcr_values().len(), 7);
         let is_latest_journal =
-            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+            crate::db::measured_boot::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                report.machine_id,
+            )
+            .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(first_bundle.bundle_id));
@@ -380,20 +420,31 @@ mod tests {
         // Create a new bundle with SOME of the bundles from the report,
         // and make sure it all looks good.
         let pcr_set = parse_pcr_index_input("0-3")?;
-        let bundle_partial =
-            db::report::create_active_bundle_with_txn(&mut txn, &report, &Some(pcr_set)).await?;
-        let bundles = db::bundle::get_all(&mut txn).await?;
+        let bundle_partial = crate::db::measured_boot::report::create_active_bundle_with_txn(
+            &mut txn,
+            &report,
+            &Some(pcr_set),
+        )
+        .await?;
+        let bundles = crate::db::measured_boot::bundle::get_all(&mut txn).await?;
         assert_eq!(bundles.len(), 2);
-        let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = crate::db::measured_boot::journal::test_support::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 3);
         let second_bundle =
-            db::bundle::from_id_with_txn(&mut txn, bundle_partial.bundle_id).await?;
+            crate::db::measured_boot::bundle::from_id_with_txn(&mut txn, bundle_partial.bundle_id)
+                .await?;
         assert_eq!(second_bundle.pcr_values().len(), 4);
 
         let is_latest_journal =
-            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+            crate::db::measured_boot::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                report.machine_id,
+            )
+            .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(second_bundle.bundle_id));
@@ -437,7 +488,7 @@ mod tests {
             },
         ];
 
-        let other_bundle = db::bundle::new_with_txn(
+        let other_bundle = crate::db::measured_boot::bundle::new_with_txn(
             &mut txn,
             bundle_partial.profile_id,
             None,
@@ -446,17 +497,25 @@ mod tests {
         )
         .await?;
 
-        let bundles = db::bundle::get_all(&mut txn).await?;
+        let bundles = crate::db::measured_boot::bundle::get_all(&mut txn).await?;
         assert_eq!(bundles.len(), 3);
-        let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = crate::db::measured_boot::journal::test_support::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 3);
-        let third_bundle = db::bundle::from_id_with_txn(&mut txn, other_bundle.bundle_id).await?;
+        let third_bundle =
+            crate::db::measured_boot::bundle::from_id_with_txn(&mut txn, other_bundle.bundle_id)
+                .await?;
         assert_eq!(third_bundle.pcr_values().len(), 8);
 
         let is_latest_journal =
-            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+            crate::db::measured_boot::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                report.machine_id,
+            )
+            .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(second_bundle.bundle_id));
@@ -517,13 +576,21 @@ mod tests {
         //
         // ...which means we have what we need to promote a new bundle,
         // which will result in a second journal entry.
-        let report = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
-        let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let report =
+            crate::db::measured_boot::report::new_with_txn(&mut txn, machine.machine_id, &values)
+                .await?;
+        let journals = crate::db::measured_boot::journal::test_support::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 1);
         let is_latest_journal =
-            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+            crate::db::measured_boot::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                report.machine_id,
+            )
+            .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.state, MeasurementMachineState::PendingBundle);
@@ -532,18 +599,30 @@ mod tests {
         // Make a bundle with some of the values from the report,
         // and make sure everything gets updated accordingly.
         let pcr_set = parse_pcr_index_input("0-3")?;
-        let bundle_partial =
-            db::report::create_revoked_bundle_with_txn(&mut txn, &report, &Some(pcr_set)).await?;
-        let bundles = db::bundle::get_all(&mut txn).await?;
+        let bundle_partial = crate::db::measured_boot::report::create_revoked_bundle_with_txn(
+            &mut txn,
+            &report,
+            &Some(pcr_set),
+        )
+        .await?;
+        let bundles = crate::db::measured_boot::bundle::get_all(&mut txn).await?;
         assert_eq!(bundles.len(), 1);
-        let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = crate::db::measured_boot::journal::test_support::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 2);
-        let first_bundle = db::bundle::from_id_with_txn(&mut txn, bundle_partial.bundle_id).await?;
+        let first_bundle =
+            crate::db::measured_boot::bundle::from_id_with_txn(&mut txn, bundle_partial.bundle_id)
+                .await?;
         assert_eq!(first_bundle.pcr_values().len(), 4);
         let is_latest_journal =
-            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+            crate::db::measured_boot::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                report.machine_id,
+            )
+            .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(first_bundle.bundle_id));
@@ -619,14 +698,24 @@ mod tests {
                 },
             ];
 
-            let report = db::report::new_with_txn(&mut txn, machine_1.machine_id, &values).await?;
+            let report = crate::db::measured_boot::report::new_with_txn(
+                &mut txn,
+                machine_1.machine_id,
+                &values,
+            )
+            .await?;
             inserted_report_ids.push(report.report_id);
-            let report = db::report::new_with_txn(&mut txn, machine_2.machine_id, &values).await?;
+            let report = crate::db::measured_boot::report::new_with_txn(
+                &mut txn,
+                machine_2.machine_id,
+                &values,
+            )
+            .await?;
             inserted_report_ids.push(report.report_id);
         }
 
         // make sure 520 reports have been stored
-        let inserted_reports = db::report::get_all(&mut txn).await?;
+        let inserted_reports = crate::db::measured_boot::report::get_all(&mut txn).await?;
         assert_eq!(inserted_reports.len(), 520);
 
         // since the trim operation happens in a separate transaction, we need to commit
@@ -644,7 +733,7 @@ mod tests {
 
         // make sure 500 are remaining
         let mut txn = pool.begin().await?;
-        let remaining_reports = db::report::get_all(&mut txn).await?;
+        let remaining_reports = crate::db::measured_boot::report::get_all(&mut txn).await?;
         assert_eq!(remaining_reports.len(), 500);
 
         // now make sure the first 20 reports are already gone and the rest are still in

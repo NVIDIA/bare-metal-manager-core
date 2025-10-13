@@ -29,12 +29,12 @@ use serde::Serialize;
 use sqlx::{FromRow, PgConnection};
 
 use crate::db::DatabaseError;
-use crate::measured_boot::db::journal::get_latest_journal_for_id;
-use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
-use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::machine::{
+use crate::db::measured_boot::interface::bundle::get_measurement_bundle_by_id;
+use crate::db::measured_boot::interface::common;
+use crate::db::measured_boot::interface::machine::{
     get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
 };
+use crate::db::measured_boot::journal::get_latest_journal_for_id;
 use crate::{CarbideError, CarbideResult};
 
 /// CandidateMachineRecord defines a single row from

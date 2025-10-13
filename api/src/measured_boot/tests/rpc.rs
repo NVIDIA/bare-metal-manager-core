@@ -26,7 +26,6 @@ mod tests {
     use model::metadata::Metadata;
     use rpc::protos::measured_boot as mbrpc;
 
-    use crate::measured_boot::db;
     use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
 
@@ -190,9 +189,12 @@ mod tests {
             },
         ];
 
-        let princess_report =
-            db::report::new_with_txn(&mut txn, princess_network.machine_id, &princess_values)
-                .await?;
+        let princess_report = crate::db::measured_boot::report::new_with_txn(
+            &mut txn,
+            princess_network.machine_id,
+            &princess_values,
+        )
+        .await?;
         assert_eq!(princess_report.machine_id, princess_network.machine_id);
         txn.commit().await?;
 
