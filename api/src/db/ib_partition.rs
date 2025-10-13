@@ -24,8 +24,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
 use crate::db::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::ib::IBFabricManagerConfig;
-use crate::{CarbideError, CarbideResult};
+use crate::errors::{CarbideError, CarbideResult};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -276,7 +275,7 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
 pub async fn create(
     value: NewIBPartition,
     txn: &mut PgConnection,
-    ib_fabric_config: &IBFabricManagerConfig,
+    max_partition_per_tenant: i32,
 ) -> Result<IBPartition, DatabaseError> {
     let version = ConfigVersion::initial();
     let state = IBPartitionControllerState::Provisioning;
@@ -307,7 +306,7 @@ pub async fn create(
         .bind(version)
         .bind(version)
         .bind(sqlx::types::Json(state))
-        .bind(ib_fabric_config.max_partition_per_tenant)
+        .bind(max_partition_per_tenant)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;

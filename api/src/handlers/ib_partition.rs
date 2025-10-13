@@ -41,7 +41,7 @@ pub(crate) async fn create(
     resp.config.service_level = Some(fabric_config.service_level.clone());
 
     resp.config.pkey = api.allocate_pkey(&mut txn, &resp.config.name).await?;
-    let resp = db::ib_partition::create(resp, &mut txn, &fabric_config)
+    let resp = db::ib_partition::create(resp, &mut txn, fabric_config.max_partition_per_tenant)
         .await
         .map_err(|e| match e.source {
             // During IB paritiont creation, it will check the existing partition by a 'select' query.

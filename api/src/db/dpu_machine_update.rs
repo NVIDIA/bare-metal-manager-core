@@ -2,12 +2,11 @@ use std::ops::DerefMut;
 
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, ManagedHostState, ReprovisionRequest};
+use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ReprovisionRequest};
 use sqlx::{Connection, PgConnection};
 
-use crate::CarbideError;
-use crate::cfg::file::CarbideConfig;
 use crate::db::{self, DatabaseError};
+use crate::errors::CarbideError;
 use crate::machine_update_manager::machine_update_module::{
     AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,
     HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
@@ -96,7 +95,7 @@ pub async fn get_reprovisioning_machines(
 
 pub async fn get_updated_machines(
     txn: &mut PgConnection,
-    config: &CarbideConfig,
+    host_health_config: HostHealthConfig,
 ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
     let machine_ids = db::machine::find_machine_ids(
         txn,
@@ -112,7 +111,7 @@ pub async fn get_updated_machines(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: config.host_health,
+            host_health_config,
         },
     )
     .await?;
