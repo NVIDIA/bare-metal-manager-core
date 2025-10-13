@@ -175,6 +175,18 @@ async fn generate_missing_sku_for_machine(
     true
 }
 
+/// Helper function to determine if machine should be allowed to allocate even when validation fails
+/// This is useful to avoid blocking allocation when SKU validation issues occur
+fn should_allow_allocation_on_validation_failure(host_handler_params: &HostHandlerParams) -> bool {
+    // TODO:tmp solution to consider ignore_unassigned_machines for compatibale with some running sites
+    host_handler_params
+        .bom_validation
+        .ignore_unassigned_machines
+        || host_handler_params
+            .bom_validation
+            .allow_allocation_on_validation_failure
+}
+
 pub(crate) async fn handle_bom_validation_requested(
     txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
@@ -185,33 +197,53 @@ pub(crate) async fn handle_bom_validation_requested(
         return Ok(None);
     }
 
-    // If ignored_unassigned_machines is true, still try to find a matching SKU.
-    if host_handler_params
-        .bom_validation
-        .ignore_unassigned_machines
-        && mh_snapshot.host_snapshot.hw_sku.is_none()
-    {
+    // Case 1: Machine has no SKU assigned
+    if mh_snapshot.host_snapshot.hw_sku.is_none() {
+        // Always try to find a matching SKU for machine regardless of configs
         if let Some(sku) = match_sku_for_machine(txn, host_handler_params, mh_snapshot).await? {
-            tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=sku.id, "Possible SKU match found, attempting verification");
-            // A possible match has been found but inventory may be out of date.  update the
-            // machines inventory and do the match again
+            // Case 1.1: Found a matching SKU
+            tracing::info!(
+                machine_id=%mh_snapshot.host_snapshot.id,
+                sku_id=%sku.id,
+                "Possible SKU match found, attempting verification"
+            );
+            // A possible match has been found but inventory may be out of date.
+            // Update the machine's inventory and do the match again
             return advance_to_updating_inventory(txn, mh_snapshot)
                 .await
                 .map(Some);
+        } else {
+            // Case 1.2: Cannot find a matching SKU
+            tracing::info!(
+                machine_id=%mh_snapshot.host_snapshot.id,
+                "Cannot find a matching SKU for machine"
+            );
+
+            if should_allow_allocation_on_validation_failure(host_handler_params) {
+                // Case 1.2.1: Allow allocation despite no SKU match
+                tracing::info!(
+                    machine_id=%mh_snapshot.host_snapshot.id,
+                    "allow_allocation_on_validation_failure is true, staying in Ready state"
+                );
+                return Ok(None);
+            } else {
+                // Case 1.2.2: Block allocation, wait for SKU assignment
+                return advance_to_waiting_for_sku_assignment(
+                    txn,
+                    mh_snapshot,
+                    host_handler_params,
+                )
+                .await
+                .map(Some);
+            }
         }
-        tracing::info!("ignoring unassigned machine");
-        return Ok(None);
     }
 
-    // if the sku was removed, move to waiting
-    let Some(sku_id) = &mh_snapshot.host_snapshot.hw_sku else {
-        tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "SKU unassigned");
+    // Case 2: Machine has SKU assigned
+    let sku_id = mh_snapshot.host_snapshot.hw_sku.as_ref().unwrap();
 
-        return advance_to_waiting_for_sku_assignment(txn, mh_snapshot, host_handler_params)
-            .await
-            .map(Some);
-    };
-
+    // Case 2.1: Verification explicitly requested
+    // If there is a request for verification pending, update the inventory regardless of other configs
     if let Some(verify_request_time) = mh_snapshot
         .host_snapshot
         .hw_sku_status
@@ -219,38 +251,37 @@ pub(crate) async fn handle_bom_validation_requested(
         .and_then(|ss| ss.verify_request_time)
         && verify_request_time > mh_snapshot.host_snapshot.state.version.timestamp()
     {
-        tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "Verify SKU requested, attempting verification");
-
+        tracing::info!(
+            machine_id=%mh_snapshot.host_snapshot.id,
+            sku_id=%sku_id,
+            "Verify SKU requested, attempting verification"
+        );
         return advance_to_updating_inventory(txn, mh_snapshot)
             .await
             .map(Some);
     }
 
-    // if there is a request for verification pending
-    if mh_snapshot
-        .host_snapshot
-        .hw_sku_status
-        .as_ref()
-        .is_some_and(|ss| {
-            ss.verify_request_time
-                .is_some_and(|t| t > mh_snapshot.host_snapshot.state.version.timestamp())
-        })
-    {
-        tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "Verify SKU requested, attempting verification");
-
-        return advance_to_updating_inventory(txn, mh_snapshot)
-            .await
-            .map(Some);
-    }
-
-    // check if the sku got deleted
+    // Case 2.2: Check if the assigned SKU got deleted from the database
     if db::sku::find(txn, std::slice::from_ref(sku_id))
         .await?
         .is_empty()
     {
-        return advance_to_sku_missing(txn, mh_snapshot).await.map(Some);
+        if should_allow_allocation_on_validation_failure(host_handler_params) {
+            // Case 2.2.1: Allow allocation despite missing SKU
+            tracing::info!(
+                machine_id=%mh_snapshot.host_snapshot.id,
+                sku_id=%sku_id,
+                "Assigned SKU does not exist, but allow_allocation_on_validation_failure is true, staying in Ready state"
+            );
+            return Ok(None);
+        } else {
+            // Case 2.2.2: Block allocation, transition to SkuMissing state
+            return advance_to_sku_missing(txn, mh_snapshot).await.map(Some);
+        }
     }
 
+    // Case 2.3: SKU exists and no verification requested
+    // Stay in current state, no action needed
     Ok(None)
 }
 
@@ -300,12 +331,16 @@ async fn advance_to_waiting_for_sku_assignment(
     mh_snapshot: &ManagedHostStateSnapshot,
     host_handler_params: &HostHandlerParams,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    if host_handler_params
-        .bom_validation
-        .ignore_unassigned_machines
+    if should_allow_allocation_on_validation_failure(host_handler_params)
         && mh_snapshot.host_snapshot.hw_sku.is_none()
     {
-        handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
+        skip_bom_validation_and_advance(
+            txn,
+            host_handler_params,
+            mh_snapshot,
+            "allow_allocation_when_sku_unassigned",
+        )
+        .await
     } else {
         let bom_validation_context =
             get_bom_validation_context(mh_snapshot.host_snapshot.current_state());
@@ -345,15 +380,21 @@ async fn advance_to_machine_validating(
     }))
 }
 
-async fn handle_bom_validation_disabled(
+/// Skip BOM validation and proceed to machine validation (or Ready if machine validation is disabled)
+/// Used when BOM validation is disabled or when allow_allocation_on_validation_failure is enabled
+async fn skip_bom_validation_and_advance(
     txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &ManagedHostStateSnapshot,
+    reason: &str,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    tracing::info!(bom_validation=?host_handler_params.bom_validation,
+    tracing::info!(
+        bom_validation=?host_handler_params.bom_validation,
         machine_id=%mh_snapshot.host_snapshot.id,
         assigned_sku_id=%mh_snapshot.host_snapshot.hw_sku.as_deref().unwrap_or_default(),
-        "Skipping SKU Validation due to configuration");
+        reason=%reason,
+        "Skipping BOM validation"
+    );
 
     advance_to_machine_validating(txn, mh_snapshot).await
 }
@@ -366,7 +407,13 @@ pub(crate) async fn handle_bom_validation_state(
     bom_validating_state: &BomValidating,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let outcome = if !host_handler_params.bom_validation.enabled {
-        handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
+        skip_bom_validation_and_advance(
+            txn,
+            host_handler_params,
+            mh_snapshot,
+            "BOM validation disabled",
+        )
+        .await
     } else {
         match bom_validating_state {
             BomValidating::MatchingSku(bom_validating_context) => {
@@ -483,6 +530,13 @@ pub(crate) async fn handle_bom_validation_state(
                     .await?;
 
                     advance_to_machine_validating(txn, mh_snapshot).await
+                } else if should_allow_allocation_on_validation_failure(host_handler_params) {
+                    tracing::info!(
+                        machine_id=%mh_snapshot.host_snapshot.id,
+                        sku_id=%mh_snapshot.host_snapshot.hw_sku.as_deref().unwrap_or_default(),
+                        "SKU mismatch, but allow_allocation_on_validation_failure is true, proceeding to machine validation"
+                    );
+                    advance_to_machine_validating(txn, mh_snapshot).await
                 } else {
                     let health_report = HealthReport::sku_mismatch(diffs);
                     db::machine::update_sku_validation_health_report(
@@ -500,6 +554,7 @@ pub(crate) async fn handle_bom_validation_state(
                 }
             }
             BomValidating::SkuVerificationFailed(bom_validating_context) => {
+                // If SKU was unassigned, transition to waiting for SKU assignment
                 if mh_snapshot.host_snapshot.hw_sku.is_none() {
                     Ok(transition!(ManagedHostState::BomValidating {
                         bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -516,47 +571,83 @@ pub(crate) async fn handle_bom_validation_state(
                         })
                     })
                 {
+                    // New verification requested, try again
                     advance_to_updating_inventory(txn, mh_snapshot).await
+                } else if should_allow_allocation_on_validation_failure(host_handler_params) {
+                    // Allow machine to proceed despite verification failure
+                    tracing::info!(
+                        machine_id=%mh_snapshot.host_snapshot.id,
+                        sku_id=%mh_snapshot.host_snapshot.hw_sku.as_deref().unwrap_or_default(),
+                        "SKU verification failed, but allow_allocation_on_validation_failure is true, proceeding to machine validation"
+                    );
+                    advance_to_machine_validating(txn, mh_snapshot).await
                 } else {
+                    // Stay in failed state, waiting for manual intervention
                     Ok(do_nothing!())
                 }
             }
             BomValidating::WaitingForSkuAssignment(_) => {
+                // Check if SKU was assigned or a matching SKU was found
                 if mh_snapshot.host_snapshot.hw_sku.is_some()
                     || match_sku_for_machine(txn, host_handler_params, mh_snapshot)
                         .await?
                         .is_some()
                 {
                     advance_to_updating_inventory(txn, mh_snapshot).await
-                } else if host_handler_params
-                    .bom_validation
-                    .ignore_unassigned_machines
-                {
-                    handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
+                } else if should_allow_allocation_on_validation_failure(host_handler_params) {
+                    // Allow machine to proceed without SKU assignment
+                    skip_bom_validation_and_advance(
+                        txn,
+                        host_handler_params,
+                        mh_snapshot,
+                        "allow_allocation_on_validation_failure",
+                    )
+                    .await
                 } else {
+                    // Stay in waiting state until SKU is assigned
                     Ok(do_nothing!())
                 }
             }
             BomValidating::SkuMissing(_) => {
                 let outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
-                    if crate::db::sku::find(txn, &[sku_id]).await?.pop().is_some()
+                    // SKU is still assigned, check if it now exists or can be auto-generated
+                    if crate::db::sku::find(txn, std::slice::from_ref(&sku_id))
+                        .await?
+                        .pop()
+                        .is_some()
                         || generate_missing_sku_for_machine(txn, host_handler_params, mh_snapshot)
                             .await
                     {
                         advance_to_updating_inventory(txn, mh_snapshot).await
+                    } else if should_allow_allocation_on_validation_failure(host_handler_params) {
+                        // Allow machine to proceed despite missing SKU
+                        tracing::info!(
+                            machine_id=%mh_snapshot.host_snapshot.id,
+                            sku_id=%sku_id,
+                            "Assigned SKU does not exist, but allow_allocation_on_validation_failure is true, proceeding to machine validation"
+                        );
+                        advance_to_machine_validating(txn, mh_snapshot).await
                     } else {
                         Ok(wait!(
-                        "Assigned SKU does not exist.  Create the SKU or assign a different one"
-                            .to_string()
-                    ))
+                            "Assigned SKU does not exist. Create the SKU or assign a different one"
+                                .to_string()
+                        ))
                     }
                 } else {
+                    // SKU was unassigned, transition to waiting for SKU assignment
                     advance_to_waiting_for_sku_assignment(txn, mh_snapshot, host_handler_params)
                         .await
                 };
 
-                // if leaving this state, clear the health report
-                if matches!(outcome, Ok(StateHandlerOutcome::Transition { .. })) {
+                // Clear health report for internal transitions within BomValidating
+                // External transitions are handled by the generic cleanup below
+                if matches!(
+                    outcome,
+                    Ok(StateHandlerOutcome::Transition {
+                        next_state: ManagedHostState::BomValidating { .. },
+                        ..
+                    })
+                ) {
                     clear_sku_validation_report(txn, mh_snapshot).await?;
                 }
                 outcome

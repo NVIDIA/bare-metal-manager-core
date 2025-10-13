@@ -1784,6 +1784,9 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             bom_validation_ignore_unassigned_machines: value
                 .bom_validation
                 .ignore_unassigned_machines,
+            bom_validation_allow_allocation_on_validation_failure: value
+                .bom_validation
+                .allow_allocation_on_validation_failure,
             dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
             dpa_enabled: value.dpa_config.clone().unwrap_or_default().enabled,
             mqtt_endpoint: value.dpa_config.clone().unwrap_or_default().mqtt_endpoint,
@@ -1877,9 +1880,17 @@ pub struct BomValidationConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// Allow machines that do not have a sku to bypass sku validation
+    /// Allow machines that do not have a SKU assigned to bypass SKU validation
+    /// When true, machines in WaitingForSkuAssignment state can proceed without a SKU
     #[serde(default)]
     pub ignore_unassigned_machines: bool,
+
+    /// Allow machines to stay in Ready state and remain allocatable even when SKU validation fails
+    /// When false (default): Standard mode - validation failures block allocation (machine enters failed state)
+    /// When true: Allow allocation mode - validation still occurs and health reports are recorded, but machines do not transition
+    /// into failed states (SkuVerificationFailed, SkuMissing, WaitingForSkuAssignment) and can proceed to Ready/MachineValidation
+    #[serde(default)]
+    pub allow_allocation_on_validation_failure: bool,
 
     /// The interval since the last time the state machine attempted
     /// to find an existing SKU that matches the machine.

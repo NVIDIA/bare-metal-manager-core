@@ -55,17 +55,24 @@ The block that defines it is called `bom_validation`:
 [bom_validation]
 enabled = false
 ignore_unassigned_machines = false
+allow_allocation_on_validation_failure = false
 find_match_interval = "300s"
 auto_generate_missing_sku = false,  
 auto_generate_missing_sku_interval = "300s"
 ```
 
  - `enabled` - Enables or disables the entire bom validation process.  When disabled, machines
-  will skip bom validation and proceed as if all validation has passed.
+  will skip bom validation and proceed as if all validation has passed. 
+ - `allow_allocation_on_validation_failure` - When true, machines are allowed to stay in Ready state and remain allocatable
+  even when SKU validation fails. Validation still occurs but only logs are recorded - health reports are cleared instead
+  of recording validation failures. Machines do not transition into failed states (SkuVerificationFailed, SkuMissing, 
+  WaitingForSkuAssignment). When false (default), standard mode applies where validation failures are recorded in health 
+  reports and machines enter failed states and become unallocatable until fixed. This is useful for avoiding machine 
+  allocation blockage due to SKU validation issues when you only need logging without health report alerts.
  - `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
   it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
   existing sites to be upgraded and BOM Validation enabled as SKUs are added to the system without impacting site operation.
-  machines that do not have an assigned SKU will still be usable and assignable
+  Machines that do not have an assigned SKU will still be usable and assignable.
  - `find_match_interval` - determines how often Carbide will attempt to find a matching SKU for a machine.  Carbide will only
   attempt to find a SKU when the machine is in the `Ready` state.
  - `auto_generate_missing_sku` - enable or disable generation of a SKU from a machine.  This only applies to a machine with a SKU

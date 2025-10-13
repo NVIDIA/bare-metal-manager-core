@@ -114,6 +114,11 @@ pub async fn handle_show_version(
         r!(table, config, machine_validation_enabled);
         r!(table, config, bom_validation_enabled);
         r!(table, config, bom_validation_ignore_unassigned_machines);
+        r!(
+            table,
+            config,
+            bom_validation_allow_allocation_on_validation_failure
+        );
         r!(table, config, bom_validation_auto_generate_missing_sku);
         r!(
             table,
