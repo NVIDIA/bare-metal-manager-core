@@ -29,9 +29,7 @@ use measured_boot::records::{
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::db;
-use crate::measured_boot::db::machine::bundle_state_to_machine_state;
-use crate::measured_boot::interface::bundle::{
+use crate::db::measured_boot::interface::bundle::{
     delete_bundle_for_id, delete_bundle_values_for_id, get_machines_for_bundle_id,
     get_measurement_bundle_by_id, get_measurement_bundle_for_name,
     get_measurement_bundle_records_for_profile_id, get_measurement_bundle_records_with_txn,
@@ -39,11 +37,12 @@ use crate::measured_boot::interface::bundle::{
     insert_measurement_bundle_value_records, rename_bundle_for_bundle_id,
     rename_bundle_for_bundle_name, update_state_for_bundle_id,
 };
-use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::{
+use crate::db::measured_boot::interface::common;
+use crate::db::measured_boot::interface::common::{
     acquire_advisory_txn_lock, pcr_register_values_to_map,
 };
-use crate::measured_boot::interface::report::match_latest_reports;
+use crate::db::measured_boot::interface::report::match_latest_reports;
+use crate::db::measured_boot::machine::bundle_state_to_machine_state;
 use crate::{CarbideError, CarbideResult};
 
 pub async fn new_with_txn(
@@ -351,10 +350,15 @@ async fn update_journal(
     let reports = match_latest_reports(txn, &measurement_bundle.pcr_values()).await?;
     let mut updates: Vec<MeasurementJournal> = Vec::new();
     for report in reports.iter() {
-        let machine = db::machine::from_id_with_txn(txn, report.machine_id).await?;
-        let discovery_attributes = db::machine::discovery_attributes(&machine)?;
-        let profile =
-            db::profile::match_from_attrs_or_new_with_txn(txn, &discovery_attributes).await?;
+        let machine =
+            crate::db::measured_boot::machine::from_id_with_txn(txn, report.machine_id).await?;
+        let discovery_attributes =
+            crate::db::measured_boot::machine::discovery_attributes(&machine)?;
+        let profile = crate::db::measured_boot::profile::match_from_attrs_or_new_with_txn(
+            txn,
+            &discovery_attributes,
+        )
+        .await?;
 
         // Don't update journal entries for profiles
         // that aren't mine, since, in theory, two
@@ -364,7 +368,7 @@ async fn update_journal(
             continue;
         }
         updates.push(
-            db::journal::new_with_txn(
+            crate::db::measured_boot::journal::new_with_txn(
                 txn,
                 report.machine_id,
                 report.report_id,

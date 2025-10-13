@@ -31,19 +31,18 @@ use measured_boot::records::{
 use measured_boot::report::MeasurementReport;
 use sqlx::PgConnection;
 
-use crate::measured_boot::db;
-use crate::measured_boot::db::machine::bundle_state_to_machine_state;
-use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::pcr_register_values_to_map;
-use crate::measured_boot::interface::report::{
+use crate::db::measured_boot::interface::common;
+use crate::db::measured_boot::interface::common::pcr_register_values_to_map;
+use crate::db::measured_boot::interface::report::{
     delete_report_for_id, delete_report_values_for_id, get_measurement_report_record_by_id,
     get_measurement_report_values_for_report_id, insert_measurement_report_record,
     insert_measurement_report_value_records, update_report_tstamp, update_report_values_tstamp,
 };
-use crate::measured_boot::interface::site::{
+use crate::db::measured_boot::interface::site::{
     get_approval_for_machine_id, get_approval_for_profile_id,
     remove_from_approved_machines_by_approval_id, remove_from_approved_profiles_by_approval_id,
 };
+use crate::db::measured_boot::machine::bundle_state_to_machine_state;
 use crate::{CarbideError, CarbideResult};
 
 pub async fn new_with_txn(
@@ -152,7 +151,7 @@ pub async fn create_measurement_report(
     // time to make a new journal entry that captures the [possible]
     // bundle_id, the profile_id, and the values to log to the journal.
     let journal = if new_report_created {
-        db::journal::new_with_txn(
+        crate::db::measured_boot::journal::new_with_txn(
             txn,
             report.machine_id,
             report.report_id,
@@ -162,7 +161,7 @@ pub async fn create_measurement_report(
         )
         .await?
     } else {
-        db::journal::update_measurement_journal(
+        crate::db::measured_boot::journal::update_measurement_journal(
             txn,
             report.report_id,
             journal_data.profile_id,
@@ -290,12 +289,18 @@ impl JournalData {
         let state: MeasurementMachineState;
         let bundle_id: Option<MeasurementBundleId>;
 
-        let machine = db::machine::from_id_with_txn(txn, machine_id).await?;
-        let discovery_attributes = db::machine::discovery_attributes(&machine)?;
-        let profile =
-            db::profile::match_from_attrs_or_new_with_txn(txn, &discovery_attributes).await?;
+        let machine = crate::db::measured_boot::machine::from_id_with_txn(txn, machine_id).await?;
+        let discovery_attributes =
+            crate::db::measured_boot::machine::discovery_attributes(&machine)?;
+        let profile = crate::db::measured_boot::profile::match_from_attrs_or_new_with_txn(
+            txn,
+            &discovery_attributes,
+        )
+        .await?;
 
-        match db::bundle::match_from_values(txn, profile.profile_id, values).await? {
+        match crate::db::measured_boot::bundle::match_from_values(txn, profile.profile_id, values)
+            .await?
+        {
             Some(bundle) => {
                 state = bundle_state_to_machine_state(&bundle.state);
                 bundle_id = Some(bundle.bundle_id);
@@ -412,9 +417,14 @@ pub async fn create_bundle_with_state(
 ) -> CarbideResult<MeasurementBundle> {
     // Get machine + profile information for the journal entry
     // that needs to be associated with the bundle change.
-    let machine = db::machine::from_id_with_txn(txn, report.machine_id).await?;
-    let discovery_attributes = db::machine::discovery_attributes(&machine)?;
-    let profile = db::profile::match_from_attrs_or_new_with_txn(txn, &discovery_attributes).await?;
+    let machine =
+        crate::db::measured_boot::machine::from_id_with_txn(txn, report.machine_id).await?;
+    let discovery_attributes = crate::db::measured_boot::machine::discovery_attributes(&machine)?;
+    let profile = crate::db::measured_boot::profile::match_from_attrs_or_new_with_txn(
+        txn,
+        &discovery_attributes,
+    )
+    .await?;
 
     // Convert the input MeasurementReportValueRecord entries
     // into a list of PcrRegisterValue entries for the purpose
@@ -443,7 +453,14 @@ pub async fn create_bundle_with_state(
         None => report.pcr_values(),
     };
 
-    db::bundle::new_with_txn(txn, profile.profile_id, None, &values, Some(state)).await
+    crate::db::measured_boot::bundle::new_with_txn(
+        txn,
+        profile.profile_id,
+        None,
+        &values,
+        Some(state),
+    )
+    .await
 }
 
 enum SameOrNot {
@@ -456,7 +473,11 @@ async fn same_as_previous_one(
     machine_id: MachineId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<SameOrNot> {
-    let latest_journal = match db::journal::get_latest_journal_for_id(txn, machine_id).await? {
+    let latest_journal = match crate::db::measured_boot::journal::get_latest_journal_for_id(
+        txn, machine_id,
+    )
+    .await?
+    {
         Some(journal) => journal,
         None => return Ok(SameOrNot::Different),
     };

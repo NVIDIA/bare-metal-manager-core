@@ -23,7 +23,7 @@ use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
+use crate::db::measured_boot::interface::common;
 
 /// insert_measurement_journal_record is a very basic insert of a
 /// new row into the measurement_journals table. Is it expected that

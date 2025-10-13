@@ -23,6 +23,7 @@
  */
 
 pub mod bundle;
+pub mod interface;
 pub mod journal;
 pub mod machine;
 pub mod profile;

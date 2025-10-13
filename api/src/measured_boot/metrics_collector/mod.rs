@@ -25,8 +25,6 @@ pub(crate) mod metrics;
 use forge_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;
 
-use crate::measured_boot::db;
-
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.
 pub struct MeasuredBootMetricsCollector {
     database_connection: sqlx::PgPool,
@@ -94,23 +92,24 @@ impl MeasuredBootMetricsCollector {
             DatabaseError::txn_begin("MeasuredBootMetricsCollector::run_single_iteration", e)
         })?;
 
-        let profiles = db::profile::get_all(&mut txn).await?;
+        let profiles = crate::db::measured_boot::profile::get_all(&mut txn).await?;
         for system_profile in profiles.iter() {
-            let machines = db::profile::get_machines(system_profile, &mut txn).await?;
+            let machines =
+                crate::db::measured_boot::profile::get_machines(system_profile, &mut txn).await?;
             metrics
                 .num_machines_per_profile
                 .insert(system_profile.profile_id, machines.len());
         }
         metrics.num_profiles = profiles.len();
 
-        let bundles = db::bundle::get_all(&mut txn).await?;
+        let bundles = crate::db::measured_boot::bundle::get_all(&mut txn).await?;
         let bundle_map: HashMap<MeasurementBundleId, MeasurementBundleState> = bundles
             .iter()
             .map(|bundle| (bundle.bundle_id, bundle.state))
             .collect();
 
         for bundle in bundles.iter() {
-            let machines = db::bundle::get_machines(bundle, &mut txn).await?;
+            let machines = crate::db::measured_boot::bundle::get_machines(bundle, &mut txn).await?;
             metrics
                 .num_machines_per_bundle
                 .insert(bundle.bundle_id, machines.len());
@@ -123,7 +122,7 @@ impl MeasuredBootMetricsCollector {
         }
         metrics.num_bundles = bundles.len();
 
-        let machines = db::machine::get_all(&mut txn).await?;
+        let machines = crate::db::measured_boot::machine::get_all(&mut txn).await?;
         for machine in machines.iter() {
             let bundle_state = get_bundle_state(&bundle_map, &machine.journal);
             *metrics

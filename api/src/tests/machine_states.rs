@@ -39,7 +39,6 @@ use rpc::forge_agent_control_response::Action;
 use tonic::Request;
 
 use crate::db;
-use crate::measured_boot::db as mbdb;
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
 };
@@ -798,10 +797,13 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
     assert_eq!(bundle.state, MeasurementBundleState::Active);
     let mut txn = env.db_txn().await;
-    let retired_bundle =
-        mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Retired)
-            .await
-            .unwrap();
+    let retired_bundle = db::measured_boot::bundle::set_state_for_id(
+        &mut txn,
+        bundle.bundle_id,
+        MeasurementBundleState::Retired,
+    )
+    .await
+    .unwrap();
     assert_eq!(bundle.bundle_id, retired_bundle.bundle_id);
     assert_eq!(retired_bundle.state, MeasurementBundleState::Retired);
     txn.commit().await.unwrap();
@@ -827,7 +829,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 
     // ..and now reactivate the bundle.
     let mut txn = env.db_txn().await;
-    let reactivated_bundle = mbdb::bundle::set_state_for_id(
+    let reactivated_bundle = db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
         MeasurementBundleState::Active,
@@ -897,10 +899,13 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
     assert_eq!(bundle.state, MeasurementBundleState::Active);
     let mut txn = env.db_txn().await;
-    let retired_bundle =
-        mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Retired)
-            .await
-            .unwrap();
+    let retired_bundle = db::measured_boot::bundle::set_state_for_id(
+        &mut txn,
+        bundle.bundle_id,
+        MeasurementBundleState::Retired,
+    )
+    .await
+    .unwrap();
     assert_eq!(bundle.bundle_id, retired_bundle.bundle_id);
     assert_eq!(retired_bundle.state, MeasurementBundleState::Retired);
     txn.commit().await.unwrap();
@@ -938,7 +943,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         .unwrap();
     // "resurrect" the bundle
     let mut txn = env.db_txn().await;
-    let reactivated_bundle = mbdb::bundle::set_state_for_id(
+    let reactivated_bundle = db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
         MeasurementBundleState::Active,
@@ -979,10 +984,13 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // before advancing the state, change the bundle state to revoked
     let mut txn = env.db_txn().await;
-    let _revoked_bundle =
-        mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Revoked)
-            .await
-            .unwrap();
+    let _revoked_bundle = db::measured_boot::bundle::set_state_for_id(
+        &mut txn,
+        bundle.bundle_id,
+        MeasurementBundleState::Revoked,
+    )
+    .await
+    .unwrap();
     txn.commit().await.unwrap();
 
     // ... and trigger the state transition
@@ -1005,7 +1013,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     ));
 
     // and now reactivate the state so that it would get to ready
-    let _reactivated_bundle = mbdb::bundle::set_state_for_id(
+    let _reactivated_bundle = db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
         MeasurementBundleState::Active,

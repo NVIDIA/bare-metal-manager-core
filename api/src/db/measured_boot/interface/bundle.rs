@@ -25,7 +25,7 @@ use measured_boot::records::{
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
+use crate::db::measured_boot::interface::common;
 
 /// insert_measurement_bundle_record is a very basic insert of a
 /// new row into the measurement_bundles table, where only a profile_id

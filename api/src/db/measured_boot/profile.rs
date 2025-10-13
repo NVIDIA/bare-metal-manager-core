@@ -24,9 +24,9 @@ use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSyst
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::acquire_advisory_txn_lock;
-use crate::measured_boot::interface::profile::{
+use crate::db::measured_boot::interface::common;
+use crate::db::measured_boot::interface::common::acquire_advisory_txn_lock;
+use crate::db::measured_boot::interface::profile::{
     delete_profile_attr_records_for_id, delete_profile_record_for_id,
     get_all_measurement_profile_records, get_machines_for_profile_id,
     get_measurement_profile_attrs_for_profile_id, get_measurement_profile_record_by_attrs,

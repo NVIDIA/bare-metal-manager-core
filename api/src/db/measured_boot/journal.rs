@@ -24,8 +24,8 @@ use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::journal::{
+use crate::db::measured_boot::interface::common;
+use crate::db::measured_boot::interface::journal::{
     delete_journal_where_id, get_measurement_journal_record_by_id,
     get_measurement_journal_record_by_report_id, insert_measurement_journal_record,
     update_measurement_journal_record,
@@ -240,7 +240,7 @@ pub(crate) mod test_support {
         machine_id: MachineId,
     ) -> CarbideResult<Vec<MeasurementJournal>> {
         let records =
-            crate::measured_boot::interface::journal::get_measurement_journal_records_for_machine_id(
+            crate::db::measured_boot::interface::journal::get_measurement_journal_records_for_machine_id(
                 txn, machine_id,
             )
                 .await?;
