@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -20,7 +21,7 @@ use model::network_segment::NetworkSegment;
 use sqlx::PgConnection;
 
 use crate::db::DatabaseError;
-use crate::{CarbideError, CarbideResult};
+use crate::errors::{CarbideError, CarbideResult};
 
 #[async_trait::async_trait]
 pub trait UsedIpResolver {
@@ -56,10 +57,10 @@ pub enum DhcpError {
 // Trying to decouple from NetworkSegment as much as possible.
 #[derive(Debug)]
 pub struct Prefix {
-    id: NetworkPrefixId,
-    prefix: IpNetwork,
-    gateway: Option<IpAddr>,
-    num_reserved: i32,
+    pub id: NetworkPrefixId,
+    pub prefix: IpNetwork,
+    pub gateway: Option<IpAddr>,
+    pub num_reserved: i32,
 }
 
 // NetworkDetails is a small struct used primarily

@@ -31,7 +31,7 @@ use model::network_segment::{
 use sqlx::{Acquire, FromRow, PgConnection, query_as};
 
 use super::{DatabaseError, ObjectColumnFilter, network_segment};
-use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::db::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::{CarbideError, CarbideResult, db};
 
 #[cfg(test)]

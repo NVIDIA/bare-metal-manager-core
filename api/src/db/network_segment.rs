@@ -28,9 +28,9 @@ use model::network_segment::{
 use sqlx::PgConnection;
 
 use crate::db::instance_address::UsedOverlayNetworkIpResolver;
+use crate::db::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::db::machine_interface::UsedAdminNetworkIpResolver;
 use crate::db::{self, ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::{CarbideError, CarbideResult};
 
 #[derive(Copy, Clone)]

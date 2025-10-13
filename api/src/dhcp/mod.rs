@@ -10,5 +10,4 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod allocation;
 pub mod discover;

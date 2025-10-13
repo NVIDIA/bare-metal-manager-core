@@ -25,8 +25,8 @@ use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
 
 use crate::db;
+use crate::db::ip_allocator::DhcpError;
 use crate::db::resource_pool::ResourcePoolDatabaseError;
-use crate::dhcp::allocation::DhcpError;
 
 /// Represents various Errors that can occur throughout the system.
 ///
