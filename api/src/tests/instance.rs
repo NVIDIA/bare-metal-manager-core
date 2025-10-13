@@ -64,9 +64,9 @@ use tonic::Request;
 
 use crate::cfg::file::VmaasConfig;
 use crate::db::instance_address::UsedOverlayNetworkIpResolver;
+use crate::db::ip_allocator::UsedIpResolver;
 use crate::db::network_segment::IdColumn;
 use crate::db::{self, ObjectColumnFilter};
-use crate::dhcp::allocation::UsedIpResolver;
 use crate::instance::{InstanceAllocationRequest, allocate_instance, allocate_network};
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::tests::common;

@@ -28,7 +28,7 @@ use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{Acquire, FromRow, PgConnection};
 
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::db::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::{CarbideError, CarbideResult, db};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
