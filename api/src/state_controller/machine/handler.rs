@@ -487,7 +487,7 @@ impl MachineStateHandler {
             txn,
             &mh_snaphost.host_snapshot.id,
             health_report::OverrideMode::Merge,
-            crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
+            model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
         )
         .await?;
 
