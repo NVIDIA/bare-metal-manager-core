@@ -145,13 +145,15 @@ forge-admin-cli sku show [<sku id>]
 +----------------------------------------------------------------+---------------------------------------------------------+------------------------------+-----------------------------+
 
 > forge-admin-cli sku show 'PowerEdge R750 1xGPU 1xIB'
-ID:              PowerEdge R750 1xGPU 1xIB
-Schema Version:  0
-Description:     PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
-Device Type:     
-Model:           PowerEdge R750
-Architecture:    x86_64
-Created At:      2025-02-27T13:57:19.435162Z
+ID                  : PowerEdge R750 1xGPU 1xIB
+Schema Version      : 4
+Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
+Device Type         :     
+Model               : PowerEdge R750
+Architecture        : x86_64
+Created At          : 2025-02-27T13:57:19.435162Z
+TPM Version         : 2.0
+
 CPUs:
           +--------------+------------------------------------------+---------+-------+
           | Vendor       | Model                                    | Threads | Count |
@@ -186,13 +188,15 @@ The `sku generate` command can be used to show what would match a given machine.
 forge-admin-cli sku generate <machineid>
 
 > forge-admin-cli sku generate fm100hts7tqfqtgn3imi7ipd2jk7r37idk5r4aa41krpcelg498hasoqtkg
-ID:              PowerEdge R760 2025-10-01 12:18:49.401800487 UTC
-Schema Version:  3
-Description:     PowerEdge R760; 2xCPU; 0xGPU; 256 GiB
-Device Type:     
-Model:           PowerEdge R760
-Architecture:    x86_64
-Created At:      2025-10-01T12:18:49.401670767Z
+ID                  : PowerEdge R750 1xGPU 1xIB
+Schema Version      : 4
+Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
+Device Type         :     
+Model               : PowerEdge R750
+Architecture        : x86_64
+Created At          : 2025-02-27T13:57:19.435162Z
+TPM Version         : 2.0
+
 CPUs:
           +--------------+-------------------------------+---------+-------+
           | Vendor       | Model                         | Threads | Count |
@@ -271,8 +275,8 @@ forge-admin-cli sku unassign <machineid>
 If a SKU has a set of components that do not work for a set of machines (either due to bugs, or Carbide software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when no instance is allocated to the machine (all machines are verified when an instance is released).
 
 ```sh
-forge-acmin-cli sku replace <sku_name>.json
-
+forge-acmin-cli sku replace <filename> [--id <sku_name>]
+```
 
 ### Remove a SKU from a site
 
@@ -288,7 +292,7 @@ forge-admin-cli sku delete <sku_name>
 #### Upgrading a SKU to the current version example
 When a new version of Carbide is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the the `sku replace` command.
 
-The existing SKU is below.  Note that the "Storage Devices" section includes a device with a model of "NO_MODEL".  This device is created by the raid card and may not always exist and should not have been included in the SKU.
+The existing SKU is below.  Note that the "Storage Devices" section includes a device with a model of "NO_MODEL" and there is no TPM.  The extra storage device is created by the raid card and may not always exist and should not have been included in the SKU.
 
 ```sh
 forge-admin-cli sku show XE9680
@@ -332,17 +336,19 @@ Storage Devices:
           +----------------------------------+-------+
 ```
 
-Using the `sku generate` command, we can see what the updated SKU looks like for the same machine.  This is the same machine that generated the older SKU in a previous release.  Note that the "NO_MODEL" device is gone and the RAID controller is now shown as `Dell BOSS-N1`.
+Using the `sku generate` command, we can see what the updated SKU looks like for the same machine.  This is the same machine that generated the older SKU in a previous release.  Note that the "NO_MODEL" device is gone, the RAID controller is now shown as `Dell BOSS-N1` and the version of the TPM is shown.
 
 ``` sh
 forge-admin-cli sku generate fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0
-ID:              PowerEdge XE9680 2025-10-01 12:33:48.862927272 UTC
-Schema Version:  3
-Description:     PowerEdge XE9680; 2xCPU; 8xGPU; 2 TiB
-Device Type:     
-Model:           PowerEdge XE9680
-Architecture:    x86_64
-Created At:      2025-10-01T12:33:48.862757524Z
+ID                  : PowerEdge R750 1xGPU 1xIB
+Schema Version      : 4
+Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
+Device Type         :     
+Model               : PowerEdge R750
+Architecture        : x86_64
+Created At          : 2025-02-27T13:57:19.435162Z
+TPM Version         : 2.0
+
 CPUs:
           +--------------+---------------------------------+---------+-------+
           | Vendor       | Model                           | Threads | Count |
@@ -397,13 +403,15 @@ forge-admin-clisku replace /tmp/xe9680.json
 The `show sku` command now shows the updated components (and version)
 ```sh
 forge-admin-cli sku show XE9680
-ID:              XE9680
-Schema Version:  3
-Description:     PowerEdge XE9680; 2xCPU; 8xGPU; 2 TiB
-Device Type:     
-Model:           PowerEdge XE9680
-Architecture:    x86_64
-Created At:      2025-04-18T16:30:58.748991Z
+ID                  : XE9680
+Schema Version      : 4
+Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
+Device Type         :     
+Model               : PowerEdge R750
+Architecture        : x86_64
+Created At          : 2025-02-27T13:57:19.435162Z
+TPM Version         : 2.0
+
 CPUs:
           +--------------+---------------------------------+---------+-------+
           | Vendor       | Model                           | Threads | Count |

@@ -11,16 +11,16 @@ use model::machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfi
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::sku::{
     Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentInfinibandDevices,
-    SkuComponentMemory, SkuComponentStorage, SkuComponents, diff_skus,
+    SkuComponentMemory, SkuComponentStorage, SkuComponentTpm, SkuComponents, diff_skus,
 };
 use sqlx::{Acquire, PgConnection};
 
-use crate::DatabaseError;
+use crate::{DatabaseError, ObjectFilter, machine};
 
 /// The current version of the SKU format.  The state machine will create older
 /// versions from hardware using the currently assigned sku's version so that
 /// SKUs can maintain backward compatibility
-pub const CURRENT_SKU_VERSION: u32 = 3;
+pub const CURRENT_SKU_VERSION: u32 = 4;
 
 /// Find a SKU that matches the specified SKU using the same comparison that
 /// the SKU validation code uses. (i.e. the description, id and others are not compared)
@@ -30,9 +30,22 @@ pub async fn find_matching(
     txn: &mut PgConnection,
     sku: &Sku,
 ) -> Result<Option<Sku>, DatabaseError> {
-    let query = "SELECT * FROM machine_skus";
+    find_matching_with_exclusion(txn, sku, None).await
+}
 
-    let mut sku_stream = sqlx::query_as(query).fetch(txn);
+pub async fn find_matching_with_exclusion(
+    txn: &mut PgConnection,
+    sku: &Sku,
+    excluded_sku_id: Option<&String>,
+) -> Result<Option<Sku>, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT * FROM machine_skus");
+    if let Some(excluded_sku_id) = excluded_sku_id {
+        builder.push(" WHERE id != ");
+        builder.push_bind(excluded_sku_id);
+    }
+
+    let sql = builder.sql().to_string();
+    let mut sku_stream = builder.build_query_as().fetch(txn);
 
     while let Some(result) = sku_stream.next().await {
         match result {
@@ -43,7 +56,7 @@ pub async fn find_matching(
                 }
             }
             Err(sqlx::Error::RowNotFound) => {}
-            Err(e) => return Err(DatabaseError::new("find matching sku", e)),
+            Err(e) => return Err(DatabaseError::query(&sql, e)),
         }
     }
 
@@ -195,7 +208,9 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    if let Some(existing_sku) = find_matching(&mut inner_txn, sku).await? {
+    if let Some(existing_sku) =
+        find_matching_with_exclusion(&mut inner_txn, sku, Some(&sku.id)).await?
+    {
         return Err(DatabaseError::InvalidArgument(format!(
             "Specified SKU matches SKU with ID: {}",
             existing_sku.id
@@ -246,6 +261,7 @@ pub async fn generate_sku_from_machine_at_version(
         0 | 1 => generate_sku_from_machine_at_version_0_or_1(txn, machine_id, schema_version).await,
         2 => generate_sku_from_machine_at_version_2(txn, machine_id).await,
         3 => generate_sku_from_machine_at_version_3(txn, machine_id).await,
+        4 => generate_sku_from_machine_at_version_4(txn, machine_id).await,
         _ => Err(DatabaseError::new(
             "generate_sku_from_machine_at_version",
             sqlx::Error::RowNotFound,
@@ -392,6 +408,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
             memory: mem_components.into_values().collect(),
             infiniband_devices: ib_components,
             storage: storage.into_values().collect(),
+            tpm: None,
         },
         device_type: None,
     })
@@ -502,6 +519,7 @@ pub fn generate_base_sku_from_hardware(
             memory: mem_components.into_values().collect(),
             infiniband_devices,
             storage: Vec::default(),
+            tpm: None,
         },
         device_type: None,
     }
@@ -605,6 +623,65 @@ pub async fn generate_sku_from_machine_at_version_3(
             });
     });
     sku.components.storage = storage.into_values().collect();
+
+    Ok(sku)
+}
+
+pub async fn generate_sku_from_machine_at_version_4(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Sku, DatabaseError> {
+    let Some(machine) = machine::find(
+        txn,
+        ObjectFilter::One(*machine_id),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await?
+    .into_iter()
+    .next() else {
+        return Err(DatabaseError::new(
+            "generate sku: find machine (v4)",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+        return Err(DatabaseError::new(
+            "generate sku: load hardware info (v4)",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let mut sku = generate_base_sku_from_hardware(&machine, 4, hardware_info);
+
+    // Storage cannot be pulled from capabilities (yet).  The block devices are no longer used
+    // as RAID devices cause issues by created additional devices (and how depends on which
+    // RAID card is used) Note that this will include RAID devices themselves, but not the
+    // intermediate devices created by the RAID device.
+    let mut storage: BTreeMap<String, SkuComponentStorage> = BTreeMap::default();
+    hardware_info.nvme_devices.iter().for_each(|nvme| {
+        storage
+            .entry(nvme.model.clone())
+            .and_modify(|s| s.count += 1)
+            .or_insert(SkuComponentStorage {
+                model: nvme.model.clone(),
+                count: 1,
+            });
+    });
+    sku.components.storage = storage.into_values().collect();
+
+    // Vendor and Model fields do not contain useful information.  They seem limited and encoded somehow.
+    // We really only care about the spec version supported and that a TPM exists.
+    sku.components.tpm = hardware_info
+        .tpm_description
+        .as_ref()
+        .map(|tpm| SkuComponentTpm {
+            vendor: tpm.vendor.clone(),
+            version: tpm.tpm_spec.clone(),
+        });
 
     Ok(sku)
 }

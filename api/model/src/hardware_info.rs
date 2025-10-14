@@ -297,9 +297,9 @@ impl<'de> Deserialize<'de> for TpmEkCertificate {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TpmDescription {
-    vendor: String,
-    firmware_version: String,
-    tpm_spec: String,
+    pub vendor: String,
+    pub firmware_version: String,
+    pub tpm_spec: String,
 }
 
 impl From<rpc::machine_discovery::TpmDescription> for TpmDescription {

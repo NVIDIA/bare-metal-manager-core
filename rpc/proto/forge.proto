@@ -4915,9 +4915,7 @@ message SkuComponentMemory {
 
 message SkuComponentTpm {
   string vendor = 1;
-  string model = 2;
-  uint32 count = 3;
-  string version = 5;
+  string version = 2;
 }
 
 message SkuComponents {
@@ -4928,7 +4926,7 @@ message SkuComponents {
   repeated SkuComponentInfinibandDevices infiniband_devices = 5;
   repeated SkuComponentStorage storage = 6;
   repeated SkuComponentMemory memory = 7;
-  repeated SkuComponentTpm tpm = 8;
+  optional SkuComponentTpm tpm = 8;
 }
 
 message Sku {

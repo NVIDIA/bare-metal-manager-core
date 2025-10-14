@@ -1884,6 +1884,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             memory: vec![],
             infiniband_devices: vec![],
             storage: vec![],
+            tpm: None,
         },
         device_type: None, // This will result in "unknown" device type
     };
@@ -3138,6 +3139,7 @@ async fn test_machine_creation_with_sku(
             memory: vec![],
             infiniband_devices: vec![],
             storage: vec![],
+            tpm: None,
         },
         device_type: None, // This will result in "unknown" device type
     };
@@ -3240,6 +3242,7 @@ async fn test_expected_machine_device_type_metrics(
             memory: vec![],
             infiniband_devices: vec![],
             storage: vec![],
+            tpm: None,
         },
         device_type: Some("gpu".to_string()),
     };
@@ -3260,6 +3263,7 @@ async fn test_expected_machine_device_type_metrics(
             memory: vec![],
             infiniband_devices: vec![],
             storage: vec![],
+            tpm: None,
         },
         device_type: None,
     };
