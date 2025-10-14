@@ -121,7 +121,10 @@ impl InstanceStatus {
                 // this tenant_state function.
                 InstanceState::SwitchToAdminNetwork
                 | InstanceState::WaitingForNetworkReconfig
-                | InstanceState::WaitingForDpusToUp => tenant::TenantState::Terminating,
+                | InstanceState::WaitingForDpusToUp
+                | InstanceState::HostPlatformConfiguration { .. } => {
+                    tenant::TenantState::Terminating
+                }
                 // We're deprecating TenantState::DpuReprovisioning and
                 // TenantState::HostReprovisioning in favor of TenantState::Updating.
                 // Because forge-cloud already translates DpuReprovisioning to Updating,

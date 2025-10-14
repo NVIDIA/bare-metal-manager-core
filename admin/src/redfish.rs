@@ -582,6 +582,12 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 tracing::info!("No JID");
             }
         }
+        IsBootOrderSetup(args) => {
+            let setup = redfish
+                .is_boot_order_setup(&args.boot_interface_mac)
+                .await?;
+            tracing::info!(setup);
+        }
     }
     Ok(())
 }
