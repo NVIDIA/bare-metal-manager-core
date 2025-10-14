@@ -23,6 +23,8 @@ use model::machine::ManagedHostState;
 use model::metadata::Metadata;
 use sqlx::PgConnection;
 
+use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
+
 pub fn load_topology_json(path: &str) -> HardwareInfo {
     const TEST_DATA_DIR: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -47,6 +49,7 @@ pub async fn create_test_machine(
         ManagedHostState::Ready,
         &Metadata::default(),
         None,
+        CURRENT_STATE_MODEL_VERSION,
     )
     .await?;
     crate::db::machine_topology::create_or_update(txn, &machine_id, topology).await?;

@@ -49,7 +49,6 @@ use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
 use uuid::Uuid;
 
 use super::{ObjectFilter, queries};
-use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{DatabaseError, DatabaseResult, db};
 
 #[derive(Serialize)]
@@ -125,6 +124,7 @@ pub async fn get_or_create(
             state,
             &Metadata::default(),
             None,
+            2,
         )
         .await?;
         db::machine_interface::associate_interface_with_machine(&interface.id, &machine.id, txn)
@@ -1181,6 +1181,7 @@ pub async fn create(
     state: ManagedHostState,
     metadata: &Metadata,
     sku_id: Option<&String>,
+    state_model_version: i16,
 ) -> DatabaseResult<Machine> {
     let stable_machine_id_string = stable_machine_id.to_string();
     let metadata_name = if metadata.name.is_empty() {
@@ -1227,7 +1228,7 @@ pub async fn create(
         .bind(sqlx::types::Json(&state))
         .bind(network_config_version)
         .bind(sqlx::types::Json(&network_config))
-        .bind(CURRENT_STATE_MODEL_VERSION)
+        .bind(state_model_version)
         .bind(asn)
         .bind(version)
         .bind(metadata_name)
@@ -2154,6 +2155,7 @@ mod test {
             ManagedHostState::Ready,
             &Metadata::default(),
             None,
+            2,
         )
         .await?;
         super::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;

@@ -28,6 +28,7 @@ mod tests {
 
     use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
+    use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 
     // test_measurement_system_profiles is used to test all of the different
     // API handler functions that work with measured boot system profiles,
@@ -2004,6 +2005,7 @@ mod tests {
             ManagedHostState::Ready,
             &Metadata::default(),
             None,
+            CURRENT_STATE_MODEL_VERSION,
         )
         .await
         .unwrap();

@@ -67,6 +67,7 @@ use model::predicted_machine_interface::NewPredictedMachineInterface;
 
 use self::metrics::exploration_error_to_metric_label;
 use crate::db::{ObjectColumnFilter, predicted_machine_interface};
+use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 
 #[derive(Debug, Clone)]
 pub struct Endpoint {
@@ -1716,6 +1717,7 @@ impl SiteExplorer {
                 ManagedHostState::Created,
                 &Metadata::default(),
                 None,
+                CURRENT_STATE_MODEL_VERSION,
             )
             .await
             {
@@ -1893,6 +1895,7 @@ impl SiteExplorer {
             ManagedHostState::Created,
             metadata,
             sku_id,
+            CURRENT_STATE_MODEL_VERSION,
         )
         .await?;
 
@@ -1926,6 +1929,7 @@ impl SiteExplorer {
             ManagedHostState::Created,
             metadata,
             sku_id,
+            CURRENT_STATE_MODEL_VERSION,
         )
         .await?;
         let hardware_info = HardwareInfo::default();
