@@ -193,13 +193,20 @@ async fn show_sku_details(
                 "CSV output not supported".to_string(),
             ));
         }
+
         OutputFormat::AsciiTable => {
+            let width = 20;
             let mut output: Vec<u8> = Vec::default();
-            writeln!(output, "ID:              {}", sku.id)?;
-            writeln!(output, "Schema Version:  {}", sku.schema_version)?;
+            writeln!(output, "{:<width$}: {}", "ID", sku.id)?;
             writeln!(
                 output,
-                "Description:     {}",
+                "{:<width$}: {}",
+                "Schema Version", sku.schema_version
+            )?;
+            writeln!(
+                output,
+                "{:<width$}: {}",
+                "Description",
                 sku.description
                     .as_ref()
                     .map(|v| v.to_string())
@@ -207,7 +214,8 @@ async fn show_sku_details(
             )?;
             writeln!(
                 output,
-                "Device Type:     {}",
+                "{:<width$}: {}",
+                "Device Type",
                 sku.device_type
                     .as_ref()
                     .map(|v| v.to_string())
@@ -223,22 +231,27 @@ async fn show_sku_details(
                 .as_ref()
                 .and_then(|c| c.chassis.as_ref().map(|c| c.architecture.clone()));
 
-            writeln!(output, "Model:           {}", model.unwrap_or_default(),)?;
+            writeln!(output, "{:<width$}: {}", "Model", model.unwrap_or_default(),)?;
             writeln!(
                 output,
-                "Architecture:    {}",
+                "{:<width$}: {}",
+                "Architecture",
                 architecture.unwrap_or_default(),
             )?;
             writeln!(
                 output,
-                "Created At:      {}",
+                "{:<width$}: {}",
+                "Created At",
                 sku.created
                     .as_ref()
                     .map(|v| v.to_string())
                     .unwrap_or_default()
             )?;
             if let Some(components) = sku.components {
-                writeln!(output, "CPUs:")?;
+                if let Some(tpm) = components.tpm {
+                    writeln!(output, "{:<width$}: {}", "TPM Version", tpm.version)?;
+                }
+                writeln!(output, "\nCPUs:")?;
                 cpu_table(components.cpus).print(&mut output)?;
                 writeln!(output, "GPUs:")?;
                 gpu_table(components.gpus).print(&mut output)?;

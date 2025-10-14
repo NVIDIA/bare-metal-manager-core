@@ -5,6 +5,7 @@
 ### Added
 
 - [MR-4675](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4675): Added `bom_validation.allow_allocation_on_validation_failure` config flag. When enabled, machines remain allocatable even when SKU validation fails. Validation still runs and logs results, but machines are not blocked in failed states (SkuVerificationFailed, SkuMissing, WaitingForSkuAssignment).
+- [MR-7068](https://jirasw.nvidia.com/browse/FORGE-7068), [MR-4704](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4704): Added TPM support and updated shema version for SKUs.
 
 ### Changed
 

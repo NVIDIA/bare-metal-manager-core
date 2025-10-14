@@ -232,6 +232,11 @@
     }
   ],
   "tpm_ek_certificate": "U29tZSBhcmJpdHJhcnkgYmFzZTY0",
+  "tpm_description": {
+    "vendor": "NPCT75x",
+    "tpm_spec": "2.0",
+    "firmware_version": "0x70002.0x30001"
+  },
   "gpus": [
     {
       "name": "NVIDIA H100 PCIe",

@@ -135,9 +135,15 @@ pub mod tests {
               "count": 1
             }
           ],
-          "tpm": []
+          "tpm":
+            {
+              "vendor": "NPCT75x",
+              "model": "",
+              "count": 1,
+              "version": "2.0"
+            }
         },
-        "schema_version": 3
+        "schema_version": 4
     }"#;
 
     const SKU_DATA: &str = r#"
@@ -196,9 +202,15 @@ pub mod tests {
         "count": 2
       }
     ],
-    "tpm": []
+    "tpm":
+      {
+        "vendor": "NPCT75x",
+        "model": "",
+        "count": 1,
+        "version": "2.0"
+      }
   },
-  "schema_version": 3
+  "schema_version": 4
 }"#;
 
     pub async fn handle_inventory_update(pool: &sqlx::PgPool, env: &TestEnv, mh: &TestManagedHost) {

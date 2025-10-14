@@ -80,6 +80,8 @@ pub struct SkuComponents {
     pub infiniband_devices: Vec<SkuComponentInfinibandDevices>,
     #[serde(default)]
     pub storage: Vec<SkuComponentStorage>,
+    #[serde(default)]
+    pub tpm: Option<SkuComponentTpm>,
 }
 
 impl From<rpc::forge::SkuComponents> for SkuComponents {
@@ -111,6 +113,7 @@ impl From<rpc::forge::SkuComponents> for SkuComponents {
                 .into_iter()
                 .map(std::convert::Into::into)
                 .collect(),
+            tpm: value.tpm.map(std::convert::Into::into),
         }
     }
 }
@@ -145,7 +148,7 @@ impl From<SkuComponents> for rpc::forge::SkuComponents {
                 .into_iter()
                 .map(std::convert::Into::into)
                 .collect(),
-            tpm: Vec::default(),
+            tpm: value.tpm.map(std::convert::Into::into),
         }
     }
 }
@@ -351,6 +354,36 @@ impl From<SkuComponentStorage> for rpc::forge::SkuComponentStorage {
 impl Display for SkuComponentStorage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "model: {} count {}", self.model, self.count)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
+pub struct SkuComponentTpm {
+    pub vendor: String,
+    pub version: String,
+}
+
+impl From<rpc::forge::SkuComponentTpm> for SkuComponentTpm {
+    fn from(value: rpc::forge::SkuComponentTpm) -> Self {
+        SkuComponentTpm {
+            vendor: value.vendor,
+            version: value.version,
+        }
+    }
+}
+
+impl From<SkuComponentTpm> for rpc::forge::SkuComponentTpm {
+    fn from(value: SkuComponentTpm) -> Self {
+        rpc::forge::SkuComponentTpm {
+            vendor: value.vendor,
+            version: value.version,
+        }
+    }
+}
+
+impl Display for SkuComponentTpm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "vendor: {} version: {}", self.vendor, self.version)
     }
 }
 
@@ -584,5 +617,26 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
         diffs.push(format!("Found unexpected storage config: {s}"));
     }
 
+    // Vendor and Model fields do not contain useful information.  They seem limited and encoded somehow.
+    // We really only care about the spec version supported and that a TPM exists.
+    match (&actual_sku.components.tpm, &expected_sku.components.tpm) {
+        (None, None) => {}
+        (None, Some(expected_tpm)) => diffs.push(format!(
+            "Missing a TPM module: version: {}",
+            expected_tpm.version
+        )),
+        (Some(actual_tpm), None) => diffs.push(format!(
+            "Found unexpected TPM config: version: {}",
+            actual_tpm.version
+        )),
+        (Some(actual_tpm), Some(expected_tpm)) => {
+            if actual_tpm.version != expected_tpm.version {
+                diffs.push(format!(
+                    "Expected TPM version ({}) does not match actual ({})",
+                    expected_tpm.version, actual_tpm.version
+                ));
+            }
+        }
+    }
     diffs
 }
