@@ -24,6 +24,7 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;
 use model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
+use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use model::network_segment::NetworkSegmentSearchConfig;
 use tonic::{Request, Response, Status};
 
@@ -34,7 +35,6 @@ use crate::db::{
     network_segment,
 };
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use crate::{CarbideError, db, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the

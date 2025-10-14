@@ -25,6 +25,7 @@ use forge_uuid::machine::MachineId;
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::instance::status::tenant::TenantState;
 use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
+use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     InitialResetPhase, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
@@ -41,7 +42,6 @@ use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, TimePeriod};
 use crate::db::{self, DatabaseError};
 use crate::machine_update_manager::MachineUpdateManager;
-use crate::machine_update_manager::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
 use crate::preingestion_manager::PreingestionManager;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};

@@ -22,10 +22,11 @@ use std::time::Duration;
 
 use forge_uuid::machine::MachineId;
 use host_firmware::HostFirmwareUpdate;
-use machine_update_module::{HOST_UPDATE_HEALTH_REPORT_SOURCE, MachineUpdateModule};
+use machine_update_module::MachineUpdateModule;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
 use sqlx::{PgConnection, PgPool};
 use tokio::sync::oneshot;
 

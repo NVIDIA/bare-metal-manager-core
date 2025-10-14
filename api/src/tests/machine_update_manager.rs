@@ -10,12 +10,14 @@ use figment::providers::{Format, Toml};
 use forge_uuid::machine::MachineId;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::ManagedHostStateSnapshot;
+use model::machine_update_module::{
+    AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, HOST_UPDATE_HEALTH_REPORT_SOURCE,
+};
 use sqlx::PgConnection;
 
 use crate::cfg::file::CarbideConfig;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::machine_update_manager::machine_update_module::{
-    AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, HOST_UPDATE_HEALTH_REPORT_SOURCE,
     MachineUpdateModule, create_host_update_health_report,
 };
 use crate::tests::common;
@@ -310,7 +312,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn add_host_update_alert(
     txn: &mut PgConnection,
     machine_update: &DpuMachineUpdate,
-    reference: &crate::machine_update_manager::machine_update_module::DpuReprovisionInitiator,
+    reference: &model::machine_update_module::DpuReprovisionInitiator,
 ) -> CarbideResult<()> {
     let health_override = create_host_update_health_report(
         Some("DpuFirmware".to_string()),

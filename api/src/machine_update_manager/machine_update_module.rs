@@ -11,12 +11,16 @@
  */
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::{self, Display, Formatter};
+use std::fmt;
 
 use async_trait::async_trait;
 use forge_uuid::machine::MachineId;
-use lazy_static::lazy_static;
 use model::machine::ManagedHostStateSnapshot;
+use model::machine_update_module::{
+    AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,
+    HOST_FW_UPDATE_HEALTH_REPORT_SOURCE, HOST_UPDATE_HEALTH_PROBE_ID,
+    HOST_UPDATE_HEALTH_REPORT_SOURCE,
+};
 use sqlx::PgConnection;
 
 use crate::CarbideResult;
@@ -50,16 +54,6 @@ pub trait MachineUpdateModule: Send + Sync + fmt::Display {
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     );
 }
-
-lazy_static! {
-    pub static ref HOST_UPDATE_HEALTH_PROBE_ID: health_report::HealthProbeId =
-        "HostUpdateInProgress".parse().unwrap();
-}
-
-/// The name of the Health Override which will be used to indicate an ongoing host update
-pub const HOST_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-update";
-pub const HOST_FW_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-fw-update";
-pub const DPU_FIRMWARE_UPDATE_TARGET: &str = "DpuFirmware";
 
 /// Creates a Health override report that indicates that a host update is in progress
 pub fn create_host_update_health_report(
@@ -115,31 +109,4 @@ pub fn create_host_update_health_report_dpufw() -> health_report::HealthReport {
         initiator_host.to_string(),
         false,
     )
-}
-
-pub struct AutomaticFirmwareUpdateReference {
-    pub from: String,
-    pub to: String,
-}
-
-impl AutomaticFirmwareUpdateReference {
-    pub const REF_NAME: &'static str = "AutomaticDpuFirmwareUpdate";
-}
-
-pub enum DpuReprovisionInitiator {
-    Automatic(AutomaticFirmwareUpdateReference),
-}
-
-impl Display for DpuReprovisionInitiator {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DpuReprovisionInitiator::Automatic(x) => write!(
-                f,
-                "{}/{}/{}",
-                AutomaticFirmwareUpdateReference::REF_NAME,
-                x.from,
-                x.to
-            ),
-        }
-    }
 }

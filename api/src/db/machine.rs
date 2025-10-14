@@ -2116,11 +2116,13 @@ pub async fn count_healthy_unhealthy_host_machines(
 ) -> Result<(i32, i32), DatabaseError> {
     let without_fault_count = all_machines
         .iter()
-        .filter(|(_,x)| {
-            ! x.aggregate_health.alerts.iter().any(|x| x.id != *crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID)
-        }
-    )
-    .count();
+        .filter(|(_, x)| {
+            !x.aggregate_health
+                .alerts
+                .iter()
+                .any(|x| x.id != *model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID)
+        })
+        .count();
 
     Ok((
         all_machines.len() as i32,

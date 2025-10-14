@@ -51,6 +51,7 @@ pub mod instance_type;
 pub mod machine;
 pub mod machine_boot_override;
 pub mod machine_interface_address;
+pub mod machine_update_module;
 pub mod machine_validation;
 pub mod metadata;
 pub mod network_devices;
