@@ -3,9 +3,8 @@ use std::net::IpAddr;
 use model::route_server::{RouteServer, RouteServerSourceType};
 use sqlx::PgConnection;
 
-use super::DatabaseError;
 use crate::db::BIND_LIMIT;
-use crate::{CarbideError, CarbideResult};
+use crate::{DatabaseError, DatabaseResult};
 
 // replace will replace all addresses for the given source type
 // in the database with whatever new addresses are provided.
@@ -13,11 +12,11 @@ pub async fn replace(
     txn: &mut PgConnection,
     addresses: &[IpAddr],
     source_type: RouteServerSourceType,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     // len * 2 since we're going to be binding address + source_type
     // for each address when we do an insert below.
     if addresses.len() * 2 > BIND_LIMIT {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(DatabaseError::InvalidArgument(format!(
             "super::replace: {} addresses exceeds bind limit ({})",
             addresses.len(),
             BIND_LIMIT
@@ -51,12 +50,12 @@ pub async fn replace(
 
 // get returns all RouteServer entries, which include the
 // IP address and source_type of the entry.
-pub async fn get(txn: &mut PgConnection) -> CarbideResult<Vec<RouteServer>> {
+pub async fn get(txn: &mut PgConnection) -> DatabaseResult<Vec<RouteServer>> {
     let query = r#"SELECT * FROM route_servers;"#;
-    Ok(sqlx::query_as(query)
+    sqlx::query_as(query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?)
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 // find_by_address returns a RouteServer entry matching
@@ -64,13 +63,13 @@ pub async fn get(txn: &mut PgConnection) -> CarbideResult<Vec<RouteServer>> {
 pub async fn find_by_address(
     txn: &mut PgConnection,
     address: IpAddr,
-) -> CarbideResult<Option<RouteServer>> {
+) -> DatabaseResult<Option<RouteServer>> {
     let query = r#"SELECT * FROM route_servers where address=$1;"#;
-    Ok(sqlx::query_as(query)
+    sqlx::query_as(query)
         .bind(address)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?)
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 // add will insert a list of route server IP addresses
@@ -79,11 +78,11 @@ pub async fn add(
     txn: &mut PgConnection,
     addresses: &[IpAddr],
     source_type: RouteServerSourceType,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     // len * 2 since we're going to be binding address + source_type
     // for each address when we do an insert below.
     if addresses.len() * 2 > BIND_LIMIT {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(DatabaseError::InvalidArgument(format!(
             "super::add: {} addresses exceeds bind limit ({})",
             addresses.len(),
             BIND_LIMIT
@@ -111,11 +110,11 @@ pub async fn remove(
     txn: &mut PgConnection,
     addresses: &Vec<IpAddr>,
     source_type: RouteServerSourceType,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     // len + 1 since we're going to be binding all addresses
     // plus the source_type when we do the delete below.
     if addresses.len() + 1 > BIND_LIMIT {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(DatabaseError::InvalidArgument(format!(
             "super::remove: {} addresses exceeds bind limit ({})",
             addresses.len(),
             BIND_LIMIT
@@ -241,7 +240,7 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            CarbideError::InvalidArgument(msg) => {
+            DatabaseError::InvalidArgument(msg) => {
                 assert!(msg.contains("exceeds bind limit"));
             }
             _ => panic!("Expected InvalidArgument error"),
@@ -488,7 +487,7 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            CarbideError::InvalidArgument(msg) => {
+            DatabaseError::InvalidArgument(msg) => {
                 assert!(msg.contains("exceeds bind limit"));
             }
             _ => panic!("Expected InvalidArgument error"),

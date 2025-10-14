@@ -21,9 +21,9 @@ use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use crate::CarbideError;
 use crate::db::{self};
 use crate::tests::common;
+use crate::{CarbideError, DatabaseError};
 
 // Test DB Functionality
 async fn get_expected_machine_1(txn: &mut PgConnection) -> Option<ExpectedMachine> {
@@ -80,7 +80,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     assert!(matches!(
         new_machine,
-        Err(CarbideError::ExpectedHostDuplicateMacAddress(_))
+        Err(DatabaseError::ExpectedHostDuplicateMacAddress(_))
     ));
 
     Ok(())

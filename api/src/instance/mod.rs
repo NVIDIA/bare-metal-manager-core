@@ -129,7 +129,7 @@ pub async fn allocate_dpa_vni(
 
     let vpc = db::vpc::find_by_segment(txn, network_segment_id)
         .await
-        .map_err(CarbideError::DBError)?;
+        .map_err(CarbideError::from)?;
 
     db::vpc::allocate_dpa_vni(txn, vpc, &api.common_pools.dpa.pool_dpa_vni).await?;
 
@@ -462,16 +462,16 @@ pub async fn allocate_instance(
             ));
         }
         if let Err(e) = db::os_image::get(&mut txn, os_image_id).await {
-            if let sqlx::Error::RowNotFound = e.source {
-                return Err(CarbideError::FailedPrecondition(format!(
+            return if e.is_not_found() {
+                Err(CarbideError::FailedPrecondition(format!(
                     "Image OS `{}` does not exist",
                     os_image_id.clone()
-                )));
+                )))
             } else {
-                return Err(CarbideError::internal(format!(
+                Err(CarbideError::internal(format!(
                     "Failed to get OS image error: {e}"
-                )));
-            }
+                )))
+            };
         }
     }
 

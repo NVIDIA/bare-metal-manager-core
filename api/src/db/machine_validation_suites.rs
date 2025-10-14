@@ -15,8 +15,7 @@ use model::machine_validation::MachineValidationTest;
 use regex::Regex;
 use sqlx::PgConnection;
 
-use super::DatabaseError;
-use crate::{CarbideError, CarbideResult};
+use crate::{DatabaseError, DatabaseResult};
 
 /// Method to generate an SQL update query based on the fields that are `Some`
 fn build_update_query(
@@ -25,15 +24,15 @@ fn build_update_query(
     version: String,
     test_id: &str,
     modified_by: &str,
-) -> CarbideResult<String> {
+) -> DatabaseResult<String> {
     let json_value = match serde_json::to_value(req.clone()) {
         Ok(json_value) => json_value,
-        Err(e) => return Err(CarbideError::InvalidArgument(e.to_string())),
+        Err(e) => return Err(DatabaseError::InvalidArgument(e.to_string())),
     };
     let json_object = match json_value {
         serde_json::Value::Object(map) => map,
         _ => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "Invalid argument".to_string(),
             ));
         }
@@ -61,7 +60,7 @@ fn build_update_query(
         }
     }
     if updates.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(DatabaseError::InvalidArgument(
             "Nothing to update".to_string(),
         ));
     }
@@ -87,15 +86,15 @@ fn build_insert_query(
     version: String,
     test_id: &str,
     modified_by: &str,
-) -> CarbideResult<String> {
+) -> DatabaseResult<String> {
     let json_value = match serde_json::to_value(req) {
         Ok(json_value) => json_value,
-        Err(e) => return Err(CarbideError::InvalidArgument(e.to_string())),
+        Err(e) => return Err(DatabaseError::InvalidArgument(e.to_string())),
     };
     let json_object = match json_value {
         serde_json::Value::Object(map) => map,
         _ => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "Invalid argument".to_string(),
             ));
         }
@@ -129,7 +128,7 @@ fn build_insert_query(
         }
     }
     if columns.is_empty() || values.is_empty() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(DatabaseError::InvalidArgument(
             "Nothing to insert".to_string(),
         ));
     }
@@ -156,15 +155,15 @@ fn build_select_query(
     req: rpc::forge::MachineValidationTestsGetRequest,
     table: &str,
     // version: ConfigVersion,
-) -> CarbideResult<String> {
+) -> DatabaseResult<String> {
     let json_value = match serde_json::to_value(req) {
         Ok(json_value) => json_value,
-        Err(e) => return Err(CarbideError::InvalidArgument(e.to_string())),
+        Err(e) => return Err(DatabaseError::InvalidArgument(e.to_string())),
     };
     let json_object = match json_value {
         serde_json::Value::Object(map) => map,
         _ => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "Invalid argument".to_string(),
             ));
         }
@@ -206,7 +205,7 @@ fn build_select_query(
 pub async fn find(
     txn: &mut PgConnection,
     req: rpc::forge::MachineValidationTestsGetRequest,
-) -> CarbideResult<Vec<MachineValidationTest>> {
+) -> DatabaseResult<Vec<MachineValidationTest>> {
     let query = build_select_query(req, "machine_validation_tests")?;
     let ret = sqlx::query_as(&query)
         .fetch_all(txn)
@@ -223,7 +222,7 @@ pub async fn save(
     txn: &mut PgConnection,
     mut req: rpc::forge::MachineValidationTestAddRequest,
     version: ConfigVersion,
-) -> CarbideResult<String> {
+) -> DatabaseResult<String> {
     let test_id = generate_test_id(&req.name);
 
     let re = Regex::new(r"[ =;:@#\!?\-]").unwrap();
@@ -250,9 +249,9 @@ pub async fn save(
 pub async fn update(
     txn: &mut PgConnection,
     req: rpc::forge::MachineValidationTestUpdateRequest,
-) -> CarbideResult<String> {
+) -> DatabaseResult<String> {
     let Some(mut payload) = req.payload else {
-        return Err(CarbideError::InvalidArgument(
+        return Err(DatabaseError::InvalidArgument(
             "Payload is missing".to_owned(),
         ));
     };
@@ -280,7 +279,7 @@ pub async fn update(
 pub async fn clone(
     txn: &mut PgConnection,
     test: &MachineValidationTest,
-) -> CarbideResult<(String, ConfigVersion)> {
+) -> DatabaseResult<(String, ConfigVersion)> {
     let add_req = rpc::forge::MachineValidationTestAddRequest {
         name: test.name.clone(),
         description: test.description.clone(),
@@ -310,7 +309,7 @@ pub async fn mark_verified(
     txn: &mut PgConnection,
     test_id: String,
     version: ConfigVersion,
-) -> CarbideResult<String> {
+) -> DatabaseResult<String> {
     let req = rpc::forge::MachineValidationTestUpdateRequest {
         test_id,
         version: version.version_string(),
@@ -330,7 +329,7 @@ pub async fn enable_disable(
     version: ConfigVersion,
     is_enabled: bool,
     is_verified: bool,
-) -> CarbideResult<String> {
+) -> DatabaseResult<String> {
     let req = rpc::forge::MachineValidationTestUpdateRequest {
         test_id,
         version: version.version_string(),

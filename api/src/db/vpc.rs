@@ -19,12 +19,9 @@ use model::resource_pool::ResourcePool;
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use sqlx::PgConnection;
 
-use super::{
-    ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc,
-};
-use crate::db;
+use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc};
 use crate::db::resource_pool::ResourcePoolDatabaseError;
-use crate::errors::{CarbideError, CarbideResult};
+use crate::{DatabaseError, DatabaseResult, db};
 
 #[derive(Clone, Copy)]
 pub struct VniColumn;
@@ -81,7 +78,7 @@ pub async fn persist(value: NewVpc, txn: &mut PgConnection) -> Result<Vpc, Datab
 pub async fn find_ids(
     txn: &mut PgConnection,
     filter: rpc::VpcSearchFilter,
-) -> Result<Vec<VpcId>, CarbideError> {
+) -> Result<Vec<VpcId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpcs WHERE ");
     let mut has_filter = false;
@@ -113,7 +110,7 @@ pub async fn find_ids(
             builder.push(")");
             has_filter = true;
         } else if label.key.is_empty() && label.value.is_none() {
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "finding VPCs based on label needs either key or a value.".to_string(),
             ));
         } else if !label.key.is_empty() && label.value.is_none() {
@@ -158,7 +155,7 @@ pub async fn allocate_dpa_vni(
     txn: &mut PgConnection,
     mut value: Vpc,
     dpa_vni_resource_pool: &ResourcePool<i32>,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     if let Some(dpa_vni) = value.dpa_vni
         && dpa_vni != 0
     {
@@ -183,7 +180,7 @@ pub async fn allocate_dpa_vni(
                 pool = "dpa_vni",
                 "Pool exhausted, cannot allocate"
             );
-            return Err(CarbideError::ResourceExhausted("pool dpa_vni".to_string()));
+            return Err(DatabaseError::ResourceExhausted("pool dpa_vni".to_string()));
         }
         Err(err) => {
             tracing::error!(owner_id, error = %err, pool = "dpa_vni", "Error allocating from resource pool");
@@ -267,14 +264,14 @@ pub async fn try_delete(txn: &mut PgConnection, id: VpcId) -> Result<Option<Vpc>
     }
 }
 
-pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> CarbideResult<Vpc> {
+pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult<Vpc> {
     // TODO: Should this check for deletion?
     let current_version = match value.if_version_match {
         Some(version) => version,
         None => {
             let vpcs = find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &value.id)).await?;
             if vpcs.len() != 1 {
-                return Err(CarbideError::FindOneReturnedManyResultsError(
+                return Err(DatabaseError::FindOneReturnedManyResultsError(
                     value.id.into(),
                 ));
             }
@@ -305,19 +302,19 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> CarbideResult<
         Err(sqlx::Error::RowNotFound) => {
             // TODO: This can actually happen on both invalid ID and invalid version
             // So maybe this should be `ObjectNotFoundOrModifiedError`
-            Err(CarbideError::ConcurrentModificationError(
+            Err(DatabaseError::ConcurrentModificationError(
                 "vpc",
                 current_version.to_string(),
             ))
         }
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 
 pub async fn update_virtualization(
     value: &UpdateVpcVirtualization,
     txn: &mut PgConnection,
-) -> CarbideResult<Vpc> {
+) -> DatabaseResult<Vpc> {
     let query = "UPDATE vpcs
             SET version=$1, network_virtualization_type=$2, updated=NOW()
             WHERE id=$3 AND version=$4 AND deleted is null
@@ -328,7 +325,7 @@ pub async fn update_virtualization(
         None => {
             let vpcs = find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &value.id)).await?;
             if vpcs.len() != 1 {
-                return Err(CarbideError::FindOneReturnedManyResultsError(
+                return Err(DatabaseError::FindOneReturnedManyResultsError(
                     value.id.into(),
                 ));
             }
@@ -351,12 +348,12 @@ pub async fn update_virtualization(
             // TODO(chet): This can actually happen on both invalid ID and invalid
             // version, so maybe this should be `ObjectNotFoundOrModifiedError`
             // or similar.
-            Err(CarbideError::ConcurrentModificationError(
+            Err(DatabaseError::ConcurrentModificationError(
                 "vpc",
                 current_version.to_string(),
             ))
         }
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }?;
 
     // Update SVI IP for stretchable segments.
@@ -373,7 +370,7 @@ pub async fn update_virtualization(
         }
 
         let Some(prefix) = network_segment.prefixes.iter().find(|x| x.prefix.is_ipv4()) else {
-            return Err(CarbideError::internal(format!(
+            return Err(DatabaseError::internal(format!(
                 "NetworkSegment {} does not have Ipv4 Prefix attached.",
                 network_segment.id
             )));

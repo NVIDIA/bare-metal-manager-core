@@ -16,7 +16,7 @@ use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use rpc::protos::forge::forge_server::Forge;
 
 use crate::tests::common;
-use crate::{CarbideError, db};
+use crate::{DatabaseError, db};
 
 #[crate::sqlx_test]
 async fn only_one_custom_pxe_per_interface(
@@ -63,7 +63,7 @@ async fn only_one_custom_pxe_per_interface(
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(output, Err(CarbideError::DBError(_))));
+    assert!(matches!(output, Err(DatabaseError::Sqlx(_))));
     Ok(())
 }
 

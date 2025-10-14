@@ -28,6 +28,7 @@ use rpc::protos::measured_boot::CandidateMachineSummaryPb;
 use serde::Serialize;
 use sqlx::{FromRow, PgConnection};
 
+use crate::DatabaseResult;
 use crate::db::DatabaseError;
 use crate::db::measured_boot::interface::bundle::get_measurement_bundle_by_id;
 use crate::db::measured_boot::interface::common;
@@ -35,7 +36,6 @@ use crate::db::measured_boot::interface::machine::{
     get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
 };
 use crate::db::measured_boot::journal::get_latest_journal_for_id;
-use crate::{CarbideError, CarbideResult};
 
 /// CandidateMachineRecord defines a single row from
 /// the machine_topologies table. Sort of. Where other records
@@ -78,7 +78,7 @@ impl DbTable for CandidateMachineRecord {
 pub async fn from_id_with_txn(
     txn: &mut PgConnection,
     machine_id: MachineId,
-) -> CarbideResult<CandidateMachine> {
+) -> DatabaseResult<CandidateMachine> {
     match get_candidate_machine_record_by_id(txn, machine_id).await? {
         Some(record) => {
             let attrs = match &record.topology.discovery_data.info.dmi_data {
@@ -87,7 +87,7 @@ pub async fn from_id_with_txn(
                     (String::from("product_name"), dmi_data.product_name.clone()),
                     (String::from("bios_version"), dmi_data.bios_version.clone()),
                 ])),
-                None => Err(CarbideError::internal(String::from(
+                None => Err(DatabaseError::internal(String::from(
                     "machine missing dmi data",
                 ))),
             }?;
@@ -104,14 +104,14 @@ pub async fn from_id_with_txn(
                 journal,
             })
         }
-        None => Err(CarbideError::NotFoundError {
+        None => Err(DatabaseError::NotFoundError {
             kind: "CandidateMachine",
             id: machine_id.to_string(),
         }),
     }
 }
 
-pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<CandidateMachine>> {
+pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<CandidateMachine>> {
     get_candidate_machines(txn).await
 }
 
@@ -119,7 +119,7 @@ pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<CandidateMachi
 /// records into a generic "discovery attributes" hashmap,
 /// which is intended for making the transition from this PoC
 /// to actual discovery data easier.
-pub fn discovery_attributes(machine: &CandidateMachine) -> CarbideResult<HashMap<String, String>> {
+pub fn discovery_attributes(machine: &CandidateMachine) -> DatabaseResult<HashMap<String, String>> {
     common::filter_machine_discovery_attrs(&machine.attrs)
 }
 
@@ -162,7 +162,7 @@ pub async fn get_measurement_bundle_state(
 }
 
 /// get_candidate_machines returns all populated CandidateMachine instances.
-async fn get_candidate_machines(txn: &mut PgConnection) -> CarbideResult<Vec<CandidateMachine>> {
+async fn get_candidate_machines(txn: &mut PgConnection) -> DatabaseResult<Vec<CandidateMachine>> {
     let mut res: Vec<CandidateMachine> = Vec::new();
     let mut records = get_candidate_machine_records(txn).await?;
 
@@ -177,7 +177,7 @@ async fn get_candidate_machines(txn: &mut PgConnection) -> CarbideResult<Vec<Can
                 (String::from("product_name"), dmi_data.product_name.clone()),
                 (String::from("bios_version"), dmi_data.bios_version.clone()),
             ])),
-            None => Err(CarbideError::internal(String::from(
+            None => Err(DatabaseError::internal(String::from(
                 "machine missing dmi data",
             ))),
         }?;

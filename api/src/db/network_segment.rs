@@ -27,11 +27,11 @@ use model::network_segment::{
 };
 use sqlx::PgConnection;
 
+use crate::DatabaseResult;
 use crate::db::instance_address::UsedOverlayNetworkIpResolver;
 use crate::db::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::db::machine_interface::UsedAdminNetworkIpResolver;
 use crate::db::{self, ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::{CarbideError, CarbideResult};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -168,7 +168,7 @@ pub async fn for_vpc(
 pub async fn for_relay(
     txn: &mut PgConnection,
     relay: IpAddr,
-) -> CarbideResult<Option<NetworkSegment>> {
+) -> DatabaseResult<Option<NetworkSegment>> {
     lazy_static! {
         static ref query: String = format!(
             r#"{}
@@ -185,7 +185,7 @@ pub async fn for_relay(
 
     match results.len() {
         0 | 1 => Ok(results.pop()),
-        _ => Err(CarbideError::internal(format!(
+        _ => Err(DatabaseError::internal(format!(
             "Multiple network segments defined for relay address {relay}"
         ))),
     }
@@ -219,7 +219,7 @@ pub async fn list_segment_ids(
 pub async fn find_ids(
     txn: &mut PgConnection,
     filter: rpc::NetworkSegmentSearchFilter,
-) -> Result<Vec<NetworkSegmentId>, CarbideError> {
+) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT s.id FROM network_segments AS s");
     let mut has_filter = false;
@@ -443,20 +443,20 @@ pub async fn set_vpc_id_and_can_stretch(
 pub async fn mark_as_deleted(
     value: &NetworkSegment,
     txn: &mut PgConnection,
-) -> CarbideResult<NetworkSegmentId> {
+) -> DatabaseResult<NetworkSegmentId> {
     // This check is not strictly necessary here, since the segment state machine
     // will also wait until all allocated addresses have been freed before actually
     // deleting the segment. However it gives the user some early feedback for
     // the commmon case, which allows them to free resources
     let num_machine_interfaces = db::machine_interface::count_by_segment_id(txn, &value.id).await?;
     if num_machine_interfaces > 0 {
-        return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
+        return DatabaseResult::Err(DatabaseError::NetworkSegmentDelete(
             "Network Segment can't be deleted with associated MachineInterface".to_string(),
         ));
     }
     let num_instance_addresses = db::instance_address::count_by_segment_id(txn, &value.id).await?;
     if num_instance_addresses > 0 {
-        return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
+        return DatabaseResult::Err(DatabaseError::NetworkSegmentDelete(
             "Network Segment can't be deleted while addresses on the segment are allocated to instances".to_string(),
         ));
     }
@@ -546,7 +546,7 @@ pub async fn are_network_segments_ready(
 pub async fn mark_as_deleted_no_validation(
     txn: &mut PgConnection,
     network_segment_ids: &[NetworkSegmentId],
-) -> CarbideResult<NetworkSegmentId> {
+) -> DatabaseResult<NetworkSegmentId> {
     let query =
         "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=ANY($1) RETURNING id";
     let id = sqlx::query_as(query)
@@ -564,9 +564,9 @@ pub async fn mark_as_deleted_no_validation(
 pub async fn allocate_svi_ip(
     value: &NetworkSegment,
     txn: &mut PgConnection,
-) -> Result<IpAddr, CarbideError> {
+) -> Result<IpAddr, DatabaseError> {
     let Some(ipv4_prefix) = value.prefixes.iter().find(|x| x.prefix.is_ipv4()) else {
-        return Err(CarbideError::NotFoundError {
+        return Err(DatabaseError::NotFoundError {
             kind: "ipv4_prefix",
             id: value.id.to_string(),
         });
@@ -589,7 +589,7 @@ pub async fn allocate_svi_ip(
         (
             ipv4_prefix.id,
             ipv4_prefix.prefix.iter().nth(2).ok_or_else(|| {
-                CarbideError::internal(format!(
+                DatabaseError::internal(format!(
                     "Prefix {} does not have 3 valid IPs.",
                     ipv4_prefix.id
                 ))

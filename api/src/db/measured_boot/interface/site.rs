@@ -76,7 +76,7 @@ pub async fn get_approved_machines(
 ) -> Result<Vec<MeasurementApprovedMachineRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_approved_machines", e.source))
+        .map_err(|e| e.with_op_name("get_approved_machines"))
 }
 
 pub async fn get_approval_for_machine_id(
@@ -85,7 +85,7 @@ pub async fn get_approval_for_machine_id(
 ) -> Result<Option<MeasurementApprovedMachineRecord>, DatabaseError> {
     common::get_object_for_id(txn, machine_id)
         .await
-        .map_err(|e| DatabaseError::new("get_approval_for_machine_id", e.source))
+        .map_err(|e| e.with_op_name("get_approval_for_machine_id"))
 }
 
 pub async fn insert_into_approved_profiles(
@@ -135,7 +135,7 @@ pub async fn get_approved_profiles(
 ) -> Result<Vec<MeasurementApprovedProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_approved_profiles", e.source))
+        .map_err(|e| e.with_op_name("get_approved_profiles"))
 }
 
 pub async fn get_approval_for_profile_id(

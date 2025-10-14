@@ -10,13 +10,13 @@ use model::metadata::Metadata;
 use rpc::forge::RemediationApplicationStatus;
 use sqlx::Postgres;
 
-use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::errors::{CarbideError, CarbideResult};
+use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+use crate::{DatabaseError, DatabaseResult};
 
 pub async fn persist_remediation(
     value: NewRemediation,
     txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> CarbideResult<Remediation> {
+) -> DatabaseResult<Remediation> {
     let (query, intermediate_query) = if let Some(metadata) = value.metadata.as_ref() {
         let query = "INSERT INTO dpu_remediations (metadata_name, metadata_description, metadata_labels, script, retries, script_author) VALUES ($1, $2, $3, $4, $5, $6) returning *";
         (
@@ -37,7 +37,7 @@ pub async fn persist_remediation(
         .bind(value.author.to_string())
         .fetch_one(txn.deref_mut())
         .await
-        .map_err(|err| CarbideError::from(DatabaseError::new(query, err)))
+        .map_err(|err| DatabaseError::new(query, err))
 }
 
 #[derive(Clone, Copy)]
@@ -65,7 +65,7 @@ impl ColumnInfo<'_> for EnabledColumn {
 
 pub async fn find_remediation_ids(
     txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> Result<Vec<RemediationId>, CarbideError> {
+) -> Result<Vec<RemediationId>, DatabaseError> {
     let ids = find_remediations_by(txn, ObjectColumnFilter::<RemediationIdColumn>::All)
         .await?
         .into_iter()
@@ -77,7 +77,7 @@ pub async fn find_remediation_ids(
 pub async fn find_remediations_by_ids(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     remediation_ids: &[RemediationId],
-) -> Result<Vec<Remediation>, CarbideError> {
+) -> Result<Vec<Remediation>, DatabaseError> {
     let remediations = find_remediations_by(
         txn,
         ObjectColumnFilter::List(RemediationIdColumn, remediation_ids),
@@ -100,7 +100,7 @@ pub async fn find_remediations_by<'a, C: ColumnInfo<'a, TableType = Remediation>
 pub async fn find_next_remediation_for_machine(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> Result<Option<Remediation>, CarbideError> {
+) -> Result<Option<Remediation>, DatabaseError> {
     for remediation in find_remediations_by(txn, ObjectColumnFilter::List(EnabledColumn, &[true]))
         .await?
         .into_iter()
@@ -128,7 +128,7 @@ pub async fn remediation_applied(
     machine_id: MachineId,
     remediation_id: RemediationId,
     status: RemediationApplicationStatus,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let remediations_applied_so_far =
         find_remediations_by_remediation_id_and_machine(txn, remediation_id, &machine_id).await?;
 
@@ -140,7 +140,7 @@ pub async fn remediation_applied(
         .metadata
         .unwrap_or_default()
         .try_into()
-        .map_err(CarbideError::from)?;
+        .map_err(DatabaseError::from)?;
 
     let new_applied_remediation = NewAppliedRemediation {
         dpu_machine_id: machine_id.to_string(),
@@ -158,7 +158,7 @@ pub async fn remediation_applied(
 pub async fn persist_applied_remediation(
     value: NewAppliedRemediation,
     txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> Result<AppliedRemediation, CarbideError> {
+) -> Result<AppliedRemediation, DatabaseError> {
     let query = "INSERT INTO applied_dpu_remediations (id, dpu_machine_id, attempt, succeeded, status) VALUES ($1, $2, $3, $4, $5) returning *";
 
     sqlx::query_as(query)
@@ -169,7 +169,7 @@ pub async fn persist_applied_remediation(
         .bind(sqlx::types::Json(&value.status))
         .fetch_one(txn.deref_mut())
         .await
-        .map_err(|err| CarbideError::from(DatabaseError::new(query, err)))
+        .map_err(|err| DatabaseError::new(query, err))
 }
 
 #[derive(Clone, Copy)]
@@ -202,7 +202,7 @@ pub enum AppliedRemediationIdQueryType {
 pub async fn find_applied_remediation_ids(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     id_query_args: AppliedRemediationIdQueryType,
-) -> Result<(Vec<RemediationId>, Vec<MachineId>), CarbideError> {
+) -> Result<(Vec<RemediationId>, Vec<MachineId>), DatabaseError> {
     let ids = match id_query_args {
         AppliedRemediationIdQueryType::Machine(machine_id) => {
             let remediation_ids = find_applied_remediations_by(
@@ -254,7 +254,7 @@ pub async fn find_remediations_by_remediation_id_and_machine(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     remediation_id: RemediationId,
     machine_id: &MachineId,
-) -> Result<Vec<AppliedRemediation>, CarbideError> {
+) -> Result<Vec<AppliedRemediation>, DatabaseError> {
     let query = "SELECT * FROM applied_dpu_remediations WHERE id=$1 AND dpu_machine_id=$2 ORDER BY attempt DESC";
     sqlx::query_as(query)
         .bind(remediation_id)
@@ -262,30 +262,29 @@ pub async fn find_remediations_by_remediation_id_and_machine(
         .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(query, e))
-        .map_err(CarbideError::from)
 }
 
 pub async fn persist_approve_remediation(
     value: ApproveRemediation,
     txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let existing_query = "SELECT * from dpu_remediations WHERE id=$1";
     let existing_remediation: Remediation = sqlx::query_as(existing_query)
         .bind(value.id)
         .fetch_optional(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(existing_query, e))?
-        .ok_or(CarbideError::NotFoundError {
+        .ok_or(DatabaseError::NotFoundError {
             kind: "dpu_remediations.id",
             id: value.id.to_string(),
         })?;
 
     if existing_remediation.author.to_string().as_str() == value.reviewer.to_string().as_str() {
-        return Err(CarbideError::InvalidArgument("Reviewer cannot be the same person as Author for remediation, must be different person.".to_string()));
+        return Err(DatabaseError::InvalidArgument("Reviewer cannot be the same person as Author for remediation, must be different person.".to_string()));
     } else if let Some(reviewer) = existing_remediation.reviewer.as_ref() {
         let reviewer = reviewer.to_string();
         if !reviewer.is_empty() {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(DatabaseError::InvalidArgument(format!(
                 "Reviewer is already set to '{reviewer}', cannot overwrite.  Revoke if necessary.",
             )));
         }
@@ -305,7 +304,7 @@ pub async fn persist_approve_remediation(
 pub async fn persist_revoke_remediation(
     value: RevokeRemediation,
     txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let update_query =
         "UPDATE dpu_remediations SET script_reviewed_by=NULL,enabled=false WHERE id=$1";
     let _ = sqlx::query(update_query)
@@ -320,20 +319,20 @@ pub async fn persist_revoke_remediation(
 pub async fn persist_enable_remediation(
     value: EnableRemediation,
     txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let existing_query = "SELECT * from dpu_remediations WHERE id=$1";
     let existing_remediation: Remediation = sqlx::query_as(existing_query)
         .bind(value.id)
         .fetch_optional(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(existing_query, e))?
-        .ok_or(CarbideError::NotFoundError {
+        .ok_or(DatabaseError::NotFoundError {
             kind: "dpu_remediations.id",
             id: value.id.to_string(),
         })?;
 
     if existing_remediation.reviewer.is_none() {
-        return Err(CarbideError::InvalidArgument(
+        return Err(DatabaseError::InvalidArgument(
             "Cannot enable a remediation that has not been approved.".to_string(),
         ));
     }
@@ -351,7 +350,7 @@ pub async fn persist_enable_remediation(
 pub async fn persist_disable_remediation(
     value: DisableRemediation,
     txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let update_query = "UPDATE dpu_remediations SET enabled=false WHERE id=$1";
     let _ = sqlx::query(update_query)
         .bind(value.id)

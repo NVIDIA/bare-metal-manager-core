@@ -14,7 +14,7 @@ use model::domain::{Domain, NewDomain, Soa};
 
 use crate::db::ObjectColumnFilter;
 use crate::db::domain::{self};
-use crate::{CarbideError, CarbideResult, db};
+use crate::{DatabaseError, DatabaseResult, db};
 
 #[crate::sqlx_test]
 async fn create_delete_valid_domain(pool: sqlx::PgPool) {
@@ -58,7 +58,7 @@ async fn create_invalid_domain_case(pool: sqlx::PgPool) {
 
     let test_name = "DwRt".to_string();
 
-    let domain: CarbideResult<Domain> = domain::persist(
+    let domain: DatabaseResult<Domain> = domain::persist(
         NewDomain {
             name: test_name.clone(),
             soa: Soa::new(test_name.as_str()),
@@ -69,7 +69,7 @@ async fn create_invalid_domain_case(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(domain, Err(CarbideError::InvalidArgument(_))));
+    assert!(matches!(domain, Err(DatabaseError::InvalidArgument(_))));
 }
 
 #[crate::sqlx_test]
@@ -79,7 +79,7 @@ async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let domain: CarbideResult<Domain> = domain::persist(
+    let domain: DatabaseResult<Domain> = domain::persist(
         NewDomain {
             name: "ihaveaspace.com ".to_string(),
             soa: Soa::new("ihavespace.com "),
@@ -90,7 +90,7 @@ async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(domain, Err(CarbideError::InvalidArgument(_))));
+    assert!(matches!(domain, Err(DatabaseError::InvalidArgument(_))));
 }
 
 #[crate::sqlx_test]

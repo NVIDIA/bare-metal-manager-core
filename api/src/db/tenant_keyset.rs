@@ -2,7 +2,6 @@ use model::tenant::{TenantKeyset, TenantKeysetId, TenantKeysetIdentifier, Update
 use sqlx::PgConnection;
 
 use crate::db::{DatabaseError, ObjectFilter};
-use crate::errors::CarbideError;
 
 pub async fn create(
     value: &TenantKeyset,
@@ -147,7 +146,7 @@ pub async fn delete(
 pub async fn update(
     value: &UpdateTenantKeyset,
     txn: &mut PgConnection,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     // Validate if sent version is same.
     let current_keyset = find(
         Some(value.keyset_identifier.organization_id.to_string()),
@@ -158,7 +157,7 @@ pub async fn update(
     .await?;
 
     if current_keyset.is_empty() {
-        return Err(CarbideError::NotFoundError {
+        return Err(DatabaseError::NotFoundError {
             kind: "keyset",
             id: format!("{:?}", value.keyset_identifier),
         });
@@ -180,10 +179,10 @@ pub async fn update(
         .await
     {
         Ok(_) => Ok(()),
-        Err(sqlx::Error::RowNotFound) => Err(CarbideError::ConcurrentModificationError(
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::ConcurrentModificationError(
             "keyset",
             expected_version,
         )),
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }

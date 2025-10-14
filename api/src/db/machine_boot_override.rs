@@ -14,8 +14,9 @@ use forge_uuid::machine::MachineInterfaceId;
 use model::machine_boot_override::MachineBootOverride;
 use sqlx::PgConnection;
 
-use crate::db::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::{CarbideError, CarbideResult};
+use crate::db::{
+    ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
+};
 
 #[derive(Clone, Copy)]
 struct MachineInterfaceIdColumn;
@@ -32,7 +33,7 @@ pub async fn create(
     machine_interface_id: MachineInterfaceId,
     custom_pxe: Option<String>,
     custom_user_data: Option<String>,
-) -> CarbideResult<Option<MachineBootOverride>> {
+) -> DatabaseResult<Option<MachineBootOverride>> {
     let query = "INSERT INTO machine_boot_override VALUES ($1, $2, $3) RETURNING *";
     let res = sqlx::query_as(query)
         .bind(machine_interface_id)
@@ -48,7 +49,7 @@ pub async fn create(
 pub async fn update_or_insert(
     value: &MachineBootOverride,
     txn: &mut PgConnection,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     match find_optional(txn, value.machine_interface_id).await? {
         Some(existing_mbo) => {
             let custom_pxe = if value.custom_pxe.is_some() {
@@ -89,7 +90,7 @@ pub async fn update_or_insert(
 pub async fn clear(
     txn: &mut PgConnection,
     machine_interface_id: MachineInterfaceId,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     let query = "DELETE FROM machine_boot_override WHERE machine_interface_id = $1";
 
     sqlx::query(query)
@@ -98,13 +99,12 @@ pub async fn clear(
         .await
         .map(|_| ())
         .map_err(|e| DatabaseError::query(query, e))
-        .map_err(Into::into)
 }
 
 pub async fn find_optional(
     txn: &mut PgConnection,
     machine_interface_id: MachineInterfaceId,
-) -> CarbideResult<Option<MachineBootOverride>> {
+) -> DatabaseResult<Option<MachineBootOverride>> {
     let mut interfaces = find_by(
         txn,
         ObjectColumnFilter::One(MachineInterfaceIdColumn, &machine_interface_id),
@@ -113,7 +113,7 @@ pub async fn find_optional(
     match interfaces.len() {
         0 => Ok(None),
         1 => Ok(Some(interfaces.remove(0))),
-        _ => Err(CarbideError::FindOneReturnedManyResultsError(
+        _ => Err(DatabaseError::FindOneReturnedManyResultsError(
             machine_interface_id.0,
         )),
     }

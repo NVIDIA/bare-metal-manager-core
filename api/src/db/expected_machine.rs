@@ -17,8 +17,7 @@ use model::expected_machine::{ExpectedMachine, ExpectedMachineData, LinkedExpect
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::DatabaseError;
-use crate::{CarbideError, CarbideResult};
+use crate::{DatabaseError, DatabaseResult};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
@@ -49,7 +48,7 @@ pub async fn find_by_id(
 pub async fn find_many_by_bmc_mac_address(
     txn: &mut PgConnection,
     bmc_mac_addresses: &[MacAddress],
-) -> CarbideResult<HashMap<MacAddress, ExpectedMachine>> {
+) -> DatabaseResult<HashMap<MacAddress, ExpectedMachine>> {
     let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=ANY($1)";
     let v: Vec<ExpectedMachine> = sqlx::query_as(sql)
         .bind(bmc_mac_addresses)
@@ -66,7 +65,7 @@ pub async fn find_many_by_bmc_mac_address(
         .drain()
         .map(|(k, mut v)| {
             if v.len() > 1 {
-                Err(CarbideError::AlreadyFoundError {
+                Err(DatabaseError::AlreadyFoundError {
                     kind: "ExpectedMachine",
                     id: k.to_string(),
                 })
@@ -77,15 +76,15 @@ pub async fn find_many_by_bmc_mac_address(
         .collect()
 }
 
-pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<ExpectedMachine>> {
+pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedMachine>> {
     let sql = "SELECT * FROM expected_machines";
     sqlx::query_as(sql)
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::query(sql, err).into())
+        .map_err(|err| DatabaseError::query(sql, err))
 }
 
-pub async fn find_all_linked(txn: &mut PgConnection) -> CarbideResult<Vec<LinkedExpectedMachine>> {
+pub async fn find_all_linked(txn: &mut PgConnection) -> DatabaseResult<Vec<LinkedExpectedMachine>> {
     let sql = r#"
  SELECT
  em.serial_number,
@@ -103,7 +102,7 @@ FROM expected_machines em
     sqlx::query_as(sql)
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::query(sql, err).into())
+        .map_err(|err| DatabaseError::query(sql, err))
 }
 
 #[cfg(test)] // currently only used by tests
@@ -112,7 +111,7 @@ pub async fn update_bmc_credentials<'a>(
     txn: &mut PgConnection,
     bmc_username: String,
     bmc_password: String,
-) -> CarbideResult<&'a mut ExpectedMachine> {
+) -> DatabaseResult<&'a mut ExpectedMachine> {
     let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2 WHERE bmc_mac_address=$3 RETURNING bmc_mac_address";
 
     let _: () = sqlx::query_as(query)
@@ -122,11 +121,11 @@ pub async fn update_bmc_credentials<'a>(
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
                 kind: "expected_machine",
                 id: value.bmc_mac_address.to_string(),
             },
-            _ => DatabaseError::query(query, err).into(),
+            _ => DatabaseError::query(query, err),
         })?;
 
     value.data.bmc_username = bmc_username;
@@ -139,7 +138,7 @@ pub async fn create(
     txn: &mut PgConnection,
     bmc_mac_address: MacAddress,
     data: ExpectedMachineData,
-) -> CarbideResult<ExpectedMachine> {
+) -> DatabaseResult<ExpectedMachine> {
     // If an id was provided in the RPC, we want to use it
     let query_with_id = "INSERT INTO expected_machines
             (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id)
@@ -166,9 +165,9 @@ pub async fn create(
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                    CarbideError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
+                    DatabaseError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
                 }
-                _ => DatabaseError::query(query_with_id, err).into(),
+                _ => DatabaseError::query(query_with_id, err),
             })
     } else {
         sqlx::query_as(query_without_id)
@@ -185,14 +184,14 @@ pub async fn create(
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                    CarbideError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
+                    DatabaseError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
                 }
-                _ => DatabaseError::query(query_without_id, err).into(),
+                _ => DatabaseError::query(query_without_id, err),
             })
     }
 }
 
-pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> CarbideResult<()> {
+pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> DatabaseResult<()> {
     let query = "DELETE FROM expected_machines WHERE bmc_mac_address=$1";
 
     let result = sqlx::query(query)
@@ -202,7 +201,7 @@ pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> Carb
         .map_err(|err| DatabaseError::query(query, err))?;
 
     if result.rows_affected() == 0 {
-        return Err(CarbideError::NotFoundError {
+        return Err(DatabaseError::NotFoundError {
             kind: "expected_machine",
             id: bmc_mac_address.to_string(),
         });
@@ -211,7 +210,7 @@ pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> Carb
     Ok(())
 }
 
-pub async fn delete_by_id(id: Uuid, txn: &mut PgConnection) -> CarbideResult<()> {
+pub async fn delete_by_id(id: Uuid, txn: &mut PgConnection) -> DatabaseResult<()> {
     let query = "DELETE FROM expected_machines WHERE id=$1";
 
     let result = sqlx::query(query)
@@ -221,7 +220,7 @@ pub async fn delete_by_id(id: Uuid, txn: &mut PgConnection) -> CarbideResult<()>
         .map_err(|err| DatabaseError::query(query, err))?;
 
     if result.rows_affected() == 0 {
-        return Err(CarbideError::NotFoundError {
+        return Err(DatabaseError::NotFoundError {
             kind: "expected_machine",
             id: id.to_string(),
         });
@@ -244,7 +243,7 @@ pub async fn update<'a>(
     value: &'a mut ExpectedMachine,
     txn: &mut PgConnection,
     data: ExpectedMachineData,
-) -> CarbideResult<&'a mut ExpectedMachine> {
+) -> DatabaseResult<&'a mut ExpectedMachine> {
     let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8 WHERE bmc_mac_address=$9 RETURNING bmc_mac_address";
 
     let _: () = sqlx::query_as(query)
@@ -260,11 +259,11 @@ pub async fn update<'a>(
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
                 kind: "expected_machine",
                 id: value.bmc_mac_address.to_string(),
             },
-            _ => DatabaseError::query(query, err).into(),
+            _ => DatabaseError::query(query, err),
         })?;
 
     value.data = data;
@@ -275,7 +274,7 @@ pub async fn update_by_id(
     txn: &mut PgConnection,
     id: Uuid,
     data: ExpectedMachineData,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8 WHERE id=$9 RETURNING id";
 
     let _: () = sqlx::query_as(query)
@@ -291,11 +290,11 @@ pub async fn update_by_id(
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
                 kind: "expected_machine",
                 id: id.to_string(),
             },
-            _ => DatabaseError::query(query, err).into(),
+            _ => DatabaseError::query(query, err),
         })?;
 
     Ok(())
@@ -306,7 +305,7 @@ pub async fn update_by_id(
 pub async fn create_missing_from(
     txn: &mut PgConnection,
     expected_machines: &[ExpectedMachine],
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     let existing_machines = find_all(txn).await?;
     let existing_map: BTreeMap<String, ExpectedMachine> = existing_machines
         .into_iter()

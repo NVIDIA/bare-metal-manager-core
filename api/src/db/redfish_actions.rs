@@ -4,8 +4,7 @@ use model::redfish::{ActionRequest, BMCResponse};
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
-use crate::CarbideError;
-use crate::db::{self, DatabaseError};
+use crate::{DatabaseError, db};
 
 pub async fn list_requests(
     request: rpc::forge::RedfishListActionsRequest,
@@ -50,7 +49,7 @@ pub async fn list_requests(
 pub async fn fetch_request(
     request: rpc::forge::RedfishActionId,
     txn: &mut PgConnection,
-) -> Result<ActionRequest, CarbideError> {
+) -> Result<ActionRequest, DatabaseError> {
     let query = "SELECT
         request_id,
         requester,
@@ -71,7 +70,7 @@ pub async fn fetch_request(
         .await
         .map_err(|e| DatabaseError::new(query, e))?;
     let Some(action_request) = action_request else {
-        return Err(CarbideError::NotFoundError {
+        return Err(DatabaseError::NotFoundError {
             kind: "redfish_bmc_action",
             id: request.request_id.to_string(),
         });
@@ -82,14 +81,12 @@ pub async fn fetch_request(
 pub async fn find_serials(
     ips: &[String],
     txn: &mut PgConnection,
-) -> Result<HashMap<String, String>, CarbideError> {
-    let pairs = db::machine_topology::find_machine_bmc_pairs(txn, ips.to_vec())
-        .await
-        .map_err(CarbideError::from)?;
+) -> Result<HashMap<String, String>, DatabaseError> {
+    let pairs = db::machine_topology::find_machine_bmc_pairs(txn, ips.to_vec()).await?;
     if pairs.len() != ips.len() {
         let requested_ips: HashSet<_> = ips.iter().cloned().collect();
         let found_ips: HashSet<_> = pairs.into_iter().map(|p| p.1).collect();
-        return Err(CarbideError::NotFoundError {
+        return Err(DatabaseError::NotFoundError {
             kind: "machine topologies",
             id: requested_ips
                 .difference(&found_ips)
@@ -102,20 +99,19 @@ pub async fn find_serials(
         txn,
         pairs.iter().map(|p| p.0).collect::<Vec<_>>().as_slice(),
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
     let mut output = HashMap::new();
     for (id, ip) in pairs {
         let (topology, remainder) = topologies
             .get(&id)
             .and_then(|v| v.split_first())
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| DatabaseError::NotFoundError {
                 kind: "machine topology",
                 id: id.to_string(),
             })?;
         // See find_by_machine_ids: there should only ever be one topology.
         if !remainder.is_empty() {
-            return Err(CarbideError::internal(format!(
+            return Err(DatabaseError::internal(format!(
                 "found multiple topologies for machine {id}"
             )));
         }
@@ -125,7 +121,7 @@ pub async fn find_serials(
             .info
             .dmi_data
             .as_ref()
-            .ok_or_else(|| CarbideError::NotFoundError {
+            .ok_or_else(|| DatabaseError::NotFoundError {
                 kind: "discovery data dmi_data",
                 id: id.to_string(),
             })?;
@@ -217,7 +213,7 @@ pub async fn set_applied(
 pub async fn delete_request(
     request: rpc::forge::RedfishActionId,
     txn: &mut PgConnection,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let query = r#"DELETE FROM redfish_bmc_actions WHERE request_id = $1 AND applied_at IS NULL"#;
     let result = sqlx::query(query)
         .bind(request.request_id)
@@ -225,7 +221,7 @@ pub async fn delete_request(
         .await
         .map_err(|e| DatabaseError::new(query, e))?;
     if result.rows_affected() == 0 {
-        return Err(CarbideError::NotFoundError {
+        return Err(DatabaseError::NotFoundError {
             kind: "redfish_bmc_action",
             id: request.request_id.to_string(),
         });

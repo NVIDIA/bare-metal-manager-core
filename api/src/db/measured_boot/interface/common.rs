@@ -25,8 +25,7 @@ use measured_boot::pcr::PcrRegisterValue;
 use sqlx::postgres::PgRow;
 use sqlx::{Encode, PgConnection, Postgres};
 
-use crate::db::DatabaseError;
-use crate::{CarbideError, CarbideResult};
+use crate::{DatabaseError, DatabaseResult};
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
 // from DiscoveryInfo for a given machine when
@@ -47,7 +46,7 @@ pub const DISCOVERY_PROFILE_ATTRS: [&str; 3] = ["sys_vendor", "product_name", "b
 /// pulling values from the mock attributes table.
 pub fn filter_machine_discovery_attrs(
     attrs: &HashMap<String, String>,
-) -> CarbideResult<HashMap<String, String>> {
+) -> DatabaseResult<HashMap<String, String>> {
     let filtered: HashMap<String, String> = attrs
         .iter()
         .filter_map(|(k, v)| {
@@ -63,7 +62,7 @@ pub fn filter_machine_discovery_attrs(
 
 /// generate_name generates a unique name for the purpose
 /// of auto-generated {profile, bundle} names.
-pub fn generate_name() -> CarbideResult<String> {
+pub fn generate_name() -> DatabaseResult<String> {
     let mut generate = names::Generator::default();
     Ok(generate.next().unwrap())
 }
@@ -88,7 +87,7 @@ where
 {
     get_object_for_unique_column(txn, T::db_primary_uuid_name(), id)
         .await
-        .map_err(|e| DatabaseError::new("get_object_for_id", e.source))
+        .map_err(|e| e.with_op_name("get_object_for_id"))
 }
 
 /// get_object_for_unique_column provides a generic for getting a fully
@@ -184,7 +183,7 @@ where
 {
     delete_objects_where_unique_column(txn, T::db_primary_uuid_name(), id)
         .await
-        .map_err(|e| DatabaseError::new("delete_objects_where_id", e.source))
+        .map_err(|e| e.with_op_name("delete_objects_where_id"))
 }
 
 pub async fn delete_objects_where_unique_column<T, R>(
@@ -221,7 +220,7 @@ where
 {
     delete_object_where_unique_column(txn, T::db_primary_uuid_name(), id)
         .await
-        .map_err(|e| DatabaseError::new("delete_object_where_id", e.source))
+        .map_err(|e| e.with_op_name("delete_object_where_id"))
 }
 
 pub async fn delete_object_where_unique_column<T, R>(
@@ -289,14 +288,14 @@ fn advisory_lock_key_to_hash(key: &str) -> i64 {
 
 pub fn pcr_register_values_to_map(
     values: &[PcrRegisterValue],
-) -> CarbideResult<HashMap<i16, PcrRegisterValue>> {
+) -> DatabaseResult<HashMap<i16, PcrRegisterValue>> {
     let total_values = values.len();
     let value_map: HashMap<i16, PcrRegisterValue> = values
         .iter()
         .map(|rec| (rec.pcr_register, rec.clone()))
         .collect();
     if total_values != value_map.len() {
-        return Err(CarbideError::internal(String::from(
+        return Err(DatabaseError::internal(String::from(
             "detected pcr_register collision in input bundle values",
         )));
     }

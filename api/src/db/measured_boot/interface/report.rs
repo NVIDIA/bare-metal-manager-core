@@ -148,7 +148,7 @@ pub async fn get_all_measurement_report_records(
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_all_measurement_report_records", e.source))
+        .map_err(|e| e.with_op_name("get_all_measurement_report_records"))
 }
 
 /// get_measurement_report_record_by_id returns a populated
@@ -161,7 +161,7 @@ pub async fn get_measurement_report_record_by_id(
 ) -> Result<Option<MeasurementReportRecord>, DatabaseError> {
     common::get_object_for_id(txn, report_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_report_record_by_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_report_record_by_id"))
 }
 
 /// get_measurement_report_records_for_machine_id returns all report
@@ -173,7 +173,7 @@ pub async fn get_measurement_report_records_for_machine_id(
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     common::get_objects_where_id(txn, machine_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_report_records_for_machine_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_report_records_for_machine_id"))
 }
 
 /// get_measurement_report_values_for_report_id returns
@@ -188,7 +188,7 @@ pub async fn get_measurement_report_values_for_report_id(
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     common::get_objects_where_id(txn, report_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_report_values_for_report_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_report_values_for_report_id"))
 }
 
 /// delete_report_for_id deletes a report record.
@@ -207,7 +207,7 @@ pub async fn delete_report_values_for_id(
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, report_id)
         .await
-        .map_err(|e| DatabaseError::new("delete_report_values_for_id", e.source))
+        .map_err(|e| e.with_op_name("delete_report_values_for_id"))
 }
 
 pub(crate) async fn update_report_tstamp(
@@ -251,6 +251,6 @@ pub(crate) mod test_support {
     ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
         common::get_all_objects(txn)
             .await
-            .map_err(|e| DatabaseError::new("get_all_measurement_report_value_records", e.source))
+            .map_err(|e| e.with_op_name("get_all_measurement_report_value_records"))
     }
 }

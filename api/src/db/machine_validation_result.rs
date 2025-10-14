@@ -3,15 +3,14 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_validation::MachineValidationResult;
 use sqlx::PgConnection;
 
-use crate::db;
-use crate::db::{DatabaseError, ObjectFilter, machine_validation_suites};
-use crate::errors::{CarbideError, CarbideResult};
+use crate::db::{ObjectFilter, machine_validation_suites};
+use crate::{DatabaseError, DatabaseResult, db};
 
 pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     include_history: bool,
-) -> CarbideResult<Vec<MachineValidationResult>> {
+) -> DatabaseResult<Vec<MachineValidationResult>> {
     if include_history {
         // Fetch all validation_id from machine_validation table
         let machine_validation = db::machine_validation::find_by(
@@ -25,21 +24,19 @@ pub async fn find_by_machine_id(
         for item in machine_validation {
             columns.push(item.id.to_string());
         }
-        return find_by(txn, ObjectFilter::List(&columns), "machine_validation_id")
-            .await
-            .map_err(Into::into);
+        return find_by(txn, ObjectFilter::List(&columns), "machine_validation_id").await;
     };
     let machine = match db::machine::find_one(txn, machine_id, MachineSearchConfig::default()).await
     {
         Err(err) => {
             tracing::warn!(%machine_id, error = %err, "failed loading machine");
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "err loading machine".to_string(),
             ));
         }
         Ok(None) => {
             tracing::info!(%machine_id, "machine not found");
-            return Err(CarbideError::NotFoundError {
+            return Err(DatabaseError::NotFoundError {
                 kind: "machine",
                 id: machine_id.to_string(),
             });
@@ -62,7 +59,6 @@ pub async fn find_by_machine_id(
         "machine_validation_id",
     )
     .await
-    .map_err(Into::into)
 }
 
 async fn find_by(
@@ -116,7 +112,7 @@ async fn find_by(
     Ok(custom_results)
 }
 
-pub async fn create(value: MachineValidationResult, txn: &mut PgConnection) -> CarbideResult<()> {
+pub async fn create(value: MachineValidationResult, txn: &mut PgConnection) -> DatabaseResult<()> {
     let query = "
         INSERT INTO machine_validation_results (
             name,
@@ -161,7 +157,7 @@ pub async fn create(value: MachineValidationResult, txn: &mut PgConnection) -> C
 pub async fn validate_current_context(
     txn: &mut PgConnection,
     id: &rpc::Uuid,
-) -> CarbideResult<Option<String>> {
+) -> DatabaseResult<Option<String>> {
     let db_results = find_by(
         txn,
         ObjectFilter::List(&[id.to_string()]),
@@ -180,12 +176,11 @@ pub async fn validate_current_context(
 pub async fn find_by_validation_id(
     txn: &mut PgConnection,
     id: &uuid::Uuid,
-) -> CarbideResult<Vec<MachineValidationResult>> {
+) -> DatabaseResult<Vec<MachineValidationResult>> {
     find_by(
         txn,
         ObjectFilter::List(&[id.to_string()]),
         "machine_validation_id",
     )
     .await
-    .map_err(Into::into)
 }

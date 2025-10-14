@@ -6,8 +6,7 @@ use model::machine::Machine;
 use model::network_segment::NetworkSegmentType;
 use sqlx::PgConnection;
 
-use crate::db;
-use crate::errors::CarbideResult;
+use crate::{DatabaseResult, db};
 /// Allocate IP's for this network config, filling the InstanceInterfaceConfigs with the newly
 /// allocated IP's.
 pub async fn with_allocated_ips(
@@ -15,7 +14,7 @@ pub async fn with_allocated_ips(
     txn: &mut PgConnection,
     instance_id: InstanceId,
     machine: &Machine,
-) -> CarbideResult<InstanceNetworkConfig> {
+) -> DatabaseResult<InstanceNetworkConfig> {
     db::instance_address::allocate(txn, instance_id, value, machine).await
 }
 
@@ -26,7 +25,7 @@ pub async fn with_inband_interfaces_from_machine(
     mut value: InstanceNetworkConfig,
     txn: &mut PgConnection,
     machine_id: &::forge_uuid::machine::MachineId,
-) -> CarbideResult<InstanceNetworkConfig> {
+) -> DatabaseResult<InstanceNetworkConfig> {
     let host_inband_segment_ids = db::network_segment::find_ids_by_machine_id(
         txn,
         machine_id,

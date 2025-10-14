@@ -23,7 +23,7 @@ use rpc::forge::forge_server::Forge;
 use crate::db::vpc::{self};
 use crate::db::{self, ObjectColumnFilter};
 use crate::tests::common;
-use crate::{CarbideError, db_init};
+use crate::{DatabaseError, db_init};
 
 #[crate::sqlx_test]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -209,7 +209,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await;
     assert!(matches!(
         update_result,
-        Err(CarbideError::ConcurrentModificationError(_, _))
+        Err(DatabaseError::ConcurrentModificationError(_, _))
     ));
 
     // Check that the data was indeed not touched
