@@ -176,6 +176,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 InstanceState::HostReprovision { .. } => "hostreprovisioning",
                 InstanceState::NetworkConfigUpdate { .. } => "networkconfigupdate",
                 InstanceState::WaitingForDpusToUp => "waitingfordpustoup",
+                InstanceState::HostPlatformConfiguration { .. } => "hostplatformconfiguration",
             }
         }
 

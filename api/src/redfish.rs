@@ -1561,6 +1561,13 @@ pub mod test_support {
         ) -> Result<Option<String>, RedfishError> {
             Ok(None)
         }
+
+        async fn is_boot_order_setup(
+            &self,
+            _boot_interface_mac: &str,
+        ) -> Result<bool, RedfishError> {
+            Ok(true)
+        }
     }
 
     #[async_trait]

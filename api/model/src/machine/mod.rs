@@ -1660,6 +1660,9 @@ pub enum InstanceState {
     WaitingForStorageConfig,
     WaitingForRebootToReady,
     Ready,
+    HostPlatformConfiguration {
+        platform_config_state: HostPlatformConfigurationState,
+    },
     WaitingForDpusToUp,
     BootingWithDiscoveryImage {
         #[serde(default)]
@@ -1680,6 +1683,20 @@ pub enum InstanceState {
     NetworkConfigUpdate {
         network_config_update_state: NetworkConfigUpdateState,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum HostPlatformConfigurationState {
+    PowerCycle {
+        power_on: bool,
+    },
+    UnlockHost,
+    ConfigureBios,
+    SetBootOrder {
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    LockHost,
 }
 
 /// Struct to store information if Reprovision is requested.

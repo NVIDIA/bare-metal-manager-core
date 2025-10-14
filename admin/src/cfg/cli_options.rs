@@ -1016,6 +1016,7 @@ pub enum RedfishCommand {
     GetBossController,
     DecomissionController(DecomissionControllerArgs),
     CreateVolume(CreateVolumeArgs),
+    IsBootOrderSetup(SetBootOrderDpuFirstArgs),
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
