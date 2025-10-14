@@ -1725,7 +1725,7 @@ impl SiteExplorer {
                 }
                 Err(e) => {
                     tracing::error!(error = %e, "Can't create DPU machine");
-                    Err(e)
+                    Err(e.into())
                 }
             },
         }
@@ -2379,7 +2379,7 @@ impl SiteExplorer {
 
         txn.commit()
             .await
-            .map_err(|e| CarbideError::DBError(DatabaseError::txn_commit(DB_TXN_NAME, e)))
+            .map_err(|e| CarbideError::from(DatabaseError::txn_commit(DB_TXN_NAME, e)))
     }
 
     async fn find_machine_interface_for_ip(

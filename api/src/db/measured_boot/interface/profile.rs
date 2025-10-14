@@ -128,7 +128,7 @@ pub async fn get_all_measurement_profile_records(
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_all_measurement_profile_records", e.source))
+        .map_err(|e| e.with_op_name("get_all_measurement_profile_records"))
 }
 
 /// get_measurement_profile_record_by_id returns a populated
@@ -140,7 +140,7 @@ pub async fn get_measurement_profile_record_by_id(
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_object_for_id(txn, profile_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_profile_record_by_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_profile_record_by_id"))
 }
 
 /// get_measurement_profile_record_by_name returns a populated
@@ -152,7 +152,7 @@ pub async fn get_measurement_profile_record_by_name(
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_object_for_unique_column(txn, "name", val)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_profile_record_by_name", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_profile_record_by_name"))
 }
 
 /// delete_profile_record_for_id deletes a profile record
@@ -163,7 +163,7 @@ pub async fn delete_profile_record_for_id(
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::delete_object_where_id(txn, profile_id)
         .await
-        .map_err(|e| DatabaseError::new("delete_profile_record_for_id", e.source))
+        .map_err(|e| e.with_op_name("delete_profile_record_for_id"))
 }
 
 /// delete_profile_attr_records_for_id deletes all profile
@@ -174,7 +174,7 @@ pub async fn delete_profile_attr_records_for_id(
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, profile_id)
         .await
-        .map_err(|e| DatabaseError::new("delete_profile_attr_records_for_id", e.source))
+        .map_err(|e| e.with_op_name("delete_profile_attr_records_for_id"))
 }
 
 /// get_measurement_profile_record_by_attrs will attempt to get a single
@@ -282,7 +282,7 @@ pub async fn get_measurement_profile_attrs_for_profile_id(
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_objects_where_id(txn, profile_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_profile_attrs_for_profile_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_profile_attrs_for_profile_id"))
 }
 
 /// get_bundles_for_profile_id returns a unique list of all
@@ -443,7 +443,7 @@ pub async fn export_measurement_profile_records(
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("export_measurement_profile_records", e.source))
+        .map_err(|e| e.with_op_name("export_measurement_profile_records"))
 }
 
 /// export_measurement_system_profiles_attrs returns all MeasurementSystemProfileAttrRecord
@@ -456,7 +456,7 @@ pub async fn export_measurement_system_profiles_attrs(
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("export_measurement_system_profiles_attrs", e.source))
+        .map_err(|e| e.with_op_name("export_measurement_system_profiles_attrs"))
 }
 
 #[cfg(test)]
@@ -470,6 +470,6 @@ pub(crate) mod test_support {
     ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
         common::get_all_objects(txn)
             .await
-            .map_err(|e| DatabaseError::new("get_all_measurement_profile_attr_records", e.source))
+            .map_err(|e| e.with_op_name("get_all_measurement_profile_attr_records"))
     }
 }

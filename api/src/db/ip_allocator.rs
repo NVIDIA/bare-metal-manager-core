@@ -20,8 +20,8 @@ use model::address_selection_strategy::AddressSelectionStrategy;
 use model::network_segment::NetworkSegment;
 use sqlx::PgConnection;
 
+use crate::DatabaseResult;
 use crate::db::DatabaseError;
-use crate::errors::{CarbideError, CarbideResult};
 
 #[async_trait::async_trait]
 pub trait UsedIpResolver {
@@ -110,7 +110,7 @@ impl IpAllocator {
         used_ip_resolver: Box<dyn UsedIpResolver + Send>,
         address_strategy: AddressSelectionStrategy,
         prefix_length: u8,
-    ) -> CarbideResult<Self> {
+    ) -> DatabaseResult<Self> {
         match address_strategy {
             AddressSelectionStrategy::Automatic => {
                 let used_ips = used_ip_resolver.used_prefixes(&mut *txn).await?;
@@ -147,7 +147,7 @@ impl IpAllocator {
     /// existing tenant-mapped IPs), and then collapsing them down, where
     /// collapsing means removing duplicate IpNetworks, removing smaller
     /// IpNetworks which are covered by larger IpNetworks, etc.
-    pub fn get_allocated(&self, segment_prefix: &Prefix) -> CarbideResult<Vec<IpNetwork>> {
+    pub fn get_allocated(&self, segment_prefix: &Prefix) -> DatabaseResult<Vec<IpNetwork>> {
         let allocated_ips = build_allocated_networks(segment_prefix, &self.used_ips)?;
         Ok(collapse_allocated_networks(&allocated_ips))
     }
@@ -155,14 +155,14 @@ impl IpAllocator {
     /// num_free returns the number of available IPs in this network segment
     /// by getting the size of the network segment, then subtracting the number
     /// of IPs in use by allocated networks in the segment.
-    pub fn num_free(&mut self) -> CarbideResult<u32> {
+    pub fn num_free(&mut self) -> DatabaseResult<u32> {
         if self.prefixes.is_empty() {
             return Ok(0);
         }
 
         let segment_prefix = &self.prefixes[0];
         if !segment_prefix.prefix.is_ipv4() {
-            return Err(CarbideError::from(DhcpError::OnlyIpv4Supported(
+            return Err(DatabaseError::from(DhcpError::OnlyIpv4Supported(
                 segment_prefix.prefix,
             )));
         }
@@ -171,13 +171,13 @@ impl IpAllocator {
 
         let allocated_ips = self
             .get_allocated(segment_prefix)
-            .map_err(|e| CarbideError::internal(format!("failed to get_allocated: {e}")))?;
+            .map_err(|e| DatabaseError::internal(format!("failed to get_allocated: {e}")))?;
 
         let total_allocated: u32 =
             allocated_ips
                 .iter()
                 .try_fold(0, |total_allocated, allocated_ip| {
-                    Ok::<u32, CarbideError>(total_allocated + get_network_size(allocated_ip)?)
+                    Ok::<u32, DatabaseError>(total_allocated + get_network_size(allocated_ip)?)
                 })?;
 
         Ok(total_ips - total_allocated)
@@ -187,7 +187,7 @@ impl IpAllocator {
 impl Iterator for IpAllocator {
     // The Item is a tuple that returns the prefix ID and the
     // allocated network for that prefix.
-    type Item = (NetworkPrefixId, CarbideResult<IpNetwork>);
+    type Item = (NetworkPrefixId, DatabaseResult<IpNetwork>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.prefixes.is_empty() {
@@ -197,7 +197,7 @@ impl Iterator for IpAllocator {
         if !segment_prefix.prefix.is_ipv4() {
             return Some((
                 segment_prefix.id,
-                Err(CarbideError::from(DhcpError::OnlyIpv4Supported(
+                Err(DatabaseError::from(DhcpError::OnlyIpv4Supported(
                     segment_prefix.prefix,
                 ))),
             ));
@@ -208,7 +208,7 @@ impl Iterator for IpAllocator {
             Err(e) => {
                 return Some((
                     segment_prefix.id,
-                    Err(CarbideError::internal(format!(
+                    Err(DatabaseError::internal(format!(
                         "failed to get allocated IPs for prefix: {} (err: {})",
                         segment_prefix.prefix, e
                     ))),
@@ -226,7 +226,7 @@ impl Iterator for IpAllocator {
                 Err(e) => {
                     return Some((
                         segment_prefix.id,
-                        Err(CarbideError::internal(format!(
+                        Err(DatabaseError::internal(format!(
                             "failed to get next available for prefix: {} (err: {})",
                             segment_prefix.prefix, e
                         ))),
@@ -258,7 +258,7 @@ impl Iterator for IpAllocator {
 fn build_allocated_networks(
     segment_prefix: &Prefix,
     used_ips: &[IpNetwork],
-) -> CarbideResult<Vec<IpNetwork>> {
+) -> DatabaseResult<Vec<IpNetwork>> {
     let mut allocated_ips: Vec<IpNetwork> = Vec::new();
 
     // First, if the segment prefix has a configured gateway (which comes
@@ -346,10 +346,10 @@ fn collapse_allocated_networks(input_networks: &[IpNetwork]) -> Vec<IpNetwork> {
 /// get_network_size wraps IpNetwork.size() with a check to make sure
 /// the IpNetwork is an IPv4 network (since we currently don't support
 /// IPv6 networks).
-fn get_network_size(ip_network: &IpNetwork) -> CarbideResult<u32> {
+fn get_network_size(ip_network: &IpNetwork) -> DatabaseResult<u32> {
     match ip_network.size() {
         ipnetwork::NetworkSize::V4(total_ips) => Ok(total_ips),
-        ipnetwork::NetworkSize::V6(_) => Err(CarbideError::from(DhcpError::OnlyIpv4Supported(
+        ipnetwork::NetworkSize::V6(_) => Err(DatabaseError::from(DhcpError::OnlyIpv4Supported(
             *ip_network,
         ))),
     }
@@ -394,7 +394,7 @@ fn build_candidate_subnet(
     network: IpNetwork,
     current_ip: u128,
     prefix_length: u8,
-) -> CarbideResult<IpNetwork> {
+) -> DatabaseResult<IpNetwork> {
     match network {
         IpNetwork::V4(_) => {
             let ipv4_net = Ipv4Network::new(Ipv4Addr::from(current_ip as u32), prefix_length)?;
@@ -423,9 +423,9 @@ fn next_available_prefix(
     network_segment: IpNetwork,
     prefix_length: u8,
     allocated_networks: Vec<IpNetwork>,
-) -> CarbideResult<Option<IpNetwork>> {
+) -> DatabaseResult<Option<IpNetwork>> {
     if prefix_length <= network_segment.prefix() {
-        return Err(CarbideError::internal(format!(
+        return Err(DatabaseError::internal(format!(
             "requested prefix length ({}) must be greater than the network segment prefix length ({})",
             prefix_length,
             network_segment.prefix()

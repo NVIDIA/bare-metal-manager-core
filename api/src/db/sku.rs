@@ -15,7 +15,6 @@ use model::sku::{
 };
 use sqlx::{Acquire, PgConnection};
 
-use crate::CarbideError;
 use crate::db::{self, DatabaseError};
 
 /// The current version of the SKU format.  The state machine will create older
@@ -51,9 +50,9 @@ pub async fn find_matching(
     Ok(None)
 }
 
-pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), CarbideError> {
+pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseError> {
     if sku.schema_version != CURRENT_SKU_VERSION {
-        return Err(CarbideError::InvalidArgument(
+        return Err(DatabaseError::InvalidArgument(
             "SKU version is no longer supported".to_string(),
         ));
     }
@@ -71,7 +70,7 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), CarbideErro
         .map_err(|e| DatabaseError::query(query, e))?;
 
     if let Some(existing_sku) = find_matching(&mut inner_txn, sku).await? {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(DatabaseError::InvalidArgument(format!(
             "Specified SKU matches SKU with ID: {}",
             existing_sku.id
         )));
@@ -177,9 +176,9 @@ pub async fn update_metadata(
     Ok(())
 }
 
-pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, CarbideError> {
+pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseError> {
     if sku.schema_version != CURRENT_SKU_VERSION {
-        return Err(CarbideError::InvalidArgument(
+        return Err(DatabaseError::InvalidArgument(
             "SKU version is no longer supported".to_string(),
         ));
     }
@@ -197,7 +196,7 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, CarbideEr
         .map_err(|e| DatabaseError::query(query, e))?;
 
     if let Some(existing_sku) = find_matching(&mut inner_txn, sku).await? {
-        return Err(CarbideError::InvalidArgument(format!(
+        return Err(DatabaseError::InvalidArgument(format!(
             "Specified SKU matches SKU with ID: {}",
             existing_sku.id
         )));
@@ -226,7 +225,7 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, CarbideEr
     find(txn, std::slice::from_ref(&sku.id))
         .await?
         .pop()
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "SKU",
             id: sku.id.clone(),
         })

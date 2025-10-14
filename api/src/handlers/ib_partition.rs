@@ -43,13 +43,14 @@ pub(crate) async fn create(
     resp.config.pkey = api.allocate_pkey(&mut txn, &resp.config.name).await?;
     let resp = db::ib_partition::create(resp, &mut txn, fabric_config.max_partition_per_tenant)
         .await
-        .map_err(|e| match e.source {
-            // During IB paritiont creation, it will check the existing partition by a 'select' query.
-            // The 'RowNotFound' error means that the carbide can not find a valid row for the new IBPartition.
-            sqlx::Error::RowNotFound => {
+        .map_err(|e| {
+            if e.is_not_found() {
+                // During IB paritiont creation, it will check the existing partition by a 'select' query.
+                // The 'RowNotFound' error means that the carbide can not find a valid row for the new IBPartition.
                 Status::invalid_argument("Maximum Limit of Infiniband partitions had been reached")
+            } else {
+                CarbideError::from(e).into()
             }
-            _ => CarbideError::from(e).into(),
         })?;
     let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
 

@@ -15,16 +15,15 @@ use model::bmc_info::BmcInfo;
 use serde_json::json;
 use sqlx::PgConnection;
 
-use super::DatabaseError;
-use crate::{CarbideError, CarbideResult, db};
+use crate::{DatabaseError, DatabaseResult, db};
 
 pub async fn update_bmc_network_into_topologies(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     bmc_info: &BmcInfo,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     if bmc_info.mac.is_none() {
-        return Err(CarbideError::internal(format!(
+        return Err(DatabaseError::internal(format!(
             "BMC Info in machine_topologies does not have a MAC address for machine {machine_id}"
         )));
     }
@@ -39,7 +38,7 @@ pub async fn update_bmc_network_into_topologies(
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?
-        .ok_or(CarbideError::NotFoundError {
+        .ok_or(DatabaseError::NotFoundError {
             kind: "machine_topologies.machine_id",
             id: machine_id.to_string(),
         })?;
@@ -55,9 +54,9 @@ pub async fn enrich_mac_address(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     persist: bool,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     if bmc_info.ip.is_none() {
-        return Err(CarbideError::internal(format!(
+        return Err(DatabaseError::internal(format!(
             "{caller} cannot enrich BMC Info without a valid BMC IP address for machine {machine_id}: {bmc_info:#?}"
         )));
     }

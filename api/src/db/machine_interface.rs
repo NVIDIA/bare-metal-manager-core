@@ -29,7 +29,7 @@ use sqlx::{Acquire, FromRow, PgConnection};
 
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db::ip_allocator::{IpAllocator, UsedIpResolver};
-use crate::{CarbideError, CarbideResult, db};
+use crate::{DatabaseResult, db};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
@@ -133,7 +133,7 @@ pub async fn associate_interface_with_machine(
     interface_id: &MachineInterfaceId,
     machine_id: &MachineId,
     txn: &mut PgConnection,
-) -> CarbideResult<MachineInterfaceId> {
+) -> DatabaseResult<MachineInterfaceId> {
     let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING id";
     sqlx::query_as(query)
         .bind(machine_id.to_string())
@@ -144,9 +144,9 @@ pub async fn associate_interface_with_machine(
             sqlx::Error::Database(e)
                 if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
             {
-                CarbideError::OnePrimaryInterface
+                DatabaseError::OnePrimaryInterface
             }
-            _ => DatabaseError::query(query, err).into(),
+            _ => DatabaseError::query(query, err),
         })
 }
 
@@ -176,10 +176,8 @@ pub async fn find_by_ip(
         .map_err(|e| DatabaseError::query(&query, e))
 }
 
-pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
-    find_by(txn, ObjectColumnFilter::All::<IdColumn>)
-        .await
-        .map_err(Into::into)
+pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MachineInterfaceSnapshot>> {
+    find_by(txn, ObjectColumnFilter::All::<IdColumn>).await
 }
 
 #[cfg(test)] // only used in tests today
@@ -215,12 +213,12 @@ pub async fn count_by_segment_id(
 pub async fn find_one(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
-) -> CarbideResult<MachineInterfaceSnapshot> {
+) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id)).await?;
     match interfaces.len() {
-        0 => Err(CarbideError::FindOneReturnedNoResultsError(interface_id.0)),
+        0 => Err(DatabaseError::FindOneReturnedNoResultsError(interface_id.0)),
         1 => Ok(interfaces.remove(0)),
-        _ => Err(CarbideError::FindOneReturnedManyResultsError(
+        _ => Err(DatabaseError::FindOneReturnedManyResultsError(
             interface_id.0,
         )),
     }
@@ -234,7 +232,7 @@ pub async fn find_or_create_machine_interface(
     machine_id: Option<MachineId>,
     mac_address: MacAddress,
     relay: IpAddr,
-) -> CarbideResult<MachineInterfaceSnapshot> {
+) -> DatabaseResult<MachineInterfaceSnapshot> {
     match machine_id {
         None => {
             tracing::info!(
@@ -255,7 +253,9 @@ pub async fn find_or_create_machine_interface(
                         num_mac_address = n,
                         "Duplicate mac address for network segment",
                     );
-                    Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
+                    Err(DatabaseError::NetworkSegmentDuplicateMacAddress(
+                        mac_address,
+                    ))
                 }
             }
         }
@@ -267,7 +267,7 @@ pub async fn validate_existing_mac_and_create(
     txn: &mut PgConnection,
     mac_address: MacAddress,
     relay: IpAddr,
-) -> CarbideResult<MachineInterfaceSnapshot> {
+) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut existing_mac = find_by_mac_address(txn, mac_address).await?;
     match &existing_mac.len() {
         0 => {
@@ -276,7 +276,7 @@ pub async fn validate_existing_mac_and_create(
                 "No existing machine_interface with mac address exists yet, creating one",
             );
             match db::network_segment::for_relay(txn, relay).await? {
-                None => Err(CarbideError::internal(format!(
+                None => Err(DatabaseError::internal(format!(
                     "No network segment defined for relay address: {relay}"
                 ))),
                 Some(segment) => {
@@ -303,11 +303,11 @@ pub async fn validate_existing_mac_and_create(
             // Ensure the relay segment exists before blindly giving the mac address back out
             match db::network_segment::for_relay(txn, relay).await? {
                 Some(ifc) if ifc.id == mac.segment_id => Ok(mac),
-                Some(ifc) => Err(CarbideError::internal(format!(
+                Some(ifc) => Err(DatabaseError::internal(format!(
                     "Network segment mismatch for existing mac address: {0} expected: {1} actual from network switch: {2}",
                     mac.mac_address, mac.segment_id, ifc.id,
                 ))),
-                None => Err(CarbideError::internal(format!(
+                None => Err(DatabaseError::internal(format!(
                     "No network segment defined for relay address: {relay}"
                 ))),
             }
@@ -318,7 +318,9 @@ pub async fn validate_existing_mac_and_create(
                 %relay,
                 "More than one existing mac address for network segment",
             );
-            Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
+            Err(DatabaseError::NetworkSegmentDuplicateMacAddress(
+                mac_address,
+            ))
         }
     }
 }
@@ -330,7 +332,7 @@ pub async fn create(
     domain_id: Option<DomainId>,
     primary_interface: bool,
     addresses: AddressSelectionStrategy,
-) -> CarbideResult<MachineInterfaceSnapshot> {
+) -> DatabaseResult<MachineInterfaceSnapshot> {
     // We're potentially about to insert a couple rows, so create a savepoint.
     const DB_TXN_NAME: &str = "machine_interface::create";
     let mut inner_txn = txn
@@ -377,7 +379,7 @@ pub async fn create(
     for (_, maybe_address) in addresses_allocator {
         let address = maybe_address?;
         if address.prefix() != prefix_length {
-            return Err(CarbideError::internal(format!(
+            return Err(DatabaseError::internal(format!(
                 "received allocated address candidate with mismatched prefix length (expected: {}, got: {}",
                 prefix_length,
                 address.prefix()
@@ -389,7 +391,7 @@ pub async fn create(
         }
     }
     if hostname.is_empty() {
-        return Err(CarbideError::internal(
+        return Err(DatabaseError::internal(
             "Could not generate hostname".to_string(),
         ));
     }
@@ -423,7 +425,7 @@ pub async fn create(
 pub async fn allocate_svi_ip(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
-) -> CarbideResult<(NetworkPrefixId, IpAddr)> {
+) -> DatabaseResult<(NetworkPrefixId, IpAddr)> {
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
         segment_id: segment.id,
         busy_ips: vec![],
@@ -449,7 +451,7 @@ pub async fn allocate_svi_ip(
     match addresses_allocator.next() {
         Some((id, Ok(address))) => Ok((id, address.ip())),
         Some((_, Err(err))) => Err(err),
-        _ => Err(CarbideError::ResourceExhausted(format!(
+        _ => Err(DatabaseError::ResourceExhausted(format!(
             "SVI IP not found for {}.",
             segment.id
         ))),
@@ -462,7 +464,7 @@ pub async fn find_by_ip_or_id(
     txn: &mut PgConnection,
     remote_ip: Option<IpAddr>,
     interface_id: Option<MachineInterfaceId>,
-) -> Result<MachineInterfaceSnapshot, CarbideError> {
+) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     if let Some(remote_ip) = remote_ip
         && let Some(interface) = find_by_ip(txn, remote_ip).await?
     {
@@ -476,7 +478,7 @@ pub async fn find_by_ip_or_id(
     }
     match interface_id {
         Some(interface_id) => find_one(txn, interface_id).await,
-        None => Err(CarbideError::NotFoundError {
+        None => Err(DatabaseError::NotFoundError {
             kind: "machine_interface",
             id: format!("remote_ip={remote_ip:?},interface_id={interface_id:?}"),
         }),
@@ -493,7 +495,7 @@ async fn insert_machine_interface(
     hostname: String,
     domain_id: Option<DomainId>,
     is_primary_interface: bool,
-) -> CarbideResult<MachineInterfaceId> {
+) -> DatabaseResult<MachineInterfaceId> {
     let query = "INSERT INTO machine_interfaces
         (segment_id, mac_address, hostname, domain_id, primary_interface)
         VALUES
@@ -509,14 +511,14 @@ async fn insert_machine_interface(
         .await
         .map_err(|err: sqlx::Error| match err {
             sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                CarbideError::NetworkSegmentDuplicateMacAddress(*mac_address)
+                DatabaseError::NetworkSegmentDuplicateMacAddress(*mac_address)
             }
             sqlx::Error::Database(e)
                 if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
             {
-                CarbideError::OnePrimaryInterface
+                DatabaseError::OnePrimaryInterface
             }
-            _ => DatabaseError::query(query, err).into(),
+            _ => DatabaseError::query(query, err),
         })?;
 
     Ok(interface_id)
@@ -531,7 +533,7 @@ async fn insert_machine_interface_address(
     txn: &mut PgConnection,
     interface_id: &MachineInterfaceId,
     address: &IpAddr,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
     sqlx::query(query)
         .bind(interface_id)
@@ -545,11 +547,11 @@ async fn insert_machine_interface_address(
 /// address_to_hostname converts an IpAddr address to a hostname,
 /// verifying the resulting hostname is actually a valid DNS name
 /// before returning it.
-fn address_to_hostname(address: &IpAddr) -> CarbideResult<String> {
+fn address_to_hostname(address: &IpAddr) -> DatabaseResult<String> {
     let hostname = address.to_string().replace('.', "-");
     match domain::base::Name::<octseq::array::Array<255>>::from_str(hostname.as_str()).is_ok() {
         true => Ok(hostname),
-        false => Err(CarbideError::internal(format!(
+        false => Err(DatabaseError::internal(format!(
             "invalid address to hostname: {hostname}"
         ))),
     }
@@ -573,11 +575,11 @@ async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
 pub async fn get_machine_interface_primary(
     machine_id: &MachineId,
     txn: &mut PgConnection,
-) -> CarbideResult<MachineInterfaceSnapshot> {
+) -> DatabaseResult<MachineInterfaceSnapshot> {
     find_by_machine_ids(txn, &[*machine_id])
         .await?
         .remove(machine_id)
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "interface",
             id: machine_id.to_string(),
         })?
@@ -586,7 +588,7 @@ pub async fn get_machine_interface_primary(
         .collect::<Vec<MachineInterfaceSnapshot>>()
         .pop()
         .ok_or_else(|| {
-            CarbideError::internal(format!("Couldn't find primary interface for {machine_id}."))
+            DatabaseError::internal(format!("Couldn't find primary interface for {machine_id}."))
         })
 }
 
@@ -596,7 +598,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     txn: &mut PgConnection,
     predicted_machine_interface: &PredictedMachineInterface,
     relay_ip: IpAddr,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     tracing::info!(
         machine_id=%predicted_machine_interface.machine_id,
         mac_address=%predicted_machine_interface.mac_address,
@@ -604,13 +606,13 @@ pub async fn move_predicted_machine_interface_to_machine(
         "Got DHCP from predicted machine interface, moving to machine"
     );
     let Some(network_segment) = db::network_segment::for_relay(txn, relay_ip).await? else {
-        return Err(CarbideError::internal(format!(
+        return Err(DatabaseError::internal(format!(
             "No network segment defined for relay address: {relay_ip}"
         )));
     };
 
     if network_segment.segment_type != predicted_machine_interface.expected_network_segment_type {
-        return Err(CarbideError::internal(format!(
+        return Err(DatabaseError::internal(format!(
             "Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}",
             predicted_machine_interface.mac_address,
             network_segment.id,
@@ -639,7 +641,7 @@ pub async fn move_predicted_machine_interface_to_machine(
                             %machine_id,
                             "Can't migrate predicted_machine_interface to machine_interface: one already exists with this MAC address"
                         );
-                        return Err(CarbideError::NetworkSegmentDuplicateMacAddress(
+                        return Err(DatabaseError::NetworkSegmentDuplicateMacAddress(
                             predicted_machine_interface.mac_address,
                         ));
                     } else {
@@ -689,7 +691,7 @@ pub async fn create_host_machine_dpu_interface_proactively(
     txn: &mut PgConnection,
     hardware_info: Option<&HardwareInfo>,
     dpu_id: &MachineId,
-) -> Result<MachineInterfaceSnapshot, CarbideError> {
+) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     let admin_network = db::network_segment::admin(txn).await?;
 
     // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
@@ -699,16 +701,16 @@ pub async fn create_host_machine_dpu_interface_proactively(
         .iter()
         .filter(|x| x.prefix.is_ipv4())
         .next_back()
-        .ok_or(CarbideError::AdminNetworkNotConfigured)?;
+        .ok_or(DatabaseError::AdminNetworkNotConfigured)?;
 
     let Some(gateway) = prefix.gateway else {
-        return Err(CarbideError::AdminNetworkNotConfigured);
+        return Err(DatabaseError::AdminNetworkNotConfigured);
     };
 
     // Host mac is stored at DPU topology data.
     let host_mac = hardware_info
         .map(|x| x.factory_mac_address())
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "Hardware Info",
             id: dpu_id.to_string(),
         })??;

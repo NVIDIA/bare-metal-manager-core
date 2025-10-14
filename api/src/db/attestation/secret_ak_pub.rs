@@ -12,14 +12,14 @@
 use model::attestation::SecretAkPub;
 use sqlx::PgConnection;
 
-use crate::CarbideResult;
+use crate::DatabaseResult;
 use crate::db::DatabaseError;
 
 pub async fn insert(
     txn: &mut PgConnection,
     secret: &Vec<u8>,
     ak_pub: &Vec<u8>,
-) -> CarbideResult<Option<SecretAkPub>> {
+) -> DatabaseResult<Option<SecretAkPub>> {
     let query = "INSERT INTO attestation_secret_ak_pub VALUES ($1, $2) RETURNING *";
     let res = sqlx::query_as(query)
         .bind(secret.as_slice())
@@ -34,7 +34,7 @@ pub async fn insert(
 pub async fn delete(
     txn: &mut PgConnection,
     secret: &Vec<u8>,
-) -> CarbideResult<Option<SecretAkPub>> {
+) -> DatabaseResult<Option<SecretAkPub>> {
     let query = "DELETE FROM attestation_secret_ak_pub WHERE secret = ($1) RETURNING *";
 
     let res = sqlx::query_as(query)
@@ -49,7 +49,7 @@ pub async fn delete(
 pub async fn get_by_secret(
     txn: &mut PgConnection,
     secret: &Vec<u8>,
-) -> CarbideResult<Option<SecretAkPub>> {
+) -> DatabaseResult<Option<SecretAkPub>> {
     let query = "SELECT * FROM attestation_secret_ak_pub WHERE secret = ($1)";
 
     sqlx::query_as(query)
@@ -57,5 +57,4 @@ pub async fn get_by_secret(
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
-        .map_err(Into::into)
 }

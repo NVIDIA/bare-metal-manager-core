@@ -59,7 +59,7 @@ pub async fn get_candidate_machine_record_by_id(
 ) -> Result<Option<CandidateMachineRecord>, DatabaseError> {
     common::get_object_for_id(txn, machine_id)
         .await
-        .map_err(|e| DatabaseError::new("get_candidate_machine_record_by_id", e.source))
+        .map_err(|e| e.with_op_name("get_candidate_machine_record_by_id"))
 }
 
 /// get_candidate_machine_records returns all MockMachineRecord rows,
@@ -69,5 +69,5 @@ pub async fn get_candidate_machine_records(
 ) -> Result<Vec<CandidateMachineRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_candidate_machine_records", e.source))
+        .map_err(|e| e.with_op_name("get_candidate_machine_records"))
 }

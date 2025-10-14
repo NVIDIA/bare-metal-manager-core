@@ -189,7 +189,7 @@ pub async fn get_measurement_bundle_by_id(
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::get_object_for_id(txn, bundle_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_bundle_by_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_bundle_by_id"))
 }
 
 /// get_measurement_bundle_for_name returns a populated MeasurementBundleRecord
@@ -201,7 +201,7 @@ pub async fn get_measurement_bundle_for_name(
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::get_object_for_unique_column(txn, "name", bundle_name.clone())
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_bundle_for_name", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_bundle_for_name"))
 }
 
 /// get_measurement_bundle_records returns all MeasurementBundleRecord
@@ -212,7 +212,7 @@ pub async fn get_measurement_bundle_records(
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_bundle_records", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_bundle_records"))
 }
 
 pub async fn get_measurement_bundle_records_with_txn(
@@ -220,7 +220,7 @@ pub async fn get_measurement_bundle_records_with_txn(
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_bundle_records_with_txn", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_bundle_records_with_txn"))
 }
 
 /// get_measurement_bundle_records_for_profile_id returns all
@@ -232,7 +232,7 @@ pub async fn get_measurement_bundle_records_for_profile_id(
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_objects_where_id(txn, profile_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_bundle_records_for_profile_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_bundle_records_for_profile_id"))
 }
 
 /// get_measurement_bundles_values returns all MeasurementBundleValueRecord
@@ -243,7 +243,7 @@ pub async fn get_measurement_bundles_values(
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_bundles_values", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_bundles_values"))
 }
 
 /// get_measurement_bundle_values_for_bundle_id returns
@@ -259,7 +259,7 @@ pub async fn get_measurement_bundle_values_for_bundle_id(
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_objects_where_id(txn, bundle_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_bundle_values_for_bundle_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_bundle_values_for_bundle_id"))
 }
 
 /// get_machines_for_bundle_id returns a unique list of
@@ -299,7 +299,7 @@ pub async fn delete_bundle_for_id(
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::delete_object_where_id(txn, bundle_id)
         .await
-        .map_err(|e| DatabaseError::new("delete_bundle_for_id", e.source))
+        .map_err(|e| e.with_op_name("delete_bundle_for_id"))
 }
 
 /// delete_bundle_values_for_id deletes all bundle
@@ -310,7 +310,7 @@ pub async fn delete_bundle_values_for_id(
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, bundle_id)
         .await
-        .map_err(|e| DatabaseError::new("delete_bundle_values_for_id", e.source))
+        .map_err(|e| e.with_op_name("delete_bundle_values_for_id"))
 }
 
 /// import_measurement_bundles is intended for doing "full site" imports,

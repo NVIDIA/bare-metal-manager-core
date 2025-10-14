@@ -21,7 +21,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
 use crate::db::resource_pool::ResourcePoolDatabaseError;
-use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
+use crate::db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
 use crate::{CarbideError, db};
 
 pub(crate) async fn find_ids(
@@ -310,10 +310,10 @@ pub(crate) async fn save(
     };
     let mut network_segment = match db::network_segment::persist(ns, txn, initial_state).await {
         Ok(segment) => segment,
-        Err(DatabaseError {
+        Err(DatabaseError::Sqlx(AnnotatedSqlxError {
             source: sqlx::Error::Database(e),
             ..
-        }) if e.constraint() == Some("network_prefixes_prefix_excl") => {
+        })) if e.constraint() == Some("network_prefixes_prefix_excl") => {
             return Err(CarbideError::InvalidArgument(
                 "Prefix overlaps with an existing one".to_string(),
             ));

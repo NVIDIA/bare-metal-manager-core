@@ -23,7 +23,6 @@ use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
 use sqlx::PgConnection;
 
-use crate::db::DatabaseError;
 use crate::db::measured_boot::interface::common;
 use crate::db::measured_boot::interface::common::acquire_advisory_txn_lock;
 use crate::db::measured_boot::interface::profile::{
@@ -34,13 +33,13 @@ use crate::db::measured_boot::interface::profile::{
     insert_measurement_profile_attr_records, insert_measurement_profile_record,
     rename_profile_for_profile_id, rename_profile_for_profile_name,
 };
-use crate::{CarbideError, CarbideResult};
+use crate::{DatabaseError, DatabaseResult};
 
 pub async fn new_with_txn(
     txn: &mut PgConnection,
     name: Option<String>,
     attrs: &HashMap<String, String>,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     let profile_name = match name {
         Some(name) => name,
         None => common::generate_name()?,
@@ -53,7 +52,7 @@ pub async fn new_with_txn(
 pub fn from_info_and_attrs(
     info: MeasurementSystemProfileRecord,
     attrs: Vec<MeasurementSystemProfileAttrRecord>,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     Ok(MeasurementSystemProfile {
         profile_id: info.profile_id,
         name: info.name,
@@ -65,7 +64,7 @@ pub fn from_info_and_attrs(
 pub async fn match_from_attrs_or_new_with_txn(
     txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     match match_profile(txn, attrs).await? {
         Some(profile_id) => Ok(load_from_id_with_txn(txn, profile_id).await?),
         None => Ok(new_with_txn(txn, None, attrs).await?),
@@ -75,7 +74,7 @@ pub async fn match_from_attrs_or_new_with_txn(
 pub async fn load_from_id_with_txn(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     get_measurement_profile_by_id(txn, profile_id).await
 }
 
@@ -86,7 +85,7 @@ pub async fn load_from_id_with_txn(
 pub async fn load_from_name(
     txn: &mut PgConnection,
     name: String,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     get_measurement_profile_by_name(txn, name).await
 }
 
@@ -97,7 +96,7 @@ pub async fn load_from_name(
 pub async fn load_from_attrs(
     txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
-) -> CarbideResult<Option<MeasurementSystemProfile>> {
+) -> DatabaseResult<Option<MeasurementSystemProfile>> {
     let info = get_measurement_profile_record_by_attrs(txn, attrs).await?;
     match info {
         Some(info) => {
@@ -120,7 +119,7 @@ pub async fn load_from_attrs(
 pub fn intersects_with(
     profile: &MeasurementSystemProfile,
     machine_attrs: &HashMap<String, String>,
-) -> CarbideResult<bool> {
+) -> DatabaseResult<bool> {
     if profile.attrs.len() > machine_attrs.len() {
         return Ok(false);
     }
@@ -136,14 +135,14 @@ pub fn intersects_with(
 pub async fn delete_for_id(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
-) -> CarbideResult<Option<MeasurementSystemProfile>> {
+) -> DatabaseResult<Option<MeasurementSystemProfile>> {
     delete_profile_for_id(txn, profile_id).await
 }
 
 pub async fn delete_for_name(
     txn: &mut PgConnection,
     name: String,
-) -> CarbideResult<Option<MeasurementSystemProfile>> {
+) -> DatabaseResult<Option<MeasurementSystemProfile>> {
     delete_profile_for_name(txn, name).await
 }
 
@@ -152,7 +151,7 @@ pub async fn rename_for_id(
     txn: &mut PgConnection,
     system_profile_id: MeasurementSystemProfileId,
     new_system_profile_name: String,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     from_info_and_attrs(
         rename_profile_for_profile_id(txn, system_profile_id, new_system_profile_name.clone())
             .await?,
@@ -165,7 +164,7 @@ pub async fn rename_for_name(
     txn: &mut PgConnection,
     system_profile_name: String,
     new_system_profile_name: String,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     let info = rename_profile_for_profile_name(
         txn,
         system_profile_name.clone(),
@@ -176,7 +175,7 @@ pub async fn rename_for_name(
     from_info_and_attrs(info, attrs)
 }
 
-pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<MeasurementSystemProfile>> {
+pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementSystemProfile>> {
     get_measurement_system_profiles_with_txn(txn).await
 }
 
@@ -185,10 +184,8 @@ pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<MeasurementSys
 pub async fn get_machines(
     profile: &MeasurementSystemProfile,
     txn: &mut PgConnection,
-) -> CarbideResult<Vec<MachineId>> {
-    get_machines_for_profile_id(txn, profile.profile_id)
-        .await
-        .map_err(Into::into)
+) -> DatabaseResult<Vec<MachineId>> {
+    get_machines_for_profile_id(txn, profile.profile_id).await
 }
 
 /// match_profile takes a map of k/v pairs and returns a singular matching
@@ -201,13 +198,13 @@ pub async fn get_machines(
 async fn match_profile(
     txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
-) -> CarbideResult<Option<MeasurementSystemProfileId>> {
+) -> DatabaseResult<Option<MeasurementSystemProfileId>> {
     // Get all profiles, and figure out which one intersects
     // with the provided attrs. After that, we'll attempt to find the
     // most specific match (if there are multiple matches).
     let mut all_profiles = get_measurement_system_profiles_with_txn(txn).await?;
 
-    let match_attempts: CarbideResult<Vec<MeasurementSystemProfile>> = all_profiles
+    let match_attempts: DatabaseResult<Vec<MeasurementSystemProfile>> = all_profiles
         .drain(..)
         .filter_map(|profile| match intersects_with(&profile, attrs) {
             Ok(true) => Some(Ok(profile)),
@@ -235,7 +232,7 @@ async fn match_profile(
     // one). If there's a conflict, then return an error.
     matching.sort_by(|a, b| b.attrs.len().cmp(&a.attrs.len()));
     if matching[0].attrs.len() == matching[1].attrs.len() {
-        return Err(CarbideError::internal(String::from(
+        return Err(DatabaseError::internal(String::from(
             "cannot determine most specific profile match",
         )));
     }
@@ -252,14 +249,14 @@ pub async fn create_measurement_profile(
     txn: &mut PgConnection,
     profile_name: String,
     attrs: &HashMap<String, String>,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     // Acquire an advisory lock (automatically released at the end of the txn),
     // whose hash key is generated by the attrs, ensuring that a duplicate
     // profile cannot be created during this time.
     acquire_advisory_txn_lock(txn, &attr_map_to_string(attrs)).await?;
 
     if let Some(existing) = load_from_attrs(txn, attrs).await? {
-        return Err(CarbideError::AlreadyFoundError {
+        return Err(DatabaseError::AlreadyFoundError {
             kind: "MeasurementSystemProfile",
             id: existing.profile_id.to_string(),
         });
@@ -271,23 +268,21 @@ pub async fn create_measurement_profile(
             let is_db_err = sqlx_err.as_database_error();
             match is_db_err {
                 Some(db_err) => match db_err.kind() {
-                    sqlx::error::ErrorKind::UniqueViolation => CarbideError::AlreadyFoundError {
+                    sqlx::error::ErrorKind::UniqueViolation => DatabaseError::AlreadyFoundError {
                         kind: "MeasurementSystemProfile",
                         id: profile_name.clone(),
                     },
-                    sqlx::error::ErrorKind::NotNullViolation => CarbideError::internal(format!(
+                    sqlx::error::ErrorKind::NotNullViolation => DatabaseError::internal(format!(
                         "system profile missing not null value: {} (msg: {})",
                         profile_name.clone(),
                         db_err
                     )),
                     _ => {
                         DatabaseError::new("MeasurementSystemProfile.new_with_txn db_err", sqlx_err)
-                            .into()
                     }
                 },
                 None => {
                     DatabaseError::new("MeasurementSystemProfile.new_with_txn sqlx_err", sqlx_err)
-                        .into()
                 }
             }
         })?;
@@ -306,7 +301,7 @@ pub async fn create_measurement_profile(
 pub async fn get_measurement_profile_by_id(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     match get_measurement_profile_record_by_id(txn, profile_id).await? {
         Some(info) => {
             let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id).await?;
@@ -317,7 +312,7 @@ pub async fn get_measurement_profile_by_id(
                 attrs,
             })
         }
-        None => Err(CarbideError::NotFoundError {
+        None => Err(DatabaseError::NotFoundError {
             kind: "MeasurementSystemProfile",
             id: profile_id.to_string(),
         }),
@@ -329,7 +324,7 @@ pub async fn get_measurement_profile_by_id(
 pub async fn get_measurement_profile_by_name(
     txn: &mut PgConnection,
     name: String,
-) -> CarbideResult<MeasurementSystemProfile> {
+) -> DatabaseResult<MeasurementSystemProfile> {
     match get_measurement_profile_record_by_name(txn, name.clone()).await? {
         Some(info) => {
             let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id).await?;
@@ -340,7 +335,7 @@ pub async fn get_measurement_profile_by_name(
                 attrs,
             })
         }
-        None => Err(CarbideError::NotFoundError {
+        None => Err(DatabaseError::NotFoundError {
             kind: "MeasurementSystemProfile",
             id: name.clone(),
         }),
@@ -352,7 +347,7 @@ pub async fn get_measurement_profile_by_name(
 pub async fn delete_profile_for_id(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
-) -> CarbideResult<Option<MeasurementSystemProfile>> {
+) -> DatabaseResult<Option<MeasurementSystemProfile>> {
     let attrs = delete_profile_attr_records_for_id(txn, profile_id).await?;
     match delete_profile_record_for_id(txn, profile_id).await? {
         Some(info) => Ok(Some(MeasurementSystemProfile {
@@ -370,14 +365,14 @@ pub async fn delete_profile_for_id(
 pub async fn delete_profile_for_name(
     txn: &mut PgConnection,
     name: String,
-) -> CarbideResult<Option<MeasurementSystemProfile>> {
+) -> DatabaseResult<Option<MeasurementSystemProfile>> {
     let profile = load_from_name(txn, name).await?;
     delete_profile_for_id(txn, profile.profile_id).await
 }
 
 pub async fn get_measurement_system_profiles_with_txn(
     txn: &mut PgConnection,
-) -> CarbideResult<Vec<MeasurementSystemProfile>> {
+) -> DatabaseResult<Vec<MeasurementSystemProfile>> {
     let mut res: Vec<MeasurementSystemProfile> = Vec::new();
     let mut infos = get_all_measurement_profile_records(txn).await?;
     for info in infos.drain(..) {
@@ -424,7 +419,7 @@ pub(crate) mod test_support {
         db_conn: &sqlx::Pool<Postgres>,
         name: Option<String>,
         attrs: &HashMap<String, String>,
-    ) -> CarbideResult<MeasurementSystemProfile> {
+    ) -> DatabaseResult<MeasurementSystemProfile> {
         const DB_TXN_NAME: &str = "MeasurementSystemProfile.new";
 
         let mut txn = db_conn
@@ -454,7 +449,7 @@ pub(crate) mod test_support {
     pub async fn match_from_attrs(
         txn: &mut PgConnection,
         attrs: &HashMap<String, String>,
-    ) -> CarbideResult<Option<MeasurementSystemProfile>> {
+    ) -> DatabaseResult<Option<MeasurementSystemProfile>> {
         match match_profile(txn, attrs).await? {
             Some(info) => Ok(Some(load_from_id_with_txn(txn, info).await?)),
             None => Ok(None),
@@ -468,7 +463,7 @@ pub(crate) mod test_support {
     pub async fn load_from_id(
         db_conn: &Pool<Postgres>,
         profile_id: MeasurementSystemProfileId,
-    ) -> CarbideResult<MeasurementSystemProfile> {
+    ) -> DatabaseResult<MeasurementSystemProfile> {
         let mut txn = db_conn
             .begin()
             .await

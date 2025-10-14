@@ -21,8 +21,7 @@ use model::network_security_group::{
 use model::tenant::TenantOrganizationId;
 use sqlx::{PgConnection, Postgres};
 
-use crate::CarbideError;
-use crate::db::DatabaseError;
+use crate::DatabaseError;
 
 /// Creates a new NetworkSecurityGroup DB record.  It enforces a unique `name` by
 /// only creating if there is no active record found with the same name.
@@ -46,7 +45,7 @@ pub async fn create(
     created_by: Option<&str>,
     metadata: &Metadata,
     rules: &[NetworkSecurityGroupRule],
-) -> Result<NetworkSecurityGroup, CarbideError> {
+) -> Result<NetworkSecurityGroup, DatabaseError> {
     let query = "INSERT INTO network_security_groups
                 (id, tenant_organization_id, name, labels, description, rules, version, created_by)
             SELECT $1::varchar, $2::varchar, $3::varchar, $4::jsonb, $5::varchar, $6::jsonb, $7::varchar, $8::varchar
@@ -70,11 +69,11 @@ pub async fn create(
         Ok(network_security_group) => Ok(network_security_group),
         // This error should only show up when we didn't
         // create a record because the subquery found an existing name already.
-        Err(sqlx::Error::RowNotFound) => Err(CarbideError::AlreadyFoundError {
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::AlreadyFoundError {
             kind: "NetworkSecurityGroup",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 
@@ -93,7 +92,7 @@ pub(crate) async fn find_ids(
     name: Option<&str>,
     tenant_organization_id: Option<&TenantOrganizationId>,
     for_update: bool,
-) -> Result<Vec<NetworkSecurityGroupId>, CarbideError> {
+) -> Result<Vec<NetworkSecurityGroupId>, DatabaseError> {
     let mut builder =
         sqlx::QueryBuilder::new("SELECT id FROM network_security_groups WHERE deleted is NULL");
 
@@ -111,11 +110,11 @@ pub(crate) async fn find_ids(
         builder.push(" FOR UPDATE ");
     }
 
-    Ok(builder
+    builder
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))
 }
 
 /// Queries the DB for non-deleted NetworkSecurityGroup records
@@ -132,7 +131,7 @@ pub(crate) async fn find_by_ids(
     network_security_group_ids: &[NetworkSecurityGroupId],
     tenant_organization_id: Option<&TenantOrganizationId>,
     for_update: bool,
-) -> Result<Vec<NetworkSecurityGroup>, CarbideError> {
+) -> Result<Vec<NetworkSecurityGroup>, DatabaseError> {
     let mut builder =
         sqlx::QueryBuilder::new("SELECT * from network_security_groups WHERE deleted is NULL");
 
@@ -149,11 +148,11 @@ pub(crate) async fn find_by_ids(
         builder.push(" FOR UPDATE ");
     }
 
-    Ok(builder
+    builder
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))
 }
 
 /// Queries the DB for objects that have attached NetworkSecurityGroups
@@ -174,7 +173,7 @@ pub(crate) async fn find_objects_with_attachments(
     txn: &mut PgConnection,
     network_security_group_ids: Option<&[NetworkSecurityGroupId]>,
     tenant_organization_id: Option<&TenantOrganizationId>,
-) -> Result<Vec<NetworkSecurityGroupAttachments>, CarbideError> {
+) -> Result<Vec<NetworkSecurityGroupAttachments>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new(
         "SELECT
                   nsg.id as id,
@@ -201,11 +200,11 @@ pub(crate) async fn find_objects_with_attachments(
 
     builder.push(" GROUP BY nsg.id ");
 
-    Ok(builder
+    builder
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))
 }
 
 /// Queries the DB for the NSG propagation status across sets of objects
@@ -229,7 +228,7 @@ pub(crate) async fn get_propagation_status(
         Vec<NetworkSecurityGroupPropagationObjectStatus>,
         Vec<NetworkSecurityGroupPropagationObjectStatus>,
     ),
-    CarbideError,
+    DatabaseError,
 > {
     let mut vpc_query_builder = sqlx::QueryBuilder::new(
         // Querying for VPC status is slightly more complicated because
@@ -407,7 +406,7 @@ pub(crate) async fn update(
     rules: &[NetworkSecurityGroupRule],
     expected_version: ConfigVersion,
     updated_by: Option<&str>,
-) -> Result<NetworkSecurityGroup, CarbideError> {
+) -> Result<NetworkSecurityGroup, DatabaseError> {
     let query = "UPDATE network_security_groups
             SET
                 name=$1::varchar,
@@ -447,11 +446,11 @@ pub(crate) async fn update(
         // update a record because the subquery found an existing name already.
         // deleted and version should have already been checked and reported
         // before calling update()
-        Err(sqlx::Error::RowNotFound) => Err(CarbideError::AlreadyFoundError {
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::AlreadyFoundError {
             kind: "NetworkSecurityGroup",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 
@@ -473,7 +472,7 @@ pub(crate) async fn soft_delete(
     txn: &mut PgConnection,
     network_security_group_id: &NetworkSecurityGroupId,
     tenant_organization_id: &TenantOrganizationId,
-) -> Result<Option<NetworkSecurityGroupId>, CarbideError> {
+) -> Result<Option<NetworkSecurityGroupId>, DatabaseError> {
     let query = "UPDATE network_security_groups SET deleted=NOW() WHERE id=$1::varchar AND tenant_organization_id=$2::varchar AND deleted is NULL RETURNING id";
 
     match sqlx::query_as(query)
@@ -484,6 +483,6 @@ pub(crate) async fn soft_delete(
     {
         Ok(network_security_group) => Ok(Some(network_security_group)),
         Err(sqlx::Error::RowNotFound) => Ok(None),
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }

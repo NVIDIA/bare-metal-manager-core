@@ -216,7 +216,13 @@ pub enum ResourcePoolDatabaseError {
     #[error(transparent)]
     ResourcePool(#[from] ResourcePoolError),
     #[error(transparent)]
-    Database(#[from] DatabaseError),
+    Database(#[from] Box<DatabaseError>),
+}
+
+impl From<DatabaseError> for ResourcePoolDatabaseError {
+    fn from(e: DatabaseError) -> Self {
+        ResourcePoolDatabaseError::Database(Box::new(e))
+    }
 }
 
 /// A pool bigger than this is very likely a mistake

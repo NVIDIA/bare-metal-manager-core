@@ -71,13 +71,21 @@ pub mod vpc_dpu_loopback;
 pub mod vpc_peering;
 pub mod vpc_prefix;
 
+use std::backtrace::{Backtrace, BacktraceStatus};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::panic::Location;
 
+use mac_address::MacAddress;
+use model::ConfigValidationError;
+use model::hardware_info::HardwareInfoError;
+use model::tenant::TenantError;
+use rpc::errors::RpcDataConversionError;
 use sqlx::Postgres;
+use tonic::Status;
 
-use crate::CarbideError;
+use crate::db::ip_allocator::DhcpError;
+use crate::db::resource_pool::ResourcePoolDatabaseError;
 
 // Max values we can bind to a Postgres SQL statement;
 pub const BIND_LIMIT: usize = 65535;
@@ -256,71 +264,183 @@ pub trait ColumnInfo<'a>: Clone + Copy {
 /// Wraps a sqlx::Error and records location and query
 ///
 #[derive(Debug)]
-pub struct DatabaseError {
+pub struct AnnotatedSqlxError {
     file: &'static str,
     line: u32,
     query: String,
     pub source: sqlx::Error,
 }
 
-impl DatabaseError {
+impl AnnotatedSqlxError {
     #[track_caller]
-    pub fn new(op_name: &str, source: sqlx::Error) -> DatabaseError {
+    pub fn new(op_name: &str, source: sqlx::Error) -> Self {
         let loc = Location::caller();
-        DatabaseError {
+        AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
             query: op_name.to_string(),
             source,
         }
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum DatabaseError {
+    #[error("Generic error from report: {0}")]
+    GenericErrorFromReport(#[from] eyre::ErrReport),
+    #[error(transparent)]
+    Sqlx(#[from] AnnotatedSqlxError),
+    #[error("{kind} not found: {id}")]
+    NotFoundError {
+        /// The type of the resource that was not found (e.g. Machine)
+        kind: &'static str,
+        /// The ID of the resource that was not found
+        id: String,
+    },
+    #[error("Internal error: {message}")]
+    Internal { message: String },
+    #[error("Unable to parse string into IP Address: {0}")]
+    AddressParseError(#[from] std::net::AddrParseError),
+    #[error("Unable to parse string into IP Network: {0}")]
+    NetworkParseError(#[from] ipnetwork::IpNetworkError),
+    #[error("{kind} already exists: {id}")]
+    AlreadyFoundError {
+        /// The type of the resource that already exists (e.g. Machine)
+        kind: &'static str,
+        /// The ID of the resource that already exists.
+        id: String,
+    },
+    #[error("Argument is invalid: {0}")]
+    InvalidArgument(String),
+    #[error("Can not convert between RPC data model and internal data model - {0}")]
+    RpcDataConversionError(#[from] RpcDataConversionError),
+    #[error("Duplicate MAC address for expected host BMC interface: {0}")]
+    ExpectedHostDuplicateMacAddress(MacAddress),
+    #[error("Argument is missing in input: {0}")]
+    MissingArgument(&'static str),
+    #[error("Uuid type conversion error: {0}")]
+    UuidConversionError(#[from] uuid::Error),
+    #[error("RPC Uuid type conversion error: {0}")]
+    RpcUuidConversionError(#[from] forge_uuid::UuidConversionError),
+    #[error(
+        "An object of type {0} was intended to be modified did not have the expected version {1}"
+    )]
+    ConcurrentModificationError(&'static str, String),
+    #[error("{0}")]
+    FailedPrecondition(String),
+    #[error("All Network Segments are not allocated yet.")]
+    NetworkSegmentNotAllocated,
+    #[error("Find one returned no results but should return one for uuid - {0}")]
+    FindOneReturnedNoResultsError(uuid::Uuid),
+    #[error("Find one returned many results but should return one for uuid - {0}")]
+    FindOneReturnedManyResultsError(uuid::Uuid),
+    #[error("Resource {0} is empty")]
+    ResourceExhausted(String),
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(#[from] ConfigValidationError),
+    #[error("Resource pool error: {0}")]
+    ResourcePoolError(#[from] model::resource_pool::ResourcePoolError),
+    #[error("Only one interface per machine can be marked as primary")]
+    OnePrimaryInterface,
+    #[error("Duplicate MAC address for network: {0}")]
+    NetworkSegmentDuplicateMacAddress(MacAddress),
+    #[error("Admin network is not configured.")]
+    AdminNetworkNotConfigured,
+    #[error("Network has attached VPC or Subdomain : {0}")]
+    NetworkSegmentDelete(String),
+    #[error("Tenant handling error: {0}")]
+    TenantError(#[from] TenantError),
+    #[error("Hardware info error: {0}")]
+    HardwareInfoError(#[from] HardwareInfoError),
+    #[error("The function is not implemented")]
+    NotImplemented,
+    #[error("Error in DHCP allocation/handling: {0}")]
+    DhcpError(#[from] DhcpError),
+}
+
+impl DatabaseError {
+    /// Returns true if the database error wrapps a sqlx::Error::RowNotFound, or if it's our own DatabaseError::NotFoundError
+    pub fn is_not_found(&self) -> bool {
+        match self {
+            DatabaseError::Sqlx(e) => matches!(e.source, sqlx::Error::RowNotFound),
+            DatabaseError::NotFoundError { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn with_op_name(self, op_name: &str) -> Self {
+        match self {
+            DatabaseError::Sqlx(e) => DatabaseError::new(op_name, e.source),
+            _ => self,
+        }
+    }
+}
+
+pub type DatabaseResult<T> = Result<T, DatabaseError>;
+
+impl DatabaseError {
+    #[track_caller]
+    pub fn new(op_name: &str, source: sqlx::Error) -> DatabaseError {
+        let loc = Location::caller();
+        DatabaseError::Sqlx(AnnotatedSqlxError {
+            file: loc.file(),
+            line: loc.line(),
+            query: op_name.to_string(),
+            source,
+        })
+    }
 
     #[track_caller]
     pub fn txn_begin(name: &str, source: sqlx::Error) -> DatabaseError {
         let loc = Location::caller();
-        DatabaseError {
+        DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
             query: format!("begin {name}"),
             source,
-        }
+        })
     }
 
     #[track_caller]
     pub fn txn_commit(name: &str, source: sqlx::Error) -> DatabaseError {
         let loc = Location::caller();
-        DatabaseError {
+        DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
             query: format!("commit {name}"),
             source,
-        }
+        })
     }
 
     #[track_caller]
     pub fn txn_rollback(name: &str, source: sqlx::Error) -> DatabaseError {
         let loc = Location::caller();
-        DatabaseError {
+        DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
             query: format!("rollback {name}"),
             source,
-        }
+        })
     }
 
     #[track_caller]
     pub fn query(query: &str, source: sqlx::Error) -> DatabaseError {
         let loc = Location::caller();
-        DatabaseError {
+        DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
             query: query.to_string(),
             source,
-        }
+        })
+    }
+
+    /// Creates a `Internal` error with the given error message
+    pub fn internal(message: String) -> Self {
+        DatabaseError::Internal { message }
     }
 }
 
-impl Display for DatabaseError {
+impl Display for AnnotatedSqlxError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -330,7 +450,7 @@ impl Display for DatabaseError {
     }
 }
 
-impl Error for DatabaseError {
+impl Error for AnnotatedSqlxError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.source)
     }
@@ -338,7 +458,85 @@ impl Error for DatabaseError {
 
 impl From<DatabaseError> for tonic::Status {
     fn from(from: DatabaseError) -> Self {
-        CarbideError::from(from).into()
+        // If env RUST_BACKTRACE is set extract handler and err location
+        // If it's not set `Backtrace::capture()` is very cheap to call
+        let b = Backtrace::capture();
+        let printed = if b.status() == BacktraceStatus::Captured {
+            let b_str = b.to_string();
+            let f = b_str
+                .lines()
+                .skip(1)
+                .skip_while(|l| !l.contains("carbide"))
+                .take(2)
+                .collect::<Vec<&str>>();
+            if f.len() == 2 {
+                let handler = f[0].trim();
+                let location = f[1].trim().replace("at ", "");
+                tracing::error!("{from} location={location} handler='{handler}'");
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if !printed {
+            match from {
+                DatabaseError::NotImplemented => {}
+                _ => tracing::error!("{from}"),
+            }
+        }
+
+        match &from {
+            DatabaseError::AddressParseError(e) => Status::invalid_argument(e.to_string()),
+            error @ DatabaseError::AlreadyFoundError { .. } => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ DatabaseError::ConcurrentModificationError(_, _) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ DatabaseError::ExpectedHostDuplicateMacAddress(_) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ DatabaseError::FailedPrecondition(_) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ DatabaseError::Internal { .. } => Status::internal(error.to_string()),
+            DatabaseError::InvalidArgument(msg) => Status::invalid_argument(msg),
+            DatabaseError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
+            DatabaseError::MissingArgument(msg) => Status::invalid_argument(*msg),
+            DatabaseError::NetworkParseError(e) => Status::invalid_argument(e.to_string()),
+            DatabaseError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
+            DatabaseError::NotFoundError { kind, id } => {
+                Status::not_found(format!("{kind} not found: {id}"))
+            }
+            DatabaseError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
+            DatabaseError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
+            error @ DatabaseError::RpcUuidConversionError(_) => {
+                Status::invalid_argument(error.to_string())
+            }
+            error @ DatabaseError::UuidConversionError(_) => {
+                Status::invalid_argument(error.to_string())
+            }
+            other => Status::internal(other.to_string()),
+        }
+    }
+}
+
+// MARK: - Custom DatabaseError From<> impls to flatten error variants
+
+impl From<ResourcePoolDatabaseError> for DatabaseError {
+    fn from(from: ResourcePoolDatabaseError) -> Self {
+        match from {
+            ResourcePoolDatabaseError::ResourcePool(e) => DatabaseError::ResourcePoolError(e),
+            ResourcePoolDatabaseError::Database(e) => *e,
+        }
+    }
+}
+impl From<::measured_boot::Error> for DatabaseError {
+    fn from(value: ::measured_boot::Error) -> Self {
+        DatabaseError::internal(value.to_string())
     }
 }
 
@@ -349,8 +547,12 @@ mod tests {
     #[test]
     fn test_database_error_new() {
         const OP_NAME: &str = "something people want to say";
-        let err = DatabaseError::new(OP_NAME, sqlx::Error::protocol("some error"));
-        assert_eq!(err.line, line!() - 1);
+        let DatabaseError::Sqlx(err) =
+            DatabaseError::new(OP_NAME, sqlx::Error::protocol("some error"))
+        else {
+            unreachable!()
+        };
+        assert_eq!(err.line, line!() - 4);
         assert_eq!(err.file, file!());
         assert!(format!("{err}").contains(OP_NAME))
     }
@@ -358,8 +560,12 @@ mod tests {
     #[test]
     fn test_database_error_txn_begin() {
         const DB_TXN_NAME: &str = "test txn";
-        let err = DatabaseError::txn_begin(DB_TXN_NAME, sqlx::Error::protocol("some error"));
-        assert_eq!(err.line, line!() - 1);
+        let DatabaseError::Sqlx(err) =
+            DatabaseError::txn_begin(DB_TXN_NAME, sqlx::Error::protocol("some error"))
+        else {
+            unreachable!()
+        };
+        assert_eq!(err.line, line!() - 4);
         assert_eq!(err.file, file!());
         assert!(format!("{err}").contains(&format!("begin {DB_TXN_NAME}")))
     }
@@ -367,8 +573,12 @@ mod tests {
     #[test]
     fn test_database_error_txn_commit() {
         const DB_TXN_NAME: &str = "test txn";
-        let err = DatabaseError::txn_commit(DB_TXN_NAME, sqlx::Error::protocol("some error"));
-        assert_eq!(err.line, line!() - 1);
+        let DatabaseError::Sqlx(err) =
+            DatabaseError::txn_commit(DB_TXN_NAME, sqlx::Error::protocol("some error"))
+        else {
+            unreachable!()
+        };
+        assert_eq!(err.line, line!() - 4);
         assert_eq!(err.file, file!());
         assert!(format!("{err}").contains(&format!("commit {DB_TXN_NAME}")))
     }
@@ -376,8 +586,12 @@ mod tests {
     #[test]
     fn test_database_error_txn_rollback() {
         const DB_TXN_NAME: &str = "test txn";
-        let err = DatabaseError::txn_rollback(DB_TXN_NAME, sqlx::Error::protocol("some error"));
-        assert_eq!(err.line, line!() - 1);
+        let DatabaseError::Sqlx(err) =
+            DatabaseError::txn_rollback(DB_TXN_NAME, sqlx::Error::protocol("some error"))
+        else {
+            unreachable!()
+        };
+        assert_eq!(err.line, line!() - 4);
         assert_eq!(err.file, file!());
         assert!(format!("{err}").contains(&format!("rollback {DB_TXN_NAME}")))
     }
@@ -385,8 +599,12 @@ mod tests {
     #[test]
     fn test_database_error_query() {
         const DB_QUERY: &str = "SELECT * from some_table;";
-        let err = DatabaseError::query(DB_QUERY, sqlx::Error::protocol("some error"));
-        assert_eq!(err.line, line!() - 1);
+        let DatabaseError::Sqlx(err) =
+            DatabaseError::query(DB_QUERY, sqlx::Error::protocol("some error"))
+        else {
+            unreachable!()
+        };
+        assert_eq!(err.line, line!() - 4);
         assert_eq!(err.file, file!());
         assert!(format!("{err}").contains(DB_QUERY));
     }

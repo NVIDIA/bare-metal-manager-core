@@ -22,13 +22,13 @@ use model::machine::topology::{DiscoveryData, MachineTopology, TopologyData};
 use sqlx::PgConnection;
 
 use super::DatabaseError;
-use crate::CarbideResult;
+use crate::DatabaseResult;
 
 async fn update(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     hardware_info: &HardwareInfo,
-) -> CarbideResult<MachineTopology> {
+) -> DatabaseResult<MachineTopology> {
     let discovery_data = DiscoveryData {
         info: hardware_info.clone(),
     };
@@ -52,7 +52,7 @@ pub async fn create_or_update(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     hardware_info: &HardwareInfo,
-) -> CarbideResult<MachineTopology> {
+) -> DatabaseResult<MachineTopology> {
     let topology_data = find_latest_by_machine_ids(txn, &[*machine_id]).await?;
     let topology_data = topology_data.get(machine_id);
 
@@ -99,7 +99,7 @@ pub async fn create_or_update_with_bom_validation(
     machine_id: &MachineId,
     hardware_info: &HardwareInfo,
     bom_validation_enabled: bool,
-) -> CarbideResult<MachineTopology> {
+) -> DatabaseResult<MachineTopology> {
     let topology_data = find_latest_by_machine_ids(txn, &[*machine_id]).await?;
     let topology_data = topology_data.get(machine_id);
 
@@ -123,7 +123,7 @@ pub async fn update_firmware_version_by_bmc_address(
     bmc_address: &IpAddr,
     bmc_version: &str,
     bios_version: &str,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     // The IS NOT NULL checks that we're not partially creating stuff under an Option when adding a bios_version.  The firmware_version for the BMC gets implicitly checked when checking for the BMC IP.
     let query = r#"UPDATE machine_topologies SET topology =
                         jsonb_set(jsonb_set(topology, '{bmc_info}',
@@ -345,7 +345,7 @@ pub(crate) mod test_helpers {
         txn: &mut PgConnection,
         machine_id: &MachineId,
         hardware_info: &HardwareInfoV1,
-    ) -> CarbideResult<MachineTopology> {
+    ) -> DatabaseResult<MachineTopology> {
         let discovery_data = DiscoveryDataV1 {
             info: hardware_info.clone(),
         };
@@ -369,7 +369,7 @@ pub(crate) mod test_helpers {
         txn: &mut PgConnection,
         machine_id: &MachineId,
         hardware_info: &HardwareInfoV1,
-    ) -> CarbideResult<MachineTopology> {
+    ) -> DatabaseResult<MachineTopology> {
         let topology_data = find_latest_by_machine_ids(txn, &[*machine_id]).await?;
         let topology_data = topology_data.get(machine_id);
 

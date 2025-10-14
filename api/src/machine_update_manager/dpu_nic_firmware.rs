@@ -14,7 +14,7 @@ use super::machine_update_module::MachineUpdateModule;
 use crate::cfg::file::CarbideConfig;
 use crate::db::dpu_machine_update;
 use crate::machine_update_manager::MachineUpdateManager;
-use crate::{CarbideError, CarbideResult};
+use crate::{CarbideResult, DatabaseError};
 
 /// DpuNicFirmwareUpdate is a module used [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager)
 /// to ensure that DPU NIC firmware matches the expected version of the carbide release.
@@ -98,7 +98,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                     .await
             {
                 match reprovisioning_err {
-                    CarbideError::NotFoundError { id, .. } => {
+                    DatabaseError::NotFoundError { id, .. } => {
                         tracing::warn!(
                             "failed to trigger reprovisioning for managed host : {} - no update match for id: {}",
                             host_machine_id,
@@ -107,7 +107,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                         continue;
                     }
                     _ => {
-                        return Err(reprovisioning_err);
+                        return Err(reprovisioning_err.into());
                     }
                 }
             }

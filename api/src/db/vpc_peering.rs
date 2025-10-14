@@ -19,21 +19,20 @@ use model::vpc::VpcPeering;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use crate::CarbideError;
-use crate::db::{self, DatabaseError};
+use crate::{DatabaseError, db};
 
 pub async fn create(
     txn: &mut PgConnection,
     vpc_id_1: VpcId,
     vpc_id_2: VpcId,
-) -> Result<VpcPeering, CarbideError> {
+) -> Result<VpcPeering, DatabaseError> {
     let uuid1: Uuid = vpc_id_1.into();
     let uuid2: Uuid = vpc_id_2.into();
     let vpc1_id: Uuid;
     let vpc2_id: Uuid;
     match uuid1.cmp(&uuid2) {
         std::cmp::Ordering::Equal => {
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "Cannot create a peering between the same VPC".to_string(),
             ));
         }
@@ -60,12 +59,12 @@ pub async fn create(
         .await
     {
         Ok(vpc_peering) => Ok(vpc_peering),
-        Err(sqlx::Error::RowNotFound) => Err(CarbideError::AlreadyFoundError {
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::AlreadyFoundError {
             kind: "VpcPeering",
             id: format!("{vpc_id_1} and {vpc_id_2}"),
         }),
 
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 
@@ -187,7 +186,7 @@ pub async fn delete_by_vpc_id(txn: &mut PgConnection, vpc_id: VpcId) -> Result<(
 pub async fn get_prefixes_by_vpcs(
     txn: &mut PgConnection,
     vpcs: &Vec<VpcId>,
-) -> Result<Vec<String>, CarbideError> {
+) -> Result<Vec<String>, DatabaseError> {
     let vpc_prefixes = db::vpc_prefix::find_by_vpcs(txn, vpcs)
         .await?
         .into_iter()

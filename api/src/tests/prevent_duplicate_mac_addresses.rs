@@ -12,7 +12,7 @@
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::machine::machine_id::from_hardware_info;
 
-use crate::CarbideError;
+use crate::DatabaseError;
 use crate::db::{self, ObjectColumnFilter, network_segment};
 use crate::tests::common::api_fixtures::create_test_env;
 
@@ -62,7 +62,7 @@ async fn prevent_duplicate_mac_addresses(
 
     assert!(matches!(
         duplicate_interface,
-        Err(CarbideError::NetworkSegmentDuplicateMacAddress(_))
+        Err(DatabaseError::NetworkSegmentDuplicateMacAddress(_))
     ));
 
     Ok(())

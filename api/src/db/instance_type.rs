@@ -16,8 +16,7 @@ use model::instance_type::{InstanceType, InstanceTypeMachineCapabilityFilter};
 use model::metadata::Metadata;
 use sqlx::{PgConnection, Postgres};
 
-use crate::CarbideError;
-use crate::db::DatabaseError;
+use crate::DatabaseError;
 
 /// Creates a new InstanceType DB record.  It enforces a unique `name` by
 /// only creating if there is no active record found with the same name.
@@ -30,7 +29,7 @@ pub async fn create(
     id: &InstanceTypeId,
     metadata: &Metadata,
     desired_capabilities: &[InstanceTypeMachineCapabilityFilter],
-) -> Result<InstanceType, CarbideError> {
+) -> Result<InstanceType, DatabaseError> {
     let query = "INSERT INTO instance_types
                 (id, name, labels, description, desired_capabilities, version)
             SELECT $1::varchar, $2::varchar, $3::jsonb, $4::varchar, $5::jsonb, $6::varchar
@@ -54,11 +53,11 @@ pub async fn create(
         Ok(instance_type) => Ok(instance_type),
         // This error should only show up when we didn't
         // create a record because the subquery found an existing name already.
-        Err(sqlx::Error::RowNotFound) => Err(CarbideError::AlreadyFoundError {
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::AlreadyFoundError {
             kind: "InstanceType",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 
@@ -69,7 +68,7 @@ pub async fn create(
 pub(crate) async fn find_ids(
     txn: &mut PgConnection,
     for_update: bool,
-) -> Result<Vec<InstanceTypeId>, CarbideError> {
+) -> Result<Vec<InstanceTypeId>, DatabaseError> {
     let mut builder =
         sqlx::QueryBuilder::new("SELECT id FROM instance_types WHERE deleted is NULL");
 
@@ -77,11 +76,11 @@ pub(crate) async fn find_ids(
         builder.push(" FOR UPDATE ");
     }
 
-    Ok(builder
+    builder
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))
 }
 
 /// Queries the DB for non-deleted InstanceType records
@@ -94,7 +93,7 @@ pub(crate) async fn find_by_ids(
     txn: &mut PgConnection,
     instance_type_ids: &[InstanceTypeId],
     for_update: bool,
-) -> Result<Vec<InstanceType>, CarbideError> {
+) -> Result<Vec<InstanceType>, DatabaseError> {
     let mut builder =
         sqlx::QueryBuilder::new("SELECT * from instance_types WHERE deleted is NULL AND");
 
@@ -106,12 +105,12 @@ pub(crate) async fn find_by_ids(
         builder.push(" FOR UPDATE ");
     }
 
-    Ok(builder
+    builder
         .build_query_as()
         .bind(instance_type_ids)
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))
 }
 
 /// Updates an InstanceType records in the DB.
@@ -127,7 +126,7 @@ pub(crate) async fn update(
     metadata: &Metadata,
     desired_capabilities: &[InstanceTypeMachineCapabilityFilter],
     expected_version: ConfigVersion,
-) -> Result<InstanceType, CarbideError> {
+) -> Result<InstanceType, DatabaseError> {
     let query = "UPDATE instance_types
             SET
                 name=$1::varchar,
@@ -161,11 +160,11 @@ pub(crate) async fn update(
         // update a record because the subquery found an existing name already.
         // deleted and version should have already been checked and reported
         // before calling update()
-        Err(sqlx::Error::RowNotFound) => Err(CarbideError::AlreadyFoundError {
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::AlreadyFoundError {
             kind: "InstanceType",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 
@@ -180,7 +179,7 @@ pub(crate) async fn update(
 pub(crate) async fn soft_delete(
     txn: &mut PgConnection,
     instance_type_id: &InstanceTypeId,
-) -> Result<Option<InstanceTypeId>, CarbideError> {
+) -> Result<Option<InstanceTypeId>, DatabaseError> {
     let query = "UPDATE instance_types SET deleted=NOW() WHERE id=$1::varchar AND deleted is NULL RETURNING id";
 
     match sqlx::query_as(query)
@@ -190,7 +189,7 @@ pub(crate) async fn soft_delete(
     {
         Ok(instance_type) => Ok(Some(instance_type)),
         Err(sqlx::Error::RowNotFound) => Ok(None),
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 

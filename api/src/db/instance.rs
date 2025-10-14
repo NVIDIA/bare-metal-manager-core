@@ -30,10 +30,8 @@ use model::metadata::Metadata;
 use model::os::{OperatingSystem, OperatingSystemVariant};
 use sqlx::PgConnection;
 
-use crate::db::{
-    ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter, instance_address,
-};
-use crate::{CarbideError, CarbideResult, db};
+use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter, instance_address};
+use crate::{DatabaseError, DatabaseResult, db};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -53,7 +51,7 @@ pub struct InstanceTable {}
 pub async fn find_ids(
     txn: &mut PgConnection,
     filter: rpc::InstanceSearchFilter,
-) -> Result<Vec<InstanceId>, CarbideError> {
+) -> Result<Vec<InstanceId>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
 
     if let Some(label) = filter.label {
@@ -67,7 +65,7 @@ pub async fn find_ids(
             builder.push_bind(label.value.unwrap());
             builder.push(")");
         } else if label.key.is_empty() && label.value.is_none() {
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "finding instances based on label needs either key or a value.".to_string(),
             ));
         } else if !label.key.is_empty() && label.value.is_none() {
@@ -97,7 +95,7 @@ pub async fn find_ids(
         // just do a uuid::Uuid, but it seems more appropriate and
         // correct to convert it into a VpcId (which is what it
         // *actually* is, and has the necessary sqlx bindings).
-        let vpc_id = VpcId::from_str(&vpc_id).map_err(CarbideError::from)?;
+        let vpc_id = VpcId::from_str(&vpc_id).map_err(DatabaseError::from)?;
         builder.push(" AND id IN (");
         builder.push(
             "SELECT instances.id FROM instances
@@ -111,10 +109,10 @@ WHERE vpc_id = ",
     }
 
     let query = builder.build_query_as();
-    Ok(query
+    query
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new("instance::find_ids", e))?)
+        .map_err(|e| DatabaseError::new("instance::find_ids", e))
 }
 
 pub async fn find(
@@ -263,7 +261,7 @@ pub async fn update_config(
     expected_version: ConfigVersion,
     config: InstanceConfig,
     metadata: Metadata,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let next_version = expected_version.increment();
 
     let mut os_ipxe_script = String::new();
@@ -303,9 +301,9 @@ pub async fn update_config(
         Ok((_instance_id,)) => Ok(()),
         Err(e) => Err(match e {
             sqlx::Error::RowNotFound => {
-                CarbideError::ConcurrentModificationError("instance", expected_version.to_string())
+                DatabaseError::ConcurrentModificationError("instance", expected_version.to_string())
             }
-            e => DatabaseError::query(query, e).into(),
+            e => DatabaseError::query(query, e),
         }),
     }
 }
@@ -319,7 +317,7 @@ pub async fn update_os(
     instance_id: InstanceId,
     expected_version: ConfigVersion,
     os: OperatingSystem,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let next_version = expected_version.increment();
 
     let mut os_ipxe_script = String::new();
@@ -352,9 +350,9 @@ pub async fn update_os(
         Ok((_instance_id,)) => Ok(()),
         Err(e) => Err(match e {
             sqlx::Error::RowNotFound => {
-                CarbideError::ConcurrentModificationError("instance", expected_version.to_string())
+                DatabaseError::ConcurrentModificationError("instance", expected_version.to_string())
             }
-            e => DatabaseError::query(query, e).into(),
+            e => DatabaseError::query(query, e),
         }),
     }
 }
@@ -530,7 +528,7 @@ pub async fn delete_update_network_config_request(
 pub async fn persist(
     value: NewInstance<'_>,
     txn: &mut PgConnection,
-) -> CarbideResult<InstanceSnapshot> {
+) -> DatabaseResult<InstanceSnapshot> {
     let mut os_ipxe_script = String::new();
     let os_user_data = value.config.os.user_data.clone();
     let mut os_image_id = None;
@@ -609,15 +607,15 @@ pub async fn persist(
         // in which case FailedPrecondition.  Since both depend on the state of the system,
         // which could change and make the argument acceptable or not, this is probably
         // FailedPrecondition.
-        Err(sqlx::Error::RowNotFound) => Err(CarbideError::FailedPrecondition(
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::FailedPrecondition(
             "expected InstanceTypeId does not match source machine".to_string(),
         )),
-        Err(e) => Err(DatabaseError::query(query, e).into()),
+        Err(e) => Err(DatabaseError::query(query, e)),
         Ok(o) => Ok(o),
     }
 }
 
-pub async fn delete(instance_id: InstanceId, txn: &mut PgConnection) -> CarbideResult<()> {
+pub async fn delete(instance_id: InstanceId, txn: &mut PgConnection) -> DatabaseResult<()> {
     instance_address::delete(&mut *txn, instance_id).await?;
 
     let query = "DELETE FROM instances where id=$1::uuid RETURNING id";
@@ -627,10 +625,12 @@ pub async fn delete(instance_id: InstanceId, txn: &mut PgConnection) -> CarbideR
         .await
         .map(|_| ())
         .map_err(|e| DatabaseError::query(query, e))
-        .map_err(Into::into)
 }
 
-pub async fn mark_as_deleted(instance_id: InstanceId, txn: &mut PgConnection) -> CarbideResult<()> {
+pub async fn mark_as_deleted(
+    instance_id: InstanceId,
+    txn: &mut PgConnection,
+) -> DatabaseResult<()> {
     let query = "UPDATE instances SET deleted=NOW() WHERE id=$1::uuid RETURNING id";
 
     let _id = sqlx::query_as::<_, InstanceId>(query)

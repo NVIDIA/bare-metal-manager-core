@@ -23,14 +23,13 @@ use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
 
-use crate::db::DatabaseError;
 use crate::db::measured_boot::interface::common;
 use crate::db::measured_boot::interface::journal::{
     delete_journal_where_id, get_measurement_journal_record_by_id,
     get_measurement_journal_record_by_report_id, insert_measurement_journal_record,
     update_measurement_journal_record,
 };
-use crate::{CarbideError, CarbideResult};
+use crate::{DatabaseError, DatabaseResult};
 
 pub async fn new_with_txn(
     txn: &mut PgConnection,
@@ -39,7 +38,7 @@ pub async fn new_with_txn(
     profile_id: Option<MeasurementSystemProfileId>,
     bundle_id: Option<MeasurementBundleId>,
     state: MeasurementMachineState,
-) -> CarbideResult<MeasurementJournal> {
+) -> DatabaseResult<MeasurementJournal> {
     create_measurement_journal(txn, machine_id, report_id, profile_id, bundle_id, state).await
 }
 
@@ -49,14 +48,14 @@ pub async fn new_with_txn(
 pub async fn from_id(
     txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
-) -> CarbideResult<MeasurementJournal> {
+) -> DatabaseResult<MeasurementJournal> {
     get_measurement_journal_by_id(txn, journal_id).await
 }
 
 pub async fn delete_where_id(
     txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
-) -> CarbideResult<Option<MeasurementJournal>> {
+) -> DatabaseResult<Option<MeasurementJournal>> {
     let info = delete_journal_where_id(txn, journal_id).await?;
     match info {
         None => Ok(None),
@@ -72,7 +71,7 @@ pub async fn delete_where_id(
     }
 }
 
-pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<MeasurementJournal>> {
+pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementJournal>> {
     get_measurement_journals(txn).await
 }
 
@@ -85,7 +84,7 @@ async fn create_measurement_journal(
     profile_id: Option<MeasurementSystemProfileId>,
     bundle_id: Option<MeasurementBundleId>,
     state: MeasurementMachineState,
-) -> CarbideResult<MeasurementJournal> {
+) -> DatabaseResult<MeasurementJournal> {
     let info =
         insert_measurement_journal_record(txn, machine_id, report_id, profile_id, bundle_id, state)
             .await?;
@@ -107,7 +106,7 @@ pub(crate) async fn update_measurement_journal(
     profile_id: Option<MeasurementSystemProfileId>,
     bundle_id: Option<MeasurementBundleId>,
     state: MeasurementMachineState,
-) -> CarbideResult<MeasurementJournal> {
+) -> DatabaseResult<MeasurementJournal> {
     let info =
         update_measurement_journal_record(txn, report_id, profile_id, bundle_id, state).await?;
 
@@ -127,7 +126,7 @@ pub(crate) async fn update_measurement_journal(
 async fn get_measurement_journal_by_id(
     txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
-) -> CarbideResult<MeasurementJournal> {
+) -> DatabaseResult<MeasurementJournal> {
     match get_measurement_journal_record_by_id(txn, journal_id).await? {
         Some(info) => Ok(MeasurementJournal {
             journal_id: info.journal_id,
@@ -138,7 +137,7 @@ async fn get_measurement_journal_by_id(
             state: info.state,
             ts: info.ts,
         }),
-        None => Err(CarbideError::NotFoundError {
+        None => Err(DatabaseError::NotFoundError {
             kind: "MeasurementJournal",
             id: journal_id.to_string(),
         }),
@@ -148,7 +147,7 @@ async fn get_measurement_journal_by_id(
 pub async fn get_journal_for_report_id(
     txn: &mut PgConnection,
     report_id: MeasurementReportId,
-) -> CarbideResult<MeasurementJournal> {
+) -> DatabaseResult<MeasurementJournal> {
     match get_measurement_journal_record_by_report_id(txn, report_id).await? {
         Some(info) => Ok(MeasurementJournal {
             journal_id: info.journal_id,
@@ -159,7 +158,7 @@ pub async fn get_journal_for_report_id(
             state: info.state,
             ts: info.ts,
         }),
-        None => Err(CarbideError::NotFoundError {
+        None => Err(DatabaseError::NotFoundError {
             kind: "MeasurementJournal",
             id: report_id.to_string(),
         }),
@@ -171,7 +170,7 @@ pub async fn get_journal_for_report_id(
 /// function since its a simple/common pattern.
 async fn get_measurement_journals(
     txn: &mut PgConnection,
-) -> CarbideResult<Vec<MeasurementJournal>> {
+) -> DatabaseResult<Vec<MeasurementJournal>> {
     let journal_records: Vec<MeasurementJournalRecord> = common::get_all_objects(txn).await?;
     let res: Vec<MeasurementJournal> = journal_records
         .iter()
@@ -193,7 +192,7 @@ async fn get_measurement_journals(
 pub async fn get_latest_journal_for_id(
     txn: &mut PgConnection,
     machine_id: MachineId,
-) -> CarbideResult<Option<MeasurementJournal>> {
+) -> DatabaseResult<Option<MeasurementJournal>> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
     match sqlx::query_as::<_, MeasurementJournalRecord>(query)
         .bind(machine_id)
@@ -221,14 +220,14 @@ pub(crate) mod test_support {
     pub async fn get_all_for_machine_id(
         txn: &mut PgConnection,
         machine_id: MachineId,
-    ) -> CarbideResult<Vec<MeasurementJournal>> {
+    ) -> DatabaseResult<Vec<MeasurementJournal>> {
         get_measurement_journals_for_machine_id(txn, machine_id).await
     }
 
     pub async fn get_latest_for_machine_id(
         txn: &mut PgConnection,
         machine_id: MachineId,
-    ) -> CarbideResult<Option<MeasurementJournal>> {
+    ) -> DatabaseResult<Option<MeasurementJournal>> {
         get_latest_journal_for_id(txn, machine_id).await
     }
 
@@ -238,7 +237,7 @@ pub(crate) mod test_support {
     async fn get_measurement_journals_for_machine_id(
         txn: &mut PgConnection,
         machine_id: MachineId,
-    ) -> CarbideResult<Vec<MeasurementJournal>> {
+    ) -> DatabaseResult<Vec<MeasurementJournal>> {
         let records =
             crate::db::measured_boot::interface::journal::get_measurement_journal_records_for_machine_id(
                 txn, machine_id,

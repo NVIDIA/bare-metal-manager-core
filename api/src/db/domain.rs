@@ -14,8 +14,8 @@ use forge_uuid::domain::DomainId;
 use model::domain::{Domain, NewDomain};
 use sqlx::PgConnection;
 
-use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::{CarbideError, CarbideResult};
+use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+use crate::{DatabaseError, DatabaseResult};
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 
@@ -49,13 +49,13 @@ impl<'a> ColumnInfo<'a> for NameColumn {
     }
 }
 
-pub async fn persist(value: NewDomain, txn: &mut PgConnection) -> CarbideResult<Domain> {
+pub async fn persist(value: NewDomain, txn: &mut PgConnection) -> DatabaseResult<Domain> {
     let query = "INSERT INTO domains (name, soa) VALUES ($1, $2) returning *";
     match persist_inner(&value, txn, query).await {
         Ok(Some(domain)) => Ok(domain),
         Ok(None) => {
             // likely unreachable - needed because persist_inner uses fetch_optional
-            Err(CarbideError::NotFoundError {
+            Err(DatabaseError::NotFoundError {
                 kind: "domain",
                 id: value.name,
             })
@@ -68,7 +68,7 @@ pub async fn persist(value: NewDomain, txn: &mut PgConnection) -> CarbideResult<
 pub async fn persist_first(
     value: &NewDomain,
     txn: &mut PgConnection,
-) -> CarbideResult<Option<Domain>> {
+) -> DatabaseResult<Option<Domain>> {
     let query = "
             INSERT INTO domains (name) SELECT $1
             WHERE NOT EXISTS (SELECT name FROM domains)
@@ -80,7 +80,7 @@ async fn persist_inner(
     value: &NewDomain,
     txn: &mut PgConnection,
     query: &'static str,
-) -> CarbideResult<Option<Domain>> {
+) -> DatabaseResult<Option<Domain>> {
     sqlx::query_as(query)
         .bind(&value.name)
         .bind(sqlx::types::Json(&value.soa))
@@ -90,14 +90,14 @@ async fn persist_inner(
             sqlx::Error::Database(e)
                 if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
             {
-                CarbideError::InvalidArgument("name".to_string())
+                DatabaseError::InvalidArgument("name".to_string())
             }
             sqlx::Error::Database(e)
                 if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
             {
-                CarbideError::InvalidArgument("name".to_string())
+                DatabaseError::InvalidArgument("name".to_string())
             }
-            e => DatabaseError::query(query, e).into(),
+            e => DatabaseError::query(query, e),
         })
 }
 

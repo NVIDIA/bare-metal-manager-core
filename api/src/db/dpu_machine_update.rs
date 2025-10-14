@@ -3,10 +3,9 @@ use std::ops::DerefMut;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ReprovisionRequest};
-use sqlx::{Connection, PgConnection};
+use sqlx::{Acquire, PgConnection};
 
 use crate::db::{self, DatabaseError};
-use crate::errors::CarbideError;
 use crate::machine_update_manager::machine_update_module::{
     AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,
     HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
@@ -27,7 +26,7 @@ pub async fn get_fw_updates_running_count(txn: &mut PgConnection) -> Result<i64,
 pub async fn trigger_reprovisioning_for_managed_host(
     txn: &mut PgConnection,
     machine_updates: &[DpuMachineUpdate],
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     const DB_TXN_NAME: &str = "trigger_reprovisioning_for_managed_host";
     let mut inner_txn = txn
         .begin()
@@ -57,11 +56,11 @@ pub async fn trigger_reprovisioning_for_managed_host(
             .fetch_one(inner_txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| match err {
-                sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+                sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
                     kind: "trigger_reprovisioning_for_managed_host",
                     id: machine_update.dpu_machine_id.to_string(),
                 },
-                _ => DatabaseError::query(query, err).into(),
+                _ => DatabaseError::query(query, err),
             })?;
     }
 

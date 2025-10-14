@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
+use crate::DatabaseResult;
 use crate::db::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::errors::{CarbideError, CarbideResult};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -56,12 +56,12 @@ pub struct NewIBPartition {
 }
 
 impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
-    type Error = CarbideError;
+    type Error = DatabaseError;
     fn try_from(value: rpc::IbPartitionCreationRequest) -> Result<Self, Self::Error> {
         let conf = match value.config {
             Some(c) => c,
             None => {
-                return Err(CarbideError::InvalidArgument(
+                return Err(DatabaseError::InvalidArgument(
                     "IBPartition configuration is empty".to_string(),
                 ));
             }
@@ -191,18 +191,18 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
 /// from String -> UUID fails
 ///
 impl TryFrom<rpc::IbPartitionConfig> for IBPartitionConfig {
-    type Error = CarbideError;
+    type Error = DatabaseError;
 
     fn try_from(conf: rpc::IbPartitionConfig) -> Result<Self, Self::Error> {
         if conf.tenant_organization_id.is_empty() {
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "IBPartition organization_id is empty".to_string(),
             ));
         }
 
         let tenant_organization_id =
             TenantOrganizationId::try_from(conf.tenant_organization_id.clone())
-                .map_err(|_| CarbideError::InvalidArgument(conf.tenant_organization_id))?;
+                .map_err(|_| DatabaseError::InvalidArgument(conf.tenant_organization_id))?;
 
         Ok(IBPartitionConfig {
             name: conf.name,
@@ -219,7 +219,7 @@ impl TryFrom<rpc::IbPartitionConfig> for IBPartitionConfig {
 /// Marshal a Data Object (IBPartition) into an RPC IBPartition
 ///
 impl TryFrom<IBPartition> for rpc::IbPartition {
-    type Error = CarbideError;
+    type Error = DatabaseError;
     fn try_from(src: IBPartition) -> Result<Self, Self::Error> {
         let config = Some(rpc::IbPartitionConfig {
             name: src.config.name.clone(),
@@ -349,7 +349,7 @@ pub async fn for_tenant(
 pub async fn find_ids(
     txn: &mut PgConnection,
     filter: rpc::IbPartitionSearchFilter,
-) -> Result<Vec<IBPartitionId>, CarbideError> {
+) -> Result<Vec<IBPartitionId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM ib_partitions");
     let mut has_filter = false;
@@ -452,7 +452,7 @@ pub async fn update_controller_state_outcome(
 pub async fn mark_as_deleted(
     value: &IBPartition,
     txn: &mut PgConnection,
-) -> CarbideResult<IBPartition> {
+) -> DatabaseResult<IBPartition> {
     let query = "UPDATE ib_partitions SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
     let segment: IBPartition = sqlx::query_as(query)
         .bind(value.id)

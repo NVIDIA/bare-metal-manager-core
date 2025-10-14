@@ -5,9 +5,7 @@ use forge_uuid::vpc::VpcId;
 use model::vpc::VpcDpuLoopback;
 use sqlx::PgConnection;
 
-use crate::db;
-use crate::db::DatabaseError;
-use crate::errors::CarbideError;
+use crate::{DatabaseError, db};
 
 pub async fn persist(
     value: VpcDpuLoopback,
@@ -29,7 +27,7 @@ pub async fn delete_and_deallocate(
     dpu_id: &MachineId,
     txn: &mut PgConnection,
     delete_admin_loopback_also: bool,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let mut admin_vpc = None;
     let query = if !delete_admin_loopback_also {
         let admin_segment = db::network_segment::admin(txn).await?;
@@ -60,7 +58,7 @@ pub async fn delete_and_deallocate(
         let ipv4_addr = match value.loopback_ip {
             IpAddr::V4(ipv4_addr) => ipv4_addr,
             IpAddr::V6(_) => {
-                return Err(CarbideError::InvalidArgument(
+                return Err(DatabaseError::InvalidArgument(
                     "Ipv6 is not supported.".to_string(),
                 ));
             }
@@ -99,12 +97,12 @@ pub async fn get_or_allocate_loopback_ip_for_vpc(
     txn: &mut PgConnection,
     dpu_id: &MachineId,
     vpc_id: &VpcId,
-) -> Result<Ipv4Addr, CarbideError> {
+) -> Result<Ipv4Addr, DatabaseError> {
     let loopback_ip = match find(txn, dpu_id, vpc_id).await? {
         Some(x) => match x.loopback_ip {
             IpAddr::V4(ipv4_addr) => ipv4_addr,
             IpAddr::V6(_) => {
-                return Err(CarbideError::NotImplemented);
+                return Err(DatabaseError::NotImplemented);
             }
         },
         None => {

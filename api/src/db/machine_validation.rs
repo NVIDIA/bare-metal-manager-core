@@ -20,8 +20,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::ObjectFilter;
-use crate::db::DatabaseError;
-use crate::{CarbideError, CarbideResult, db};
+use crate::{DatabaseError, DatabaseResult, db};
 
 pub async fn find_by(
     txn: &mut PgConnection,
@@ -77,7 +76,7 @@ pub async fn update_status(
     txn: &mut PgConnection,
     uuid: &Uuid,
     status: MachineValidationStatus,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     let query = "UPDATE machine_validation SET state=$2 WHERE id=$1 RETURNING *";
     let _id = sqlx::query_as::<_, MachineValidation>(query)
         .bind(uuid)
@@ -91,7 +90,7 @@ pub async fn update_end_time(
     txn: &mut PgConnection,
     uuid: &Uuid,
     status: &MachineValidationStatus,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     let query = "UPDATE machine_validation SET end_time=NOW(),state=$2 WHERE id=$1 RETURNING *";
     let _id = sqlx::query_as::<_, MachineValidation>(query)
         .bind(uuid)
@@ -107,7 +106,7 @@ pub async fn update_run(
     uuid: &Uuid,
     total: i32,
     duration_to_complete: i64,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3,completed=0  WHERE id=$1 RETURNING *";
     let _id = sqlx::query_as::<_, MachineValidation>(query)
         .bind(uuid)
@@ -174,7 +173,7 @@ pub async fn find(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     include_history: bool,
-) -> CarbideResult<Vec<MachineValidation>> {
+) -> DatabaseResult<Vec<MachineValidation>> {
     if include_history {
         return find_by_machine_id(txn, machine_id).await;
     };
@@ -182,13 +181,13 @@ pub async fn find(
     {
         Err(err) => {
             tracing::warn!(%machine_id, error = %err, "failed loading machine");
-            return Err(CarbideError::InvalidArgument(
+            return Err(DatabaseError::InvalidArgument(
                 "err loading machine".to_string(),
             ));
         }
         Ok(None) => {
             tracing::info!(%machine_id, "machine not found");
-            return Err(CarbideError::NotFoundError {
+            return Err(DatabaseError::NotFoundError {
                 kind: "machine",
                 id: machine_id.to_string(),
             });
@@ -211,33 +210,31 @@ pub async fn find(
         "id",
     )
     .await
-    .map_err(Into::into)
 }
 
 pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-) -> CarbideResult<Vec<MachineValidation>> {
+) -> DatabaseResult<Vec<MachineValidation>> {
     find_by(
         txn,
         ObjectFilter::List(&[machine_id.to_string()]),
         "machine_id",
     )
     .await
-    .map_err(Into::into)
 }
 
 pub async fn find_active_machine_validation_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-) -> CarbideResult<MachineValidation> {
+) -> DatabaseResult<MachineValidation> {
     let ret = find_by_machine_id(txn, machine_id).await?;
     for iter in ret {
         if iter.end_time.is_none() {
             return Ok(iter);
         }
     }
-    Err(CarbideError::InvalidArgument(format!(
+    Err(DatabaseError::InvalidArgument(format!(
         "Not active machine validation in  {machine_id:?} "
     )))
 }
@@ -245,22 +242,20 @@ pub async fn find_active_machine_validation_by_machine_id(
 pub async fn find_by_id(
     txn: &mut PgConnection,
     validation_id: &Uuid,
-) -> CarbideResult<MachineValidation> {
+) -> DatabaseResult<MachineValidation> {
     let machine_validation =
         find_by(txn, ObjectFilter::One(validation_id.to_string()), "id").await?;
 
     if !machine_validation.is_empty() {
         return Ok(machine_validation[0].clone());
     }
-    Err(CarbideError::InvalidArgument(format!(
+    Err(DatabaseError::InvalidArgument(format!(
         "Validaion Id not found  {validation_id:?} "
     )))
 }
 
-pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<MachineValidation>> {
-    find_by(txn, ObjectFilter::All, "")
-        .await
-        .map_err(Into::into)
+pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MachineValidation>> {
+    find_by(txn, ObjectFilter::All, "").await
 }
 
 pub async fn mark_machine_validation_complete(
@@ -268,7 +263,7 @@ pub async fn mark_machine_validation_complete(
     machine_id: &MachineId,
     uuid: &Uuid,
     status: MachineValidationStatus,
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     //Mark machine validation request to false
     db::machine::set_machine_validation_request(txn, machine_id, false).await?;
 

@@ -43,20 +43,20 @@ use crate::db::measured_boot::interface::site::{
     remove_from_approved_machines_by_approval_id, remove_from_approved_profiles_by_approval_id,
 };
 use crate::db::measured_boot::machine::bundle_state_to_machine_state;
-use crate::{CarbideError, CarbideResult};
+use crate::{DatabaseError, DatabaseResult};
 
 pub async fn new_with_txn(
     txn: &mut PgConnection,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
-) -> CarbideResult<MeasurementReport> {
+) -> DatabaseResult<MeasurementReport> {
     create_measurement_report(txn, machine_id, values).await
 }
 
 pub async fn from_id_with_txn(
     txn: &mut PgConnection,
     report_id: MeasurementReportId,
-) -> CarbideResult<MeasurementReport> {
+) -> DatabaseResult<MeasurementReport> {
     get_measurement_report_by_id_with_txn(txn, report_id).await
 }
 
@@ -66,7 +66,7 @@ pub async fn from_id_with_txn(
 pub async fn delete_for_id(
     txn: &mut PgConnection,
     report_id: MeasurementReportId,
-) -> CarbideResult<MeasurementReport> {
+) -> DatabaseResult<MeasurementReport> {
     let values = delete_report_values_for_id(txn, report_id).await?;
     match delete_report_for_id(txn, report_id).await? {
         Some(info) => Ok(MeasurementReport {
@@ -75,7 +75,7 @@ pub async fn delete_for_id(
             ts: info.ts,
             values,
         }),
-        None => Err(CarbideError::NotFoundError {
+        None => Err(DatabaseError::NotFoundError {
             kind: "MeasurementReport",
             id: report_id.to_string(),
         }),
@@ -85,11 +85,11 @@ pub async fn delete_for_id(
 pub async fn get_all_for_machine_id(
     txn: &mut PgConnection,
     machine_id: MachineId,
-) -> CarbideResult<Vec<MeasurementReport>> {
+) -> DatabaseResult<Vec<MeasurementReport>> {
     get_measurement_reports_for_machine_id(txn, machine_id).await
 }
 
-pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<MeasurementReport>> {
+pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementReport>> {
     get_all_measurement_reports(txn).await
 }
 
@@ -97,7 +97,7 @@ pub async fn create_active_bundle_with_txn(
     txn: &mut PgConnection,
     report: &MeasurementReport,
     pcr_set: &Option<PcrSet>,
-) -> CarbideResult<MeasurementBundle> {
+) -> DatabaseResult<MeasurementBundle> {
     create_bundle_with_state(txn, report, MeasurementBundleState::Active, pcr_set).await
 }
 
@@ -105,7 +105,7 @@ pub async fn create_revoked_bundle_with_txn(
     txn: &mut PgConnection,
     report: &MeasurementReport,
     pcr_set: &Option<PcrSet>,
-) -> CarbideResult<MeasurementBundle> {
+) -> DatabaseResult<MeasurementBundle> {
     create_bundle_with_state(txn, report, MeasurementBundleState::Revoked, pcr_set).await
 }
 
@@ -115,7 +115,7 @@ pub async fn create_measurement_report(
     txn: &mut PgConnection,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
-) -> CarbideResult<MeasurementReport> {
+) -> DatabaseResult<MeasurementReport> {
     // we check if a previous measurement report has the same values,
     // if true, we'll just update the timestamp on the previous report
     // otherwise, we'll create a new one
@@ -176,7 +176,7 @@ pub async fn create_measurement_report(
     // placeholder, just incase we want to turn off auto-creation of
     // profiles (or make it configurable).
     if journal.profile_id.is_none() {
-        return Err(CarbideError::MissingArgument("journal.profile_id"));
+        return Err(DatabaseError::MissingArgument("journal.profile_id"));
     }
 
     // And, finally, if there's no bundle_id associated with the journal entry,
@@ -197,7 +197,7 @@ pub async fn create_measurement_report(
 /// function since its a simple/common pattern.
 pub async fn get_all_measurement_reports(
     txn: &mut PgConnection,
-) -> CarbideResult<Vec<MeasurementReport>> {
+) -> DatabaseResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(txn).await?;
     let mut report_values: Vec<MeasurementReportValueRecord> = common::get_all_objects(txn).await?;
 
@@ -231,7 +231,7 @@ pub async fn get_all_measurement_reports(
 pub async fn get_measurement_report_by_id_with_txn(
     txn: &mut PgConnection,
     report_id: MeasurementReportId,
-) -> CarbideResult<MeasurementReport> {
+) -> DatabaseResult<MeasurementReport> {
     match get_measurement_report_record_by_id(txn, report_id).await? {
         Some(info) => {
             let values = get_measurement_report_values_for_report_id(txn, info.report_id).await?;
@@ -242,7 +242,7 @@ pub async fn get_measurement_report_by_id_with_txn(
                 values,
             })
         }
-        None => Err(CarbideError::NotFoundError {
+        None => Err(DatabaseError::NotFoundError {
             kind: "MeasurementReport",
             id: report_id.to_string(),
         }),
@@ -255,7 +255,7 @@ pub async fn get_measurement_report_by_id_with_txn(
 pub async fn get_measurement_reports_for_machine_id(
     txn: &mut PgConnection,
     machine_id: MachineId,
-) -> CarbideResult<Vec<MeasurementReport>> {
+) -> DatabaseResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> =
         common::get_objects_where_id(txn, machine_id).await?;
     let mut res = Vec::<MeasurementReport>::new();
@@ -285,7 +285,7 @@ impl JournalData {
         txn: &mut PgConnection,
         machine_id: MachineId,
         values: &[PcrRegisterValue],
-    ) -> CarbideResult<Self> {
+    ) -> DatabaseResult<Self> {
         let state: MeasurementMachineState;
         let bundle_id: Option<MeasurementBundleId>;
 
@@ -329,7 +329,7 @@ impl JournalData {
 async fn maybe_auto_approve_machine(
     txn: &mut PgConnection,
     report: &MeasurementReport,
-) -> CarbideResult<bool> {
+) -> DatabaseResult<bool> {
     match get_approval_for_machine_id(txn, TrustedMachineId::MachineId(report.machine_id)).await? {
         Some(approval) => {
             let pcr_set = match approval.pcr_registers {
@@ -381,7 +381,7 @@ async fn maybe_auto_approve_profile(
     txn: &mut PgConnection,
     journal: &MeasurementJournal,
     report: &MeasurementReport,
-) -> CarbideResult<bool> {
+) -> DatabaseResult<bool> {
     match get_approval_for_profile_id(txn, journal.profile_id.unwrap()).await? {
         Some(approval) => {
             let pcr_set = match approval.pcr_registers {
@@ -414,7 +414,7 @@ pub async fn create_bundle_with_state(
     report: &MeasurementReport,
     state: MeasurementBundleState,
     pcr_set: &Option<PcrSet>,
-) -> CarbideResult<MeasurementBundle> {
+) -> DatabaseResult<MeasurementBundle> {
     // Get machine + profile information for the journal entry
     // that needs to be associated with the bundle change.
     let machine =
@@ -436,11 +436,11 @@ pub async fn create_bundle_with_state(
         // and then attempt to pluck out a pcr_register value from
         // the register_map for each index in the range.
         Some(pcr_set) => {
-            let filtered: CarbideResult<Vec<PcrRegisterValue>> = pcr_set
+            let filtered: DatabaseResult<Vec<PcrRegisterValue>> = pcr_set
                 .iter()
                 .map(|pcr_register| match register_map.get(pcr_register) {
                     Some(register_val) => Ok(register_val.clone()),
-                    None => Err(CarbideError::NotFoundError {
+                    None => Err(DatabaseError::NotFoundError {
                         kind: "PcrRegisterValue",
                         id: pcr_register.to_string(),
                     }),
@@ -472,7 +472,7 @@ async fn same_as_previous_one(
     txn: &mut PgConnection,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
-) -> CarbideResult<SameOrNot> {
+) -> DatabaseResult<SameOrNot> {
     let latest_journal = match crate::db::measured_boot::journal::get_latest_journal_for_id(
         txn, machine_id,
     )

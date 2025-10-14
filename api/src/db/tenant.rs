@@ -17,8 +17,7 @@ use model::tenant::{Tenant, TenantPublicKeyValidationRequest};
 use sqlx::PgConnection;
 
 use super::ObjectFilter;
-use crate::db::DatabaseError;
-use crate::{CarbideError, CarbideResult, db};
+use crate::{DatabaseError, DatabaseResult, db};
 
 type OrganizationID = String;
 
@@ -58,14 +57,14 @@ pub async fn update(
     metadata: Metadata,
     if_version_match: Option<ConfigVersion>,
     txn: &mut PgConnection,
-) -> CarbideResult<Tenant> {
+) -> DatabaseResult<Tenant> {
     let current_version = match if_version_match {
         Some(version) => version,
         None => {
             if let Some(tenant) = find(organization_id.as_str(), txn).await? {
                 tenant.version
             } else {
-                return Err(CarbideError::NotFoundError {
+                return Err(DatabaseError::NotFoundError {
                     id: organization_id,
                     kind: "tenant",
                 });
@@ -88,9 +87,9 @@ pub async fn update(
         .await
         .map_err(|err| match err {
             sqlx::Error::RowNotFound => {
-                CarbideError::ConcurrentModificationError("tenant", current_version.to_string())
+                DatabaseError::ConcurrentModificationError("tenant", current_version.to_string())
             }
-            error => DatabaseError::query(query, error).into(),
+            error => DatabaseError::query(query, error),
         })
 }
 
@@ -120,10 +119,10 @@ pub async fn find_tenant_organization_ids(
 pub async fn validate_public_key(
     request: &TenantPublicKeyValidationRequest,
     txn: &mut PgConnection,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let instance = db::instance::find_by_id(txn, request.instance_id)
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "instance",
             id: request.instance_id.to_string(),
         })?;
@@ -136,7 +135,7 @@ pub async fn validate_public_key(
     )
     .await?;
 
-    request.validate_key(keysets).map_err(CarbideError::from)
+    request.validate_key(keysets).map_err(DatabaseError::from)
 }
 
 pub async fn load_by_organization_ids(

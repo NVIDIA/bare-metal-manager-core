@@ -24,7 +24,8 @@ use model::tenant::TenantError;
 use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
 
-use crate::db;
+use crate::DatabaseError;
+use crate::db::AnnotatedSqlxError;
 use crate::db::ip_allocator::DhcpError;
 use crate::db::resource_pool::ResourcePoolDatabaseError;
 
@@ -77,7 +78,7 @@ pub enum CarbideError {
     InvalidArgument(String),
 
     #[error("{0}")]
-    DBError(#[from] db::DatabaseError),
+    DBError(#[from] AnnotatedSqlxError),
 
     #[error("Database type conversion error")]
     DatabaseTypeConversionError(String),
@@ -231,6 +232,47 @@ impl From<ModelError> for CarbideError {
             ModelError::MissingArgument(e) => Self::MissingArgument(e),
             ModelError::HardwareInfo(e) => Self::HardwareInfoError(e),
             ModelError::InvalidArgument(e) => Self::InvalidArgument(e),
+        }
+    }
+}
+
+impl From<DatabaseError> for CarbideError {
+    fn from(e: DatabaseError) -> Self {
+        use CarbideError::*;
+        match e {
+            DatabaseError::AddressParseError(e) => AddressParseError(e),
+            DatabaseError::AdminNetworkNotConfigured => AdminNetworkNotConfigured,
+            DatabaseError::AlreadyFoundError { kind, id } => AlreadyFoundError { kind, id },
+            DatabaseError::ConcurrentModificationError(type_str, msg) => {
+                ConcurrentModificationError(type_str, msg)
+            }
+            DatabaseError::DhcpError(e) => DhcpError(e),
+            DatabaseError::ExpectedHostDuplicateMacAddress(e) => ExpectedHostDuplicateMacAddress(e),
+            DatabaseError::FailedPrecondition(e) => FailedPrecondition(e),
+            DatabaseError::FindOneReturnedManyResultsError(e) => FindOneReturnedManyResultsError(e),
+            DatabaseError::FindOneReturnedNoResultsError(e) => FindOneReturnedNoResultsError(e),
+            DatabaseError::GenericErrorFromReport(e) => GenericErrorFromReport(e),
+            DatabaseError::HardwareInfoError(e) => HardwareInfoError(e),
+            DatabaseError::Internal { message } => Internal { message },
+            DatabaseError::InvalidArgument(e) => InvalidArgument(e),
+            DatabaseError::InvalidConfiguration(e) => InvalidConfiguration(e),
+            DatabaseError::MissingArgument(e) => MissingArgument(e),
+            DatabaseError::NetworkParseError(e) => NetworkParseError(e),
+            DatabaseError::NetworkSegmentDelete(e) => NetworkSegmentDelete(e),
+            DatabaseError::NetworkSegmentDuplicateMacAddress(e) => {
+                NetworkSegmentDuplicateMacAddress(e)
+            }
+            DatabaseError::NetworkSegmentNotAllocated => NetworkSegmentNotAllocated,
+            DatabaseError::NotFoundError { kind, id } => NotFoundError { kind, id },
+            DatabaseError::NotImplemented => NotImplemented,
+            DatabaseError::OnePrimaryInterface => OnePrimaryInterface,
+            DatabaseError::ResourceExhausted(e) => ResourceExhausted(e),
+            DatabaseError::ResourcePoolError(e) => ResourcePoolError(e),
+            DatabaseError::RpcDataConversionError(e) => RpcDataConversionError(e),
+            DatabaseError::RpcUuidConversionError(e) => RpcUuidConversionError(e),
+            DatabaseError::Sqlx(e) => DBError(e),
+            DatabaseError::TenantError(e) => TenantError(e),
+            DatabaseError::UuidConversionError(e) => UuidConversionError(e),
         }
     }
 }

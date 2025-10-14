@@ -32,7 +32,7 @@ use sqlx::{Acquire, FromRow, PgConnection, query_as};
 
 use super::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::db::ip_allocator::{IpAllocator, UsedIpResolver};
-use crate::{CarbideError, CarbideResult, db};
+use crate::{DatabaseResult, db};
 
 #[cfg(test)]
 #[derive(Copy, Clone)]
@@ -120,7 +120,7 @@ fn validate(
     segments: &Vec<NetworkSegment>,
     instance_network: &InstanceNetworkConfig,
     segment_ids_using_vpc_prefix: &[NetworkSegmentId],
-) -> CarbideResult<()> {
+) -> DatabaseResult<()> {
     if segments.len() != instance_network.interfaces.len() {
         // Missing at least one segment in db.
         return Err(ConfigValidationError::UnknownSegments.into());
@@ -191,7 +191,7 @@ pub async fn allocate(
     instance_id: InstanceId,
     mut updated_config: InstanceNetworkConfig,
     machine: &Machine,
-) -> CarbideResult<InstanceNetworkConfig> {
+) -> DatabaseResult<InstanceNetworkConfig> {
     // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
     // We're potentially about to insert a couple rows, so create a savepoint.
     const DB_TXN_NAME: &str = "instance_address::allocate";
@@ -219,7 +219,7 @@ pub async fn allocate(
         .collect_vec();
 
     if segment_ids.len() != updated_config.interfaces.len() {
-        return Err(CarbideError::NetworkSegmentNotAllocated);
+        return Err(DatabaseError::NetworkSegmentNotAllocated);
     }
 
     let segments = db::network_segment::find_by(
@@ -251,11 +251,11 @@ pub async fn allocate(
             Some(x) => x,
             None => {
                 if let Some(segment_id) = iface.network_segment_id {
-                    return Err(CarbideError::FindOneReturnedNoResultsError(
+                    return Err(DatabaseError::FindOneReturnedNoResultsError(
                         segment_id.into(),
                     ));
                 }
-                return Err(CarbideError::NetworkSegmentNotAllocated);
+                return Err(DatabaseError::NetworkSegmentNotAllocated);
             }
         };
 
@@ -267,7 +267,7 @@ pub async fn allocate(
             .collect_vec();
 
         if valid_prefixes.len() > 1 {
-            return Err(CarbideError::FindOneReturnedManyResultsError(
+            return Err(DatabaseError::FindOneReturnedManyResultsError(
                 segment.id.into(),
             ));
         }
@@ -277,7 +277,7 @@ pub async fn allocate(
                 segment_id = %segment.id,
                 "No prefix is attached to segment.",
             );
-            return Err(CarbideError::FindOneReturnedNoResultsError(
+            return Err(DatabaseError::FindOneReturnedNoResultsError(
                 segment.id.into(),
             ));
         };
@@ -431,7 +431,7 @@ WHERE network_segments.id = $1::uuid";
 /// Get IP addresses from Source, write them to self, and return them. Currently can come from an
 /// IpAllocator, or from a host snapshot.
 trait AssignIpsFrom<Source> {
-    fn assign_ips_from(&mut self, source: Source) -> CarbideResult<Vec<IpNetwork>>;
+    fn assign_ips_from(&mut self, source: Source) -> DatabaseResult<Vec<IpNetwork>>;
 }
 
 impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
@@ -441,7 +441,7 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
     fn assign_ips_from(
         &mut self,
         source: (&Machine, &NetworkPrefix),
-    ) -> CarbideResult<Vec<IpNetwork>> {
+    ) -> DatabaseResult<Vec<IpNetwork>> {
         let (machine, network_prefix) = source;
 
         // Find which interface on the machine is in this prefix
@@ -459,14 +459,14 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
             tracing::error!(
                 "Managed host has multiple interfaces in the desired network segment. Cannot know which to assign to the instance config."
             );
-            return Err(CarbideError::FindOneReturnedManyResultsError(
+            return Err(DatabaseError::FindOneReturnedManyResultsError(
                 self.network_segment_id.map(|a| a.0).unwrap_or_default(),
             ));
         }
 
         let Some(inband_host_interface) = host_interfaces_in_instance_segment.into_iter().next()
         else {
-            return Err(CarbideError::InvalidConfiguration(
+            return Err(DatabaseError::InvalidConfiguration(
                 ConfigValidationError::NetworkSegmentUnavailableOnHost,
             ));
         };
@@ -487,7 +487,7 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
         }
 
         let Some(address) = matching_addresses.into_iter().next() else {
-            return Err(CarbideError::InvalidConfiguration(
+            return Err(DatabaseError::InvalidConfiguration(
                 ConfigValidationError::NetworkSegmentUnavailableOnHost,
             ));
         };
@@ -523,7 +523,7 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
 }
 
 impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
-    fn assign_ips_from(&mut self, ip_allocator: IpAllocator) -> CarbideResult<Vec<IpNetwork>> {
+    fn assign_ips_from(&mut self, ip_allocator: IpAllocator) -> DatabaseResult<Vec<IpNetwork>> {
         let mut addresses = Vec::new();
         for (prefix_id, allocated_prefix) in ip_allocator {
             let allocated_prefix = allocated_prefix?;
@@ -547,7 +547,7 @@ impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
 pub async fn allocate_svi_ip(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
-) -> CarbideResult<(NetworkPrefixId, IpAddr)> {
+) -> DatabaseResult<(NetworkPrefixId, IpAddr)> {
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedOverlayNetworkIpResolver {
         segment_id: segment.id,
         busy_ips: vec![],
@@ -573,7 +573,7 @@ pub async fn allocate_svi_ip(
     match addresses_allocator.next() {
         Some((id, Ok(address))) => Ok((id, address.ip())),
         Some((_, Err(err))) => Err(err),
-        _ => Err(CarbideError::ResourceExhausted(format!(
+        _ => Err(DatabaseError::ResourceExhausted(format!(
             "Unable to allocate SVI IP for : No free IPs in segment {}.",
             segment.id
         ))),

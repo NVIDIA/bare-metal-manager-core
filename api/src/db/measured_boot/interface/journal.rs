@@ -78,7 +78,7 @@ pub async fn delete_journal_where_id(
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::delete_object_where_id(txn, journal_id)
         .await
-        .map_err(|e| DatabaseError::new("delete_journal_where_id", e.source))
+        .map_err(|e| e.with_op_name("delete_journal_where_id"))
 }
 
 /// get_measurement_journal_record_by_id returns a populated
@@ -91,7 +91,7 @@ pub async fn get_measurement_journal_record_by_id(
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::get_object_for_id(txn, journal_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_journal_record_by_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_journal_record_by_id"))
 }
 
 /// get_measurement_journal_record_by_report_id returns a populated
@@ -104,7 +104,7 @@ pub async fn get_measurement_journal_record_by_report_id(
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::get_object_for_id(txn, report_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_journal_record_by_report_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_journal_record_by_report_id"))
 }
 
 /// get_measurement_journal_records returns all MeasurementJournalRecord
@@ -115,7 +115,7 @@ pub async fn get_measurement_journal_records(
 ) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_journal_records", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_journal_records"))
 }
 
 /// get_measurement_journal_records_for_machine_id returns all journal
@@ -127,5 +127,5 @@ pub async fn get_measurement_journal_records_for_machine_id(
 ) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
     common::get_objects_where_id(txn, machine_id)
         .await
-        .map_err(|e| DatabaseError::new("get_measurement_journal_records_for_machine_id", e.source))
+        .map_err(|e| e.with_op_name("get_measurement_journal_records_for_machine_id"))
 }

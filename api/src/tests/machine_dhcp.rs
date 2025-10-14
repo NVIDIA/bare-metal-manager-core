@@ -21,7 +21,7 @@ use mac_address::MacAddress;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{DhcpDiscovery, ManagedHostNetworkConfigRequest};
 
-use crate::CarbideError;
+use crate::DatabaseError;
 use crate::db::{self, ObjectColumnFilter, dhcp_entry};
 use crate::tests::common;
 
@@ -79,7 +79,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     .await;
 
     assert!(
-        matches!(output, Err(CarbideError::Internal { message, ..}) if message.starts_with("Network segment mismatch for existing mac address"))
+        matches!(output, Err(DatabaseError::Internal { message, ..}) if message.starts_with("Network segment mismatch for existing mac address"))
     );
 
     txn.commit().await.unwrap();

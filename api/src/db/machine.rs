@@ -40,16 +40,17 @@ use model::machine::{
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::metadata::Metadata;
+use model::resource_pool;
+use model::resource_pool::ResourcePoolError;
 use model::resource_pool::common::CommonPools;
-use model::resource_pool::{self, ResourcePoolError};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
 use uuid::Uuid;
 
-use super::{DatabaseError, ObjectFilter, queries};
+use super::{ObjectFilter, queries};
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
-use crate::{CarbideError, CarbideResult, db};
+use crate::{DatabaseError, DatabaseResult, db};
 
 #[derive(Serialize)]
 struct ReprovisionRequestRestart {
@@ -81,13 +82,13 @@ pub async fn get_or_create(
     common_pools: Option<&CommonPools>,
     stable_machine_id: &MachineId,
     interface: &MachineInterfaceSnapshot,
-) -> CarbideResult<Machine> {
+) -> DatabaseResult<Machine> {
     let existing_machine =
         find_one(&mut *txn, stable_machine_id, MachineSearchConfig::default()).await?;
     if interface.machine_id.is_some() {
         let machine_id = interface.machine_id.as_ref().unwrap();
         if machine_id != stable_machine_id {
-            return Err(CarbideError::internal(format!(
+            return Err(DatabaseError::internal(format!(
                 "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
                 machine_id, interface.id, stable_machine_id
             )));
@@ -99,7 +100,7 @@ pub async fn get_or_create(
                 interface_id = %interface.id,
                 "Interface ID refers to missing machine",
             );
-            return Err(CarbideError::NotFoundError {
+            return Err(DatabaseError::NotFoundError {
                 kind: "machine",
                 id: machine_id.to_string(),
             });
@@ -675,7 +676,7 @@ pub async fn update_metadata(
     machine_id: &MachineId,
     expected_version: ConfigVersion,
     metadata: Metadata,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let next_version = expected_version.increment();
 
     let query = "UPDATE machines SET
@@ -697,9 +698,9 @@ pub async fn update_metadata(
         Ok((_machine_id,)) => Ok(()),
         Err(e) => Err(match e {
             sqlx::Error::RowNotFound => {
-                CarbideError::ConcurrentModificationError("machine", expected_version.to_string())
+                DatabaseError::ConcurrentModificationError("machine", expected_version.to_string())
             }
-            e => DatabaseError::query(query, e).into(),
+            e => DatabaseError::query(query, e),
         }),
     }
 }
@@ -724,7 +725,7 @@ pub async fn update_network_status_observation(
         .map_err(|e| DatabaseError::query(query, e))
     {
         Ok(result) => result,
-        Err(e) if matches!(e.source, sqlx::Error::RowNotFound) => {
+        Err(e) if e.is_not_found() => {
             // This function is intended to be able to capture why the update sometimes fails in unit-test
             // even though all prerequisite data is present.
             // It compiles to a no-op in production environments.
@@ -788,7 +789,7 @@ async fn update_health_report(
         .map_err(|e| DatabaseError::new("update health report", e))
     {
         Ok(result) => result,
-        Err(e) if matches!(e.source, sqlx::Error::RowNotFound) => {
+        Err(e) if e.is_not_found() => {
             // This function is intended to be able to capture why the update sometimes fails in unit-test
             // even though all prerequisite data is present.
             // It compiles to a no-op in production environments.
@@ -1087,9 +1088,9 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     txn: &mut PgConnection,
     current_machine_id: &Option<MachineId>,
     stable_machine_id: &MachineId,
-) -> Result<MachineId, CarbideError> {
+) -> Result<MachineId, DatabaseError> {
     let Some(current_machine_id) = current_machine_id else {
-        return Err(CarbideError::NotFoundError {
+        return Err(DatabaseError::NotFoundError {
             kind: "machine_id",
             id: stable_machine_id.to_string(),
         });
@@ -1099,7 +1100,7 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     if !current_machine_id.machine_type().is_predicted_host() {
         return match find_one(txn, current_machine_id, MachineSearchConfig::default()).await? {
             Some(machine) => Ok(machine.id),
-            None => Err(CarbideError::NotFoundError {
+            None => Err(DatabaseError::NotFoundError {
                 kind: "machine",
                 id: current_machine_id.to_string(),
             }),
@@ -1180,7 +1181,7 @@ pub async fn create(
     state: ManagedHostState,
     metadata: &Metadata,
     sku_id: Option<&String>,
-) -> CarbideResult<Machine> {
+) -> DatabaseResult<Machine> {
     let stable_machine_id_string = stable_machine_id.to_string();
     let metadata_name = if metadata.name.is_empty() {
         &stable_machine_id_string
@@ -1238,14 +1239,14 @@ pub async fn create(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     if machine_id != *stable_machine_id {
-        return Err(CarbideError::internal(format!(
+        return Err(DatabaseError::internal(format!(
             "Machine {stable_machine_id} was just created, but database failed to return any rows"
         )));
     }
 
     let machine = find_one(txn, stable_machine_id, MachineSearchConfig::default())
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "machine",
             id: stable_machine_id.to_string(),
         })?;
@@ -1526,13 +1527,13 @@ pub async fn apply_agent_upgrade_policy(
     txn: &mut PgConnection,
     policy: AgentUpgradePolicy,
     machine_id: &MachineId,
-) -> Result<bool, CarbideError> {
+) -> Result<bool, DatabaseError> {
     if policy == AgentUpgradePolicy::Off {
         return Ok(false);
     }
     let machine = find_one(txn, machine_id, MachineSearchConfig::default())
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
+        .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "dpu_machine",
             id: machine_id.to_string(),
         })?;
@@ -1753,7 +1754,7 @@ pub async fn allocate_loopback_ip(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, CarbideError> {
+) -> Result<Ipv4Addr, DatabaseError> {
     match db::resource_pool::allocate(
         &common_pools.ethernet.pool_loopback_ip,
         txn,
@@ -1767,7 +1768,7 @@ pub async fn allocate_loopback_ip(
             ResourcePoolError::Empty,
         )) => {
             tracing::error!(owner_id, pool = "lo-ip", "Pool exhausted, cannot allocate");
-            Err(CarbideError::ResourceExhausted("pool lo-ip".to_string()))
+            Err(DatabaseError::ResourceExhausted("pool lo-ip".to_string()))
         }
         Err(err) => {
             tracing::error!(owner_id, error = %err, pool = "lo-ip", "Error allocating from resource pool");
@@ -1783,7 +1784,7 @@ pub async fn allocate_vpc_dpu_loopback(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, CarbideError> {
+) -> Result<Ipv4Addr, DatabaseError> {
     match db::resource_pool::allocate(
         &common_pools.ethernet.pool_vpc_dpu_loopback_ip,
         txn,
@@ -1801,7 +1802,7 @@ pub async fn allocate_vpc_dpu_loopback(
                 pool = "vpc-dpu-lo-ip",
                 "Pool exhausted, cannot allocate"
             );
-            Err(CarbideError::ResourceExhausted(
+            Err(DatabaseError::ResourceExhausted(
                 "pool vpc-dpu-lo-ip".to_string(),
             ))
         }
@@ -1870,7 +1871,7 @@ pub async fn set_machine_validation_request(
 pub async fn update_dpu_asns(
     db_pool: &Pool<Postgres>,
     common_pools: &CommonPools,
-) -> Result<(), CarbideError> {
+) -> Result<(), DatabaseError> {
     let mut txn = db_pool
         .begin()
         .await

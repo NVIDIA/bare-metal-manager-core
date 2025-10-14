@@ -25,7 +25,7 @@ use rpc::forge::forge_server::Forge;
 use tokio::sync::broadcast;
 use tonic::Code;
 
-use crate::CarbideError;
+use crate::DatabaseError;
 use crate::db::dhcp_entry::DhcpEntry;
 use crate::db::{self, ObjectColumnFilter, domain};
 use crate::tests::common;
@@ -83,7 +83,7 @@ async fn only_one_primary_interface_per_machine(
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(output, Err(CarbideError::OnePrimaryInterface)));
+    assert!(matches!(output, Err(DatabaseError::OnePrimaryInterface)));
 
     Ok(())
 }
@@ -442,7 +442,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let mut txn = env.pool.begin().await?;
     let _interface = db::machine_interface::find_one(&mut txn, interface_id).await;
     assert!(matches!(
-        CarbideError::FindOneReturnedNoResultsError(interface_id.into()),
+        DatabaseError::FindOneReturnedNoResultsError(interface_id.into()),
         _interface
     ));
 
