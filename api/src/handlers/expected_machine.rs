@@ -11,6 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
+use db::DatabaseError;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -19,9 +20,8 @@ use sqlx::{Postgres, Transaction};
 use tonic::Status;
 use uuid::Uuid;
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::DatabaseError;
-use crate::{CarbideError, db};
 
 lazy_static! {
     // Verify what serial is alphanumeric string with, allows dashes '-' and underscores '_'

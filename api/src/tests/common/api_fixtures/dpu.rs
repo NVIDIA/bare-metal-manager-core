@@ -34,7 +34,6 @@ use tonic::Request;
 
 use super::site_explorer;
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
-use crate::db;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost};
 use crate::tests::common::mac_address_pool;

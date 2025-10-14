@@ -11,14 +11,14 @@
  */
 
 use ::rpc::forge as rpc;
+use db::{DatabaseError, ObjectFilter};
 use model::tenant::{
     TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::{DatabaseError, ObjectFilter};
-use crate::{CarbideError, db};
 
 pub(crate) async fn create(
     api: &Api,

@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use db::{self};
 use forge_secrets::SecretsError;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
@@ -28,7 +29,6 @@ use model::machine::Machine;
 use sqlx::PgConnection;
 use utils::HostPortPair;
 
-use crate::db::{self};
 use crate::ipmitool::IPMITool;
 use crate::{CarbideError, CarbideResult};
 
@@ -47,7 +47,7 @@ pub enum RedfishClientCreationError {
     #[error("Missing BMC Information: {0}")]
     MissingBmcEndpoint(String),
     #[error("Database Error Loading Machine Interface")]
-    MachineInterfaceLoadError(#[from] crate::db::DatabaseError),
+    MachineInterfaceLoadError(#[from] db::DatabaseError),
 }
 
 impl From<SecretsError> for RedfishClientCreationError {

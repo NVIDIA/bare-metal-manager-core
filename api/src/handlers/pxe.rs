@@ -13,12 +13,12 @@
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
+use db::{DatabaseError, ObjectColumnFilter, domain};
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::{DatabaseError, ObjectColumnFilter, domain};
 use crate::ipxe::PxeInstructions;
-use crate::{CarbideError, db};
 
 // The carbide pxe server makes this RPC call
 pub(crate) async fn get_pxe_instructions(

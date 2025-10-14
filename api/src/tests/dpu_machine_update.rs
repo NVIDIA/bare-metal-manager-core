@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
+use db::DatabaseError;
 use forge_uuid::machine::MachineId;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -9,10 +10,9 @@ use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 use sqlx::PgConnection;
 
 use super::common::api_fixtures::TestEnv;
-use crate::db::DatabaseError;
+use crate::CarbideResult;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
-use crate::{CarbideResult, db};
 
 pub async fn update_nic_firmware_version(
     txn: &mut PgConnection,
@@ -53,7 +53,7 @@ async fn create_machines(
 
     let mut txn = test_env.pool.begin().await.unwrap();
 
-    crate::db::managed_host::load_by_machine_ids(
+    db::managed_host::load_by_machine_ids(
         &mut txn,
         &machines.iter().map(|m| m.id).collect::<Vec<_>>(),
         LoadSnapshotOptions {
@@ -68,7 +68,7 @@ async fn create_machines(
 
 pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, ManagedHostStateSnapshot> {
     let mut txn = test_env.pool.begin().await.unwrap();
-    let machine_ids = crate::db::machine::find_machine_ids(
+    let machine_ids = db::machine::find_machine_ids(
         &mut txn,
         MachineSearchConfig {
             include_predicted_host: true,
@@ -78,7 +78,7 @@ pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, Managed
     .await
     .unwrap();
 
-    crate::db::managed_host::load_by_machine_ids(
+    db::managed_host::load_by_machine_ids(
         &mut txn,
         &machine_ids,
         LoadSnapshotOptions {
@@ -243,7 +243,7 @@ async fn test_find_available_outdated_dpus_multidpu(
         update_nic_firmware_version(&mut txn, &dpu.id, "1.11.1000").await?;
     }
 
-    let snapshots = crate::db::managed_host::load_by_machine_ids(
+    let snapshots = db::managed_host::load_by_machine_ids(
         &mut txn,
         &[mh.host().id],
         LoadSnapshotOptions {
@@ -290,7 +290,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let snapshots = crate::db::managed_host::load_by_machine_ids(
+    let snapshots = db::managed_host::load_by_machine_ids(
         &mut txn,
         &[mh.host().id],
         LoadSnapshotOptions {
@@ -354,7 +354,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let snapshots = crate::db::managed_host::load_by_machine_ids(
+    let snapshots = db::managed_host::load_by_machine_ids(
         &mut txn,
         &[mh.host().id],
         LoadSnapshotOptions {

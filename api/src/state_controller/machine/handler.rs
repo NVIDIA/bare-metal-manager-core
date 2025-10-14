@@ -19,6 +19,9 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
+use db::host_machine_update::clear_host_reprovisioning_request;
+use db::machine::update_restart_verification_status;
+use db::{self};
 use eyre::eyre;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
@@ -65,9 +68,6 @@ use version_compare::Cmp;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig, TimePeriod,
 };
-use crate::db::host_machine_update::clear_host_reprovisioning_request;
-use crate::db::machine::update_restart_verification_status;
-use crate::db::{self};
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::redfish::{self, host_power_control, set_host_uefi_password};
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
@@ -748,7 +748,7 @@ impl MachineStateHandler {
                         let health_override =
                         crate::machine_update_manager::machine_update_module::create_host_update_health_report_hostfw();
                         // The health report alert gets generated here, the machine update manager retains responsibilty for clearing it when we're done.
-                        crate::db::machine::insert_health_report_override(
+                        db::machine::insert_health_report_override(
                             txn,
                             host_machine_id,
                             health_report::OverrideMode::Merge,
@@ -800,7 +800,7 @@ impl MachineStateHandler {
 
                     let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
                     // Mark the Host as in update.
-                    crate::db::machine::insert_health_report_override(
+                    db::machine::insert_health_report_override(
                         txn,
                         host_machine_id,
                         health_report::OverrideMode::Merge,
@@ -4877,7 +4877,7 @@ impl StateHandler for InstanceStateHandler {
                             let health_override =
                         crate::machine_update_manager::machine_update_module::create_host_update_health_report_hostfw();
                             // The health report alert gets generated here, the machine update manager retains responsibilty for clearing it when we're done.
-                            crate::db::machine::insert_health_report_override(
+                            db::machine::insert_health_report_override(
                                 txn,
                                 host_machine_id,
                                 health_report::OverrideMode::Merge,
@@ -4890,7 +4890,7 @@ impl StateHandler for InstanceStateHandler {
                         if reprov_can_be_started {
                             let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
                             // Mark the Host as in update.
-                            crate::db::machine::insert_health_report_override(
+                            db::machine::insert_health_report_override(
                                 txn,
                                 host_machine_id,
                                 health_report::OverrideMode::Merge,

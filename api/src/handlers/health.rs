@@ -11,6 +11,7 @@
  */
 
 use ::rpc::forge::{self as rpc, HealthReportOverride};
+use db::{self, DatabaseError};
 use forge_uuid::machine::MachineId;
 use health_report::OverrideMode;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -19,7 +20,6 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
-use crate::db::{self, DatabaseError};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 pub async fn record_hardware_health_report(

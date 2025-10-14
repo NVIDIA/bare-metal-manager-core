@@ -42,7 +42,7 @@ pub async fn create_test_machine(
     topology: &HardwareInfo,
 ) -> eyre::Result<CandidateMachine> {
     let machine_id = MachineId::from_str(machine_id)?;
-    crate::db::machine::create(
+    db::machine::create(
         txn,
         None,
         &machine_id,
@@ -52,8 +52,8 @@ pub async fn create_test_machine(
         CURRENT_STATE_MODEL_VERSION,
     )
     .await?;
-    crate::db::machine_topology::create_or_update(txn, &machine_id, topology).await?;
-    let machine = crate::db::measured_boot::machine::from_id_with_txn(txn, machine_id).await?;
+    db::machine_topology::create_or_update(txn, &machine_id, topology).await?;
+    let machine = db::measured_boot::machine::from_id_with_txn(txn, machine_id).await?;
     assert_eq!(machine_id, machine.machine_id);
     Ok(machine)
 }

@@ -24,7 +24,6 @@ use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
 
-use crate::db;
 use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;

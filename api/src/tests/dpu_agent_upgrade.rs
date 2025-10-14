@@ -17,7 +17,6 @@ use chrono::{Duration, Utc};
 use common::api_fixtures::create_test_env;
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId};
 
-use crate::db;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host, create_test_env_with_overrides,

@@ -13,12 +13,12 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use db::dhcp_entry::DhcpEntry;
+use db::{self, DatabaseError, machine_interface};
 use mac_address::MacAddress;
 use tonic::{Request, Response};
 
 use crate::CarbideError;
-use crate::db::dhcp_entry::DhcpEntry;
-use crate::db::{self, DatabaseError, machine_interface};
 
 pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,

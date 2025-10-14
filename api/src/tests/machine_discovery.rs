@@ -21,7 +21,6 @@ use model::hardware_info::HardwareInfo;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
-use crate::db;
 use crate::tests::common;
 
 #[crate::sqlx_test]

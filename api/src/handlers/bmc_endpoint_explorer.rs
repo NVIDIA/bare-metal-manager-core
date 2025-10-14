@@ -13,6 +13,8 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use db::DatabaseError;
+use db::machine_interface::find_by_ip;
 use forge_ssh::ssh::{
     DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
     DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
@@ -26,8 +28,6 @@ use tonic::{Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::DatabaseError;
-use crate::db::machine_interface::find_by_ip;
 
 // Ad-hoc BMC exploration
 pub(crate) async fn explore(

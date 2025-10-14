@@ -13,13 +13,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use db::DatabaseError;
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementBundleState;
 use tokio::sync::oneshot;
 
 use crate::CarbideResult;
 use crate::cfg::file::MeasuredBootMetricsCollectorConfig;
-use crate::db::DatabaseError;
 
 pub(crate) mod metrics;
 use forge_uuid::measured_boot::MeasurementBundleId;
@@ -92,24 +92,24 @@ impl MeasuredBootMetricsCollector {
             DatabaseError::txn_begin("MeasuredBootMetricsCollector::run_single_iteration", e)
         })?;
 
-        let profiles = crate::db::measured_boot::profile::get_all(&mut txn).await?;
+        let profiles = db::measured_boot::profile::get_all(&mut txn).await?;
         for system_profile in profiles.iter() {
             let machines =
-                crate::db::measured_boot::profile::get_machines(system_profile, &mut txn).await?;
+                db::measured_boot::profile::get_machines(system_profile, &mut txn).await?;
             metrics
                 .num_machines_per_profile
                 .insert(system_profile.profile_id, machines.len());
         }
         metrics.num_profiles = profiles.len();
 
-        let bundles = crate::db::measured_boot::bundle::get_all(&mut txn).await?;
+        let bundles = db::measured_boot::bundle::get_all(&mut txn).await?;
         let bundle_map: HashMap<MeasurementBundleId, MeasurementBundleState> = bundles
             .iter()
             .map(|bundle| (bundle.bundle_id, bundle.state))
             .collect();
 
         for bundle in bundles.iter() {
-            let machines = crate::db::measured_boot::bundle::get_machines(bundle, &mut txn).await?;
+            let machines = db::measured_boot::bundle::get_machines(bundle, &mut txn).await?;
             metrics
                 .num_machines_per_bundle
                 .insert(bundle.bundle_id, machines.len());
@@ -122,7 +122,7 @@ impl MeasuredBootMetricsCollector {
         }
         metrics.num_bundles = bundles.len();
 
-        let machines = crate::db::measured_boot::machine::get_all(&mut txn).await?;
+        let machines = db::measured_boot::machine::get_all(&mut txn).await?;
         for machine in machines.iter() {
             let bundle_state = get_bundle_state(&bundle_map, &machine.journal);
             *metrics

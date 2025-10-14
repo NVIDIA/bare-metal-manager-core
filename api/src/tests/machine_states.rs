@@ -38,7 +38,6 @@ use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
 use tonic::Request;
 
-use crate::db;
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
 };

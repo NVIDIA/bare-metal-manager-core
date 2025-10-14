@@ -58,7 +58,7 @@ COPY --from=builder /carbide/target/bin/libdhcp.so /usr/lib/x86_64-linux-gnu/kea
 
 RUN echo "$(date): Finished copies"
 
-COPY api/migrations/ /opt/carbide/migrations/
+COPY api/db/migrations/ /opt/carbide/migrations/
 COPY pxe/templates/*  /opt/carbide/pxe/templates/
 COPY api/casbin-policy.csv /opt/carbide/
 

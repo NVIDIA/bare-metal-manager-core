@@ -11,6 +11,8 @@
  */
 
 use ::rpc::forge as rpc;
+use db::resource_pool::ResourcePoolDatabaseError;
+use db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
 use forge_network::virtualization::VpcVirtualizationType;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
@@ -19,10 +21,8 @@ use model::network_segment::{
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::resource_pool::ResourcePoolDatabaseError;
-use crate::db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
-use crate::{CarbideError, db};
 
 pub(crate) async fn find_ids(
     api: &Api,
@@ -184,7 +184,7 @@ pub(crate) async fn create(
         if new_network_segment.can_stretch.unwrap_or(true) {
             let vpcs = db::vpc::find_by(
                 &mut txn,
-                ObjectColumnFilter::One(crate::db::vpc::IdColumn, &vpc_id),
+                ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
             )
             .await?;
 

@@ -47,7 +47,7 @@ async fn main() -> eyre::Result<()> {
             }
 
             let pool = PgPool::connect_with(pg_connection_options).await?;
-            carbide::migrate(&pool).await?;
+            db::migrations::migrate(&pool).await?;
         }
         Command::Run(config) => {
             // THIS SECTION HAS BEEN INTENTIONALLY KEPT SMALL.

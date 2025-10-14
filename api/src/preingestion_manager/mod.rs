@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use db::DatabaseError;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
@@ -34,11 +35,10 @@ use tokio::sync::{Semaphore, oneshot};
 use tokio::task::JoinSet;
 
 use crate::cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal};
-use crate::db::DatabaseError;
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::preingestion_manager::metrics::PreingestionMetrics;
 use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
-use crate::{CarbideError, CarbideResult, db};
+use crate::{CarbideError, CarbideResult};
 
 mod metrics;
 
@@ -1174,7 +1174,7 @@ impl PreingestionManagerStatic {
         let upgrade_script_state = self.upgrade_script_state.clone();
         let (username, password) = if let Some(credential_provider) = &self.credential_provider {
             // We need to backtrack from the IP address to get the MAC address, which is what the credentials database is keyed on
-            let interface = crate::db::machine_interface::find_by_ip(txn, endpoint.address).await?;
+            let interface = db::machine_interface::find_by_ip(txn, endpoint.address).await?;
             let Some(interface) = interface else {
                 tracing::warn!(
                     "Unable to run update script for {address}: MAC address not retrievable"

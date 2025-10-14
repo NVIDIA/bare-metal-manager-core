@@ -14,6 +14,11 @@
  * gRPC handlers for measurement bundle related API calls.
  */
 
+use db::measured_boot::bundle;
+use db::measured_boot::interface::bundle::{
+    get_machines_for_bundle_id, get_machines_for_bundle_name,
+    get_measurement_bundle_records_with_txn,
+};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 use rpc::protos::measured_boot::{
@@ -31,11 +36,6 @@ use rpc::protos::measured_boot::{
 use sqlx::{Pool, Postgres};
 use tonic::Status;
 
-use crate::db::measured_boot::bundle;
-use crate::db::measured_boot::interface::bundle::{
-    get_machines_for_bundle_id, get_machines_for_bundle_name,
-    get_measurement_bundle_records_with_txn,
-};
 use crate::errors::CarbideError;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
@@ -47,7 +47,7 @@ pub async fn handle_create_measurement_bundle(
 ) -> Result<CreateMeasurementBundleResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let state = req.state();
-    let bundle = crate::db::measured_boot::bundle::new_with_txn(
+    let bundle = db::measured_boot::bundle::new_with_txn(
         &mut txn,
         req.profile_id
             .ok_or(CarbideError::MissingArgument("profile_id"))?,
@@ -74,14 +74,14 @@ pub async fn handle_delete_measurement_bundle(
     let bundle = match req.selector {
         // Delete for the given bundle ID.
         Some(delete_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
-            crate::db::measured_boot::bundle::delete_for_id_with_txn(&mut txn, bundle_uuid, false)
+            db::measured_boot::bundle::delete_for_id_with_txn(&mut txn, bundle_uuid, false)
                 .await
                 .map_err(|e| Status::internal(format!("deletion failed: {e}")))?
         }
 
         // Delete for the given bundle name.
         Some(delete_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
-            crate::db::measured_boot::bundle::delete_for_name(&mut txn, bundle_name, false)
+            db::measured_boot::bundle::delete_for_name(&mut txn, bundle_name, false)
                 .await
                 .map_err(|e| Status::internal(format!("deletion failed: {e}")))?
         }
@@ -108,24 +108,16 @@ pub async fn handle_rename_measurement_bundle(
     let bundle = match req.selector {
         // Rename for the given bundle ID.
         Some(rename_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
-            crate::db::measured_boot::bundle::rename_for_id(
-                &mut txn,
-                bundle_uuid,
-                req.new_bundle_name,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("rename failed: {e}")))?
+            db::measured_boot::bundle::rename_for_id(&mut txn, bundle_uuid, req.new_bundle_name)
+                .await
+                .map_err(|e| Status::internal(format!("rename failed: {e}")))?
         }
 
         // Rename for the given bundle name.
         Some(rename_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
-            crate::db::measured_boot::bundle::rename_for_name(
-                &mut txn,
-                bundle_name,
-                req.new_bundle_name,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("rename failed: {e}")))?
+            db::measured_boot::bundle::rename_for_name(&mut txn, bundle_name, req.new_bundle_name)
+                .await
+                .map_err(|e| Status::internal(format!("rename failed: {e}")))?
         }
 
         // ID or name is needed.
@@ -153,7 +145,7 @@ pub async fn handle_update_measurement_bundle(
         Some(update_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => bundle_uuid,
         // Update for the given bundle name.
         Some(update_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
-            crate::db::measured_boot::bundle::from_name_with_txn(&mut txn, bundle_name)
+            db::measured_boot::bundle::from_name_with_txn(&mut txn, bundle_name)
                 .await
                 .map_err(|e| Status::internal(format!("deletion failed: {e}")))?
                 .bundle_id
@@ -165,10 +157,9 @@ pub async fn handle_update_measurement_bundle(
     };
 
     // And then set it in the database.
-    let bundle =
-        crate::db::measured_boot::bundle::set_state_for_id(&mut txn, bundle_id, state.into())
-            .await
-            .map_err(|e| Status::internal(format!("failed to update bundle: {e}")))?;
+    let bundle = db::measured_boot::bundle::set_state_for_id(&mut txn, bundle_id, state.into())
+        .await
+        .map_err(|e| Status::internal(format!("failed to update bundle: {e}")))?;
 
     commit_txn(txn).await?;
     Ok(UpdateMeasurementBundleResponse {
@@ -185,12 +176,12 @@ pub async fn handle_show_measurement_bundle(
     let mut txn = begin_txn(db_conn).await?;
     let bundle = match req.selector {
         Some(show_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
-            crate::db::measured_boot::bundle::from_id_with_txn(&mut txn, bundle_uuid)
+            db::measured_boot::bundle::from_id_with_txn(&mut txn, bundle_uuid)
                 .await
                 .map_err(|e| Status::internal(format!("{e}")))?
         }
         Some(show_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
-            crate::db::measured_boot::bundle::from_name_with_txn(&mut txn, bundle_name)
+            db::measured_boot::bundle::from_name_with_txn(&mut txn, bundle_name)
                 .await
                 .map_err(|e| Status::internal(format!("{e}")))?
         }
@@ -210,7 +201,7 @@ pub async fn handle_show_measurement_bundles(
 ) -> Result<ShowMeasurementBundlesResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementBundlesResponse {
-        bundles: crate::db::measured_boot::bundle::get_all(&mut txn)
+        bundles: db::measured_boot::bundle::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
@@ -279,13 +270,13 @@ pub async fn handle_find_closest_match(
         .report_id
         .ok_or(CarbideError::MissingArgument("report_id"))?;
 
-    let report = crate::db::measured_boot::report::from_id_with_txn(&mut txn, report_id)
+    let report = db::measured_boot::report::from_id_with_txn(&mut txn, report_id)
         .await
         .map_err(|e| Status::internal(format!("{e}")))?;
 
     // get profile
     let journal =
-        crate::db::measured_boot::journal::get_journal_for_report_id(&mut txn, report_id).await?;
+        db::measured_boot::journal::get_journal_for_report_id(&mut txn, report_id).await?;
 
     let bundle = match bundle::find_closest_match_with_txn(
         &mut txn,

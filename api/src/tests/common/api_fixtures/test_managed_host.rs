@@ -55,14 +55,14 @@ impl TestManagedHost {
     }
 
     pub async fn snapshot(&self, txn: &mut Txn<'_>) -> ManagedHostStateSnapshot {
-        crate::db::managed_host::load_snapshot(txn, &self.id, Default::default())
+        db::managed_host::load_snapshot(txn, &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()
     }
 
     pub async fn dpu_db_machines(&self, txn: &mut Txn<'_>) -> Vec<Machine> {
-        crate::db::machine::find_dpus_by_host_machine_id(txn, &self.id)
+        db::machine::find_dpus_by_host_machine_id(txn, &self.id)
             .await
             .unwrap()
     }
@@ -145,7 +145,7 @@ impl TestManagedHostSnapshots for Vec<TestManagedHost> {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         load_options: LoadSnapshotOptions,
     ) -> HashMap<MachineId, ManagedHostStateSnapshot> {
-        crate::db::managed_host::load_by_machine_ids(
+        db::managed_host::load_by_machine_ids(
             txn,
             &self.iter().map(|m| m.id).collect::<Vec<_>>(),
             load_options,

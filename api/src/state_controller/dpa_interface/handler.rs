@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use chrono::{Duration, TimeDelta};
+use db::dpa_interface::get_dpa_vni;
 use eyre::eyre;
 use forge_uuid::dpa_interface::DpaInterfaceId;
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
@@ -22,8 +23,6 @@ use model::resource_pool::ResourcePool;
 use mqttea::MqtteaClient;
 use sqlx::PgConnection;
 
-use crate::db;
-use crate::db::dpa_interface::get_dpa_vni;
 use crate::state_controller::dpa_interface::context::DpaInterfaceStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing,

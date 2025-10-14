@@ -20,7 +20,6 @@ use tonic::Request;
 
 use super::api_fixtures::TestEnv;
 use crate::api::Api;
-use crate::db;
 
 pub struct NetworkSegmentHelper {
     inner: NetworkSegmentCreationRequest,

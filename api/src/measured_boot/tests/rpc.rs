@@ -190,7 +190,7 @@ mod tests {
             },
         ];
 
-        let princess_report = crate::db::measured_boot::report::new_with_txn(
+        let princess_report = db::measured_boot::report::new_with_txn(
             &mut txn,
             princess_network.machine_id,
             &princess_values,
@@ -1946,17 +1946,17 @@ mod tests {
         // that bit works (which will clean up all reports and journals).
         let mut txn = db_conn.begin().await?;
         assert!(
-            crate::db::machine::force_cleanup(&mut txn, &princess_network.machine_id)
+            db::machine::force_cleanup(&mut txn, &princess_network.machine_id)
                 .await
                 .is_ok()
         );
         assert!(
-            crate::db::machine::force_cleanup(&mut txn, &beer_louisiana.machine_id)
+            db::machine::force_cleanup(&mut txn, &beer_louisiana.machine_id)
                 .await
                 .is_ok()
         );
         assert!(
-            crate::db::machine::force_cleanup(&mut txn, &lime_coconut.machine_id)
+            db::machine::force_cleanup(&mut txn, &lime_coconut.machine_id)
                 .await
                 .is_ok()
         );
@@ -1998,7 +1998,7 @@ mod tests {
         let machine_id =
             MachineId::from_str("fm100ptrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0")
                 .unwrap();
-        crate::db::machine::create(
+        db::machine::create(
             &mut txn,
             None,
             &machine_id,
@@ -2009,7 +2009,7 @@ mod tests {
         )
         .await
         .unwrap();
-        crate::db::machine_topology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)
+        db::machine_topology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)
             .await
             .unwrap();
 

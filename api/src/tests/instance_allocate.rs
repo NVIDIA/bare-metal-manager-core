@@ -18,7 +18,6 @@ use itertools::Itertools;
 use model::machine::ManagedHostStateSnapshot;
 use rpc::forge;
 
-use crate::db;
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;

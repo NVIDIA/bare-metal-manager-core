@@ -22,8 +22,8 @@ use model::resource_pool::{
 use rpc::forge::forge_server::Forge;
 use sqlx::migrate::MigrateDatabase;
 
+use crate::tests;
 use crate::tests::common;
-use crate::{db, tests};
 
 // Define an IPv4 pool from a range via the admin grpc
 #[crate::sqlx_test]

@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
+use db::DatabaseError;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::DatabaseError;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, db};
 
 pub(crate) async fn handle_machine_hardware_info_update(
     api: &Api,

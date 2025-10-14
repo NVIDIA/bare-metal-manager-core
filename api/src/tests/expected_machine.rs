@@ -12,6 +12,7 @@
 use std::default::Default;
 
 use common::api_fixtures::create_test_env;
+use db::{self};
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::metadata::Metadata;
@@ -21,7 +22,6 @@ use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use crate::db::{self};
 use crate::tests::common;
 use crate::{CarbideError, DatabaseError};
 

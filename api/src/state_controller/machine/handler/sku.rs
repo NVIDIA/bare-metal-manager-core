@@ -8,7 +8,6 @@ use model::sku::diff_skus;
 use sqlx::PgConnection;
 
 use super::{HostHandlerParams, discovered_after_state_transition};
-use crate::db;
 use crate::state_controller::machine::handler::trigger_reboot_if_needed;
 use crate::state_controller::state_handler::{
     StateHandlerError, StateHandlerOutcome, StateHandlerServices, do_nothing, transition, wait,
@@ -78,11 +77,8 @@ async fn match_sku_for_machine(
         let matching_sku = db::sku::find_matching(txn, &machine_sku).await?;
         if matching_sku.is_none() {
             // only update the last attempt if there is no match
-            crate::db::machine::update_sku_status_last_match_attempt(
-                txn,
-                &mh_snapshot.host_snapshot.id,
-            )
-            .await?;
+            db::machine::update_sku_status_last_match_attempt(txn, &mh_snapshot.host_snapshot.id)
+                .await?;
         }
         Ok(matching_sku)
     } else {
@@ -136,11 +132,9 @@ async fn generate_missing_sku_for_machine(
         return false;
     }
 
-    if let Err(e) = crate::db::machine::update_sku_status_last_generate_attempt(
-        txn,
-        &mh_snapshot.host_snapshot.id,
-    )
-    .await
+    if let Err(e) =
+        db::machine::update_sku_status_last_generate_attempt(txn, &mh_snapshot.host_snapshot.id)
+            .await
     {
         tracing::error!(
             machine_id=%mh_snapshot.host_snapshot.id,
@@ -500,14 +494,14 @@ pub(crate) async fn handle_bom_validation_state(
                     }));
                 };
 
-                let Some(expected_sku) = crate::db::sku::find(txn, std::slice::from_ref(&sku_id))
+                let Some(expected_sku) = db::sku::find(txn, std::slice::from_ref(&sku_id))
                     .await?
                     .pop()
                 else {
                     return advance_to_sku_missing(txn, mh_snapshot).await;
                 };
 
-                let actual_sku = crate::db::sku::generate_sku_from_machine_at_version(
+                let actual_sku = db::sku::generate_sku_from_machine_at_version(
                     txn,
                     &mh_snapshot.host_snapshot.id,
                     expected_sku.schema_version,
@@ -611,7 +605,7 @@ pub(crate) async fn handle_bom_validation_state(
             BomValidating::SkuMissing(_) => {
                 let outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
                     // SKU is still assigned, check if it now exists or can be auto-generated
-                    if crate::db::sku::find(txn, std::slice::from_ref(&sku_id))
+                    if db::sku::find(txn, std::slice::from_ref(&sku_id))
                         .await?
                         .pop()
                         .is_some()

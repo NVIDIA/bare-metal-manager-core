@@ -18,7 +18,6 @@ use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
-use crate::db;
 use crate::tests::common;
 
 async fn test_network_segment_lifecycle_impl(

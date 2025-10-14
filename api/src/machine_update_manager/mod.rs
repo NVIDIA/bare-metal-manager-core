@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use db::{DatabaseError, ObjectFilter};
 use forge_uuid::machine::MachineId;
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::MachineUpdateModule;
@@ -32,9 +33,8 @@ use tokio::sync::oneshot;
 
 use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
+use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
-use crate::db::{DatabaseError, ObjectFilter};
-use crate::{CarbideResult, db};
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:
@@ -142,7 +142,7 @@ impl MachineUpdateManager {
         &self,
         txn: &mut PgConnection,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
-        let machine_ids = crate::db::machine::find_machine_ids(
+        let machine_ids = db::machine::find_machine_ids(
             txn,
             MachineSearchConfig {
                 include_predicted_host: true,
@@ -150,7 +150,7 @@ impl MachineUpdateManager {
             },
         )
         .await?;
-        crate::db::managed_host::load_by_machine_ids(
+        db::managed_host::load_by_machine_ids(
             txn,
             &machine_ids,
             LoadSnapshotOptions {

@@ -11,6 +11,7 @@
  */
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use config_version::ConfigVersion;
+use db::{self, DatabaseError, machine_validation_suites};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
@@ -25,7 +26,6 @@ use uuid::Uuid;
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode};
-use crate::db::{self, DatabaseError, machine_validation_suites};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 // machine has completed validation

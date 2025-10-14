@@ -28,6 +28,10 @@ use ::rpc::protos::forge::{
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use chrono::TimeZone;
+use db::machine::{self};
+use db::network_devices::NetworkDeviceSearchConfig;
+use db::resource_pool::ResourcePoolDatabaseError;
+use db::{DatabaseError, ObjectFilter, attestation as db_attest};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use forge_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
@@ -65,10 +69,6 @@ use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
-use crate::db::machine::{self};
-use crate::db::network_devices::NetworkDeviceSearchConfig;
-use crate::db::resource_pool::ResourcePoolDatabaseError;
-use crate::db::{self, DatabaseError, ObjectFilter, attestation as db_attest};
 use crate::handlers::instance;
 use crate::handlers::machine_validation::{
     add_machine_validation_test, add_update_machine_validation_external_config,
@@ -3725,7 +3725,7 @@ impl Forge for Api {
         // In this case, we're not doing anything with
         // the resulting report (at least not yet), so just
         // throw it away.
-        let report = crate::db::measured_boot::report::new_with_txn(
+        let report = db::measured_boot::report::new_with_txn(
             &mut txn,
             machine_id,
             pcr_values.into_inner().as_slice(),
@@ -5139,12 +5139,8 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        crate::db::host_machine_update::reset_host_reprovisioning_request(
-            &mut txn,
-            &machine_id,
-            false,
-        )
-        .await?;
+        db::host_machine_update::reset_host_reprovisioning_request(&mut txn, &machine_id, false)
+            .await?;
         txn.commit()
             .await
             .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
@@ -5424,7 +5420,7 @@ impl Forge for Api {
             request.machine_ids
         );
 
-        crate::db::machine::update_firmware_update_time_window_start_end(
+        db::machine::update_firmware_update_time_window_start_end(
             &request.machine_ids,
             chrono::Utc
                 .timestamp_opt(request.start_timestamp.unwrap_or_default().seconds, 0)

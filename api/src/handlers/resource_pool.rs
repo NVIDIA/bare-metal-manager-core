@@ -13,11 +13,11 @@
 use std::collections::HashMap;
 
 use ::rpc::forge as rpc;
+use db::DatabaseError;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
-use crate::db::DatabaseError;
 
 pub(crate) async fn grow(
     api: &Api,
@@ -45,8 +45,8 @@ pub(crate) async fn grow(
             .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
         pools.insert(name, d);
     }
-    use crate::db::resource_pool::DefineResourcePoolError as DE;
-    match crate::db::resource_pool::define_all_from(&mut txn, &pools).await {
+    use db::resource_pool::DefineResourcePoolError as DE;
+    match db::resource_pool::define_all_from(&mut txn, &pools).await {
         Ok(()) => {
             txn.commit()
                 .await
@@ -75,7 +75,7 @@ pub(crate) async fn list(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let snapshot = crate::db::resource_pool::all(&mut txn)
+    let snapshot = db::resource_pool::all(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 

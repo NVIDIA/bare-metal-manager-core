@@ -21,6 +21,7 @@ use common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::{
     self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
 };
+use db::{self, DatabaseError};
 use forge_uuid::machine::MachineId;
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::instance::status::tenant::TenantState;
@@ -40,7 +41,6 @@ use tonic::Request;
 
 use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, TimePeriod};
-use crate::db::{self, DatabaseError};
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::preingestion_manager::PreingestionManager;
 use crate::tests::common;

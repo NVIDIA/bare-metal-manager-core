@@ -15,7 +15,6 @@ use rpc::forge::RedfishAction;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::auth::{AuthContext, ExternalUserInfo};
-use crate::db;
 use crate::tests::common::api_fixtures::{TestEnv, create_managed_host, create_test_env};
 
 #[crate::sqlx_test]

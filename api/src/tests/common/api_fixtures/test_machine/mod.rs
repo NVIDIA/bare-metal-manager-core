@@ -62,7 +62,7 @@ impl TestMachine {
     }
 
     pub async fn db_machine(&self, txn: &mut Txn<'_>) -> Machine {
-        crate::db::machine::find_one(txn, &self.id, Default::default())
+        db::machine::find_one(txn, &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()
@@ -70,7 +70,7 @@ impl TestMachine {
 
     pub async fn first_interface(&self, txn: &mut Txn<'_>) -> TestMachineInterface {
         TestMachineInterface::new(
-            crate::db::machine_interface::find_by_machine_ids(txn, &[self.id])
+            db::machine_interface::find_by_machine_ids(txn, &[self.id])
                 .await
                 .unwrap()
                 .get(&self.id)

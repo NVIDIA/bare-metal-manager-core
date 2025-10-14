@@ -17,6 +17,8 @@ use std::sync::Arc;
 
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
+use db::sku::CURRENT_SKU_VERSION;
+use db::{self, DatabaseError, ObjectColumnFilter, ObjectFilter};
 use forge_uuid::machine::MachineId;
 use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
@@ -46,8 +48,6 @@ use utils::models::arch::CpuArchitecture;
 
 use crate::CarbideError;
 use crate::cfg::file::{DpuConfig as InitialDpuConfig, SiteExplorerConfig};
-use crate::db::sku::CURRENT_SKU_VERSION;
-use crate::db::{self, DatabaseError, ObjectColumnFilter, ObjectFilter};
 use crate::site_explorer::SiteExplorer;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
@@ -1887,7 +1887,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         },
         device_type: None, // This will result in "unknown" device type
     };
-    crate::db::sku::create(&mut txn, &test_sku).await?;
+    db::sku::create(&mut txn, &test_sku).await?;
 
     db::expected_machine::create(
         &mut txn,
@@ -3141,7 +3141,7 @@ async fn test_machine_creation_with_sku(
         },
         device_type: None, // This will result in "unknown" device type
     };
-    crate::db::sku::create(&mut txn, &test_sku).await?;
+    db::sku::create(&mut txn, &test_sku).await?;
 
     db::expected_machine::create(
         &mut txn,

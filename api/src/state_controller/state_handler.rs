@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use db::DatabaseError;
 use forge_uuid::machine::MachineId;
 use libredfish::RedfishError;
 use model::controller_outcome::{PersistentSourceReference, PersistentStateHandlerOutcome};
@@ -28,7 +29,6 @@ use mqttea::MqtteaClient;
 use sqlx::PgConnection;
 
 use crate::cfg::file::CarbideConfig;
-use crate::db::DatabaseError;
 use crate::ib::IBFabricManager;
 use crate::ipmitool::IPMITool;
 use crate::redfish::{RedfishClientCreationError, RedfishClientPool};

@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
+use db::{self, desired_firmware};
 use forge_uuid::machine::MachineId;
 use model::machine::ManagedHostStateSnapshot;
 use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
@@ -26,7 +27,6 @@ use tokio::sync::Mutex;
 use super::machine_update_module::MachineUpdateModule;
 use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, FirmwareConfig};
-use crate::db::{self, desired_firmware};
 
 pub struct HostFirmwareUpdate {
     pub metrics: HostFirmwareUpdateMetrics,

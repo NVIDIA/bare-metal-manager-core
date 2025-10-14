@@ -3,6 +3,7 @@ use std::future::Future;
 use std::iter;
 use std::net::IpAddr;
 
+use db::machine_interface::find_by_mac_address;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
@@ -24,8 +25,6 @@ use tonic::Request;
 use super::dpu::create_machine_inventory;
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use super::{discovery_completed, inject_machine_measurements, network_configured};
-use crate::db;
-use crate::db::machine_interface::find_by_mac_address;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::host::host_uefi_setup;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -991,14 +990,14 @@ impl<'a> MockExploredHost<'a> {
 
             let mut txn = self.test_env.pool.begin().await.unwrap();
             tracing::info!("generating sku");
-            let sku = crate::db::sku::generate_sku_from_machine(&mut txn, host_machine_id)
+            let sku = db::sku::generate_sku_from_machine(&mut txn, host_machine_id)
                 .await
                 .unwrap();
             tracing::info!("creating sku: {}", sku.id);
-            crate::db::sku::create(&mut txn, &sku).await.unwrap();
+            db::sku::create(&mut txn, &sku).await.unwrap();
 
             tracing::info!("assigning sku");
-            crate::db::machine::assign_sku(&mut txn, host_machine_id, &sku.id)
+            db::machine::assign_sku(&mut txn, host_machine_id, &sku.id)
                 .await
                 .unwrap();
             txn.commit().await.unwrap();
@@ -1028,7 +1027,7 @@ impl<'a> MockExploredHost<'a> {
             tracing::info!("updating inventory");
             // discovery time is based on transaction start time, so this needs a new transaction
             let mut txn = self.test_env.pool.begin().await.unwrap();
-            crate::db::machine::update_discovery_time(host_machine_id, &mut txn)
+            db::machine::update_discovery_time(host_machine_id, &mut txn)
                 .await
                 .unwrap();
 

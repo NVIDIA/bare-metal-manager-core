@@ -14,12 +14,12 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use db::DatabaseError;
 use sqlx::{Pool, Postgres, Transaction};
 use tonic::Status;
 
 use crate::api::{Api, log_request_data};
-use crate::db::DatabaseError;
-use crate::{CarbideError, CarbideResult, db};
+use crate::{CarbideError, CarbideResult};
 
 // get returns all RouteServer entries, including the
 // address and source_type.

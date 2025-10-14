@@ -16,6 +16,7 @@ use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::{create_managed_host, create_test_env, site_explorer};
 use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use data_encoding::BASE32_DNSSEC;
+use db::ObjectFilter;
 use forge_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId, MachineType};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -29,8 +30,6 @@ use rpc::forge::{
 use sha2::{Digest, Sha256};
 use tonic::Request;
 
-use crate::db;
-use crate::db::ObjectFilter;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host_multi_dpu;
 use crate::tests::sku::tests::FULL_SKU_DATA;

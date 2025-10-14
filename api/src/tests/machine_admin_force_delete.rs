@@ -38,10 +38,10 @@ use sqlx::{PgConnection, Row};
 use tonic::Request;
 
 use crate::api::Api;
+use crate::attestation as attest;
 use crate::cfg::file::IBFabricConfig;
 use crate::ib::{self, IBFabricManager};
 use crate::tests::common;
-use crate::{attestation as attest, db};
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api

@@ -21,14 +21,13 @@ use model::network_segment::{
     NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
 
-use crate::db;
 use crate::tests::common::api_fixtures::create_test_env;
 
 #[crate::sqlx_test]
 async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let domain = crate::db::domain::find_by_name(&mut txn, "dwrt1.com")
+    let domain = db::domain::find_by_name(&mut txn, "dwrt1.com")
         .await?
         .into_iter()
         .next()

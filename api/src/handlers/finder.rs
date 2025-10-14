@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::protos::{common as rpc_common, forge as rpc};
+use db::{DatabaseError, ObjectColumnFilter, domain, instance, network_segment, vpc};
 use forge_uuid::domain::DomainId;
 use forge_uuid::dpa_interface::DpaInterfaceId;
 use forge_uuid::instance::InstanceId;
@@ -25,9 +26,8 @@ use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
 
+use crate::CarbideError;
 use crate::api::Api;
-use crate::db::{DatabaseError, ObjectColumnFilter, domain, instance, network_segment, vpc};
-use crate::{CarbideError, db};
 
 pub(crate) async fn find_ip_address(
     api: &Api,
