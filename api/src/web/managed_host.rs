@@ -17,6 +17,7 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use db::{DatabaseError, managed_host};
 use futures_util::TryFutureExt;
 use hyper::http::StatusCode;
 use itertools::Itertools;
@@ -30,7 +31,6 @@ use utils::{ManagedHostMetadata, reason_to_user_string};
 
 use super::filters;
 use crate::api::Api;
-use crate::db::{DatabaseError, managed_host};
 
 const UNKNOWN: &str = "Unknown";
 

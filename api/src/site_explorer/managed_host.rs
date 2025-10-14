@@ -1,9 +1,5 @@
 use std::net::IpAddr;
 
-use forge_uuid::machine::MachineId;
-use model::site_explorer::ExploredManagedHost;
-use sqlx::PgConnection;
-
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -15,8 +11,10 @@ use sqlx::PgConnection;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db;
-use crate::db::DatabaseError;
+use db::DatabaseError;
+use forge_uuid::machine::MachineId;
+use model::site_explorer::ExploredManagedHost;
+use sqlx::PgConnection;
 
 /// ManagedHost wraps an ExploredManagedHost along with a machine id.
 /// This helper structure is used by the create_managed_host to create a managed host

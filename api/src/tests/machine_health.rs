@@ -12,14 +12,14 @@
 
 use std::str::FromStr;
 
+use db::machine::update_dpu_agent_health_report;
+use db::{self};
 use health_report::OverrideMode;
 use model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
 use rpc::forge::HealthOverrideOrigin;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
-use crate::db::machine::update_dpu_agent_health_report;
-use crate::db::{self};
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
     network_configured_with_health, remove_health_report_override, send_health_report_override,
@@ -589,7 +589,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
     let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let machine_ids = crate::db::machine::find_machine_ids(
+    let machine_ids = db::machine::find_machine_ids(
         &mut txn,
         model::machine::machine_search_config::MachineSearchConfig::default(),
     )
@@ -604,7 +604,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         },
     };
     let all_machines =
-        crate::db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
+        db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
 
     assert_eq!(
         db::machine::count_healthy_unhealthy_host_machines(&all_machines)
@@ -636,7 +636,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
     .await;
 
     let mut txn = env.pool.begin().await?;
-    let machine_ids = crate::db::machine::find_machine_ids(
+    let machine_ids = db::machine::find_machine_ids(
         &mut txn,
         model::machine::machine_search_config::MachineSearchConfig::default(),
     )
@@ -651,7 +651,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         },
     };
     let all_machines =
-        crate::db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
+        db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
 
     assert_eq!(
         db::machine::count_healthy_unhealthy_host_machines(&all_machines)

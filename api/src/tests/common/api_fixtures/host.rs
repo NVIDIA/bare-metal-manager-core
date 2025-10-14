@@ -12,6 +12,7 @@
 
 //! Contains host related fixtures
 
+use db::{ObjectColumnFilter, network_prefix};
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineState::UefiSetup;
@@ -25,8 +26,6 @@ use strum::IntoEnumIterator;
 use tonic::Request;
 
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
-use crate::db;
-use crate::db::{ObjectColumnFilter, network_prefix};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{TestEnv, forge_agent_control};
 

@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use db::{self, ObjectColumnFilter, network_segment};
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::machine::machine_id::from_hardware_info;
 
 use crate::DatabaseError;
-use crate::db::{self, ObjectColumnFilter, network_segment};
 use crate::tests::common::api_fixtures::create_test_env;
 
 #[crate::sqlx_test]

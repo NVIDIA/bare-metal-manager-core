@@ -15,6 +15,8 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
+use db::dhcp_entry::DhcpEntry;
+use db::{self, ObjectColumnFilter, domain};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
@@ -26,8 +28,6 @@ use tokio::sync::broadcast;
 use tonic::Code;
 
 use crate::DatabaseError;
-use crate::db::dhcp_entry::DhcpEntry;
-use crate::db::{self, ObjectColumnFilter, domain};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
 

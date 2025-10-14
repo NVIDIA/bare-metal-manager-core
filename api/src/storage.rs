@@ -14,6 +14,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use db::DatabaseError;
 use forge_secrets::SecretsError;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use forge_uuid::instance::InstanceId;
@@ -29,8 +30,6 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::api::Api;
-use crate::db;
-use crate::db::DatabaseError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {

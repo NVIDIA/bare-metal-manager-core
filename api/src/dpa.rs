@@ -24,7 +24,6 @@ use tokio::time::{Duration, sleep};
 use tracing::error;
 
 use crate::api::Api;
-use crate::db;
 
 // We just received a message from a DPA via the MQTT broker. Handle that message here.
 async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) {
@@ -63,7 +62,7 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
         }
     };
 
-    let mut dpa_ifs = match crate::db::dpa_interface::find_by_mac_addr(&mut txn, &macaddr).await {
+    let mut dpa_ifs = match db::dpa_interface::find_by_mac_addr(&mut txn, &macaddr).await {
         Ok(ifs) => ifs,
         Err(e) => {
             error!("handle_dpa_message -  Error from find_by_mac_addr {e}");

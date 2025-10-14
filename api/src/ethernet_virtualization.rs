@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
+use db::vpc::{self};
+use db::vpc_peering::get_prefixes_by_vpcs;
+use db::{self, ObjectColumnFilter};
 use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
@@ -23,9 +26,6 @@ use tonic::Status;
 
 use crate::CarbideError;
 use crate::cfg::file::VpcPeeringPolicy;
-use crate::db::vpc::{self};
-use crate::db::vpc_peering::get_prefixes_by_vpcs;
-use crate::db::{self, ObjectColumnFilter};
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {

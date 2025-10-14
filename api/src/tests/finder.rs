@@ -18,7 +18,6 @@ use common::api_fixtures::{
 use rpc::forge::IpType;
 use rpc::forge::forge_server::Forge;
 
-use crate::db;
 use crate::tests::common;
 
 /// Test searching for an IP address. Tests all the cases in a single

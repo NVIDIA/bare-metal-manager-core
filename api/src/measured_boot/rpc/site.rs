@@ -17,6 +17,12 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
+use db::measured_boot::interface::site::{
+    get_approved_machines, get_approved_profiles, insert_into_approved_machines,
+    insert_into_approved_profiles, list_attestation_summary,
+    remove_from_approved_machines_by_approval_id, remove_from_approved_machines_by_machine_id,
+    remove_from_approved_profiles_by_approval_id, remove_from_approved_profiles_by_profile_id,
+};
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::TrustedMachineId;
 use measured_boot::records::{
@@ -40,12 +46,6 @@ use sqlx::{Pool, Postgres};
 use tonic::Status;
 
 use crate::CarbideError;
-use crate::db::measured_boot::interface::site::{
-    get_approved_machines, get_approved_profiles, insert_into_approved_machines,
-    insert_into_approved_profiles, list_attestation_summary,
-    remove_from_approved_machines_by_approval_id, remove_from_approved_machines_by_machine_id,
-    remove_from_approved_profiles_by_approval_id, remove_from_approved_profiles_by_profile_id,
-};
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_import_site_measurements handles the ImportSiteMeasurements
@@ -66,7 +66,7 @@ pub async fn handle_import_site_measurements(
     };
 
     // And now import it!
-    let result = crate::db::measured_boot::site::import(&mut txn, &site_model)
+    let result = db::measured_boot::site::import(&mut txn, &site_model)
         .await
         .map_err(|e| Status::internal(format!("site import failed: {e}")))
         .map(|_| ImportSiteMeasurementsResponse {
@@ -84,7 +84,7 @@ pub async fn handle_export_site_measurements(
     _req: ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let site_model = crate::db::measured_boot::site::export(&mut txn)
+    let site_model = db::measured_boot::site::export(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("export failed: {e}")))?;
 

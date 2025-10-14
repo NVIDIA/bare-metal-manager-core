@@ -17,6 +17,8 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use chrono::Utc;
+use db::ib_partition::{IBPartition, IBPartitionSearchConfig};
+use db::{self, DatabaseError};
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
 use metrics::{
@@ -35,8 +37,6 @@ use tokio::sync::oneshot;
 use tracing::Instrument;
 
 use crate::cfg::file::{CarbideConfig, IbFabricDefinition};
-use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig};
-use crate::db::{self, DatabaseError};
 use crate::ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType};
 use crate::{CarbideError, CarbideResult};
 
@@ -414,7 +414,7 @@ impl IbFabricMonitor {
         &self,
         txn: &mut PgConnection,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
-        let machine_ids = crate::db::machine::find_machine_ids(
+        let machine_ids = db::machine::find_machine_ids(
             txn,
             MachineSearchConfig {
                 include_predicted_host: true,
@@ -422,7 +422,7 @@ impl IbFabricMonitor {
             },
         )
         .await?;
-        crate::db::managed_host::load_by_machine_ids(
+        db::managed_host::load_by_machine_ids(
             txn,
             &machine_ids,
             LoadSnapshotOptions {

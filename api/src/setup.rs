@@ -15,6 +15,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use db::DatabaseError;
+use db::machine::update_dpu_asns;
+use db::resource_pool::DefineResourcePoolError;
 use eyre::WrapErr;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
@@ -34,9 +37,6 @@ use tokio::sync::{Semaphore, oneshot};
 
 use crate::api::Api;
 use crate::cfg::file::{CarbideConfig, ListenMode};
-use crate::db::DatabaseError;
-use crate::db::machine::update_dpu_asns;
-use crate::db::resource_pool::DefineResourcePoolError;
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::firmware_downloader::FirmwareDownloader;
@@ -64,7 +64,7 @@ use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
-use crate::{attestation, db, db_init, dpa, ethernet_virtualization, listener};
+use crate::{attestation, db_init, dpa, ethernet_virtualization, listener};
 
 pub fn parse_carbide_config(
     config_str: String,

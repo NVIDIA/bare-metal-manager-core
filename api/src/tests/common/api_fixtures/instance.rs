@@ -28,7 +28,6 @@ use rpc::forge::instance_interface_config::NetworkDetails;
 use rpc::{InstanceReleaseRequest, Timestamp};
 
 use super::{TestEnv, inject_machine_measurements, persist_machine_validation_result};
-use crate::db;
 use crate::tests::common::api_fixtures::{RpcInstance, TestManagedHost};
 
 pub struct TestInstanceBuilder<'a, 'b> {

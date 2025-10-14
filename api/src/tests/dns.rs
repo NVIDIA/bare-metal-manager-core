@@ -5,7 +5,6 @@ use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
 use sqlx::{Postgres, Row};
 
-use crate::db;
 use crate::tests::common;
 
 // These should probably go in a common place for both

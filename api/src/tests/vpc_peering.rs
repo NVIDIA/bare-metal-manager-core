@@ -21,7 +21,6 @@ use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
 use super::common::api_fixtures::{self, TestEnv};
-use crate::db;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 async fn create_test_vpcs(env: &TestEnv, count: i32) -> Result<(), Box<dyn std::error::Error>> {

@@ -8,6 +8,7 @@ pub mod tests {
         CA_CERT_SERIALIZED, CA2_CERT_SERIALIZED, EK_CERT_SERIALIZED, EK2_CERT_SERIALIZED,
     };
     use common::api_fixtures::{TestEnv, create_test_env};
+    use db::ObjectColumnFilter;
     use forge_uuid::machine::MachineId;
     use model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use model::machine::machine_id::from_hardware_info;
@@ -18,8 +19,6 @@ pub mod tests {
 
     use crate::attestation::get_ek_cert_by_machine_id;
     use crate::attestation::tpm_ca_cert::match_update_existing_ek_cert_status_against_ca;
-    use crate::db;
-    use crate::db::ObjectColumnFilter;
     use crate::tests::common;
 
     #[crate::sqlx_test]
@@ -165,8 +164,9 @@ pub mod tests {
         }
     }
 
+    use db::attestation::ek_cert_verification_status;
+
     use crate::attestation::match_insert_new_ek_cert_status_against_ca;
-    use crate::db::attestation::ek_cert_verification_status;
 
     #[crate::sqlx_test]
     async fn test_match_insert_new_ek_cert_status_against_ca_invalid_ek_cert_returns_error(

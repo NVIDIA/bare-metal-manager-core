@@ -1,6 +1,8 @@
 pub mod tests {
     use std::time::Duration;
 
+    use db::sku::CURRENT_SKU_VERSION;
+    use db::{self, DatabaseError, ObjectFilter};
     use forge_uuid::machine::MachineId;
     use model::expected_machine::ExpectedMachineData;
     use model::machine::machine_search_config::MachineSearchConfig;
@@ -12,8 +14,6 @@ pub mod tests {
     use model::sku::Sku;
     use sqlx::PgConnection;
 
-    use crate::db::sku::CURRENT_SKU_VERSION;
-    use crate::db::{self, DatabaseError, ObjectFilter};
     use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
     use crate::tests::common::api_fixtures::{
         TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host,
@@ -218,7 +218,7 @@ pub mod tests {
         .await;
 
         let mut txn = pool.begin().await.unwrap();
-        crate::db::machine::update_discovery_time(&mh.host().id, &mut txn)
+        db::machine::update_discovery_time(&mh.host().id, &mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -263,7 +263,7 @@ pub mod tests {
         machine_id: &MachineId,
         current_sku_id: &str,
     ) -> Result<String, eyre::Error> {
-        let correct_sku = crate::db::sku::find(txn, &[current_sku_id.to_string()])
+        let correct_sku = db::sku::find(txn, &[current_sku_id.to_string()])
             .await?
             .pop()
             .unwrap();
@@ -272,7 +272,7 @@ pub mod tests {
         wrong_sku.id = format!("wrong-{}", current_sku_id);
         wrong_sku.components.cpus[0].count += 1; // Make it mismatch
 
-        crate::db::sku::create(txn, &wrong_sku).await?;
+        db::sku::create(txn, &wrong_sku).await?;
         db::machine::unassign_sku(txn, machine_id).await?;
         db::machine::assign_sku(txn, machine_id, &wrong_sku.id).await?;
 
@@ -333,7 +333,7 @@ pub mod tests {
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
         assert!(machine.hw_sku.is_some());
 
-        let new_sku = crate::db::sku::find(&mut txn, &[machine.hw_sku.unwrap()])
+        let new_sku = db::sku::find(&mut txn, &[machine.hw_sku.unwrap()])
             .await?
             .pop()
             .unwrap();
@@ -341,7 +341,7 @@ pub mod tests {
         assert_ne!(new_sku.components.storage.len(), 0);
 
         // create an older version sku from new topology data will create a backwards compatible sku
-        let old_sku = crate::db::sku::generate_sku_from_machine_at_version(
+        let old_sku = db::sku::generate_sku_from_machine_at_version(
             &mut txn,
             &machine_id,
             old_schema_version,
@@ -371,9 +371,9 @@ pub mod tests {
         let expected_sku: Sku = rpc_sku.into();
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
 
-        crate::db::sku::create(&mut txn, &expected_sku).await?;
+        db::sku::create(&mut txn, &expected_sku).await?;
 
-        let mut actual_sku = crate::db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
+        let mut actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
             .await?
             .remove(0);
         // cheat the created timestamp
@@ -383,7 +383,7 @@ pub mod tests {
 
         assert_eq!(actual_sku_json, expected_sku_json);
 
-        let error = crate::db::sku::create(&mut txn, &expected_sku)
+        let error = db::sku::create(&mut txn, &expected_sku)
             .await
             .expect_err("Duplicate SKU create should have failed");
 
@@ -403,14 +403,14 @@ pub mod tests {
         let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let expected_sku: Sku = rpc_sku.into();
 
-        crate::db::sku::create(&mut txn, &expected_sku).await?;
-        let actual_sku = crate::db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
+        db::sku::create(&mut txn, &expected_sku).await?;
+        let actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
             .await?
             .remove(0);
 
-        crate::db::sku::delete(&mut txn, &actual_sku.id).await?;
+        db::sku::delete(&mut txn, &actual_sku.id).await?;
 
-        match crate::db::sku::find(&mut txn, &[expected_sku.id]).await {
+        match db::sku::find(&mut txn, &[expected_sku.id]).await {
             Ok(sku) => {
                 if !sku.is_empty() {
                     let sku_name = sku[0].id.clone();
@@ -431,8 +431,7 @@ pub mod tests {
 
         let expected_sku: Sku = serde_json::de::from_str::<rpc::forge::Sku>(SKU_DATA)?.into();
 
-        let mut actual_sku =
-            crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
+        let mut actual_sku = db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         // cheat the created timestamp and id
         actual_sku.id = "sku id".to_string();
         actual_sku.created = expected_sku.created;
@@ -453,13 +452,11 @@ pub mod tests {
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
         let mut txn = pool.begin().await?;
 
-        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
-        crate::db::sku::create(&mut txn, &actual_sku).await?;
-        let actual_sku = crate::db::sku::find(&mut txn, &[actual_sku.id])
-            .await?
-            .remove(0);
+        let actual_sku = db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
+        db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku = db::sku::find(&mut txn, &[actual_sku.id]).await?.remove(0);
 
-        crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+        db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
         let machine = db::machine::find(
             &mut txn,
@@ -471,7 +468,7 @@ pub mod tests {
         .unwrap();
         assert_eq!(machine.hw_sku.unwrap(), actual_sku.id);
 
-        crate::db::machine::unassign_sku(&mut txn, &machine_id).await?;
+        db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
         let machine = db::machine::find(
             &mut txn,
@@ -485,9 +482,9 @@ pub mod tests {
         assert!(machine.hw_sku.is_none());
 
         let sku_id = actual_sku.id.clone();
-        crate::db::sku::delete(&mut txn, &actual_sku.id).await?;
+        db::sku::delete(&mut txn, &actual_sku.id).await?;
 
-        match crate::db::sku::find(&mut txn, &[sku_id]).await {
+        match db::sku::find(&mut txn, &[sku_id]).await {
             // We expect an okay result, but that it should be an empty list.
             Ok(sku) => {
                 if !sku.is_empty() {
@@ -645,10 +642,10 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
-        crate::db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku = db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
+        db::sku::create(&mut txn, &actual_sku).await?;
 
-        crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+        db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
         txn.commit().await?;
 
@@ -1060,10 +1057,10 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
-        crate::db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku = db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
+        db::sku::create(&mut txn, &actual_sku).await?;
 
-        crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+        db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
         txn.commit().await?;
 
@@ -1126,7 +1123,7 @@ pub mod tests {
         let machine = mh.host().db_machine(&mut txn).await;
         let machine_id = mh.host().id;
 
-        crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+        db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
         txn.commit().await?;
 
@@ -1154,7 +1151,7 @@ pub mod tests {
             ) {
                 let mut txn = pool.begin().await?;
 
-                crate::db::machine::update_discovery_time(&machine.id, &mut txn)
+                db::machine::update_discovery_time(&machine.id, &mut txn)
                     .await
                     .unwrap();
                 txn.commit().await.unwrap();
@@ -1191,7 +1188,7 @@ pub mod tests {
         let machine = mh.host().db_machine(&mut txn).await;
         let machine_id = mh.host().id;
 
-        let original_sku = crate::db::sku::find(&mut txn, &[machine.hw_sku.clone().unwrap()])
+        let original_sku = db::sku::find(&mut txn, &[machine.hw_sku.clone().unwrap()])
             .await?
             .pop()
             .unwrap();
@@ -1202,14 +1199,14 @@ pub mod tests {
         broken_sku.id = "Broken SKU".to_string();
         broken_sku.components.cpus[0].count += 1;
 
-        crate::db::sku::create(&mut txn, &broken_sku).await?;
+        db::sku::create(&mut txn, &broken_sku).await?;
 
         tracing::info!("SKU2: {:?}", broken_sku);
 
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
         db::machine::assign_sku(&mut txn, &machine_id, &broken_sku.id).await?;
 
-        crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+        db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
         txn.commit().await?;
 
@@ -1244,7 +1241,7 @@ pub mod tests {
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
         db::machine::assign_sku(&mut txn, &machine_id, &original_sku.id).await?;
 
-        crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+        db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
         handle_inventory_update(&pool, &env, &mh).await;
@@ -1400,7 +1397,7 @@ pub mod tests {
         // Create a SKU that will mismatch with the actual hardware
         let mut txn = pool.begin().await?;
         let mismatched_sku: Sku = serde_json::from_str(SKU_DATA)?;
-        crate::db::sku::create(&mut txn, &mismatched_sku).await?;
+        db::sku::create(&mut txn, &mismatched_sku).await?;
         txn.commit().await?;
 
         // Create machine with the mismatched SKU
@@ -1461,10 +1458,10 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
-        crate::db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku = db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
+        db::sku::create(&mut txn, &actual_sku).await?;
 
-        crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+        db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
         txn.commit().await?;
 
@@ -1521,7 +1518,7 @@ pub mod tests {
             .hw_sku
             .clone()
             .expect("SKU should have been assigned");
-        let mut actual_sku = crate::db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
+        let mut actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
             .await?
             .pop()
             .expect("SKU should exist");
@@ -1533,7 +1530,7 @@ pub mod tests {
         let mut txn = pool.begin().await?;
 
         actual_sku.components.cpus[0].thread_count *= 2;
-        crate::db::sku::replace(&mut txn, &actual_sku).await?;
+        db::sku::replace(&mut txn, &actual_sku).await?;
 
         txn.commit().await?;
         let mut txn = pool.begin().await?;
@@ -1610,7 +1607,7 @@ pub mod tests {
             .hw_sku
             .clone()
             .expect("SKU should have been assigned");
-        let expected_sku = crate::db::sku::find(&mut txn, std::slice::from_ref(&expected_sku_id))
+        let expected_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku_id))
             .await?
             .pop()
             .expect("SKU should exist");
@@ -1638,7 +1635,7 @@ pub mod tests {
 
         clear_sku_status(&mut txn, &machine_id).await?;
         // test that an unassigned can find and assign a machine.
-        crate::db::machine::unassign_sku(&mut txn, &machine_id).await?;
+        db::machine::unassign_sku(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
         // Wait for machine to leave Ready and enter UpdatingInventory
@@ -1661,7 +1658,7 @@ pub mod tests {
 
         // Update discovery time to satisfy the inventory freshness check
         let mut txn = pool.begin().await.unwrap();
-        crate::db::machine::update_discovery_time(&machine_id, &mut txn)
+        db::machine::update_discovery_time(&machine_id, &mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -1729,7 +1726,7 @@ pub mod tests {
     pub fn test_sku_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        crate::db::sku::update_metadata(
+        db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             Some("new description".to_string()),
@@ -1737,7 +1734,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
             .await?
             .pop()
             .unwrap();
@@ -1754,7 +1751,7 @@ pub mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        crate::db::sku::update_metadata(
+        db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             Some("new description".to_string()),
@@ -1762,7 +1759,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
             .await?
             .pop()
             .unwrap();
@@ -1770,7 +1767,7 @@ pub mod tests {
         assert_eq!(&sku.description, "new description");
         assert_eq!(sku.device_type, Some("device_type".to_string()));
 
-        crate::db::sku::update_metadata(
+        db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             Some("old description".to_string()),
@@ -1778,7 +1775,7 @@ pub mod tests {
         )
         .await?;
 
-        crate::db::sku::update_metadata(
+        db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             Some("really new description".to_string()),
@@ -1786,7 +1783,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
             .await?
             .pop()
             .unwrap();
@@ -1803,7 +1800,7 @@ pub mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        crate::db::sku::update_metadata(
+        db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             None,
@@ -1811,7 +1808,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
             .await?
             .pop()
             .unwrap();
@@ -1828,8 +1825,7 @@ pub mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        let result =
-            crate::db::sku::update_metadata(&mut txn, "sku1".to_string(), None, None).await;
+        let result = db::sku::update_metadata(&mut txn, "sku1".to_string(), None, None).await;
 
         assert!(result.is_err());
         Ok(())
@@ -1839,7 +1835,7 @@ pub mod tests {
     pub fn test_sku_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let sku_id = "sku1".to_string();
-        let original_sku = crate::db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
+        let original_sku = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
             .await?
             .remove(0);
         let original_sku_json = serde_json::ser::to_string_pretty(&original_sku)?;
@@ -1857,11 +1853,11 @@ pub mod tests {
         };
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
 
-        let returned_sku = crate::db::sku::replace(&mut txn, &expected_sku).await?;
+        let returned_sku = db::sku::replace(&mut txn, &expected_sku).await?;
 
         let returned_sku_json = serde_json::ser::to_string_pretty(&returned_sku)?;
 
-        let mut actual_sku = crate::db::sku::find(&mut txn, &[sku_id]).await?.remove(0);
+        let mut actual_sku = db::sku::find(&mut txn, &[sku_id]).await?.remove(0);
 
         // cheat the created timestamp
         actual_sku.created = expected_sku.created;

@@ -11,7 +11,7 @@ struct AsStrings {
 pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
     use std::ops::DerefMut;
 
-    use crate::db::desired_firmware;
+    use db::desired_firmware;
     let mut config: FirmwareConfig = Default::default();
 
     // Source config is hacky, but we just need to have 3 different components in unsorted order

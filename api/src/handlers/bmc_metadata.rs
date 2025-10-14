@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
+use db::DatabaseError;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::DatabaseError;
 
 pub(crate) async fn get(
     api: &Api,

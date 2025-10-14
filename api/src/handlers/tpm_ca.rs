@@ -11,12 +11,12 @@
  */
 
 use ::rpc::forge as rpc;
+use db::{DatabaseError, attestation as db_attest};
 use tonic::{Request, Response};
 use x509_parser::prelude::FromDer;
 use x509_parser::x509::X509Name;
 
 use crate::api::log_request_data;
-use crate::db::{DatabaseError, attestation as db_attest};
 use crate::{CarbideError, attestation as attest};
 
 pub(crate) async fn tpm_add_ca_cert(

@@ -16,6 +16,10 @@
 
 use std::collections::HashMap;
 
+use db::measured_boot::interface::profile::{
+    export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
+    get_machines_for_profile_id, get_machines_for_profile_name,
+};
 use forge_uuid::measured_boot::MeasurementSystemProfileId;
 use measured_boot::profile::MeasurementSystemProfile;
 use rpc::protos::measured_boot::{
@@ -35,10 +39,6 @@ use rpc::protos::measured_boot::{
 use sqlx::{PgConnection, Pool, Postgres};
 use tonic::Status;
 
-use crate::db::measured_boot::interface::profile::{
-    export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
-    get_machines_for_profile_id, get_machines_for_profile_name,
-};
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_create_system_measurement_profile handles the
@@ -59,7 +59,7 @@ pub async fn handle_create_system_measurement_profile(
         vals.insert(kv_pair.key, kv_pair.value);
     }
 
-    let system_profile = crate::db::measured_boot::profile::new_with_txn(&mut txn, req.name, &vals)
+    let system_profile = db::measured_boot::profile::new_with_txn(&mut txn, req.name, &vals)
         .await
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
@@ -80,7 +80,7 @@ pub async fn handle_rename_measurement_system_profile(
         // Rename for the given system_profile ID.
         Some(rename_measurement_system_profile_request::Selector::ProfileId(
             system_profile_uuid,
-        )) => crate::db::measured_boot::profile::rename_for_id(
+        )) => db::measured_boot::profile::rename_for_id(
             &mut txn,
             system_profile_uuid,
             req.new_profile_name,
@@ -91,7 +91,7 @@ pub async fn handle_rename_measurement_system_profile(
         // Rename for the given system_profile name.
         Some(rename_measurement_system_profile_request::Selector::ProfileName(
             system_profile_name,
-        )) => crate::db::measured_boot::profile::rename_for_name(
+        )) => db::measured_boot::profile::rename_for_name(
             &mut txn,
             system_profile_name,
             req.new_profile_name,
@@ -151,13 +151,13 @@ pub async fn handle_show_measurement_system_profile(
     let system_profile = match req.selector {
         // Show a system profile with the given profile ID.
         Some(show_measurement_system_profile_request::Selector::ProfileId(profile_uuid)) => {
-            crate::db::measured_boot::profile::load_from_id_with_txn(&mut txn, profile_uuid)
+            db::measured_boot::profile::load_from_id_with_txn(&mut txn, profile_uuid)
                 .await
                 .map_err(|e| Status::internal(format!("{e}")))?
         }
         // Show a system profile with the given profile name.
         Some(show_measurement_system_profile_request::Selector::ProfileName(profile_name)) => {
-            crate::db::measured_boot::profile::load_from_name(&mut txn, profile_name)
+            db::measured_boot::profile::load_from_name(&mut txn, profile_name)
                 .await
                 .map_err(|e| Status::internal(format!("{e}")))?
         }
@@ -178,7 +178,7 @@ pub async fn handle_show_measurement_system_profiles(
 ) -> Result<ShowMeasurementSystemProfilesResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementSystemProfilesResponse {
-        system_profiles: crate::db::measured_boot::profile::get_all(&mut txn)
+        system_profiles: db::measured_boot::profile::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
@@ -273,7 +273,7 @@ async fn delete_for_uuid(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
-    match crate::db::measured_boot::profile::delete_for_id(txn, profile_id).await {
+    match db::measured_boot::profile::delete_for_id(txn, profile_id).await {
         Ok(optional_profile) => Ok(optional_profile),
         Err(e) => Err(Status::internal(format!("error deleting profile: {e}"))),
     }
@@ -285,7 +285,7 @@ async fn delete_for_name(
     txn: &mut PgConnection,
     profile_name: String,
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
-    match crate::db::measured_boot::profile::delete_for_name(txn, profile_name).await {
+    match db::measured_boot::profile::delete_for_name(txn, profile_name).await {
         Ok(optional_profile) => Ok(optional_profile),
         Err(e) => Err(Status::internal(format!("error deleting profile: {e}"))),
     }

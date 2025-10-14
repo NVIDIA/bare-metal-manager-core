@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
+use db::{DatabaseError, network_security_group};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::network_security_group::NetworkSecurityGroupId;
 use forge_uuid::vpc::VpcId;
@@ -26,7 +27,6 @@ use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::{DatabaseError, network_security_group};
 
 pub(crate) async fn create(
     api: &Api,

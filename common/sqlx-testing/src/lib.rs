@@ -156,7 +156,7 @@ async fn init_pool() -> PgPool {
     let root_opts: std::sync::Arc<PgConnectOptions> = root_pool.connect_options();
     let template_opts = root_opts.deref().clone().database(TEMPLATE_DB);
     let template_pool = PoolOptions::new().connect_lazy_with(template_opts);
-    carbide::migrate(&template_pool)
+    db::migrations::migrate(&template_pool)
         .await
         .expect("cannot migrate DB used as template");
     template_pool.close().await;

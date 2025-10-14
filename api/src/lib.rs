@@ -29,7 +29,6 @@ mod attestation;
 mod auth;
 mod cfg;
 mod credentials;
-mod db;
 mod db_init;
 mod dhcp;
 mod dpa;
@@ -69,6 +68,4 @@ pub use db::{DatabaseError, DatabaseResult};
 pub(crate) use errors::{CarbideError, CarbideResult};
 
 // Stuff needed by main.rs and api-test
-pub use crate::{
-    cfg::command_line::Command, cfg::command_line::Options, db::migrations::migrate, run::run,
-};
+pub use crate::{cfg::command_line::Command, cfg::command_line::Options, run::run};

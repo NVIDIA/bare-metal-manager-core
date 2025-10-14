@@ -228,7 +228,7 @@ pub async fn start_api_server(
     // Error is: "attempted to set a logger after the logging system was already initialized"
 
     #[allow(clippy::large_stack_arrays)] // It should be fixed in sqlx.
-    let m = sqlx::migrate!("../../api/migrations");
+    let m = sqlx::migrate!("../../api/db/migrations");
 
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;

@@ -1,4 +1,6 @@
 use chrono::Utc;
+use db::machine::find_machine_ids_by_sku_id;
+use db::{self, DatabaseError};
 use forge_uuid::machine::MachineId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
@@ -7,8 +9,6 @@ use rpc::forge::SkuIdList;
 use tonic::{Request, Response};
 
 use crate::api::{Api, log_request_data};
-use crate::db::machine::find_machine_ids_by_sku_id;
-use crate::db::{self, DatabaseError};
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::{CarbideError, CarbideResult};
 
@@ -31,7 +31,7 @@ pub(crate) async fn create(
 
     for sku in sku_list.skus {
         let sku: Sku = sku.into();
-        crate::db::sku::create(&mut txn, &sku).await?;
+        db::sku::create(&mut txn, &sku).await?;
         sku_ids.ids.push(sku.id);
     }
 
@@ -53,7 +53,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let sku_id_list = request.into_inner().ids;
-    let mut skus = crate::db::sku::find(&mut txn, &sku_id_list).await?;
+    let mut skus = db::sku::find(&mut txn, &sku_id_list).await?;
 
     let Some(sku) = skus.pop() else {
         return Err(CarbideError::InvalidArgument(format!(
@@ -68,7 +68,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
         return Err(CarbideError::NotImplemented);
     }
 
-    let machine_ids = crate::db::machine::find_machine_ids_by_sku_id(&mut txn, &sku.id).await?;
+    let machine_ids = db::machine::find_machine_ids_by_sku_id(&mut txn, &sku.id).await?;
     if !machine_ids.is_empty() {
         return Err(CarbideError::InvalidArgument(format!(
             "The SKUs are in use by {} machines",
@@ -76,7 +76,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
         )));
     }
 
-    crate::db::sku::delete(&mut txn, &sku.id).await?;
+    db::sku::delete(&mut txn, &sku.id).await?;
 
     txn.commit()
         .await
@@ -100,7 +100,7 @@ pub(crate) async fn generate_from_machine(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
+    let sku = db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
 
     Ok(Response::new(sku.into()))
 }
@@ -155,8 +155,7 @@ pub(crate) async fn assign_to_machine(
         }
     }
 
-    let mut skus =
-        crate::db::sku::find(&mut txn, std::slice::from_ref(&sku_machine_pair.sku_id)).await?;
+    let mut skus = db::sku::find(&mut txn, std::slice::from_ref(&sku_machine_pair.sku_id)).await?;
 
     let sku = skus.pop().ok_or(CarbideError::NotFoundError {
         kind: "SKU ID",
@@ -170,9 +169,9 @@ pub(crate) async fn assign_to_machine(
         )));
     }
 
-    crate::db::machine::assign_sku(&mut txn, &machine_id, &sku.id).await?;
+    db::machine::assign_sku(&mut txn, &machine_id, &sku.id).await?;
 
-    crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+    db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
     txn.commit()
         .await
@@ -221,7 +220,7 @@ pub(crate) async fn verify_for_machine(
 
     sku_status.verify_request_time = Some(Utc::now());
 
-    crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+    db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
     txn.commit()
         .await
@@ -266,7 +265,7 @@ pub(crate) async fn remove_sku_association(
         }
     }
 
-    crate::db::machine::unassign_sku(&mut txn, &machine_id).await?;
+    db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
     txn.commit()
         .await
@@ -288,7 +287,7 @@ pub(crate) async fn get_all_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let sku_ids = crate::db::sku::get_sku_ids(&mut txn).await?;
+    let sku_ids = db::sku::get_sku_ids(&mut txn).await?;
 
     Ok(Response::new(::rpc::forge::SkuIdList {
         ids: sku_ids.into_iter().collect(),
@@ -321,7 +320,7 @@ pub(crate) async fn find_skus_by_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let skus = crate::db::sku::find(&mut txn, &sku_ids).await?;
+    let skus = db::sku::find(&mut txn, &sku_ids).await?;
 
     let mut rpc_skus: Vec<rpc::forge::Sku> =
         skus.into_iter().map(std::convert::Into::into).collect();
@@ -352,7 +351,7 @@ pub(crate) async fn update_sku_metadata(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    crate::db::sku::update_metadata(
+    db::sku::update_metadata(
         &mut txn,
         request.sku_id,
         request.description,
@@ -380,7 +379,7 @@ pub(crate) async fn replace_sku(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let sku = crate::db::sku::replace(&mut txn, &request).await?;
+    let sku = db::sku::replace(&mut txn, &request).await?;
 
     txn.commit()
         .await

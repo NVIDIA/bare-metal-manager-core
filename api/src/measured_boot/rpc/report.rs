@@ -17,6 +17,10 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
+use db::measured_boot::interface::report::{
+    get_all_measurement_report_records, get_measurement_report_records_for_machine_id,
+    match_latest_reports,
+};
 use forge_uuid::machine::MachineId;
 use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 use rpc::protos::measured_boot::{
@@ -33,10 +37,6 @@ use sqlx::{Pool, Postgres};
 use tonic::Status;
 
 use crate::CarbideError;
-use crate::db::measured_boot::interface::report::{
-    get_all_measurement_report_records, get_measurement_report_records_for_machine_id,
-    match_latest_reports,
-};
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_create_measurement_report handles the CreateMeasurementReport
@@ -46,7 +46,7 @@ pub async fn handle_create_measurement_report(
     req: CreateMeasurementReportRequest,
 ) -> Result<CreateMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let report = crate::db::measured_boot::report::new_with_txn(
+    let report = db::measured_boot::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
@@ -69,7 +69,7 @@ pub async fn handle_delete_measurement_report(
     req: DeleteMeasurementReportRequest,
 ) -> Result<DeleteMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let report = crate::db::measured_boot::report::delete_for_id(
+    let report = db::measured_boot::report::delete_for_id(
         &mut txn,
         req.report_id
             .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -98,7 +98,7 @@ pub async fn handle_promote_measurement_report(
             false => None,
         };
 
-    let report = crate::db::measured_boot::report::from_id_with_txn(
+    let report = db::measured_boot::report::from_id_with_txn(
         &mut txn,
         req.report_id
             .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -106,15 +106,14 @@ pub async fn handle_promote_measurement_report(
     .await
     .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
 
-    let bundle = crate::db::measured_boot::report::create_active_bundle_with_txn(
-        &mut txn, &report, &pcr_set,
-    )
-    .await
-    .map_err(|e| {
-        Status::internal(format!(
-            "promotion failed promoting into active bundle: {e}"
-        ))
-    })?;
+    let bundle =
+        db::measured_boot::report::create_active_bundle_with_txn(&mut txn, &report, &pcr_set)
+            .await
+            .map_err(|e| {
+                Status::internal(format!(
+                    "promotion failed promoting into active bundle: {e}"
+                ))
+            })?;
 
     commit_txn(txn).await?;
     Ok(PromoteMeasurementReportResponse {
@@ -137,7 +136,7 @@ pub async fn handle_revoke_measurement_report(
             })?),
         };
 
-    let report = crate::db::measured_boot::report::from_id_with_txn(
+    let report = db::measured_boot::report::from_id_with_txn(
         &mut txn,
         req.report_id
             .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -145,15 +144,14 @@ pub async fn handle_revoke_measurement_report(
     .await
     .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
 
-    let bundle = crate::db::measured_boot::report::create_revoked_bundle_with_txn(
-        &mut txn, &report, &pcr_set,
-    )
-    .await
-    .map_err(|e| {
-        Status::internal(format!(
-            "promotion failed promoting into revoked bundle: {e}"
-        ))
-    })?;
+    let bundle =
+        db::measured_boot::report::create_revoked_bundle_with_txn(&mut txn, &report, &pcr_set)
+            .await
+            .map_err(|e| {
+                Status::internal(format!(
+                    "promotion failed promoting into revoked bundle: {e}"
+                ))
+            })?;
 
     commit_txn(txn).await?;
     Ok(RevokeMeasurementReportResponse {
@@ -170,7 +168,7 @@ pub async fn handle_show_measurement_report_for_id(
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportForIdResponse {
         report: Some(
-            crate::db::measured_boot::report::from_id_with_txn(
+            db::measured_boot::report::from_id_with_txn(
                 &mut txn,
                 req.report_id
                     .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -190,7 +188,7 @@ pub async fn handle_show_measurement_reports_for_machine(
 ) -> Result<ShowMeasurementReportsForMachineResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportsForMachineResponse {
-        reports: crate::db::measured_boot::report::get_all_for_machine_id(
+        reports: db::measured_boot::report::get_all_for_machine_id(
             &mut txn,
             MachineId::from_str(&req.machine_id).map_err(|_| {
                 CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
@@ -212,7 +210,7 @@ pub async fn handle_show_measurement_reports(
 ) -> Result<ShowMeasurementReportsResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportsResponse {
-        reports: crate::db::measured_boot::report::get_all(&mut txn)
+        reports: db::measured_boot::report::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)

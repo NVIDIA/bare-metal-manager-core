@@ -4,6 +4,7 @@ members = [
     "admin",
     "api",
     "api/model",
+    "api/db",
     "bluefield/agent",
     "bluefield/otel/otel-agent",
     "common/api-test-helper",

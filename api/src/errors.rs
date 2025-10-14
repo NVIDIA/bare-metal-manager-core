@@ -14,6 +14,9 @@ use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
 use config_version::ConfigVersionParseError;
+use db::ip_allocator::DhcpError;
+use db::resource_pool::ResourcePoolDatabaseError;
+use db::{AnnotatedSqlxError, DatabaseError};
 use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use model::errors::ModelError;
@@ -23,11 +26,6 @@ use model::site_explorer::EndpointExplorationError;
 use model::tenant::TenantError;
 use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
-
-use crate::DatabaseError;
-use crate::db::AnnotatedSqlxError;
-use crate::db::ip_allocator::DhcpError;
-use crate::db::resource_pool::ResourcePoolDatabaseError;
 
 /// Represents various Errors that can occur throughout the system.
 ///

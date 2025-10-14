@@ -11,11 +11,11 @@
  */
 
 pub use ::rpc::{forge as rpc_forge, machine_discovery as rpc_md};
+use db::attestation::secret_ak_pub;
 use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tonic::Status;
 
-use crate::db::attestation::secret_ak_pub;
 use crate::{CarbideError, attestation as attest};
 
 pub(crate) async fn create_attest_key_bind_challenge(

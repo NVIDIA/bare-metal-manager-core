@@ -29,6 +29,10 @@ use common::api_fixtures::{
     get_config, get_vpc_fixture_id, inject_machine_measurements, network_configured_with_health,
     persist_machine_validation_result, populate_network_security_groups, site_explorer,
 };
+use db::instance_address::UsedOverlayNetworkIpResolver;
+use db::ip_allocator::UsedIpResolver;
+use db::network_segment::IdColumn;
+use db::{self, ObjectColumnFilter};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use forge_uuid::network::NetworkSegmentId;
@@ -63,10 +67,6 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tonic::Request;
 
 use crate::cfg::file::VmaasConfig;
-use crate::db::instance_address::UsedOverlayNetworkIpResolver;
-use crate::db::ip_allocator::UsedIpResolver;
-use crate::db::network_segment::IdColumn;
-use crate::db::{self, ObjectColumnFilter};
 use crate::instance::{InstanceAllocationRequest, allocate_instance, allocate_network};
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::tests::common;
@@ -2740,7 +2740,7 @@ async fn create_tenant_overlay_prefix(
     vpc_id: forge_uuid::vpc::VpcId,
 ) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
-    let vpc_prefix_id = crate::db::vpc_prefix::persist(
+    let vpc_prefix_id = db::vpc_prefix::persist(
         model::vpc_prefix::NewVpcPrefix {
             id: uuid::Uuid::new_v4().into(),
             prefix: IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
@@ -3322,7 +3322,7 @@ async fn test_network_details_migration(
     let mut conn = env.pool.acquire().await.unwrap();
     sqlx::query(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/migrations/20250505194055_network_segment_id_to_network_details.sql"
+        "/db/migrations/20250505194055_network_segment_id_to_network_details.sql"
     )))
     .execute(conn.as_mut())
     .await

@@ -14,15 +14,15 @@ use std::str::FromStr;
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
 use common::api_fixtures::{create_managed_host, create_test_env};
+use db::machine_interface::associate_interface_with_dpu_machine;
+use db::machine_topology::test_helpers::{HardwareInfoV1, TopologyDataV1};
+use db::{self, ObjectColumnFilter, network_segment};
 use forge_uuid::machine::{MachineId, MachineType};
 use model::hardware_info::{Cpu, CpuInfo, HardwareInfo};
 use model::machine::machine_id::from_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use rpc::forge::forge_server::Forge;
 
-use crate::db::machine_interface::associate_interface_with_dpu_machine;
-use crate::db::machine_topology::test_helpers::{HardwareInfoV1, TopologyDataV1};
-use crate::db::{self, ObjectColumnFilter, network_segment};
 use crate::tests::common;
 
 #[crate::sqlx_test]

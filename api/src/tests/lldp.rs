@@ -5,7 +5,6 @@ use common::api_fixtures::dpu::create_dpu_machine;
 use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
 
-use crate::db;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host;
 use crate::tests::common::api_fixtures::dpu::dpu_discover_machine;

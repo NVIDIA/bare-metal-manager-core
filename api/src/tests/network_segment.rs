@@ -20,6 +20,9 @@ use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
 };
+use db::ObjectColumnFilter;
+use db::network_segment::VpcColumn;
+use db::vpc::IdColumn;
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
@@ -37,15 +40,12 @@ use rpc::forge::NetworkSegmentSearchConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
-use crate::db::ObjectColumnFilter;
-use crate::db::network_segment::VpcColumn;
-use crate::db::vpc::IdColumn;
+use crate::db_init;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
 };
-use crate::{db, db_init};
 
 #[crate::sqlx_test]
 async fn test_advance_network_prefix_state(

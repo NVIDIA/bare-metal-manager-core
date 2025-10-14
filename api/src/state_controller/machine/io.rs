@@ -13,6 +13,7 @@
 //! State Controller IO implementation for Machines
 
 use config_version::{ConfigVersion, Versioned};
+use db::{self, DatabaseError};
 use forge_uuid::machine::MachineId;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
@@ -23,7 +24,6 @@ use model::machine::{
 };
 use sqlx::PgConnection;
 
-use crate::db::{self, DatabaseError};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::metrics::MachineMetricsEmitter;
@@ -53,7 +53,7 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        Ok(crate::db::machine::find_machine_ids(
+        Ok(db::machine::find_machine_ids(
             txn,
             MachineSearchConfig {
                 include_predicted_host: true,

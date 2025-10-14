@@ -15,12 +15,12 @@ use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use config_version::ConfigVersion;
+use db::{self, DatabaseError};
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::{self, DatabaseError};
 
 pub(crate) async fn find_explored_endpoint_ids(
     api: &Api,

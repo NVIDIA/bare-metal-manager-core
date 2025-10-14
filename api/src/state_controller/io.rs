@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 use config_version::{ConfigVersion, Versioned};
+use db::DatabaseError;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use sqlx::PgConnection;
 
-use crate::db::DatabaseError;
 use crate::state_controller::metrics::MetricsEmitter;
 use crate::state_controller::state_handler::StateHandlerContextObjects;
 

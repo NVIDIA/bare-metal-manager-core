@@ -16,6 +16,10 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
+use db::{
+    DatabaseError, ObjectColumnFilter, domain, dpu_agent_upgrade_policy, network_security_group,
+    network_segment,
+};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
 use itertools::Itertools;
@@ -30,12 +34,8 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
-use crate::db::{
-    DatabaseError, ObjectColumnFilter, domain, dpu_agent_upgrade_policy, network_security_group,
-    network_segment,
-};
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, db, ethernet_virtualization};
+use crate::{CarbideError, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.

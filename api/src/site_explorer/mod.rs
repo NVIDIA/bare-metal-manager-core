@@ -18,6 +18,7 @@ use std::sync::atomic::Ordering;
 
 use chrono::Utc;
 use config_version::ConfigVersion;
+use db::{self, DatabaseError, ObjectFilter, machine};
 use forge_network::sanitized_mac;
 use forge_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
@@ -45,7 +46,6 @@ use tracing::Instrument;
 use version_compare::Cmp;
 
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
-use crate::db::{self, DatabaseError, ObjectFilter, machine};
 use crate::{CarbideError, CarbideResult};
 
 mod endpoint_explorer;
@@ -58,6 +58,7 @@ mod redfish;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 
 mod managed_host;
+use db::{ObjectColumnFilter, predicted_machine_interface};
 pub use managed_host::is_endpoint_in_managed_host;
 use model::expected_machine::ExpectedMachine;
 use model::firmware::FirmwareComponentType;
@@ -66,7 +67,6 @@ use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
 
 use self::metrics::exploration_error_to_metric_label;
-use crate::db::{ObjectColumnFilter, predicted_machine_interface};
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 
 #[derive(Debug, Clone)]

@@ -15,7 +15,6 @@ use base64::prelude::*;
 use forge_uuid::instance::InstanceId;
 use rpc::forge_server::Forge;
 
-use crate::db;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 

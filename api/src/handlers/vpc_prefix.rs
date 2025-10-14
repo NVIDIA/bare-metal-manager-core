@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::db::{DatabaseError, ObjectColumnFilter, vpc_prefix as db};
 use ::rpc::forge as rpc;
 use ::rpc::forge::PrefixMatchType;
 use ipnetwork::IpNetwork;
@@ -19,7 +20,6 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::db::{DatabaseError, ObjectColumnFilter, vpc_prefix as db};
 pub async fn create(
     api: &Api,
     request: Request<rpc::VpcPrefixCreationRequest>,
@@ -143,7 +143,7 @@ pub async fn create(
 
     // Associate all of the network segment prefixes with the new VPC prefix.
     for mut segment_prefix in segment_prefixes {
-        crate::db::network_prefix::set_vpc_prefix(
+        ::db::network_prefix::set_vpc_prefix(
             &mut segment_prefix,
             &mut txn,
             &vpc_prefix.id,

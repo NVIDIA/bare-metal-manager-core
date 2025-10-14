@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use common::api_fixtures::{TestEnv, create_test_env};
+use db::{self};
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
@@ -8,7 +9,6 @@ use model::machine::{DpuInitState, MachineState, ManagedHostState};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery};
 
-use crate::db::{self};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;

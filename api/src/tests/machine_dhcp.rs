@@ -15,6 +15,7 @@ use std::str::FromStr;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
 };
+use db::{self, ObjectColumnFilter, dhcp_entry};
 use forge_uuid::machine::MachineInterfaceId;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -22,7 +23,6 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{DhcpDiscovery, ManagedHostNetworkConfigRequest};
 
 use crate::DatabaseError;
-use crate::db::{self, ObjectColumnFilter, dhcp_entry};
 use crate::tests::common;
 
 #[crate::sqlx_test]

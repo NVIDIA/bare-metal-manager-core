@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use db::{self};
 use forge_uuid::network::NetworkSegmentId;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentDeletionState, NetworkSegmentType,
@@ -21,7 +22,6 @@ use model::network_segment::{
 use model::resource_pool::ResourcePool;
 use sqlx::PgConnection;
 
-use crate::db::{self};
 use crate::state_controller::network_segment::context::NetworkSegmentStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted, do_nothing,

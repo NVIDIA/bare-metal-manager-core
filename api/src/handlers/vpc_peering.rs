@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::db::{DatabaseError, ObjectColumnFilter, vpc, vpc_peering as db};
 use ::rpc::forge as rpc;
 use forge_network::virtualization::VpcVirtualizationType;
 use tonic::{Request, Response, Status};
@@ -17,7 +18,6 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::cfg::file::VpcPeeringPolicy;
-use crate::db::{DatabaseError, ObjectColumnFilter, vpc_peering as db};
 
 pub async fn create(
     api: &Api,
@@ -49,18 +49,15 @@ pub async fn create(
             return Err(CarbideError::internal("VPC Peering feature disabled.".to_string()).into());
         }
         Some(VpcPeeringPolicy::Exclusive) => {
-            let vpcs1 = crate::db::vpc::find_by(
-                &mut txn,
-                ObjectColumnFilter::One(crate::db::vpc::IdColumn, &vpc_id),
-            )
-            .await?;
+            let vpcs1 =
+                vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
             let vpc1 = vpcs1.first().ok_or_else(|| CarbideError::NotFoundError {
                 kind: "VPC",
                 id: vpc_id.clone().to_string(),
             })?;
-            let vpcs2 = crate::db::vpc::find_by(
+            let vpcs2 = vpc::find_by(
                 &mut txn,
-                ObjectColumnFilter::One(crate::db::vpc::IdColumn, &peer_vpc_id),
+                ObjectColumnFilter::One(vpc::IdColumn, &peer_vpc_id),
             )
             .await?;
             let vpc2 = vpcs2.first().ok_or_else(|| CarbideError::NotFoundError {

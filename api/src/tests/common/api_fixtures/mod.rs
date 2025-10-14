@@ -20,6 +20,8 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Duration, Utc};
+use db::instance_type::create as create_instance_type;
+use db::network_security_group::create as create_network_security_group;
 use dpu::DpuConfig;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
@@ -71,9 +73,6 @@ use crate::cfg::file::{
     NetworkSegmentStateControllerConfig, PowerManagerOptions, SiteExplorerConfig,
     StateControllerConfig, VpcPeeringPolicy, default_max_find_by_ids,
 };
-use crate::db;
-use crate::db::instance_type::create as create_instance_type;
-use crate::db::network_security_group::create as create_network_security_group;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
 use crate::ib_fabric_monitor::IbFabricMonitor;

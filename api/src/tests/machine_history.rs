@@ -12,10 +12,10 @@
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
+use db::{self};
 use model::machine::{MachineStateHistory, ManagedHostState};
 use rpc::forge::forge_server::Forge;
 
-use crate::db::{self};
 use crate::tests::common;
 
 #[crate::sqlx_test]

@@ -8,7 +8,7 @@ use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::NewNetworkSegment;
 use sqlx::PgConnection;
 
-use crate::{CarbideError, CarbideResult, db};
+use crate::{CarbideError, CarbideResult};
 
 /// Ipv4PrefixAllocator to allocate a prefix of given length from given vpc_prefix field.
 #[derive(Debug)]

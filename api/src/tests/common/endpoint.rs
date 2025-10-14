@@ -13,14 +13,13 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
+use db::{self, DatabaseError};
 use forge_uuid::machine::MachineId;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     Inventory, PowerState, Service,
 };
 use sqlx::PgConnection;
-
-use crate::db::{self, DatabaseError};
 
 pub async fn insert_endpoint_version(
     txn: &mut PgConnection,

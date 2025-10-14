@@ -15,6 +15,7 @@ use model::machine_update_module::{
 };
 use sqlx::PgConnection;
 
+use crate::CarbideResult;
 use crate::cfg::file::CarbideConfig;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::machine_update_manager::machine_update_module::{
@@ -22,7 +23,6 @@ use crate::machine_update_manager::machine_update_module::{
 };
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host;
-use crate::{CarbideResult, db};
 
 const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
@@ -284,13 +284,8 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await?;
 
-    crate::db::machine::trigger_dpu_reprovisioning_request(
-        &host_machine_id1,
-        &mut txn,
-        "test",
-        true,
-    )
-    .await?;
+    db::machine::trigger_dpu_reprovisioning_request(&host_machine_id1, &mut txn, "test", true)
+        .await?;
     txn.commit().await.unwrap();
 
     let mut txn = env

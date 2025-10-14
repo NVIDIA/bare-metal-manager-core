@@ -12,6 +12,9 @@
 
 use std::collections::HashMap;
 
+use db::domain::{self};
+use db::vpc::{self};
+use db::{DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_segment};
 use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
 use model::domain::NewDomain;
@@ -22,11 +25,8 @@ use model::network_segment::{NetworkDefinition, NewNetworkSegment};
 use model::vpc::NewVpc;
 use sqlx::{Pool, Postgres};
 
+use crate::CarbideError;
 use crate::api::Api;
-use crate::db::domain::{self};
-use crate::db::vpc::{self};
-use crate::db::{DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_segment};
-use crate::{CarbideError, db};
 
 /// Create a Domain if we don't already have one.
 /// Returns true if we created an entry in the db (we had no domains yet), false otherwise.

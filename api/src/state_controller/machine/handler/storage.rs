@@ -18,7 +18,6 @@ use model::instance::snapshot::InstanceSnapshot;
 use model::instance::status::storage::InstanceStorageStatusObservation;
 use sqlx::PgConnection;
 
-use crate::db;
 use crate::state_controller::state_handler::{StateHandlerError, StateHandlerServices};
 use crate::storage::{attach_volume_to_client, detach_volume_from_client};
 
