@@ -17,7 +17,15 @@ total_mem=$(free -m -w | grep Mem | awk '{print $2}')
 # We're not sure if we need/want this fix for BF2 yet,
 # so only set it if the total mem signals BF3.
 if [ "${total_mem}" -gt "30000" ]; then
-	target_pipesize=32768
+
+	# We know what we need for 2.8 and 2.9, but 64 for everyone else.
+	target_pipesize=64
+
+	if crictl inspect $(crictl ps | grep hbn | cut -d' ' -f 1) | grep 'doca2\.9\.' &>/dev/null;then
+		target_pipesize=32768
+	elif crictl inspect $(crictl ps | grep hbn | cut -d' ' -f 1) | grep 'doca2\.8\.' &>/dev/null;then
+		target_pipesize=1024
+	fi
 
 	pipesize=$(ovs-vsctl get Open_vSwitch . other_config:ctl-pipe-size | sed 's/"//g')
 	if [ "${pipesize}" != "${target_pipesize}" ]
