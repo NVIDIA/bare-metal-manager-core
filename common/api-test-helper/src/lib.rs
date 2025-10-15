@@ -17,7 +17,6 @@ pub mod instance;
 pub mod machine;
 pub mod machine_a_tron;
 pub mod metrics;
-pub mod prometheus_text_parser;
 pub mod subnet;
 pub mod tenant;
 pub mod utils;

@@ -15,7 +15,6 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
-use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
@@ -36,6 +35,7 @@ use model::network_segment::{
 use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
 use model::vpc::UpdateVpcVirtualization;
+use prometheus_text_parser::ParsedPrometheusMetrics;
 use rpc::forge::NetworkSegmentSearchConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;

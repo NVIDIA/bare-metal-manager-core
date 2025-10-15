@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
-use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 use eyre::Context;
+use prometheus_text_parser::ParsedPrometheusMetrics;
 use ssh_console_mock_api_server::MockHost;
 
 pub async fn assert_metrics(metrics_str: String, mock_hosts: &[MockHost]) -> eyre::Result<()> {

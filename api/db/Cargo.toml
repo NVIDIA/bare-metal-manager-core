@@ -58,7 +58,6 @@ default = ["linux-build"]
 linux-build = [
     "tss-esapi",
     "sqlx-testing/linux-build",
-    "api-test-helper/linux-build",
     "forge-host-support/linux-build",
 ]
 
@@ -68,7 +67,6 @@ forge-version = { path = "../../common/version" }
 [dev-dependencies]
 lazy_static = "1.4.0"
 carbide-macros = { path = "../../common/carbide-macros" }
-api-test-helper = { path = "../../common/api-test-helper", default-features = false }
 sqlx-testing = { path = "../../common/sqlx-testing", default-features = false }
 
 [lints]

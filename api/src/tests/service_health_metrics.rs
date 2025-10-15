@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 use model::resource_pool::ResourcePoolStats;
+use prometheus_text_parser::ParsedPrometheusMetrics;
 use sqlx::PgPool;
 
 use crate::logging::service_health_metrics::{

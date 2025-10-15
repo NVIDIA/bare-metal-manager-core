@@ -24,7 +24,6 @@ forge-uuid = { path = "../../common/uuid", features = ["sqlx"] }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
-async-trait = "0.1.88"
 base64 = "0.22.1"
 casbin = { version = "2.0", features = ["glob"] }
 chrono = "0.4.34"
@@ -59,7 +58,6 @@ default = ["linux-build"]
 linux-build = [
     "tss-esapi",
     "sqlx-testing/linux-build",
-    "api-test-helper/linux-build",
     "forge-host-support/linux-build",
 ]
 
@@ -68,7 +66,6 @@ forge-version = { path = "../../common/version" }
 
 [dev-dependencies]
 lazy_static = "1.4.0"
-api-test-helper = { path = "../../common/api-test-helper", default-features = false }
 sqlx-testing = { path = "../../common/sqlx-testing", default-features = false }
 prost = "0.14"
 

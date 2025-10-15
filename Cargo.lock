@@ -1298,7 +1298,6 @@ name = "carbide-api"
 version = "0.0.1"
 dependencies = [
  "ansi-to-html",
- "api-test-helper",
  "arc-swap",
  "askama",
  "askama_escape",
@@ -1307,7 +1306,6 @@ dependencies = [
  "axum 0.8.4",
  "axum-extra",
  "base64 0.22.1",
- "bmc-mock",
  "bmc-vendor",
  "byteorder",
  "bytes",
@@ -1322,7 +1320,6 @@ dependencies = [
  "ctor 0.2.9",
  "dashmap",
  "data-encoding",
- "domain",
  "duration-str 0.12.0",
  "eyre",
  "figment",
@@ -1337,7 +1334,6 @@ dependencies = [
  "health-report",
  "hex",
  "http",
- "http-body",
  "http-body-util",
  "hyper",
  "hyper-rustls",
@@ -1350,18 +1346,14 @@ dependencies = [
  "libredfish",
  "logfmt",
  "mac_address",
- "machine-a-tron",
  "md5",
  "measured-boot",
  "mlxconfig-device",
  "mqttea",
- "names",
  "num-bigint-dig",
  "num_cpus",
  "oauth2",
- "octseq",
  "oid-registry",
- "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-prometheus",
@@ -1369,7 +1361,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pkcs1",
  "prometheus",
- "prost 0.14.1",
+ "prometheus-text-parser",
  "rand 0.9.2",
  "rcgen",
  "regex",
@@ -1377,18 +1369,15 @@ dependencies = [
  "rpc",
  "rsa",
  "rumqttc",
- "rustc-hash 2.1.1",
  "rustls 0.23.32",
  "rustls-pemfile",
  "rustls-pki-types",
  "serde",
  "serde_json",
- "serde_regex",
  "sha2 0.10.9",
  "sqlx",
  "sqlx-testing",
  "strum",
- "strum_macros",
  "temp-dir",
  "thiserror 2.0.16",
  "time",
@@ -1406,7 +1395,6 @@ dependencies = [
  "url",
  "utils",
  "uuid",
- "vaultrs",
  "version-compare 0.2.0",
  "x509-parser",
 ]
@@ -1415,7 +1403,6 @@ dependencies = [
 name = "carbide-api-db"
 version = "0.0.1"
 dependencies = [
- "api-test-helper",
  "async-trait",
  "carbide-api-model",
  "carbide-macros",
@@ -1457,11 +1444,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "carbide-api-model"
+name = "carbide-api-integration-tests"
 version = "0.0.1"
 dependencies = [
  "api-test-helper",
- "async-trait",
+ "bmc-mock",
+ "ctor 0.2.9",
+ "eyre",
+ "futures",
+ "itertools 0.12.1",
+ "machine-a-tron",
+ "serde_json",
+ "sqlx",
+ "temp-dir",
+ "tokio",
+ "tracing",
+ "utils",
+]
+
+[[package]]
+name = "carbide-api-model"
+version = "0.0.1"
+dependencies = [
  "base64 0.22.1",
  "bmc-vendor",
  "casbin",
@@ -6340,6 +6344,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus-text-parser"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.16",
+]
+
+[[package]]
 name = "prost"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8243,6 +8254,7 @@ dependencies = [
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
  "prometheus",
+ "prometheus-text-parser",
  "prost 0.14.1",
  "prost-types 0.14.1",
  "rand 0.9.2",
