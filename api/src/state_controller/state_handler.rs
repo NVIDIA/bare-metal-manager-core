@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::panic::Location;
 use std::sync::Arc;
 
 use db::DatabaseError;
 use forge_uuid::machine::MachineId;
 use libredfish::RedfishError;
-use model::controller_outcome::{PersistentSourceReference, PersistentStateHandlerOutcome};
+use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::{
     DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState,
     DpuInitStates, DpuReprovisionStates, HostReprovisionState, InstallDpuOsState,
@@ -103,86 +104,56 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
 }
 
-/// References the source code that lead to the result
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct SourceReference {
-    pub file: &'static str,
-    pub line: u32,
-}
-
-impl From<&SourceReference> for PersistentSourceReference {
-    fn from(value: &SourceReference) -> Self {
-        Self {
-            file: value.file.to_string(),
-            line: value.line,
-        }
-    }
-}
-
 pub enum StateHandlerOutcome<S> {
     Wait {
         /// The reason we're waiting
         reason: String,
-        source_ref: SourceReference,
+        source_ref: &'static Location<'static>,
     },
     Transition {
         /// The state we are transitioning to
         next_state: S,
-        source_ref: SourceReference,
+        source_ref: &'static Location<'static>,
     },
     DoNothing {
-        source_ref: SourceReference,
+        source_ref: &'static Location<'static>,
     }, // Nothing to do. Typically in Ready or Assigned/Ready
     Deleted {
-        _source_ref: SourceReference,
+        _source_ref: &'static Location<'static>,
     }, // The object was removed from the database
 }
 
-macro_rules! source_ref {
-    () => {
-        crate::state_controller::state_handler::SourceReference {
-            file: file!(),
-            line: line!(),
-        }
-    };
-}
-pub(crate) use source_ref;
-
-macro_rules! do_nothing {
-    () => {
+impl<S> StateHandlerOutcome<S> {
+    #[track_caller]
+    pub fn do_nothing() -> Self {
         StateHandlerOutcome::DoNothing {
-            source_ref: crate::state_controller::state_handler::source_ref!(),
+            source_ref: Location::caller(),
         }
-    };
-}
+    }
 
-macro_rules! transition {
-    ($next_state:expr) => {
+    #[track_caller]
+    pub fn transition(next_state: S) -> Self {
         StateHandlerOutcome::Transition {
-            next_state: $next_state,
-            source_ref: crate::state_controller::state_handler::source_ref!(),
+            next_state,
+            source_ref: Location::caller(),
         }
-    };
-}
+    }
 
-macro_rules! wait {
-    ($reason:expr) => {
+    #[track_caller]
+    pub fn wait(reason: String) -> Self {
         StateHandlerOutcome::Wait {
-            reason: $reason,
-            source_ref: crate::state_controller::state_handler::source_ref!(),
+            reason,
+            source_ref: Location::caller(),
         }
-    };
-}
+    }
 
-macro_rules! deleted {
-    () => {
+    #[track_caller]
+    pub fn deleted() -> Self {
         StateHandlerOutcome::Deleted {
-            _source_ref: crate::state_controller::state_handler::source_ref!(),
+            _source_ref: Location::caller(),
         }
-    };
+    }
 }
-
-pub(crate) use {deleted, do_nothing, transition, wait};
 
 impl<S> std::fmt::Display for StateHandlerOutcome<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -366,7 +337,7 @@ impl<
         _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
-        Ok(do_nothing!())
+        Ok(StateHandlerOutcome::do_nothing())
     }
 }
 
@@ -930,4 +901,42 @@ where
     };
 
     Ok(states.iter().all(|x| x == first))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_transition_source_location() {
+        let StateHandlerOutcome::<String>::DoNothing { source_ref } =
+            StateHandlerOutcome::do_nothing()
+        else {
+            unreachable!()
+        };
+        assert_eq!(source_ref.line(), line!() - 4);
+        assert_eq!(source_ref.file(), file!());
+
+        let StateHandlerOutcome::<String>::Wait { source_ref, .. } =
+            StateHandlerOutcome::wait("reason".into())
+        else {
+            unreachable!()
+        };
+        assert_eq!(source_ref.line(), line!() - 4);
+        assert_eq!(source_ref.file(), file!());
+
+        let StateHandlerOutcome::<String>::Transition { source_ref, .. } =
+            StateHandlerOutcome::transition("next".into())
+        else {
+            unreachable!()
+        };
+        assert_eq!(source_ref.line(), line!() - 4);
+        assert_eq!(source_ref.file(), file!());
+
+        let StateHandlerOutcome::<String>::Deleted { _source_ref } = StateHandlerOutcome::deleted()
+        else {
+            unreachable!()
+        };
+        assert_eq!(_source_ref.line(), line!() - 4);
+        assert_eq!(_source_ref.file(), file!());
+    }
 }

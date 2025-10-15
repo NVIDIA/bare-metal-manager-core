@@ -25,8 +25,7 @@ use sqlx::PgConnection;
 
 use crate::state_controller::dpa_interface::context::DpaInterfaceStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing,
-    transition,
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 /// The actual Dpa Interface State handler
@@ -78,7 +77,7 @@ impl StateHandler for DpaInterfaceStateHandler {
             DpaInterfaceControllerState::Provisioning => {
                 let new_state = DpaInterfaceControllerState::Ready;
                 tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                Ok(transition!(new_state))
+                Ok(StateHandlerOutcome::transition(new_state))
             }
             DpaInterfaceControllerState::Ready => {
                 // We will stay in Ready state as long use_admin_network is true.
@@ -103,11 +102,11 @@ impl StateHandler for DpaInterfaceStateHandler {
                     )
                     .await?;
 
-                    Ok(transition!(new_state))
+                    Ok(StateHandlerOutcome::transition(new_state))
                 } else {
                     do_heartbeat(state, txn, client, hb_interval, false).await?;
 
-                    Ok(do_nothing!())
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
             }
             DpaInterfaceControllerState::WaitingForSetVNI => {
@@ -128,11 +127,11 @@ impl StateHandler for DpaInterfaceStateHandler {
                         true,  /* send revision */
                     )
                     .await?;
-                    Ok(do_nothing!())
+                    Ok(StateHandlerOutcome::do_nothing())
                 } else {
                     let new_state = DpaInterfaceControllerState::Assigned;
                     tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                    Ok(transition!(new_state))
+                    Ok(StateHandlerOutcome::transition(new_state))
                 }
             }
             DpaInterfaceControllerState::Assigned => {
@@ -151,12 +150,12 @@ impl StateHandler for DpaInterfaceStateHandler {
                     tracing::info!(state = ?new_state, "Dpa Interface state transition");
                     send_set_vni_command(state, txn, client, false, false, true).await?;
 
-                    Ok(transition!(new_state))
+                    Ok(StateHandlerOutcome::transition(new_state))
                 } else {
                     do_heartbeat(state, txn, client, hb_interval, true).await?;
 
                     // Send a heartbeat command, indicated by the revision string being "NIL".
-                    Ok(do_nothing!())
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
             }
             DpaInterfaceControllerState::WaitingForResetVNI => {
@@ -171,11 +170,11 @@ impl StateHandler for DpaInterfaceStateHandler {
                     })?;
 
                     send_set_vni_command(state, txn, client, false, false, true).await?;
-                    Ok(do_nothing!())
+                    Ok(StateHandlerOutcome::do_nothing())
                 } else {
                     let new_state = DpaInterfaceControllerState::Ready;
                     tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                    Ok(transition!(new_state))
+                    Ok(StateHandlerOutcome::transition(new_state))
                 }
             }
         }
