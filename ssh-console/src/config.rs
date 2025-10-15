@@ -46,7 +46,7 @@ pub struct Config {
     pub authorized_keys_path: Option<PathBuf>,
     #[serde(default, rename = "bmcs")]
     pub override_bmcs: Option<Vec<BmcConfig>>,
-    #[serde(rename = "host_key")]
+    #[serde(default = "Defaults::host_key_path", rename = "host_key")]
     pub host_key_path: PathBuf,
     #[serde(default = "Defaults::dpus")]
     pub dpus: bool,
@@ -67,13 +67,13 @@ pub struct Config {
     #[serde(default = "Defaults::client_key_path")]
     pub client_key_path: PathBuf,
     #[serde(
-        default = "Defaults::openssh_certificate_ca_fingerprints",
+        default,
         serialize_with = "serialize_openssh_certificate_ca_fingerprints",
         deserialize_with = "deserialize_openssh_certificate_ca_fingerprints"
     )]
     pub openssh_certificate_ca_fingerprints: Vec<Fingerprint>,
-    #[serde(default = "Defaults::admin_certificate_role")]
-    pub admin_certificate_role: String,
+    #[serde(default)]
+    pub admin_certificate_role: Option<String>,
     #[serde(
         default = "Defaults::api_poll_interval",
         serialize_with = "serialize_duration",
@@ -108,6 +108,50 @@ pub struct Config {
     pub log_rotate_max_size: Size,
     #[serde(default = "Defaults::log_rotate_max_rotated_files")]
     pub log_rotate_max_rotated_files: usize,
+    #[serde(default = "Defaults::cert_authorization")]
+    pub openssh_certificate_authorization: CertAuthorization,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct CertAuthorization {
+    #[serde(default = "Defaults::cert_authorization_strategy")]
+    pub strategy: Vec<CertAuthorizationStrategy>,
+    #[serde(default)]
+    pub keyid_format: KeyIdFormat,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CertAuthorizationStrategy {
+    // Extract key/values from KeyId, check if role matches
+    KeyId,
+    // Json,
+    // ExternalCommand,
+    // Extensions,
+    // Principals,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct KeyIdFormat {
+    #[serde(default = "Defaults::cert_authorization_keyid_field_separator")]
+    pub field_separator: String,
+    #[serde(default = "Defaults::cert_authorization_keyid_user_field")]
+    pub user_field: String,
+    #[serde(default = "Defaults::cert_authorization_keyid_role_field")]
+    pub role_field: String,
+    #[serde(default = "Defaults::cert_authorization_keyid_role_separator")]
+    pub role_separator: String,
+}
+
+impl Default for KeyIdFormat {
+    fn default() -> Self {
+        Self {
+            field_separator: Defaults::cert_authorization_keyid_field_separator(),
+            user_field: Defaults::cert_authorization_keyid_user_field(),
+            role_field: Defaults::cert_authorization_keyid_role_field(),
+            role_separator: Defaults::cert_authorization_keyid_role_separator(),
+        }
+    }
 }
 
 impl Config {
@@ -162,8 +206,8 @@ impl Config {
             forge_root_ca_path,
             client_cert_path,
             client_key_path,
-            openssh_certificate_ca_fingerprints,
-            admin_certificate_role,
+            openssh_certificate_ca_fingerprints: _,
+            admin_certificate_role: _,
             api_poll_interval,
             console_logs_path,
             console_logging_enabled,
@@ -173,16 +217,13 @@ impl Config {
             successful_connection_minimum_duration,
             log_rotate_max_size,
             log_rotate_max_rotated_files,
+            openssh_certificate_authorization,
         } = self;
         let api_poll_interval = format!("{}s", api_poll_interval.as_secs());
         let reconnect_interval_base = format!("{}s", reconnect_interval_base.as_secs());
         let reconnect_interval_max = format!("{}s", reconnect_interval_max.as_secs());
         let successful_connection_minimum_duration =
             format!("{}s", successful_connection_minimum_duration.as_secs());
-        let openssh_certificate_ca_fingerprints = openssh_certificate_ca_fingerprints
-            .into_iter()
-            .map(|f| f.to_string())
-            .collect::<Vec<_>>();
         let carbide_uri = carbide_uri.to_string();
         let listen_address = listen_address.to_string();
         let metrics_address = metrics_address.to_string();
@@ -191,6 +232,27 @@ impl Config {
             .with_base(size::Base::Base2)
             .with_style(size::Style::Abbreviated)
             .to_string();
+
+        let cert_authorization_strategy = {
+            let mut value = String::new();
+            serde::Serialize::serialize(
+                &openssh_certificate_authorization.strategy,
+                toml::ser::ValueSerializer::new(&mut value),
+            )
+            .expect("Invalid default config");
+            value
+        };
+
+        let cert_authorization_keyid_format_field_separator = openssh_certificate_authorization
+            .keyid_format
+            .field_separator;
+        let cert_authorization_keyid_format_user_field =
+            openssh_certificate_authorization.keyid_format.user_field;
+        let cert_authorization_keyid_format_role_field =
+            openssh_certificate_authorization.keyid_format.role_field;
+        let cert_authorization_keyid_format_role_separator = openssh_certificate_authorization
+            .keyid_format
+            .role_separator;
 
         format!(
             r#"
@@ -235,14 +297,14 @@ insecure = {insecure}
 # override_bmc_ssh_port = <port>
 # override_ipmi_port = <port>
 
-## Signing CA fingerprints for openssh certificates. Defaults to one that's valid for production
-## nvinit certs
-openssh_certificate_ca_fingerprints = {openssh_certificate_ca_fingerprints:?}
+## Signing CA fingerprints for openssh certificates. Defaults to not trusting any signing CA.
+# openssh_certificate_ca_fingerprints = ["SHA256:<sha256>"]
 
 ## Roles which determine admin access (logins with an openssh certificate, signed by the above
 ## fingerprints, containing this role in its Key ID, are considered admins and can log into machines
-## directly.)
-admin_certificate_role = {admin_certificate_role:?}
+## directly. Use the [openssh_certificate_authorization] section to configure how roles are
+## extracted from certs.)
+# admin_certificate_role = <group>
 
 ## If true, use insecure ciphers when connecting to IPMI, like SHA1. Useful for ipmi_sim.
 insecure_ipmi_ciphers = {insecure_ipmi_ciphers}
@@ -283,6 +345,18 @@ log_rotate_max_size = {log_rotate_max_size:?}
 
 ## When rotating console logs, how many old logs should we keep? (e.g. 3 means we keep .log, .log.0, .log.1, and .log.2)
 log_rotate_max_rotated_files = {log_rotate_max_rotated_files}
+
+## Configure how the role is extracted from an SSH certificate
+[openssh_certificate_authorization]
+## How should roles be extracted from SSH certs? (Currently supported: "key_id")
+strategy = {cert_authorization_strategy}
+
+## Configure how to extract roles from the SSH certificate's Key ID field
+[openssh_certificate_authorization.keyid_format]
+field_separator = {cert_authorization_keyid_format_field_separator:?}
+user_field = {cert_authorization_keyid_format_user_field:?}
+role_field = {cert_authorization_keyid_format_role_field:?}
+role_separator = {cert_authorization_keyid_format_role_separator:?}
 
 ## Optional: For development mode, you can hardcode a list of BMC's to talk to.
 # [[bmcs]]
@@ -369,10 +443,8 @@ impl Default for Config {
             host_key_path: Defaults::host_key_path(),
             carbide_uri: Defaults::carbide_uri(),
             forge_root_ca_path: Defaults::root_ca_path(),
-            client_cert_path: Defaults::client_key_path(),
+            client_cert_path: Defaults::client_cert_path(),
             client_key_path: Defaults::client_key_path(),
-            admin_certificate_role: Defaults::admin_certificate_role(),
-            openssh_certificate_ca_fingerprints: Defaults::openssh_certificate_ca_fingerprints(),
             api_poll_interval: Defaults::api_poll_interval(),
             console_logs_path: Defaults::console_logs_path(),
             console_logging_enabled: Defaults::console_logging_enabled(),
@@ -384,6 +456,7 @@ impl Default for Config {
             reconnect_interval_max: Defaults::reconnect_interval_max(),
             dpus: Defaults::dpus(),
             hosts: Defaults::hosts(),
+            openssh_certificate_authorization: Defaults::cert_authorization(),
             override_bmc_ssh_port: None,
             override_ipmi_port: None,
             authorized_keys_path: None,
@@ -391,6 +464,8 @@ impl Default for Config {
             insecure: false,
             insecure_ipmi_ciphers: false,
             override_bmc_ssh_host: None,
+            admin_certificate_role: None,
+            openssh_certificate_ca_fingerprints: vec![],
         }
     }
 }
@@ -461,18 +536,6 @@ impl Defaults {
         "/var/run/secrets/spiffe.io/tls.key".into()
     }
 
-    pub fn openssh_certificate_ca_fingerprints() -> Vec<Fingerprint> {
-        // Taken from working nvinit cert as of 2025-06-26. No idea how often this changes.
-        vec![
-            Fingerprint::from_str("SHA256:sPKzOUJwvkR3aCFf2oCyHnc+JoMtFcow2UxcEz+cXo4")
-                .expect("BUG: default OpenSSH certificate CA fingerprint is invalid"),
-        ]
-    }
-
-    pub fn admin_certificate_role() -> String {
-        "swngc-forge-admins".to_string()
-    }
-
     pub fn api_poll_interval() -> Duration {
         Duration::from_secs(180)
     }
@@ -503,6 +566,38 @@ impl Defaults {
 
     pub fn log_rotate_max_rotated_files() -> usize {
         4
+    }
+
+    pub fn cert_authorization() -> CertAuthorization {
+        CertAuthorization {
+            strategy: vec![CertAuthorizationStrategy::KeyId],
+            keyid_format: KeyIdFormat {
+                field_separator: " ".to_string(),
+                user_field: "user".to_string(),
+                role_field: "roles".to_string(),
+                role_separator: ",".to_string(),
+            },
+        }
+    }
+
+    pub fn cert_authorization_keyid_field_separator() -> String {
+        " ".to_string()
+    }
+
+    pub fn cert_authorization_keyid_user_field() -> String {
+        "user".to_string()
+    }
+
+    pub fn cert_authorization_keyid_role_field() -> String {
+        "roles".to_string()
+    }
+
+    pub fn cert_authorization_keyid_role_separator() -> String {
+        ",".to_string()
+    }
+
+    pub fn cert_authorization_strategy() -> Vec<CertAuthorizationStrategy> {
+        vec![CertAuthorizationStrategy::KeyId]
     }
 }
 
@@ -557,6 +652,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use indoc::indoc;
+
     use super::*;
 
     #[test]
@@ -568,11 +665,94 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_config_file_is_default() {
+        let empty_config: Config = toml::from_str("").expect("empty toml didn't parse");
+        let default_config = Config::default();
+        assert_eq!(empty_config, default_config);
+    }
+
+    #[test]
     fn test_default_file_parses() {
         let default = Config::default();
         let default_toml = toml::to_string(&default).expect("default toml didn't serialize");
         let roundtripped =
             toml::from_str::<Config>(&default_toml).expect("default toml didn't parse");
         assert_eq!(default, roundtripped);
+    }
+
+    #[test]
+    fn test_authz_partial_config() {
+        let partial_config = indoc! {r#"
+        [openssh_certificate_authorization]
+        strategy = ["key_id"]
+
+        [openssh_certificate_authorization.keyid_format]
+        # don't configure field_separator or role_field, serde should pick defaults
+        role_field = "roles"
+        role_separator = ","
+        "#};
+
+        let partial_config =
+            toml::from_str::<Config>(partial_config).expect("Couldn't parse config toml");
+
+        // The unspecified keyid_format fields should be at defaults
+        assert_eq!(
+            partial_config.openssh_certificate_authorization.strategy,
+            vec![CertAuthorizationStrategy::KeyId],
+        );
+        assert_eq!(
+            partial_config
+                .openssh_certificate_authorization
+                .keyid_format
+                .field_separator,
+            " ".to_string()
+        );
+        assert_eq!(
+            partial_config
+                .openssh_certificate_authorization
+                .keyid_format
+                .user_field,
+            "user".to_string()
+        );
+
+        // Should be equivalent to the default config
+        assert_eq!(partial_config, Config::default());
+    }
+
+    #[test]
+    fn test_authz_partial_config_no_strategy() {
+        let partial_config = indoc! {r#"
+        [openssh_certificate_authorization.keyid_format]
+        # don't configure field_separator or role_field, serde should pick defaults
+        role_field = "roles"
+        role_separator = ","
+        "#};
+
+        let partial_config =
+            toml::from_str::<Config>(partial_config).expect("Couldn't parse config toml");
+
+        // The strategy should be at the default
+        assert_eq!(
+            partial_config.openssh_certificate_authorization.strategy,
+            vec![CertAuthorizationStrategy::KeyId],
+        );
+        // The unspecified keyid_format fields should be at defaults
+        assert_eq!(
+            partial_config
+                .openssh_certificate_authorization
+                .keyid_format
+                .field_separator,
+            " ".to_string()
+        );
+        assert_eq!(
+            partial_config
+                .openssh_certificate_authorization
+                .keyid_format
+                .user_field,
+            "user".to_string()
+        );
+
+        // Should be equivalent to the default config
+        assert_eq!(partial_config, Config::default());
     }
 }

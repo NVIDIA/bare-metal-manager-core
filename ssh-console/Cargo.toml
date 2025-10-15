@@ -60,6 +60,7 @@ futures = "0.3.31"
 api-test-helper = { path = "../common/api-test-helper" }
 ssh_console_mock_api_server = { path = "mock_api_server" }
 eyre = "0.6.12"
+indoc = "2.0.6"
 prometheus-text-parser = { path = "../common/prometheus-text-parser" }
 
 [lints]
