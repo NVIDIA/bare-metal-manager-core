@@ -1051,7 +1051,7 @@ def force_delete_and_await_reingestion(
     """
     # Force-delete machine from Forge database
     print(f"Force-deleting machine {test_config.machine_under_test}")
-    if test_config.factory_reset:
+    if not test_config.skip_factory_reset:
         admin_cli.force_delete_machine(test_config.machine_under_test, delete_creds=True)
     else:
         admin_cli.force_delete_machine(test_config.machine_under_test, delete_creds=False)
