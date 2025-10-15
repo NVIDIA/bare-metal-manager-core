@@ -123,9 +123,9 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
     use chrono::Utc;
     use config_version::ConfigVersion;
+    use prometheus_text_parser::ParsedPrometheusMetrics;
 
     use super::*;
     use crate::machine_validation::metrics::MachineValidationMetrics;

@@ -100,7 +100,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
+    use prometheus_text_parser::ParsedPrometheusMetrics;
 
     use super::*;
     use crate::preingestion_manager::metrics::PreingestionMetrics;
