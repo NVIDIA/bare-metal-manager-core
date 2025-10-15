@@ -9,6 +9,7 @@
     {% else %}
     <a id="delete-link" href="#" onclick="if(confirm('Are you sure you want to delete this endpoint?')) { document.getElementById('delete-form').submit(); } return false;">Delete</a>
     {% endif %}
+    <a id="logs-link" href="" target="_blank">Logs</a>
     <a id="json-link" href="">JSON</a>
 </div>
 
@@ -479,6 +480,10 @@ document.addEventListener('DOMContentLoaded', function() {
 	window.addEventListener('resize', function() {
 		moveIndicator(nav.querySelector('.tab-button.active'));
 	});
+
+	// Set up Logs link
+	const bmcIp = "{{ endpoint.address }}";
+	document.getElementById('logs-link').href = buildGrafanaLogsUrl(bmcIp);
 });
 </script>
 

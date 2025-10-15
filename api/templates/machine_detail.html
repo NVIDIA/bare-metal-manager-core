@@ -3,7 +3,10 @@
 {% block title %}{{ id }}{% endblock %}
 
 {% block content %}
-<div id="json"><a id="json-link" href="">JSON</a></div>
+<div id="json">
+	<a id="logs-link" href="" target="_blank">Logs</a>
+	<a id="json-link" href="">JSON</a>
+</div>
 <h1>{{ machine_type }} {{ id }}</h1>
 
 <table class="detailsview">
@@ -462,11 +465,16 @@ Missing BMC Data
 			form.submit();
 		}
 	}
+
 	document.addEventListener("DOMContentLoaded", function(event){
 		let maintenance_form = document.getElementById("maintenance_action");
 		maintenance_form.addEventListener("submit", are_you_sure_maintenance);
 		let quarantine_form = document.getElementById("quarantine_action");
 		quarantine_form.addEventListener("submit", are_you_sure_quarantine);
+		
+		// Set up Logs link
+		const machineId = "{{ id }}";
+		document.getElementById('logs-link').href = buildGrafanaLogsUrl(machineId);
 	});
 </script>
 
