@@ -90,18 +90,18 @@
 		<script src="/admin/static/sortable.js"></script>
 		<script>
 
+			// Extract site name from URL (e.g., "dev3" from "api-dev3.frg.nvidia.com")
+			// If URL doesn't match the pattern, returns defaultSiteName (defaults to "dev3")
+			function getSiteName(defaultSiteName = "dev3") {
+				const url = window.location.href;
+				const match = url.match(/https?:\/\/api-([^.]+)\.frg\.nvidia\.com/);
+				return match ? match[1] : defaultSiteName;
+			}
+
 			// On domains like api-dev3.frg.nvidia.com extract "dev3" and use that to build Grafana and Argo CD URLs
 			function setURLs() {
-				let url = window.location.href;
-				let name = "dev3";
-				let displayName = "localDev";
-				
-				// Check if URL matches expected format
-				const match = url.match(/https?:\/\/api-([^.]+)\.frg\.nvidia\.com/);
-				if (match) {
-					name = match[1];
-					displayName = name;
-				}
+				const displayName = getSiteName("localDev");
+				const name = displayName === "localDev" ? "dev3" : displayName;
 				
 				// Set the site name
 				let siteNameElement = document.getElementById("site-name");
@@ -124,6 +124,33 @@
 					}
 				}
 				return el;
+			}
+
+			// Build Grafana logs URL for a given search term (machine ID or BMC IP)
+			function buildGrafanaLogsUrl(searchTerm) {
+				const siteName = getSiteName();
+				const grafanaBaseUrl = 'https://grafana-' + siteName + '.frg.nvidia.com';
+				const query = '{k8s_container_name="carbide-api"} |= `' + searchTerm + '` != `SPAN`';
+				const panesJson = {
+					"KLl": {
+						"datasource": "P8E80F9AEF21F6940",
+						"queries": [{
+							"refId": "A",
+							"expr": query,
+							"queryType": "range",
+							"datasource": {
+								"type": "loki",
+								"uid": "P8E80F9AEF21F6940"
+							},
+							"editorMode": "builder"
+						}],
+						"range": {
+							"from": "now-6h",
+							"to": "now"
+						}
+					}
+				};
+				return grafanaBaseUrl + '/explore?panes=' + encodeURIComponent(JSON.stringify(panesJson)) + '&schemaVersion=1&orgId=1';
 			}
 
 			// "Show" pages have a JSON link, fill in its target
