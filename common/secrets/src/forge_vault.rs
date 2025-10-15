@@ -1,16 +1,17 @@
+use std::collections::HashMap;
 use std::env;
-use std::marker::PhantomData;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use eyre::{ContextCompat, WrapErr};
+use eyre::{ContextCompat, WrapErr, eyre};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 use rand::Rng;
-use tokio::sync::RwLock;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::time::sleep;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
 use vaultrs::client::{
     VaultClient, VaultClientSettings, VaultClientSettingsBuilder, VaultClientSettingsBuilderError,
@@ -23,24 +24,23 @@ use crate::certificates::{Certificate, CertificateProvider};
 use crate::credentials::{CredentialKey, CredentialProvider, Credentials};
 
 #[derive(Clone, Debug)]
-pub enum ForgeVaultAuthenticationType {
+enum ForgeVaultAuthenticationType {
     Root(String),
     ServiceAccount(PathBuf),
 }
 
 #[derive(Clone, Debug)]
-pub struct ForgeVaultAuthentication {
-    pub token: String,
-    pub expiry: Instant,
+struct ForgeVaultAuthentication {
+    expiry: Instant,
 }
 
-pub enum ForgeVaultAuthenticationStatus {
-    Authenticated(ForgeVaultAuthentication, Box<VaultClient>),
+enum ForgeVaultAuthenticationStatus {
+    Authenticated(ForgeVaultAuthentication, Arc<VaultClient>),
     Initialized,
 }
 
 #[derive(Debug, Clone)]
-pub struct ForgeVaultClientConfig {
+struct ForgeVaultClientConfig {
     pub auth_type: ForgeVaultAuthenticationType,
     pub vault_address: String,
     pub kv_mount_location: String,
@@ -49,6 +49,7 @@ pub struct ForgeVaultClientConfig {
     pub vault_root_ca_path: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct ForgeVaultMetrics {
     pub vault_requests_total_counter: Counter<u64>,
     pub vault_requests_succeeded_counter: Counter<u64>,
@@ -57,10 +58,181 @@ pub struct ForgeVaultMetrics {
     pub vault_request_duration_histogram: Histogram<u64>,
 }
 
+struct RefresherMessage {
+    response_tx: tokio::sync::oneshot::Sender<Result<Arc<VaultClient>, eyre::Report>>,
+}
+
 pub struct ForgeVaultClient {
     vault_metrics: ForgeVaultMetrics,
     vault_client_config: ForgeVaultClientConfig,
-    vault_auth_status: RwLock<ForgeVaultAuthenticationStatus>,
+    vault_refresher_tx: Sender<RefresherMessage>,
+}
+
+fn create_vault_client_settings<S>(
+    token: S,
+    vault_client_config: &ForgeVaultClientConfig,
+) -> Result<VaultClientSettings, eyre::ErrReport>
+where
+    S: Into<String>,
+{
+    let mut vault_client_settings_builder = VaultClientSettingsBuilder::default();
+    let vault_client_settings_builder = vault_client_settings_builder
+        .token(token)
+        .address(vault_client_config.vault_address.clone())
+        .timeout(Some(Duration::from_secs(60)));
+
+    let vault_client_settings_builder =
+        if Path::new(&vault_client_config.vault_root_ca_path).exists() {
+            vault_client_settings_builder
+                .ca_certs(vec![vault_client_config.vault_root_ca_path.clone()])
+                .verify(true)
+        } else {
+            vault_client_settings_builder.verify(false)
+        };
+
+    Ok(vault_client_settings_builder.build()?)
+}
+
+async fn vault_token_refresh(
+    vault_client_config: &ForgeVaultClientConfig,
+    vault_metrics: &ForgeVaultMetrics,
+) -> Result<(ForgeVaultAuthentication, Arc<VaultClient>), eyre::ErrReport> {
+    let (vault_token, vault_token_expiry_secs) = match vault_client_config.auth_type {
+        ForgeVaultAuthenticationType::Root(ref root_token) => {
+            (
+                root_token.clone(),
+                60 * 60 * 24 * 365 * 10, /*root token never expires just use ten years*/
+            )
+        }
+        ForgeVaultAuthenticationType::ServiceAccount(ref service_account_token_path) => {
+            let jwt = std::fs::read_to_string(service_account_token_path)
+                .wrap_err("service_account_token_file_read")?
+                .trim()
+                .to_string();
+
+            let vault_client_settings = create_vault_client_settings(
+                "silly vaultrs bugs make me sad",
+                vault_client_config,
+            )?;
+            let vault_client = VaultClient::new(vault_client_settings)?;
+            vault_metrics
+                .vault_requests_total_counter
+                .add(1, &[KeyValue::new("request_type", "service_account_login")]);
+            let time_started_vault_request = Instant::now();
+            let vault_response = vaultrs::auth::kubernetes::login(
+                &vault_client,
+                "kubernetes",
+                "carbide-api",
+                jwt.as_str(),
+            )
+            .await;
+            let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
+            vault_metrics.vault_request_duration_histogram.record(
+                elapsed_request_duration,
+                &[KeyValue::new("request_type", "service_account_login")],
+            );
+            let auth_info = vault_response
+                .inspect_err(|err| {
+                    record_vault_client_error(err, "service_account_login", vault_metrics);
+                })
+                .wrap_err("Failed to execute kubernetes service account login request")?;
+
+            vault_metrics
+                .vault_requests_succeeded_counter
+                .add(1, &[KeyValue::new("request_type", "service_account_login")]);
+            // start refreshing before it expires
+            let lease_expiry_secs = (0.9 * auth_info.lease_duration as f64) as u64;
+            (auth_info.client_token, lease_expiry_secs)
+        }
+    };
+
+    tracing::info!("successfully refreshed vault token, with lifetime: {vault_token_expiry_secs}");
+
+    let vault_client_settings = create_vault_client_settings(vault_token, vault_client_config)?;
+    let vault_client = VaultClient::new(vault_client_settings)?;
+
+    // validate that we can actually _use_ the token before we give it back
+    let mut attempts = 3;
+
+    let now = SystemTime::now();
+    let timestamp_secs = now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
+    let kv_mount_location = vault_client_config.kv_mount_location.as_str();
+    let data = HashMap::from([("timestamp_seconds", timestamp_secs.to_string())]);
+    while kv2::set(
+        &vault_client,
+        kv_mount_location,
+        "machines/token_refresh/current_token",
+        &data,
+    )
+    .await
+    .is_err()
+    {
+        attempts -= 1;
+        if attempts <= 0 {
+            tracing::error!(
+                "Vault token renewal check: error reading kv mount location config, giving up after max attempts"
+            );
+            break;
+        }
+        tracing::error!(
+            "Vault token renewal check: error reading kv mount location config, waiting for token to be good"
+        );
+        sleep(Duration::from_secs(2)).await;
+    }
+
+    Ok((
+        ForgeVaultAuthentication {
+            expiry: Instant::now() + Duration::from_secs(vault_token_expiry_secs),
+        },
+        Arc::new(vault_client),
+    ))
+}
+
+async fn maybe_refresh_vault_client(
+    vault_client_config: &ForgeVaultClientConfig,
+    vault_metrics: &ForgeVaultMetrics,
+    vault_auth_status: ForgeVaultAuthenticationStatus,
+) -> Result<(ForgeVaultAuthentication, Arc<VaultClient>), eyre::ErrReport> {
+    let refresh_fut = vault_token_refresh(vault_client_config, vault_metrics);
+    match vault_auth_status {
+        ForgeVaultAuthenticationStatus::Initialized => refresh_fut.await,
+        ForgeVaultAuthenticationStatus::Authenticated(authentication, client) => {
+            let time_remaining_until_refresh = authentication
+                .expiry
+                .saturating_duration_since(Instant::now());
+
+            vault_metrics
+                .vault_token_gauge
+                .record(time_remaining_until_refresh.as_secs_f64(), &[]);
+
+            if Instant::now() >= authentication.expiry {
+                refresh_fut.await
+            } else {
+                Ok((authentication, client))
+            }
+        }
+    }
+}
+
+async fn vault_refresher_loop(
+    mut vault_refresher_rx: Receiver<RefresherMessage>,
+    vault_client_config: ForgeVaultClientConfig,
+    vault_metrics: ForgeVaultMetrics,
+) {
+    let mut auth_status = ForgeVaultAuthenticationStatus::Initialized;
+    while let Some(message) = vault_refresher_rx.recv().await {
+        match maybe_refresh_vault_client(&vault_client_config, &vault_metrics, auth_status).await {
+            Ok((auth, client)) => {
+                message.response_tx.send(Ok(client.clone())).ok();
+                auth_status = ForgeVaultAuthenticationStatus::Authenticated(auth, client);
+            }
+            Err(error) => {
+                message.response_tx.send(Err(error)).ok();
+                auth_status = ForgeVaultAuthenticationStatus::Initialized; // force a refresh until it works
+            }
+        }
+    }
 }
 
 impl From<ClientError> for SecretsError {
@@ -76,205 +248,54 @@ impl From<VaultClientSettingsBuilderError> for SecretsError {
 }
 
 impl ForgeVaultClient {
-    pub fn new(
+    async fn new(
         vault_client_config: ForgeVaultClientConfig,
         vault_metrics: ForgeVaultMetrics,
     ) -> Self {
+        let (vault_refresher_tx, vault_refresher_rx) = tokio::sync::mpsc::channel(1);
+        let vault_client_config_clone = vault_client_config.clone();
+        let vault_metrics_clone = vault_metrics.clone();
+        tokio::spawn(async move {
+            vault_refresher_loop(
+                vault_refresher_rx,
+                vault_client_config_clone,
+                vault_metrics_clone,
+            )
+            .await;
+        });
         Self {
             vault_metrics,
             vault_client_config,
-            vault_auth_status: RwLock::new(ForgeVaultAuthenticationStatus::Initialized),
+            vault_refresher_tx,
         }
+    }
+
+    async fn vault_client(&self) -> Result<Arc<VaultClient>, eyre::Report> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let message = RefresherMessage { response_tx: tx };
+
+        self.vault_refresher_tx
+            .send(message)
+            .await
+            .map_err(|err| eyre!(err))
+            .wrap_err("sender error from background vault refresher loop")?;
+
+        rx.await
+            .map_err(|err| eyre!(err))
+            .wrap_err("receiver error from background vault refresher loop")?
     }
 }
 
 #[async_trait]
-pub trait VaultTask<T> {
+trait VaultTask<T> {
     async fn execute(
         &self,
-        vault_client: &VaultClient,
+        vault_client: Arc<VaultClient>,
         vault_metrics: &ForgeVaultMetrics,
     ) -> Result<T, SecretsError>;
 }
 
-pub struct VaultTaskHelper<V, T>
-where
-    V: VaultTask<T>,
-{
-    task: V,
-    phantom: PhantomData<T>,
-}
-
-impl<V, T> VaultTaskHelper<V, T>
-where
-    V: VaultTask<T>,
-{
-    pub fn new(task: V) -> Self {
-        Self {
-            task,
-            phantom: PhantomData,
-        }
-    }
-
-    fn create_vault_client_settings<S>(
-        &self,
-        token: S,
-        forge_vault_client: &ForgeVaultClient,
-    ) -> Result<VaultClientSettings, SecretsError>
-    where
-        S: Into<String>,
-    {
-        let mut vault_client_settings_builder = VaultClientSettingsBuilder::default();
-        let vault_client_settings_builder = vault_client_settings_builder
-            .token(token)
-            .address(forge_vault_client.vault_client_config.vault_address.clone())
-            .timeout(Some(Duration::from_secs(60)));
-
-        let vault_client_settings_builder =
-            if Path::new(&forge_vault_client.vault_client_config.vault_root_ca_path).exists() {
-                vault_client_settings_builder
-                    .ca_certs(vec![
-                        forge_vault_client
-                            .vault_client_config
-                            .vault_root_ca_path
-                            .clone(),
-                    ])
-                    .verify(true)
-            } else {
-                vault_client_settings_builder.verify(false)
-            };
-
-        Ok(vault_client_settings_builder.build()?)
-    }
-
-    async fn vault_token_refresh(
-        &self,
-        forge_vault_client: &ForgeVaultClient,
-    ) -> Result<(), SecretsError> {
-        let (vault_token, vault_token_expiry_secs) =
-            match forge_vault_client.vault_client_config.auth_type {
-                ForgeVaultAuthenticationType::Root(ref root_token) => {
-                    (
-                        root_token.clone(),
-                        60 * 60 * 24 * 365 * 10, /*root token never expires just use ten years*/
-                    )
-                }
-                ForgeVaultAuthenticationType::ServiceAccount(ref service_account_token_path) => {
-                    let jwt = std::fs::read_to_string(service_account_token_path)
-                        .wrap_err("service_account_token_file_read")?
-                        .trim()
-                        .to_string();
-
-                    let vault_client_settings = self.create_vault_client_settings(
-                        "silly vaultrs bugs make me sad",
-                        forge_vault_client,
-                    )?;
-                    let vault_client = VaultClient::new(vault_client_settings)?;
-                    forge_vault_client
-                        .vault_metrics
-                        .vault_requests_total_counter
-                        .add(1, &[KeyValue::new("request_type", "service_account_login")]);
-                    let time_started_vault_request = Instant::now();
-                    let vault_response = vaultrs::auth::kubernetes::login(
-                        &vault_client,
-                        "kubernetes",
-                        "carbide-api",
-                        jwt.as_str(),
-                    )
-                    .await;
-                    let elapsed_request_duration =
-                        time_started_vault_request.elapsed().as_millis() as u64;
-                    forge_vault_client
-                        .vault_metrics
-                        .vault_request_duration_histogram
-                        .record(
-                            elapsed_request_duration,
-                            &[KeyValue::new("request_type", "service_account_login")],
-                        );
-                    let auth_info = vault_response
-                        .inspect_err(|err| {
-                            record_vault_client_error(
-                                err,
-                                "service_account_login",
-                                &forge_vault_client.vault_metrics,
-                            );
-                        })
-                        .wrap_err("Failed to execute kubernetes service account login request")?;
-
-                    forge_vault_client
-                        .vault_metrics
-                        .vault_requests_succeeded_counter
-                        .add(1, &[KeyValue::new("request_type", "service_account_login")]);
-                    // start refreshing before it expires
-                    let lease_expiry_secs = (0.9 * auth_info.lease_duration as f64) as u64;
-                    (auth_info.client_token, lease_expiry_secs)
-                }
-            };
-
-        tracing::info!(
-            "successfully refreshed vault token, with lifetime: {vault_token_expiry_secs}"
-        );
-
-        let vault_client_settings =
-            self.create_vault_client_settings(vault_token.clone(), forge_vault_client)?;
-        let vault_client = VaultClient::new(vault_client_settings)?;
-
-        {
-            let mut vault_auth_status = forge_vault_client.vault_auth_status.write().await;
-            *vault_auth_status = ForgeVaultAuthenticationStatus::Authenticated(
-                ForgeVaultAuthentication {
-                    expiry: Instant::now() + Duration::from_secs(vault_token_expiry_secs),
-                    token: vault_token,
-                },
-                Box::new(vault_client),
-            );
-        }
-        Ok(())
-    }
-
-    pub async fn vault_client_setup(
-        &self,
-        vault_client: &ForgeVaultClient,
-    ) -> Result<(), SecretsError> {
-        let refresh_required = {
-            let vault_auth_status = vault_client.vault_auth_status.read().await;
-            match *vault_auth_status {
-                ForgeVaultAuthenticationStatus::Initialized => true,
-                ForgeVaultAuthenticationStatus::Authenticated(ref authentication, ref _client) => {
-                    let time_remaining_until_refresh = authentication
-                        .expiry
-                        .saturating_duration_since(Instant::now());
-                    vault_client
-                        .vault_metrics
-                        .vault_token_gauge
-                        .record(time_remaining_until_refresh.as_secs_f64(), &[]);
-
-                    Instant::now() >= authentication.expiry
-                }
-            }
-        };
-
-        if refresh_required {
-            self.vault_token_refresh(vault_client).await?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn execute(self, vault_client: &ForgeVaultClient) -> Result<T, SecretsError> {
-        self.vault_client_setup(vault_client).await?;
-        let vault_metrics = &vault_client.vault_metrics;
-        let auth_status = vault_client.vault_auth_status.read().await;
-        if let ForgeVaultAuthenticationStatus::Authenticated(_, vault_client) = auth_status.deref()
-        {
-            self.task.execute(vault_client, vault_metrics).await
-        } else {
-            Err(eyre::eyre!("vault wasn't initialized?").into())
-        }
-    }
-}
-
-pub struct GetCredentialsHelper {
+struct GetCredentialsHelper {
     pub kv_mount_location: String,
     pub key: CredentialKey,
 }
@@ -283,7 +304,7 @@ pub struct GetCredentialsHelper {
 impl VaultTask<Option<Credentials>> for GetCredentialsHelper {
     async fn execute(
         &self,
-        vault_client: &VaultClient,
+        vault_client: Arc<VaultClient>,
         vault_metrics: &ForgeVaultMetrics,
     ) -> Result<Option<Credentials>, SecretsError> {
         vault_metrics
@@ -292,7 +313,7 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper {
 
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::read(
-            vault_client,
+            vault_client.deref(),
             &self.kv_mount_location,
             self.key.to_key_str().as_str(),
         )
@@ -361,7 +382,7 @@ fn record_vault_client_error(
     status_code
 }
 
-pub struct SetCredentialsHelper {
+struct SetCredentialsHelper {
     pub kv_mount_location: String,
     pub key: CredentialKey,
     pub credentials: Credentials,
@@ -371,7 +392,7 @@ pub struct SetCredentialsHelper {
 impl VaultTask<()> for SetCredentialsHelper {
     async fn execute(
         &self,
-        vault_client: &VaultClient,
+        vault_client: Arc<VaultClient>,
         vault_metrics: &ForgeVaultMetrics,
     ) -> Result<(), SecretsError> {
         vault_metrics
@@ -380,7 +401,7 @@ impl VaultTask<()> for SetCredentialsHelper {
 
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::set(
-            vault_client,
+            vault_client.deref(),
             &self.kv_mount_location,
             self.key.to_key_str().as_str(),
             &self.credentials,
@@ -416,8 +437,10 @@ impl CredentialProvider for ForgeVaultClient {
             kv_mount_location,
             key,
         };
-        let vault_task_helper = VaultTaskHelper::new(get_credentials_helper);
-        vault_task_helper.execute(self).await
+        let vault_client = self.vault_client().await?;
+        get_credentials_helper
+            .execute(vault_client, &self.vault_metrics)
+            .await
     }
 
     async fn set_credentials(
@@ -431,12 +454,14 @@ impl CredentialProvider for ForgeVaultClient {
             credentials,
             kv_mount_location,
         };
-        let vault_task_helper = VaultTaskHelper::new(set_credentials_helper);
-        vault_task_helper.execute(self).await
+        let vault_client = self.vault_client().await?;
+        set_credentials_helper
+            .execute(vault_client, &self.vault_metrics)
+            .await
     }
 }
 
-pub struct GetCertificateHelper {
+struct GetCertificateHelper {
     /// Used to form URI-type SANs for this certificate
     unique_identifier: String,
     pki_mount_location: String,
@@ -453,7 +478,7 @@ pub struct GetCertificateHelper {
 impl VaultTask<Certificate> for GetCertificateHelper {
     async fn execute(
         &self,
-        vault_client: &VaultClient,
+        vault_client: Arc<VaultClient>,
         vault_metrics: &ForgeVaultMetrics,
     ) -> Result<Certificate, SecretsError> {
         vault_metrics
@@ -490,7 +515,7 @@ impl VaultTask<Certificate> for GetCertificateHelper {
 
         let time_started_vault_request = Instant::now();
         let vault_response = pki::cert::generate(
-            vault_client,
+            vault_client.deref(),
             self.pki_mount_location.as_str(),
             self.pki_role_name.as_str(),
             Some(&mut certificate_request_builder),
@@ -533,8 +558,10 @@ impl CertificateProvider for ForgeVaultClient {
             alt_names,
             ttl,
         };
-        let vault_task_helper = VaultTaskHelper::new(get_certificate_helper);
-        vault_task_helper.execute(self).await
+        let vault_client = self.vault_client().await?;
+        get_certificate_helper
+            .execute(vault_client, &self.vault_metrics)
+            .await
     }
 }
 
@@ -639,6 +666,6 @@ pub async fn create_vault_client(
         vault_root_ca_path,
     };
 
-    let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics);
+    let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics).await;
     Ok(Arc::new(forge_vault_client))
 }
