@@ -10,7 +10,7 @@ use sqlx::PgConnection;
 use super::{HostHandlerParams, discovered_after_state_transition};
 use crate::state_controller::machine::handler::trigger_reboot_if_needed;
 use crate::state_controller::state_handler::{
-    StateHandlerError, StateHandlerOutcome, StateHandlerServices, do_nothing, transition, wait,
+    StateHandlerError, StateHandlerOutcome, StateHandlerServices,
 };
 
 fn get_bom_validation_context(state: &ManagedHostState) -> BomValidatingContext {
@@ -300,9 +300,11 @@ async fn advance_to_sku_missing(
     )
     .await?;
 
-    Ok(transition!(ManagedHostState::BomValidating {
-        bom_validating_state: BomValidating::SkuMissing(bom_validation_context)
-    }))
+    Ok(StateHandlerOutcome::transition(
+        ManagedHostState::BomValidating {
+            bom_validating_state: BomValidating::SkuMissing(bom_validation_context),
+        },
+    ))
 }
 
 async fn advance_to_updating_inventory(
@@ -315,9 +317,11 @@ async fn advance_to_updating_inventory(
     db::machine_topology::set_topology_update_needed(txn, &mh_snapshot.host_snapshot.id, true)
         .await?;
 
-    Ok(transition!(ManagedHostState::BomValidating {
-        bom_validating_state: BomValidating::UpdatingInventory(bom_validation_context,),
-    }))
+    Ok(StateHandlerOutcome::transition(
+        ManagedHostState::BomValidating {
+            bom_validating_state: BomValidating::UpdatingInventory(bom_validation_context),
+        },
+    ))
 }
 
 async fn advance_to_waiting_for_sku_assignment(
@@ -339,9 +343,13 @@ async fn advance_to_waiting_for_sku_assignment(
         let bom_validation_context =
             get_bom_validation_context(mh_snapshot.host_snapshot.current_state());
 
-        Ok(transition!(ManagedHostState::BomValidating {
-            bom_validating_state: BomValidating::WaitingForSkuAssignment(bom_validation_context,),
-        }))
+        Ok(StateHandlerOutcome::transition(
+            ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                    bom_validation_context,
+                ),
+            },
+        ))
     }
 }
 
@@ -354,11 +362,13 @@ async fn advance_to_machine_validating(
 
     let Some(context) = context.machine_validation_context else {
         tracing::info!("SKU verification complete; Skipping machine validation");
-        return Ok(transition!(ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered {
-                skip_reboot_wait: true,
+        return Ok(StateHandlerOutcome::transition(
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Discovered {
+                    skip_reboot_wait: true,
+                },
             },
-        }));
+        ));
     };
     let validation_id = db::machine_validation::create_new_run(
         txn,
@@ -367,11 +377,13 @@ async fn advance_to_machine_validating(
         model::machine::MachineValidationFilter::default(),
     )
     .await?;
-    Ok(transition!(ManagedHostState::Validation {
-        validation_state: ValidationState::MachineValidation {
-            machine_validation: MachineValidatingState::RebootHost { validation_id },
+    Ok(StateHandlerOutcome::transition(
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::RebootHost { validation_id },
+            },
         },
-    }))
+    ))
 }
 
 /// Skip BOM validation and proceed to machine validation (or Ready if machine validation is disabled)
@@ -424,11 +436,13 @@ pub(crate) async fn handle_bom_validation_state(
                             .await
                     }
                 } else {
-                    Ok(transition!(ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::VerifyingSku(
-                            bom_validating_context.clone()
-                        ),
-                    }))
+                    Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::BomValidating {
+                            bom_validating_state: BomValidating::VerifyingSku(
+                                bom_validating_context.clone(),
+                            ),
+                        },
+                    ))
                 }
             }
             BomValidating::UpdatingInventory(bom_validating_context) => {
@@ -454,44 +468,54 @@ pub(crate) async fn handle_bom_validation_state(
                                         .unwrap_or_default()
                                         + 1,
                                 );
-                                Ok(transition!(ManagedHostState::BomValidating {
-                                    bom_validating_state: BomValidating::UpdatingInventory(
-                                        BomValidatingContext {
-                                            machine_validation_context: bom_validating_context
-                                                .machine_validation_context
-                                                .clone(),
-                                            reboot_retry_count,
-                                        },
-                                    ),
-                                }))
+                                Ok(StateHandlerOutcome::transition(
+                                    ManagedHostState::BomValidating {
+                                        bom_validating_state: BomValidating::UpdatingInventory(
+                                            BomValidatingContext {
+                                                machine_validation_context: bom_validating_context
+                                                    .machine_validation_context
+                                                    .clone(),
+                                                reboot_retry_count,
+                                            },
+                                        ),
+                                    },
+                                ))
                             } else {
-                                Ok(do_nothing!())
+                                Ok(StateHandlerOutcome::do_nothing())
                             }
                         }
-                        Err(e) => Ok(wait!(format!("Failed to reboot host: {e}"))),
+                        Err(e) => Ok(StateHandlerOutcome::wait(format!(
+                            "Failed to reboot host: {e}"
+                        ))),
                     }
                 } else if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                    Ok(transition!(ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::MatchingSku(
-                            bom_validating_context.clone(),
-                        ),
-                    }))
+                    Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::BomValidating {
+                            bom_validating_state: BomValidating::MatchingSku(
+                                bom_validating_context.clone(),
+                            ),
+                        },
+                    ))
                 } else {
-                    Ok(transition!(ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::VerifyingSku(
-                            bom_validating_context.clone(),
-                        ),
-                    }))
+                    Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::BomValidating {
+                            bom_validating_state: BomValidating::VerifyingSku(
+                                bom_validating_context.clone(),
+                            ),
+                        },
+                    ))
                 }
             }
             BomValidating::VerifyingSku(bom_validating_context) => {
                 let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() else {
                     // the sku got removed before it could be verified.  start over
-                    return Ok(transition!(ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::MatchingSku(
-                            bom_validating_context.clone(),
-                        ),
-                    }));
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::BomValidating {
+                            bom_validating_state: BomValidating::MatchingSku(
+                                bom_validating_context.clone(),
+                            ),
+                        },
+                    ));
                 };
 
                 let Some(expected_sku) = db::sku::find(txn, std::slice::from_ref(&sku_id))
@@ -540,21 +564,25 @@ pub(crate) async fn handle_bom_validation_state(
                     )
                     .await?;
 
-                    Ok(transition!(ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::SkuVerificationFailed(
-                            bom_validating_context.clone(),
-                        ),
-                    }))
+                    Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::BomValidating {
+                            bom_validating_state: BomValidating::SkuVerificationFailed(
+                                bom_validating_context.clone(),
+                            ),
+                        },
+                    ))
                 }
             }
             BomValidating::SkuVerificationFailed(bom_validating_context) => {
                 // If SKU was unassigned, transition to waiting for SKU assignment
                 if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                    Ok(transition!(ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::WaitingForSkuAssignment(
-                            bom_validating_context.clone(),
-                        ),
-                    }))
+                    Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::BomValidating {
+                            bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                                bom_validating_context.clone(),
+                            ),
+                        },
+                    ))
                 } else if mh_snapshot
                     .host_snapshot
                     .hw_sku_status
@@ -577,7 +605,7 @@ pub(crate) async fn handle_bom_validation_state(
                     advance_to_machine_validating(txn, mh_snapshot).await
                 } else {
                     // Stay in failed state, waiting for manual intervention
-                    Ok(do_nothing!())
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
             }
             BomValidating::WaitingForSkuAssignment(_) => {
@@ -599,7 +627,7 @@ pub(crate) async fn handle_bom_validation_state(
                     .await
                 } else {
                     // Stay in waiting state until SKU is assigned
-                    Ok(do_nothing!())
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
             }
             BomValidating::SkuMissing(_) => {
@@ -622,9 +650,9 @@ pub(crate) async fn handle_bom_validation_state(
                         );
                         advance_to_machine_validating(txn, mh_snapshot).await
                     } else {
-                        Ok(wait!(
+                        Ok(StateHandlerOutcome::wait(
                             "Assigned SKU does not exist. Create the SKU or assign a different one"
-                                .to_string()
+                                .to_string(),
                         ))
                     }
                 } else {

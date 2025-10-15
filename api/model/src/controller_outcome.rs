@@ -11,6 +11,7 @@
  */
 
 use std::fmt::{Debug, Display};
+use std::panic::Location;
 
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +59,15 @@ pub struct PersistentSourceReference {
 impl Display for PersistentSourceReference {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl From<&&'static Location<'static>> for PersistentSourceReference {
+    fn from(value: &&'static Location) -> Self {
+        Self {
+            file: value.file().to_string(),
+            line: value.line(),
+        }
     }
 }
 

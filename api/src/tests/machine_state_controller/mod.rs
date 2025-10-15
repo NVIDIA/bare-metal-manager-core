@@ -29,7 +29,7 @@ use crate::state_controller::controller::StateController;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing,
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::dpu::dpu_discover_dhcp;
@@ -64,7 +64,7 @@ impl StateHandler for TestMachineStateHandler {
             *guard.entry(machine_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(do_nothing!())
+        Ok(StateHandlerOutcome::do_nothing())
     }
 }
 

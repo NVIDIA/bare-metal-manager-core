@@ -19,8 +19,7 @@ use crate::CarbideError;
 use crate::ib::{GetPartitionOptions, IBFabricManagerConfig};
 use crate::state_controller::ib_partition::context::IBPartitionStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted, do_nothing,
-    transition, wait,
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 /// The actual IBPartition State handler
@@ -58,7 +57,7 @@ impl StateHandler for IBPartitionStateHandler {
             IBPartitionControllerState::Provisioning => {
                 // TODO(k82cn): get IB network from IB Fabric Manager to avoid duplication.
                 let new_state = IBPartitionControllerState::Ready;
-                Ok(transition!(new_state))
+                Ok(StateHandlerOutcome::transition(new_state))
             }
 
             IBPartitionControllerState::Deleting => {
@@ -69,7 +68,7 @@ impl StateHandler for IBPartitionStateHandler {
                         let new_state = IBPartitionControllerState::Error {
                             cause: cause.to_string(),
                         };
-                        Ok(transition!(new_state))
+                        Ok(StateHandlerOutcome::transition(new_state))
                     }
                     Some(pkey) => {
                         // When ib_partition is deleting, it should wait until all instances are
@@ -102,7 +101,7 @@ impl StateHandler for IBPartitionStateHandler {
                                         )})?;
 
                                     db::resource_pool::release(pkey_pool, txn, pkey.into()).await?;
-                                    Ok(deleted!())
+                                    Ok(StateHandlerOutcome::deleted())
                                 }
                                 _ => Err(StateHandlerError::IBFabricError {
                                     operation: "get_ib_network".to_string(),
@@ -110,8 +109,8 @@ impl StateHandler for IBPartitionStateHandler {
                                 }),
                             }
                         } else {
-                            Ok(wait!(
-                                "Waiting for all IB instances are released".to_string()
+                            Ok(StateHandlerOutcome::wait(
+                                "Waiting for all IB instances are released".to_string(),
                             ))
                         }
                     }
@@ -123,13 +122,17 @@ impl StateHandler for IBPartitionStateHandler {
                     let cause = "The pkey is None when IBPartition is ready";
                     tracing::error!(cause);
 
-                    Ok(transition!(IBPartitionControllerState::Error {
-                        cause: cause.to_string(),
-                    }))
+                    Ok(StateHandlerOutcome::transition(
+                        IBPartitionControllerState::Error {
+                            cause: cause.to_string(),
+                        },
+                    ))
                 }
                 Some(pkey) => {
                     if state.is_marked_as_deleted() {
-                        Ok(transition!(IBPartitionControllerState::Deleting))
+                        Ok(StateHandlerOutcome::transition(
+                            IBPartitionControllerState::Deleting,
+                        ))
                     } else {
                         let res = ib_fabric
                             .get_ib_network(
@@ -182,22 +185,24 @@ impl StateHandler for IBPartitionStateHandler {
                                         )
                                         .await
                                     {
-                                        return Ok(transition!(
+                                        return Ok(StateHandlerOutcome::transition(
                                             IBPartitionControllerState::Error {
                                                 cause: format!("Failed to update IB partition {e}"),
-                                            }
+                                            },
                                         ));
                                     }
                                 }
 
-                                Ok(do_nothing!())
+                                Ok(StateHandlerOutcome::do_nothing())
                             }
 
                             Err(e) => {
                                 match e {
                                     // The Partition maybe still empty as it will be only created
                                     // when at least one port associated with the Partition.
-                                    CarbideError::NotFoundError { .. } => Ok(do_nothing!()),
+                                    CarbideError::NotFoundError { .. } => {
+                                        Ok(StateHandlerOutcome::do_nothing())
+                                    }
                                     _ => Err(StateHandlerError::IBFabricError {
                                         operation: "get_ib_network".to_string(),
                                         error: e.into(),
@@ -211,10 +216,12 @@ impl StateHandler for IBPartitionStateHandler {
 
             IBPartitionControllerState::Error { .. } => {
                 if state.config.pkey.is_some() && state.is_marked_as_deleted() {
-                    Ok(transition!(IBPartitionControllerState::Deleting))
+                    Ok(StateHandlerOutcome::transition(
+                        IBPartitionControllerState::Deleting,
+                    ))
                 } else {
                     // If pkey is none, keep it in error state.
-                    Ok(do_nothing!())
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
             }
         }
