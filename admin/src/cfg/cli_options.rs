@@ -3365,3 +3365,331 @@ pub struct ListAppliedRemediations {
     )]
     pub machine_id: Option<MachineId>,
 }
+
+#[cfg(test)]
+mod tests {
+    use ExpectedMachineAction::Update;
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn forge_admin_cli_expected_machine_test() {
+        assert!(
+            ExpectedMachine::try_parse_from([
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "me",
+                "--bmc-password",
+                "my-pw",
+                "--chassis-serial-number",
+                "<CHASSIS_SERIAL_NUMBER>",
+            ])
+            .is_ok()
+        );
+
+        // No dpu serial
+        assert!(
+            ExpectedMachine::try_parse_from([
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "me",
+                "--bmc-password",
+                "my-pw",
+                "--chassis-serial-number",
+                "<CHASSIS_SERIAL_NUMBER>",
+            ])
+            .is_ok_and(|t1| { !t1.has_duplicate_dpu_serials() })
+        );
+
+        assert!(
+            ExpectedMachine::try_parse_from([
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "me",
+                "--bmc-password",
+                "my-pw",
+                "--chassis-serial-number",
+                "<CHASSIS_SERIAL_NUMBER>",
+                "--fallback-dpu-serial-number",
+                "dpu_serial",
+            ])
+            .is_ok()
+        );
+
+        assert!(
+            ExpectedMachine::try_parse_from([
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "me",
+                "--bmc-password",
+                "my-pw",
+                "--chassis-serial-number",
+                "<CHASSIS_SERIAL_NUMBER>",
+                "--fallback-dpu-serial-number",
+                "dpu_serial",
+                "-d",
+                "dpu_serial2",
+            ])
+            .is_ok()
+        );
+
+        // Duplicate dpu_serial
+        assert!(
+            ExpectedMachine::try_parse_from([
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "me",
+                "--bmc-password",
+                "my-pw",
+                "--chassis-serial-number",
+                "<CHASSIS_SERIAL_NUMBER>",
+                "-d",
+                "dpu_serial1",
+                "-d",
+                "dpu_serial2",
+                "-d",
+                "dpu_serial3",
+                "-d",
+                "dpu_serial1"
+            ])
+            .is_ok_and(|t| { t.has_duplicate_dpu_serials() })
+        );
+
+        // option --fallback-dpu-serial-number used w/o value
+        assert!(
+            ExpectedMachine::try_parse_from([
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "me",
+                "--bmc-password",
+                "my-pw",
+                "--chassis-serial-number",
+                "<CHASSIS_SERIAL_NUMBER>",
+                "--fallback-dpu-serial-number"
+            ])
+            .is_err()
+        );
+
+        fn test_update_expected_machine<F: Fn(UpdateExpectedMachine) -> bool>(
+            options: CliOptions,
+            pred: F,
+        ) -> bool {
+            let mut update_args = None;
+            if let Some(CliCommand::ExpectedMachine(Update(args))) = options.commands {
+                update_args = Some(args);
+            }
+            update_args.is_some() && pred(update_args.unwrap())
+        }
+        // update 1 dpu serial
+        assert!(test_update_expected_machine(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--fallback-dpu-serial-number",
+                "<DPU_SERIAL_NUMBER>",
+            ])
+            .ok()
+            .unwrap(),
+            |args| { args.validate().is_ok() }
+        ));
+        // update 2 dpu serials
+        assert!(test_update_expected_machine(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--fallback-dpu-serial-number",
+                "<DPU_SERIAL_NUMBER_1>",
+                "-d",
+                "<DPU_SERIAL_NUMBER_2>",
+            ])
+            .unwrap(),
+            |args| { args.validate().is_ok() }
+        ));
+
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--fallback-dpu-serial-number",
+            ])
+            .is_err()
+        );
+
+        // Fail if duplicate dpu serials are given
+        // duplicate dpu serials -
+        assert!(test_update_expected_machine(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--fallback-dpu-serial-number",
+                "dpu1",
+                "-d",
+                "dpu2",
+                "-d",
+                "dpu3",
+                "-d",
+                "dpu2",
+                "-d",
+                "dpu4",
+            ])
+            .ok()
+            .unwrap(),
+            |args| { args.validate().is_err() }
+        ));
+
+        // Update credential
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--bmc-username",
+                "<BMC_USERNAME>",
+                "--bmc-password",
+                "<BMC_PASSWORD>",
+            ])
+            .is_ok()
+        );
+        // update all
+        assert!(test_update_expected_machine(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--bmc-username",
+                "ssss",
+                "--bmc-password",
+                "ssss",
+                "--chassis-serial-number",
+                "sss",
+                "--fallback-dpu-serial-number",
+                "<DPU_SERIAL_NUMBER>",
+            ])
+            .ok()
+            .unwrap(),
+            |args| { args.validate().is_ok() }
+        ));
+        // update - user name only - error
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--bmc-username",
+                "ssss",
+            ])
+            .is_err()
+        );
+        // update - password  only - error
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--bmc-password",
+                "ssss",
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn forge_admin_cli_credential_test() {
+        //  bmc-root credential w.o optional username
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "credential",
+                "add-bmc",
+                "--kind=bmc-root",
+                "--mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--password",
+                "my-pw",
+            ])
+            .is_ok()
+        );
+
+        //  bmc-root credential with optional username
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "credential",
+                "add-bmc",
+                "--kind=bmc-root",
+                "--mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--password",
+                "my-pw",
+                "--username",
+                "me"
+            ])
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn forge_admin_cli_tpm_ca_test() {
+        assert!(CliOptions::try_parse_from(["forge-admin-cli", "tpm-ca", "show"]).is_ok());
+
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "tpm-ca",
+                "add",
+                "--filename",
+                "/tmp/somefile.cer"
+            ])
+            .is_ok()
+        );
+
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "tpm-ca",
+                "add-bulk",
+                "--dirname",
+                "/tmp"
+            ])
+            .is_ok()
+        );
+
+        assert!(
+            CliOptions::try_parse_from(["forge-admin-cli", "tpm-ca", "delete", "--ca-id", "4"])
+                .is_ok()
+        );
+    }
+}
