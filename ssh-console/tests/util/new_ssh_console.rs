@@ -61,7 +61,7 @@ pub async fn spawn(
         client_cert_path: API_CLIENT_CERT.clone(),
         client_key_path: API_CLIENT_KEY.clone(),
         openssh_certificate_ca_fingerprints: vec![],
-        admin_certificate_role: "swngc-forge-admins".to_string(),
+        admin_certificate_role: None,
         api_poll_interval: Duration::from_secs(1),
         console_logging_enabled: true,
         console_logs_path: logs_dir.path().to_path_buf(),
@@ -83,6 +83,7 @@ pub async fn spawn(
         log_rotate_max_rotated_files: 3,
         log_rotate_max_size: Size::from_kib(10),
         hosts: true,
+        openssh_certificate_authorization: ssh_console::config::Defaults::cert_authorization(),
     };
 
     let spawn_handle = ssh_console::spawn(config).await?;

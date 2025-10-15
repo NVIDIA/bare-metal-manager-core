@@ -13,6 +13,7 @@
 mod bmc;
 mod io_util;
 mod metrics;
+mod ssh_cert_parsing;
 mod ssh_server;
 
 mod console_logger;

@@ -34,6 +34,7 @@ use crate::bmc::message_proxy;
 use crate::bmc::message_proxy::{ExecReply, ToBmcMessage};
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
+use crate::ssh_cert_parsing::{certificate_contains_role, get_user_from_certificate};
 use crate::ssh_server::ServerMetrics;
 
 static EXEC_TIMEOUT: Duration = Duration::from_secs(10);
@@ -77,7 +78,8 @@ pub struct Handler {
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
     bmc_connection_store: BmcConnectionStore,
-    authenticated_user: Option<String>,
+    /// The machine_id or instance_id the user is attempting to log into. Used as the username in the ssh command line (ie. ssh machine_id@ssh-console)
+    authenticated_machine_string: Option<String>,
     per_client_state: HashMap<ChannelId, PerClientState>,
     metrics: Arc<ServerMetrics>,
     last_auth_failure: Option<AuthFailureReason>,
@@ -104,7 +106,7 @@ impl Handler {
             config,
             forge_api_client,
             bmc_connection_store,
-            authenticated_user: None,
+            authenticated_machine_string: None,
             per_client_state: HashMap::new(),
             metrics,
             last_auth_failure: Default::default(),
@@ -139,13 +141,24 @@ impl Drop for Handler {
         // All auth failure paths set self.last_auth_failure, but auth can still succeed (they may
         // be trying multiple pubkeys, etc.) So if authenticated_user is None but last_auth_failure
         // is Some, bump the metrics.
-        if let (None, Some(last_auth_failure)) = (&self.authenticated_user, &self.last_auth_failure)
+        if let (None, Some(last_auth_failure)) =
+            (&self.authenticated_machine_string, &self.last_auth_failure)
         {
-            tracing::warn!(
-                peer_addr = self.peer_addr,
-                "authentication failed for user: {}",
-                last_auth_failure.user()
-            );
+            let machine = last_auth_failure.machine_string();
+            if let Some(user) = &last_auth_failure.detected_user() {
+                tracing::warn!(
+                    peer_addr = self.peer_addr,
+                    %user,
+                    %machine,
+                    "authentication failed",
+                );
+            } else {
+                tracing::warn!(
+                    peer_addr = self.peer_addr,
+                    %machine,
+                    "authentication failed",
+                );
+            }
             self.metrics
                 .client_auth_failures_total
                 .add(1, last_auth_failure.metric());
@@ -163,7 +176,7 @@ impl russh::server::Handler for Handler {
     ) -> Result<bool, Self::Error> {
         use HandlerError::*;
         tracing::trace!(peer_addr = self.peer_addr, "channel_open_session");
-        let Some(user) = &self.authenticated_user else {
+        let Some(machine) = &self.authenticated_machine_string else {
             return Err(MissingAuthenticatedUser {
                 method: "channel_open_session",
             });
@@ -174,14 +187,14 @@ impl russh::server::Handler for Handler {
         let bmc_connection = self
             .bmc_connection_store
             .get_connection(
-                user,
+                machine,
                 &self.config,
                 &self.forge_api_client,
                 self.metrics.clone(),
             )
             .await
             .map_err(|error| GettingBmcConnection {
-                user: user.to_owned(),
+                machine: machine.to_owned(),
                 error,
             })?;
 
@@ -217,29 +230,35 @@ impl russh::server::Handler for Handler {
 
     async fn auth_openssh_certificate(
         &mut self,
-        user: &str,
+        machine_string: &str,
         certificate: &Certificate,
     ) -> Result<Auth, Self::Error> {
         tracing::trace!(peer_addr = self.peer_addr, "auth_openssh_certificate");
-        let is_trusted =
-            self.config
-                .openssh_certificate_ca_fingerprints
-                .iter()
-                .any(|trusted_fingerprint| {
-                    let client_ca_fingerprint = certificate
-                        .signature_key()
-                        .fingerprint(trusted_fingerprint.algorithm());
-                    client_ca_fingerprint.eq(trusted_fingerprint)
-                });
+        let Some(admin_certificate_role) = self.config.admin_certificate_role.as_ref() else {
+            tracing::debug!("skipping ssh certificate auth, no admin role is configured");
+            return Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        };
+
+        let user =
+            get_user_from_certificate(certificate, &self.config.openssh_certificate_authorization)
+                .map(str::to_owned);
+
+        let is_trusted = certificate
+            .validate(&self.config.openssh_certificate_ca_fingerprints)
+            .is_ok();
 
         if !is_trusted {
             tracing::warn!(
                 peer_addr = self.peer_addr,
-                user,
+                machine = machine_string,
                 "openssh certificate CA certificate not trusted, rejecting authentication"
             );
             self.last_auth_failure = Some(AuthFailureReason::Certificate {
-                user: user.to_owned(),
+                user,
+                machine_string: machine_string.to_owned(),
             });
             return Ok(Auth::Reject {
                 proceed_with_methods: None,
@@ -247,14 +266,18 @@ impl russh::server::Handler for Handler {
             });
         }
 
-        if !certificate_contains_role(certificate, &self.config.admin_certificate_role) {
+        if !certificate_contains_role(
+            certificate,
+            admin_certificate_role,
+            &self.config.openssh_certificate_authorization,
+        ) {
             tracing::warn!(
                 peer_addr = self.peer_addr,
-                "certificate auth failed for user {user}, not in role {}",
-                &self.config.admin_certificate_role
+                "certificate auth failed for user {machine_string}, not in role {admin_certificate_role}",
             );
             self.last_auth_failure = Some(AuthFailureReason::Certificate {
-                user: user.to_owned(),
+                user,
+                machine_string: machine_string.to_owned(),
             });
             return Ok(Auth::Reject {
                 proceed_with_methods: None,
@@ -262,47 +285,53 @@ impl russh::server::Handler for Handler {
             });
         }
 
-        tracing::info!(
-            peer_addr = self.peer_addr,
-            "certificate auth succeeded for user {user}, in role {}",
-            &self.config.admin_certificate_role
-        );
-        self.authenticated_user = Some(user.to_owned());
+        if let Some(user) = &user {
+            tracing::info!(
+                peer_addr = self.peer_addr,
+                "certificate auth succeeded for user {user} to machine {machine_string}, in role {admin_certificate_role}"
+            );
+        } else {
+            tracing::info!(
+                peer_addr = self.peer_addr,
+                "certificate auth succeeded to machine {machine_string}, in role {admin_certificate_role}"
+            );
+        }
+        self.authenticated_machine_string = Some(machine_string.to_owned());
         Ok(Auth::Accept)
     }
 
     async fn auth_publickey(
         &mut self,
-        user: &str,
+        machine_string: &str,
         public_key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
         use HandlerError::*;
         tracing::trace!(peer_addr = self.peer_addr, "auth_publickey");
+
         // Authentication flow:
         // 1. If authorized_keys_path is set, check against file first
         // 2. If not found in file, validate via carbide-api
         // 3. If insecure mode is enabled, accept all connections
 
-        let success = if pubkey_auth_admin_authorized_keys(public_key, &self.config, user).map_err(
-            |error| PubkeyAuthAdminAuthorizedKeys {
-                machine_id: user.to_owned(),
+        let success = if pubkey_auth_admin_authorized_keys(public_key, &self.config, machine_string)
+            .map_err(|error| PubkeyAuthAdminAuthorizedKeys {
+                machine_id: machine_string.to_owned(),
                 error,
-            },
-        )? {
+            })? {
             true
-        } else if Uuid::from_str(user).is_ok() {
+        } else if Uuid::from_str(machine_string).is_ok() {
             // Only try tenant auth if the user is a valid-looking UUID.
-            pubkey_auth_tenant(user, public_key, &self.forge_api_client)
+            pubkey_auth_tenant(machine_string, public_key, &self.forge_api_client)
                 .await
                 .map_err(|error| PubkeyAuthTenant {
-                    instance_id: user.to_owned(),
+                    instance_id: machine_string.to_owned(),
                     error,
                 })?
         } else {
             tracing::debug!(
                 peer_addr = self.peer_addr,
-                user,
-                "rejecting public key for user {user}"
+                machine_string,
+                "rejecting public key for user {machine_string}"
             );
             false
         };
@@ -318,11 +347,11 @@ impl russh::server::Handler for Handler {
         };
 
         if success {
-            self.authenticated_user = Some(user.to_owned());
+            self.authenticated_machine_string = Some(machine_string.to_owned());
             Ok(Auth::Accept)
         } else {
             self.last_auth_failure = Some(AuthFailureReason::PubKey {
-                user: user.to_owned(),
+                machine_string: machine_string.to_owned(),
             });
             Ok(Auth::Reject {
                 partial_success: false,
@@ -586,9 +615,9 @@ impl russh::server::Handler for Handler {
 pub enum HandlerError {
     #[error("BUG: {method} called but we don't have an authenticated user")]
     MissingAuthenticatedUser { method: &'static str },
-    #[error("Could not get BMC connection for {user}: {error}")]
+    #[error("Could not get BMC connection for {machine}: {error}")]
     GettingBmcConnection {
-        user: String,
+        machine: String,
         error: GetConnectionError,
     },
     #[error("error replying with {what} to {method}: {error}")]
@@ -631,8 +660,13 @@ pub enum PubkeyAuthError {
 
 /// Indicates the reason auth may have failed. This is so we can avoid logging warnings about failed authentication if only the first method (pubkey) failed but the second succeeded.
 enum AuthFailureReason {
-    PubKey { user: String },
-    Certificate { user: String },
+    PubKey {
+        machine_string: String,
+    },
+    Certificate {
+        machine_string: String,
+        user: Option<String>,
+    },
 }
 
 impl AuthFailureReason {
@@ -643,35 +677,19 @@ impl AuthFailureReason {
         }
     }
 
-    fn user(&self) -> &str {
+    fn machine_string(&self) -> &str {
         match self {
-            AuthFailureReason::PubKey { user, .. } => user,
-            AuthFailureReason::Certificate { user, .. } => user,
+            AuthFailureReason::PubKey { machine_string, .. } => machine_string,
+            AuthFailureReason::Certificate { machine_string, .. } => machine_string,
         }
     }
-}
 
-/// Search for the given role in the Key ID field of a certificate, returning if it is declared.
-fn certificate_contains_role(certificate: &Certificate, role: &str) -> bool {
-    // Example:
-    //     group=ngc user=ksimon roles=forge-dev-ssh-access,swngc-forge-admins,swngc-forge-corp-vault-admins,access-forge-dgxc-nonprod-admin,access-forge-dgxc-prod-admin
-    let Some(roles_attr) = certificate
-        .key_id()
-        .split(' ')
-        .find_map(|space_separated_chunk| {
-            space_separated_chunk
-                .split_once('=')
-                .and_then(|(k, v)| if k == "roles" { Some(v) } else { None })
-        })
-    else {
-        tracing::warn!(
-            "Could not find `roles=` substring in key_id: {:?}",
-            certificate.key_id()
-        );
-        return false;
-    };
-
-    roles_attr.split(',').any(|k| k == role)
+    fn detected_user(&self) -> Option<&str> {
+        match self {
+            AuthFailureReason::PubKey { .. } => None,
+            AuthFailureReason::Certificate { user, .. } => user.as_ref().map(String::as_str),
+        }
+    }
 }
 
 /// Check if the user is in the configured authorized_keys file, which grants them admin access (can
