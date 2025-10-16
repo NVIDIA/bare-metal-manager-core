@@ -113,6 +113,8 @@ pub trait CredentialProvider: Send + Sync {
         key: CredentialKey,
         credentials: Credentials,
     ) -> Result<(), SecretsError>;
+
+    async fn delete_credentials(&self, key: CredentialKey) -> Result<(), SecretsError>;
 }
 
 #[derive(Default)]
@@ -153,6 +155,13 @@ impl CredentialProvider for TestCredentialProvider {
     ) -> Result<(), SecretsError> {
         let mut data = self.credentials.lock().await;
         let _ = data.insert(key.to_key_str(), credentials);
+
+        Ok(())
+    }
+
+    async fn delete_credentials(&self, key: CredentialKey) -> Result<(), SecretsError> {
+        let mut data = self.credentials.lock().await;
+        let _ = data.remove(&key.to_key_str());
 
         Ok(())
     }

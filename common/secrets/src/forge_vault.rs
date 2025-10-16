@@ -325,6 +325,11 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper {
         );
 
         let credentials = match vault_response {
+            // If pasword is empty we treat it the same as missing credentials
+            Ok(Credentials::UsernamePassword {
+                username: _,
+                password,
+            }) if password.is_empty() => Ok(None),
             Ok(creds) => Ok(Some(creds)),
             Err(ce) => {
                 let status_code = record_vault_client_error(&ce, "get_credentials", vault_metrics);
@@ -426,6 +431,49 @@ impl VaultTask<()> for SetCredentialsHelper {
     }
 }
 
+struct DeleteCredentialsHelper {
+    pub kv_mount_location: String,
+    pub key: CredentialKey,
+}
+
+#[async_trait]
+impl VaultTask<()> for DeleteCredentialsHelper {
+    async fn execute(
+        &self,
+        vault_client: Arc<VaultClient>,
+        vault_metrics: &ForgeVaultMetrics,
+    ) -> Result<(), SecretsError> {
+        vault_metrics
+            .vault_requests_total_counter
+            .add(1, &[KeyValue::new("request_type", "delete_credentials")]);
+
+        let time_started_vault_request = Instant::now();
+        let vault_response = kv2::delete_metadata(
+            vault_client.deref(),
+            &self.kv_mount_location,
+            self.key.to_key_str().as_str(),
+        )
+        .await;
+
+        let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
+        vault_metrics.vault_request_duration_histogram.record(
+            elapsed_request_duration,
+            &[KeyValue::new("request_type", "delete_credentials")],
+        );
+
+        let _secret_version_metadata = vault_response.map_err(|err| {
+            record_vault_client_error(&err, "delete_credentials", vault_metrics);
+            tracing::error!("Error deleting credentials. Error: {err:?}");
+            err
+        })?;
+
+        vault_metrics
+            .vault_requests_succeeded_counter
+            .add(1, &[KeyValue::new("request_type", "delete_credentials")]);
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl CredentialProvider for ForgeVaultClient {
     async fn get_credentials(
@@ -456,6 +504,18 @@ impl CredentialProvider for ForgeVaultClient {
         };
         let vault_client = self.vault_client().await?;
         set_credentials_helper
+            .execute(vault_client, &self.vault_metrics)
+            .await
+    }
+
+    async fn delete_credentials(&self, key: CredentialKey) -> Result<(), SecretsError> {
+        let kv_mount_location = self.vault_client_config.kv_mount_location.clone();
+        let delete_credentials_helper = DeleteCredentialsHelper {
+            key,
+            kv_mount_location,
+        };
+        let vault_client = self.vault_client().await?;
+        delete_credentials_helper
             .execute(vault_client, &self.vault_metrics)
             .await
     }

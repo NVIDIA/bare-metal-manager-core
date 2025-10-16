@@ -401,12 +401,18 @@ async fn set_sitewide_bmc_root_credentials(
     set_bmc_credentials(api, credential_key, credentials).await
 }
 
-// TODO: actually delete entry from vault instead of setting to empty string
 pub(crate) async fn delete_bmc_root_credentials_by_mac(
     api: &Api,
     bmc_mac_address: MacAddress,
 ) -> Result<(), CarbideError> {
-    set_bmc_root_credentials_by_mac(api, bmc_mac_address, "".to_string(), None).await
+    let credential_key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+    };
+
+    api.credential_provider
+        .delete_credentials(credential_key)
+        .await
+        .map_err(|e| CarbideError::internal(format!("Error deleting credential for BMC: {e:?} ")))
 }
 
 async fn set_bmc_root_credentials_by_mac(
