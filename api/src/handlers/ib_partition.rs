@@ -11,8 +11,8 @@
  */
 
 use ::rpc::forge as rpc;
+use db::ObjectColumnFilter;
 use db::ib_partition::{self, IBPartitionSearchConfig, NewIBPartition};
-use db::{DatabaseError, ObjectColumnFilter};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -24,13 +24,7 @@ pub(crate) async fn create(
 ) -> Result<Response<rpc::IbPartition>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "create_ib_partition";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("create_ib_partition").await?;
 
     let mut resp = NewIBPartition::try_from(request.into_inner())?;
     let fabric_config = api.ib_fabric_manager.get_config();
@@ -54,9 +48,7 @@ pub(crate) async fn create(
         })?;
     let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(resp)
 }
@@ -67,13 +59,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::IbPartitionIdList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "ib_partition::find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("ib_partition::find_ids").await?;
 
     let filter: rpc::IbPartitionSearchFilter = request.into_inner();
 
@@ -88,12 +74,7 @@ pub(crate) async fn find_by_ids(
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "ib_partition::find_by_ids";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("ib_partition::find_by_ids").await?;
 
     let rpc::IbPartitionsByIdsRequest {
         ib_partition_ids, ..
@@ -134,13 +115,7 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "find_ib_partitions";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_ib_partitions").await?;
 
     let rpc::IbPartitionQuery {
         id, search_config, ..
@@ -169,13 +144,7 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "delete_ib_partition";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_ib_partition").await?;
 
     let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
@@ -204,9 +173,7 @@ pub(crate) async fn delete(
         .map(|_| rpc::IbPartitionDeletionResult {})
         .map(Response::new)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(resp)
 }
@@ -217,13 +184,7 @@ pub(crate) async fn for_tenant(
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "find_ib_partions_for_tenant";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_ib_partions_for_tenant").await?;
 
     let rpc::TenantSearchQuery {
         tenant_organization_id,

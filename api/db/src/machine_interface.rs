@@ -25,11 +25,11 @@ use model::hardware_info::HardwareInfo;
 use model::machine::MachineInterfaceSnapshot;
 use model::network_segment::NetworkSegment;
 use model::predicted_machine_interface::PredictedMachineInterface;
-use sqlx::{Acquire, FromRow, PgConnection};
+use sqlx::{FromRow, PgConnection};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
-use crate::{DatabaseError, DatabaseResult};
+use crate::{DatabaseError, DatabaseResult, Transaction};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
@@ -331,17 +331,13 @@ pub async fn create(
     addresses: AddressSelectionStrategy,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     // We're potentially about to insert a couple rows, so create a savepoint.
-    const DB_TXN_NAME: &str = "machine_interface::create";
-    let mut inner_txn = txn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut inner_txn = Transaction::begin_inner(txn, "machine_interface::create").await?;
 
     // If either requested addresses are auto-generated, we lock the entire table
     // by way of the inner_txn.
     let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(&mut *inner_txn)
+        .execute(inner_txn.as_pgconn())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -407,10 +403,7 @@ pub async fn create(
         insert_machine_interface_address(&mut inner_txn, &interface_id, &address).await?;
     }
 
-    inner_txn
-        .commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    inner_txn.commit().await?;
 
     Ok(
         find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))

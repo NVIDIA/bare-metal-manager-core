@@ -15,7 +15,6 @@ use std::io::Write;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use db::DatabaseError;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
 use mac_address::MacAddress;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
@@ -327,12 +326,7 @@ pub(crate) async fn get_dpu_ssh_credential(
 
     let query = request.into_inner().host_id;
 
-    const DB_TXN_NAME: &str = "get_dpu_ssh_credential";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_dpu_ssh_credential").await?;
 
     let machine_id = match db::machine::find_by_query(&mut txn, &query).await? {
         Some(machine) => {
@@ -355,9 +349,7 @@ pub(crate) async fn get_dpu_ssh_credential(
     };
 
     // We don't need this transaction
-    txn.rollback()
-        .await
-        .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
+    txn.rollback().await?;
 
     // Load credentials from Vault
     let credentials = api

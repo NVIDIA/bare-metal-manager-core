@@ -13,7 +13,7 @@
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use db::vpc::{self};
-use db::{self, DatabaseError, ObjectColumnFilter, network_security_group};
+use db::{self, ObjectColumnFilter, network_security_group};
 use forge_uuid::network_security_group::NetworkSecurityGroupId;
 use forge_uuid::vpc::VpcId;
 use model::tenant::InvalidTenantOrg;
@@ -40,13 +40,7 @@ pub(crate) async fn create(
         .into());
     }
 
-    const DB_TXN_NAME: &str = "create_vpc";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("create_vpc").await?;
 
     if let Some(ref nsg_id) = vpc_creation_request.network_security_group_id {
         let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
@@ -92,9 +86,7 @@ pub(crate) async fn create(
 
     let rpc_out: rpc::Vpc = vpc.into();
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc_out))
 }
@@ -107,13 +99,7 @@ pub(crate) async fn update(
 
     let vpc_update_request = request.get_ref();
 
-    const DB_TXN_NAME: &str = "update_vpc";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_vpc").await?;
 
     // If a security group is applied to the VPC, we need to do some validation.
     if let Some(ref nsg_id) = vpc_update_request.network_security_group_id {
@@ -168,9 +154,7 @@ pub(crate) async fn update(
 
     let vpc = db::vpc::update(&UpdateVpc::try_from(request.into_inner())?, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::VpcUpdateResult {
         vpc: Some(vpc.into()),
@@ -183,13 +167,7 @@ pub(crate) async fn update_virtualization(
 ) -> Result<Response<rpc::VpcUpdateVirtualizationResult>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "update_vpc";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_vpc").await?;
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
@@ -213,9 +191,7 @@ pub(crate) async fn update_virtualization(
     }
     db::vpc::update_virtualization(&updater, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::VpcUpdateVirtualizationResult {}))
 }
@@ -226,13 +202,7 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::VpcDeletionResult>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "delete_vpc";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_vpc").await?;
 
     // TODO: This needs to validate that nothing references the VPC anymore
     // (like NetworkSegments)
@@ -269,9 +239,7 @@ pub(crate) async fn delete(
     // Delete associated VPC peerings
     db::vpc_peering::delete_by_vpc_id(&mut txn, vpc_id).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::VpcDeletionResult {}))
 }
@@ -282,13 +250,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::VpcIdList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "vpc::find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc::find_ids").await?;
 
     let filter: rpc::VpcSearchFilter = request.into_inner();
 
@@ -302,13 +264,7 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::VpcsByIdsRequest>,
 ) -> Result<Response<rpc::VpcList>, Status> {
     log_request_data(&request);
-    const DB_TXN_NAME: &str = "vpc::find_by_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc::find_by_ids").await?;
 
     let vpc_ids = request.into_inner().vpc_ids;
 
@@ -343,13 +299,7 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::VpcList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "find_vpcs";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_vpcs").await?;
 
     let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
 

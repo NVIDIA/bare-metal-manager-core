@@ -22,7 +22,7 @@ pub use measured_boot::{
 };
 
 pub mod tpm_ca_cert;
-use db::{DatabaseError, ObjectFilter};
+use db::{ObjectFilter, Transaction};
 use forge_uuid::machine::MachineId;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -67,10 +67,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
     // - get hardware info and extract tpm ek cert
     // - call match_insert_new_ek_cert_status_against_ca()
 
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("begin backfill ek cert status", e))?;
+    let mut txn = Transaction::begin(db_pool, "begin backfill ek cert status").await?;
 
     let machines: Vec<::forge_uuid::machine::MachineId> =
         db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
@@ -97,9 +94,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
         }
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit("commit backfill ek cert status", e))?;
+    txn.commit().await?;
 
     Ok(())
 }

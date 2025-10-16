@@ -17,7 +17,7 @@ use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use sqlx::{Acquire, PgConnection};
+use sqlx::PgConnection;
 
 use super::DatabaseError;
 
@@ -163,11 +163,8 @@ pub async fn create_for(
     segment_id: &NetworkSegmentId,
     prefixes: &[NewNetworkPrefix],
 ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
-    const DB_TXN_NAME: &str = "network_prefix::create_for";
-    let mut inner_transaction = txn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut inner_transaction =
+        crate::Transaction::begin_inner(txn, "network_prefix::create_for").await?;
 
     // https://github.com/launchbadge/sqlx/issues/294
     //
@@ -184,17 +181,14 @@ pub async fn create_for(
             .bind(prefix.prefix)
             .bind(prefix.gateway)
             .bind(prefix.num_reserved)
-            .fetch_one(&mut *inner_transaction)
+            .fetch_one(inner_transaction.as_pgconn())
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
 
         inserted_prefixes.push(new_prefix);
     }
 
-    inner_transaction
-        .commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    inner_transaction.commit().await?;
 
     Ok(inserted_prefixes)
 }

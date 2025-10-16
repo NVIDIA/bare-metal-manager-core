@@ -15,9 +15,7 @@ use std::collections::{HashMap, HashSet};
 use ::rpc::errors::RpcDataConversionError;
 use config_version::ConfigVersion;
 use db::ib_partition::{self, IBPartitionSearchConfig};
-use db::{
-    self, DatabaseError, ObjectColumnFilter, ObjectFilter, dpa_interface, network_security_group,
-};
+use db::{self, ObjectColumnFilter, ObjectFilter, dpa_interface, network_security_group};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::instance_type::InstanceTypeId;
 use forge_uuid::machine::MachineId;
@@ -40,7 +38,7 @@ use model::metadata::Metadata;
 use model::os::OperatingSystemVariant;
 use model::tenant::TenantOrganizationId;
 use model::vpc_prefix::VpcPrefix;
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgConnection;
 
 use crate::api::Api;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
@@ -364,7 +362,6 @@ pub fn sort_ib_by_slot(
 pub async fn allocate_instance(
     api: &Api,
     mut request: InstanceAllocationRequest,
-    database: &PgPool,
     host_health_config: HostHealthConfig,
 ) -> Result<ManagedHostStateSnapshot, CarbideError> {
     /*
@@ -407,11 +404,7 @@ pub async fn allocate_instance(
             }
         }
     */
-    const DB_TXN_NAME: &str = "allocate_instance";
-    let mut txn = database
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("allocate_instance").await?;
 
     // Grab a row-level lock on the requested machine
     let machines = db::machine::find(
@@ -645,9 +638,7 @@ pub async fn allocate_instance(
             })?,
     );
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(mh_snapshot)
 }

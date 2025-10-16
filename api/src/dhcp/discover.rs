@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use db::dhcp_entry::DhcpEntry;
-use db::{self, DatabaseError, machine_interface};
+use db::{self, Transaction, machine_interface};
 use mac_address::MacAddress;
 use tonic::{Request, Response};
 
@@ -24,11 +24,7 @@ pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
-    const DB_TXN_NAME: &str = "discover_dhcp";
-    let mut txn = database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(database_connection, "discover_dhcp").await?;
 
     let rpc::DhcpDiscovery {
         mac_address,
@@ -108,23 +104,15 @@ pub async fn discover_dhcp(
 
     db::machine_interface::update_last_dhcp(&mut txn, machine_interface.id, None).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
-    const DB_TXN_NAME_2: &str = "discover_dhcp 2";
-    let mut txn = database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
+    let mut txn = Transaction::begin(database_connection, "discover_dhcp 2").await?;
 
     let record: rpc::DhcpRecord =
         db::dhcp_record::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)
             .await?
             .into();
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME_2, e))?;
+    txn.commit().await?;
     Ok(Response::new(record))
 }

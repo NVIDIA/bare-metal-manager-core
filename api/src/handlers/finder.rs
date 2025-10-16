@@ -115,11 +115,7 @@ pub(crate) async fn identify_serial(
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("identify_serial", e))?;
+    let mut txn = api.txn_begin("identify_serial").await?;
 
     let machine_ids = if req.exact {
         db::machine_topology::find_by_serial(&mut txn, &req.serial_number).await
@@ -206,12 +202,7 @@ async fn search(
         ));
     }
 
-    const DB_TXN_NAME: &str = "IP search";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("IP search").await?;
 
     use Finder::*;
     let match_result = match finder {
@@ -373,19 +364,13 @@ async fn search(
     };
 
     // not strictly necessary, we could drop the txn and it would rollback
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(match_result)
 }
 
 async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, CarbideError> {
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("UUID search", e))?;
+    let mut txn = api.txn_begin("UUID search").await?;
 
     if let Ok(ns_id) = NetworkSegmentId::from_str(&u.value) {
         let segments = db::network_segment::find_by(
@@ -454,11 +439,7 @@ async fn by_mac(
     api: &Api,
     mac: mac_address::MacAddress,
 ) -> Result<Option<(String, rpc::MacOwner)>, DatabaseError> {
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("MAC search", e))?;
+    let mut txn = api.txn_begin("MAC search").await?;
 
     match db::machine_interface::find_by_mac_address(&mut txn, mac).await {
         Ok(interfaces) if interfaces.len() == 1 => {

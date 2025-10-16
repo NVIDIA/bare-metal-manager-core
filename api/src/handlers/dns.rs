@@ -11,7 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use db::{self, DatabaseError};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -23,11 +22,7 @@ pub(crate) async fn lookup_record(
 ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("lookup_record", e))?;
+    let mut txn = api.txn_begin("lookup_record").await?;
 
     let rpc::dns_message::DnsQuestion {
         q_name,

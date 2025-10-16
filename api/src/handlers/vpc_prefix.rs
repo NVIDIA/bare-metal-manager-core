@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::db::{DatabaseError, ObjectColumnFilter, vpc_prefix as db};
+use ::db::{ObjectColumnFilter, vpc_prefix as db};
 use ::rpc::forge as rpc;
 use ::rpc::forge::PrefixMatchType;
 use ipnetwork::IpNetwork;
@@ -55,13 +55,7 @@ pub async fn create(
         }
     }
 
-    const DB_TXN_NAME: &str = "vpc_prefix::create";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_prefix::create").await?;
 
     let conflicting_vpc_prefixes = db::probe(new_prefix.prefix, &mut txn).await?;
     if !conflicting_vpc_prefixes.is_empty() {
@@ -152,9 +146,7 @@ pub async fn create(
         .await?;
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(vpc_prefix.into()))
 }
@@ -205,19 +197,11 @@ pub async fn search(
         })
         .transpose()?;
 
-    const DB_TXN_NAME: &str = "vpc_prefix::search";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_prefix::search").await?;
 
     let vpc_prefix_ids = db::search(&mut txn, vpc_id, name, prefix_match).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(rpc::VpcPrefixIdList {
         vpc_prefix_ids,
@@ -239,13 +223,7 @@ pub async fn get(
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
-    const DB_TXN_NAME: &str = "vpc_prefix::get";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_prefix::get").await?;
 
     let vpc_prefixes = db::get_by_id(
         &mut txn,
@@ -253,9 +231,7 @@ pub async fn get(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     let vpc_prefixes: Vec<_> = vpc_prefixes.into_iter().map(rpc::VpcPrefix::from).collect();
     Ok(tonic::Response::new(rpc::VpcPrefixList { vpc_prefixes }))
@@ -269,19 +245,11 @@ pub async fn update(
 
     let update_prefix = vpc_prefix::UpdateVpcPrefix::try_from(request.into_inner())?;
 
-    const DB_TXN_NAME: &str = "vpc_prefix::update";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_prefix::update").await?;
 
     let updated = db::update(&update_prefix, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(updated.into()))
 }
@@ -294,13 +262,7 @@ pub async fn delete(
 
     let delete_prefix = vpc_prefix::DeleteVpcPrefix::try_from(request.into_inner())?;
 
-    const DB_TXN_NAME: &str = "vpc_prefix::delete";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_prefix::delete").await?;
 
     // TODO: We could probably produce some nicer errors here when trying
     // to delete prefixes that are still being used by network segments, or
@@ -309,9 +271,7 @@ pub async fn delete(
 
     db::delete(&delete_prefix, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(rpc::VpcPrefixDeletionResult {}))
 }

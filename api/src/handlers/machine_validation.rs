@@ -11,7 +11,7 @@
  */
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use config_version::ConfigVersion;
-use db::{self, DatabaseError, machine_validation_suites};
+use db::{self, machine_validation_suites};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
@@ -46,13 +46,7 @@ pub(crate) async fn mark_machine_validation_complete(
     };
     let uuid = Uuid::try_from(rpc_id).map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "mark_machine_validation_complete";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("mark_machine_validation_complete").await?;
 
     let machine = match db::machine::find_by_validation_id(&mut txn, &uuid).await? {
         Some(machine) => machine,
@@ -149,9 +143,7 @@ pub(crate) async fn mark_machine_validation_complete(
         },
     )
     .await?;
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     tracing::info!(
         %machine_id,
@@ -176,13 +168,7 @@ pub(crate) async fn persist_validation_result(
 
     tracing::trace!(validation_id = %validation_result.validation_id);
 
-    const DB_TXN_NAME: &str = "set_machine_validation_results";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("set_machine_validation_results").await?;
 
     let machine =
         match db::machine::find_by_validation_id(&mut txn, &validation_result.validation_id).await?
@@ -267,13 +253,7 @@ pub(crate) async fn get_machine_validation_results(
         }
     };
 
-    const DB_TXN_NAME: &str = "get_machine_validation_results";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_machine_validation_results").await?;
 
     let mut db_results: Vec<MachineValidationResult> = Vec::new();
     if let Some(machine_id) = machine_id.as_ref() {
@@ -307,13 +287,9 @@ pub(crate) async fn get_machine_validation_external_config(
 ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigResponse>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "get_machine_validation_external_config";
-
     let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        .txn_begin("get_machine_validation_external_config")
+        .await?;
 
     let req: rpc::GetMachineValidationExternalConfigRequest = request.into_inner();
     let ret = db::machine_validation_config::find_config_by_name(&mut txn, &req.name).await?;
@@ -331,13 +307,9 @@ pub(crate) async fn add_update_machine_validation_external_config(
 ) -> Result<tonic::Response<()>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "add_update_machine_validation_external_config";
-
     let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        .txn_begin("add_update_machine_validation_external_config")
+        .await?;
 
     let req: rpc::AddUpdateMachineValidationExternalConfigRequest = request.into_inner();
 
@@ -349,9 +321,7 @@ pub(crate) async fn add_update_machine_validation_external_config(
     )
     .await;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
     Ok(tonic::Response::new(()))
 }
 
@@ -362,13 +332,7 @@ pub(crate) async fn get_machine_validation_runs(
     log_request_data(&request);
     let machine_validation_run_request: rpc::MachineValidationRunListGetRequest =
         request.into_inner();
-    const DB_TXN_NAME: &str = "get_machine_validation_run";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_machine_validation_run").await?;
 
     let db_runs = match machine_validation_run_request.machine_id {
         Some(id) => {
@@ -409,12 +373,7 @@ pub(crate) async fn on_demand_machine_validation(
 
     match req.action() {
         rpc::machine_validation_on_demand_request::Action::Start => {
-            const DB_TXN_NAME: &str = "on_demand_machine_validation";
-            let mut txn = api
-                .database_connection
-                .begin()
-                .await
-                .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+            let mut txn = api.txn_begin("on_demand_machine_validation").await?;
 
             let machine = db::machine::find_one(
                 &mut txn,
@@ -469,9 +428,7 @@ pub(crate) async fn on_demand_machine_validation(
                     db::machine::set_machine_validation_request(&mut txn, &machine_id, true)
                         .await?;
 
-                    txn.commit()
-                        .await
-                        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+                    txn.commit().await?;
 
                     Ok(tonic::Response::new(
                         rpc::MachineValidationOnDemandResponse {
@@ -502,13 +459,9 @@ pub(crate) async fn get_machine_validation_external_configs(
 ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "get_machine_validation_external_configs";
-
     let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        .txn_begin("get_machine_validation_external_configs")
+        .await?;
 
     let ret = db::machine_validation_config::find_configs(&mut txn).await?;
     Ok(tonic::Response::new(
@@ -528,12 +481,9 @@ pub(crate) async fn remove_machine_validation_external_config(
     log_request_data(&request);
     let req = request.into_inner();
 
-    const DB_TXN_NAME: &str = "remove_machine_validation_external_config";
     let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        .txn_begin("remove_machine_validation_external_config")
+        .await?;
 
     let _ = db::machine_validation_config::remove_config(&mut txn, &req.name).await?;
     txn.commit().await.unwrap();
@@ -546,13 +496,7 @@ pub(crate) async fn update_machine_validation_test(
     request: tonic::Request<rpc::MachineValidationTestUpdateRequest>,
 ) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
     let req = request.into_inner();
-    const DB_TXN_NAME: &str = "update_machine_validation_test";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_machine_validation_test").await?;
 
     // let existing = machine_validation_suites::find(
     //     &mut txn,
@@ -571,9 +515,7 @@ pub(crate) async fn update_machine_validation_test(
     // }
     let test_id = machine_validation_suites::update(&mut txn, req.clone()).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         rpc::MachineValidationTestAddUpdateResponse {
@@ -588,13 +530,7 @@ pub(crate) async fn add_machine_validation_test(
     request: tonic::Request<rpc::MachineValidationTestAddRequest>,
 ) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
     let req = request.into_inner();
-    const DB_TXN_NAME: &str = "add_machine_validation_test";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("add_machine_validation_test").await?;
 
     let tests = machine_validation_suites::find(
         &mut txn,
@@ -610,9 +546,7 @@ pub(crate) async fn add_machine_validation_test(
     let version = ConfigVersion::initial();
     let test_id = machine_validation_suites::save(&mut txn, req, version).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         rpc::MachineValidationTestAddUpdateResponse {
@@ -629,13 +563,7 @@ pub(crate) async fn get_machine_validation_tests(
     log_request_data(&request);
     let req = request.into_inner();
 
-    const DB_TXN_NAME: &str = "get_machine_validation_tests";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_machine_validation_tests").await?;
 
     let tests = machine_validation_suites::find(&mut txn, req).await?;
 
@@ -654,13 +582,7 @@ pub(crate) async fn machine_validation_test_verfied(
     request: tonic::Request<rpc::MachineValidationTestVerfiedRequest>,
 ) -> Result<tonic::Response<rpc::MachineValidationTestVerfiedResponse>, Status> {
     let req = request.into_inner();
-    const DB_TXN_NAME: &str = "update_machine_validation_test";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_machine_validation_test").await?;
 
     let existing = machine_validation_suites::find(
         &mut txn,
@@ -674,9 +596,7 @@ pub(crate) async fn machine_validation_test_verfied(
     let _ = machine_validation_suites::mark_verified(&mut txn, req.test_id, existing[0].version)
         .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         rpc::MachineValidationTestVerfiedResponse {
@@ -689,13 +609,9 @@ pub(crate) async fn machine_validation_test_next_version(
     request: tonic::Request<rpc::MachineValidationTestNextVersionRequest>,
 ) -> Result<tonic::Response<rpc::MachineValidationTestNextVersionResponse>, Status> {
     let req = request.into_inner();
-    const DB_TXN_NAME: &str = "machine_validation_test_next_version";
-
     let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        .txn_begin("machine_validation_test_next_version")
+        .await?;
 
     let existing = machine_validation_suites::find(
         &mut txn,
@@ -707,9 +623,7 @@ pub(crate) async fn machine_validation_test_next_version(
     .await?;
     let (test_id, next_version) = machine_validation_suites::clone(&mut txn, &existing[0]).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         rpc::MachineValidationTestNextVersionResponse {
@@ -724,13 +638,9 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
     request: tonic::Request<rpc::MachineValidationTestEnableDisableTestRequest>,
 ) -> Result<tonic::Response<rpc::MachineValidationTestEnableDisableTestResponse>, Status> {
     let req = request.into_inner();
-    const DB_TXN_NAME: &str = "machine_validation_test_enable_disable_test";
-
     let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        .txn_begin("machine_validation_test_enable_disable_test")
+        .await?;
 
     let existing = machine_validation_suites::find(
         &mut txn,
@@ -750,9 +660,7 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         rpc::MachineValidationTestEnableDisableTestResponse {
@@ -766,13 +674,7 @@ pub(crate) async fn update_machine_validation_run(
     request: tonic::Request<rpc::MachineValidationRunRequest>,
 ) -> Result<tonic::Response<rpc::MachineValidationRunResponse>, Status> {
     let req = request.into_inner();
-    const DB_TXN_NAME: &str = "update_machine_validation_run";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_machine_validation_run").await?;
 
     let validation_id = match req.validation_id {
         Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
@@ -791,9 +693,7 @@ pub(crate) async fn update_machine_validation_run(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(rpc::MachineValidationRunResponse {
         message: "Success".to_string(),
@@ -804,13 +704,7 @@ pub async fn apply_config_on_startup(
     api: &Api,
     config: &MachineValidationConfig,
 ) -> Result<(), CarbideError> {
-    const DB_TXN_NAME: &str = "apply_config_on_startup";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("apply_config_on_startup").await?;
 
     // Get all tests from DB
     let tests =
@@ -914,9 +808,7 @@ pub async fn apply_config_on_startup(
         }
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(())
 }

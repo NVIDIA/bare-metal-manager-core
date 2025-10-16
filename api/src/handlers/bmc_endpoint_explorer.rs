@@ -13,7 +13,6 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use db::DatabaseError;
 use db::machine_interface::find_by_ip;
 use forge_ssh::ssh::{
     DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
@@ -267,11 +266,7 @@ async fn resolve_bmc_interface(
     if let Some(mac_str) = &request.mac_address {
         bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
     } else {
-        let mut txn = api
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("resolve_bmc_interface", e))?;
+        let mut txn = api.txn_begin("resolve_bmc_interface").await?;
 
         if let Some(bmc_machine_interface) = find_by_ip(&mut txn, bmc_addr.ip()).await? {
             bmc_mac_address = bmc_machine_interface.mac_address;

@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use db::domain::{self};
 use db::vpc::{self};
-use db::{DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_segment};
+use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
 use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
 use model::domain::NewDomain;
@@ -34,19 +34,13 @@ pub async fn create_initial_domain(
     db_pool: sqlx::pool::Pool<Postgres>,
     domain_name: &str,
 ) -> Result<bool, CarbideError> {
-    const DB_TXN_NAME: &str = "create_initial_domain";
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(&db_pool, "create_initial_domain").await?;
     let domains =
         db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     if domains.is_empty() {
         let domain = NewDomain::new(domain_name);
         db::domain::persist_first(&domain, &mut txn).await?;
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
         Ok(true)
     } else {
         let names: Vec<String> = domains.into_iter().map(|d| d.name).collect();
@@ -66,11 +60,7 @@ pub async fn create_initial_networks(
     db_pool: &Pool<Postgres>,
     networks: &HashMap<String, NetworkDefinition>,
 ) -> Result<(), CarbideError> {
-    const DB_TXN_NAME: &str = "create_initial_networks";
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(db_pool, "create_initial_networks").await?;
     let all_domains =
         db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     if all_domains.len() != 1 {
@@ -97,18 +87,12 @@ pub async fn create_initial_networks(
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
         tracing::info!("Created network segment {name}");
     }
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
     Ok(())
 }
 
 pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<(), CarbideError> {
-    const DB_TXN_NAME: &str = "allocate SVI IP";
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(db_pool, "allocate SVI IP").await?;
     let all_segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::<network_segment::IdColumn>::All,
@@ -133,9 +117,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
         .map(|x| (x.id, x))
         .collect::<HashMap<_, _>>();
 
-    txn.rollback()
-        .await
-        .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
+    txn.rollback().await?;
 
     // Allocate SVI IP for the segments attached to a FNN VPC.
     for segment in all_segments {
@@ -157,26 +139,18 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
             continue;
         }
 
-        const DB_TXN_NAME: &str = "internal allocate SVI IP";
-        let mut txn = db_pool
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = Transaction::begin(db_pool, "internal allocate SVI IP").await?;
 
         match db::network_segment::allocate_svi_ip(&segment, &mut txn).await {
             Ok(_) => {
-                txn.commit()
-                    .await
-                    .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+                txn.commit().await?;
             }
             Err(err) => {
                 tracing::error!(
                     "Updating SVI IP filed for segment: {} - Error: {err}",
                     segment.id
                 );
-                txn.rollback()
-                    .await
-                    .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
+                txn.rollback().await?;
             }
         }
     }
@@ -188,11 +162,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
     db_pool: &Pool<Postgres>,
     initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 ) -> Result<(), CarbideError> {
-    const DB_TXN_NAME: &str = "agent upgrade policy";
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(db_pool, "agent upgrade policy").await?;
     let initial_policy: AgentUpgradePolicy = initial_dpu_agent_upgrade_policy
         .unwrap_or(AgentUpgradePolicyChoice::UpOnly)
         .into();
@@ -205,9 +175,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
             "Initialized DPU agent upgrade policy"
         );
     }
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(())
 }
@@ -222,11 +190,7 @@ pub(crate) async fn create_admin_vpc(
         ));
     };
 
-    const DB_TXN_NAME: &str = "agent upgrade policy";
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(db_pool, "agent upgrade policy").await?;
 
     let admin_segment = db::network_segment::admin(&mut txn).await?;
     let existing_vpc = db::vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
@@ -272,9 +236,7 @@ pub(crate) async fn create_admin_vpc(
     // Attach it to admin network segment.
     db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(())
 }

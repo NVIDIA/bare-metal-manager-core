@@ -13,7 +13,6 @@
 use std::collections::HashMap;
 
 use ::rpc::forge as rpc;
-use db::DatabaseError;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -27,13 +26,7 @@ pub(crate) async fn grow(
 
     let toml_text = request.into_inner().text;
 
-    const DB_TXN_NAME: &str = "admin_grow_resource_pool";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("admin_grow_resource_pool").await?;
 
     let mut pools = HashMap::new();
     let table: toml::Table = toml_text
@@ -48,9 +41,7 @@ pub(crate) async fn grow(
     use db::resource_pool::DefineResourcePoolError as DE;
     match db::resource_pool::define_all_from(&mut txn, &pools).await {
         Ok(()) => {
-            txn.commit()
-                .await
-                .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+            txn.commit().await?;
             Ok(Response::new(rpc::GrowResourcePoolResponse {}))
         }
         Err(DE::InvalidArgument(msg)) => Err(tonic::Status::invalid_argument(msg)),
@@ -67,21 +58,13 @@ pub(crate) async fn list(
 ) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "admin_list_resource_pools";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("admin_list_resource_pools").await?;
 
     let snapshot = db::resource_pool::all(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::ResourcePools {
         pools: snapshot.into_iter().map(|s| s.into()).collect(),

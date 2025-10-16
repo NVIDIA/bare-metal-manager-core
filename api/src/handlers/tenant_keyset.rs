@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
-use db::{DatabaseError, ObjectFilter};
+use db::ObjectFilter;
 use model::tenant::{
     TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
@@ -31,19 +31,11 @@ pub(crate) async fn create(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "create_tenant_keyset";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("create_tenant_keyset").await?;
 
     let keyset = db::tenant_keyset::create(&keyset_request, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::CreateTenantKeysetResponse {
         keyset: Some(keyset.into()),
@@ -56,13 +48,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "tenant_keyset::find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("tenant_keyset::find_ids").await?;
 
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
@@ -81,13 +67,7 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::TenantKeysetsByIdsRequest>,
 ) -> Result<Response<rpc::TenantKeySetList>, Status> {
     log_request_data(&request);
-    const DB_TXN_NAME: &str = "tenant_keyset::find_by_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("tenant_keyset::find_by_ids").await?;
 
     let rpc::TenantKeysetsByIdsRequest {
         keyset_ids,
@@ -138,13 +118,7 @@ pub(crate) async fn find(
         .into());
     }
 
-    const DB_TXN_NAME: &str = "find_tenant_keyset";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_tenant_keyset").await?;
 
     let keyset_ids = if let Some(keyset_id) = keyset_id {
         ObjectFilter::One(keyset_id)
@@ -155,9 +129,7 @@ pub(crate) async fn find(
     let keyset =
         db::tenant_keyset::find(organization_id, keyset_ids, include_key_data, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::TenantKeySetList {
         keyset: keyset.into_iter().map(|x| x.into()).collect(),
@@ -175,19 +147,11 @@ pub(crate) async fn update(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "update_tenant_keyset";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_tenant_keyset").await?;
 
     db::tenant_keyset::update(&update_request, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
 }
@@ -200,13 +164,7 @@ pub(crate) async fn delete(
 
     let rpc::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
 
-    const DB_TXN_NAME: &str = "delete_tenant_keyset";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_tenant_keyset").await?;
 
     let Some(keyset_identifier) = keyset_identifier else {
         return Err(CarbideError::MissingArgument("keyset_identifier").into());
@@ -223,9 +181,7 @@ pub(crate) async fn delete(
         .into());
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
 }
@@ -237,18 +193,11 @@ pub(crate) async fn validate_public_key(
     let request = TenantPublicKeyValidationRequest::try_from(request.into_inner())
         .map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "validate_tenant_public_key";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("validate_tenant_public_key").await?;
 
     db::tenant::validate_public_key(&request, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::ValidateTenantPublicKeyResponse {}))
 }

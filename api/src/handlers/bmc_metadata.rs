@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
-use db::DatabaseError;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 
 use crate::CarbideError;
@@ -23,12 +22,7 @@ pub(crate) async fn get(
     log_request_data(&request);
     let request = request.into_inner();
 
-    const DB_TXN_NAME: &str = "get_bmc_meta_data";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_bmc_meta_data").await?;
 
     let (bmc_endpoint_request, _) = crate::api::validate_and_complete_bmc_endpoint_request(
         &mut txn,
@@ -37,9 +31,7 @@ pub(crate) async fn get(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     let Some(bmc_mac_address) = bmc_endpoint_request.mac_address else {
         return Err(CarbideError::NotFoundError {

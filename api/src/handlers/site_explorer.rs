@@ -15,7 +15,6 @@ use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use config_version::ConfigVersion;
-use db::{self, DatabaseError};
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
@@ -28,13 +27,7 @@ pub(crate) async fn find_explored_endpoint_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredEndpointIdList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "site_exporter::find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("site_exporter::find_ids").await?;
 
     let filter: ::rpc::site_explorer::ExploredEndpointSearchFilter = request.into_inner();
 
@@ -53,13 +46,7 @@ pub(crate) async fn find_explored_endpoints_by_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredEndpointList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "site_exporter::find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("site_exporter::find_ids").await?;
 
     let ips: Vec<IpAddr> = request
         .into_inner()
@@ -99,13 +86,7 @@ pub(crate) async fn find_explored_managed_host_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredManagedHostIdList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "site_exporter::find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("site_exporter::find_ids").await?;
 
     let filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter = request.into_inner();
 
@@ -124,13 +105,7 @@ pub(crate) async fn find_explored_managed_hosts_by_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredManagedHostList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "site_exporter::find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("site_exporter::find_ids").await?;
 
     let ips: Vec<IpAddr> = request
         .into_inner()
@@ -171,19 +146,11 @@ pub(crate) async fn get_site_exploration_report(
 ) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "get_site_exploration_report";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_site_exploration_report").await?;
 
     let report = db::site_exploration_report::fetch(&mut txn).await?;
 
-    txn.rollback()
-        .await
-        .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
+    txn.rollback().await?;
 
     Ok(tonic::Response::new(report.into()))
 }
@@ -197,19 +164,11 @@ pub(crate) async fn clear_site_exploration_error(
 
     let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "clear_last_known_error";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("clear_last_known_error").await?;
 
     db::explored_endpoints::clear_last_known_error(bmc_ip, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(()))
 }
@@ -228,13 +187,7 @@ pub(crate) async fn re_explore_endpoint(
         .transpose()
         .map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "re_explore_endpoint";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("re_explore_endpoint").await?;
 
     let eps = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     if eps.is_empty() {
@@ -269,9 +222,7 @@ pub(crate) async fn re_explore_endpoint(
         }
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(()))
 }
@@ -285,13 +236,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
     let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "pause_explored_endpoint_remediation";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("pause_explored_endpoint_remediation").await?;
 
     let eps = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     if eps.is_empty() {
@@ -316,9 +261,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
     db::explored_endpoints::set_pause_remediation(bmc_ip, req.pause, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(()))
 }
@@ -343,22 +286,16 @@ pub(crate) async fn is_bmc_in_managed_host(
         )));
     };
 
-    const DB_TXN_NAME: &str = "site_exporter::is_endpoint_in_managed_host";
-
     let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        .txn_begin("site_exporter::is_endpoint_in_managed_host")
+        .await?;
 
     let in_managed_host =
         crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &mut txn)
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(IsBmcInManagedHostResponse {
         in_managed_host,
@@ -374,13 +311,7 @@ pub(crate) async fn delete_explored_endpoint(
 
     let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "delete_explored_endpoint";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_explored_endpoint").await?;
 
     // Check if the endpoint exists
     let endpoints = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
@@ -407,9 +338,7 @@ pub(crate) async fn delete_explored_endpoint(
     // Delete the endpoint
     db::explored_endpoints::delete(&mut txn, bmc_ip).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::DeleteExploredEndpointResponse {
         deleted: true,

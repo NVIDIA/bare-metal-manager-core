@@ -14,8 +14,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use db::DatabaseError;
-use sqlx::{Pool, Postgres, Transaction};
 use tonic::Status;
 
 use crate::api::{Api, log_request_data};
@@ -29,7 +27,7 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::RouteServerEntries>, Status> {
     log_request_data(&request);
 
-    let mut txn = begin_txn(&api.database_connection, "route_servers.get").await?;
+    let mut txn = api.txn_begin("route_servers.get").await?;
     let route_servers = db::route_servers::get(&mut txn).await?;
 
     Ok(tonic::Response::new(rpc::RouteServerEntries {
@@ -53,9 +51,9 @@ pub(crate) async fn add(
         .try_into()
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
-    let mut txn = begin_txn(&api.database_connection, "route_servers.add").await?;
+    let mut txn = api.txn_begin("route_servers.add").await?;
     db::route_servers::add(&mut txn, &route_servers, source_type.into()).await?;
-    commit_txn(txn, "route_servers.add").await?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
@@ -76,9 +74,9 @@ pub(crate) async fn remove(
         .try_into()
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
-    let mut txn = begin_txn(&api.database_connection, "route_servers.remove").await?;
+    let mut txn = api.txn_begin("route_servers.remove").await?;
     db::route_servers::remove(&mut txn, &route_servers, source_type.into()).await?;
-    commit_txn(txn, "route_servers.remove").await?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
@@ -100,9 +98,9 @@ pub(crate) async fn replace(
         .try_into()
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
-    let mut txn = begin_txn(&api.database_connection, "route_servers.replace").await?;
+    let mut txn = api.txn_begin("route_servers.replace").await?;
     db::route_servers::replace(&mut txn, &route_servers, source_type.into()).await?;
-    commit_txn(txn, "route_servers.replace").await?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
@@ -116,31 +114,4 @@ fn get_route_server_ip_addrs(route_servers: &[String]) -> CarbideResult<Vec<IpAd
         .map(|rs| IpAddr::from_str(rs))
         .collect::<Result<Vec<IpAddr>, _>>()
         .map_err(CarbideError::AddressParseError)
-}
-
-// begin_txn exists to attempt to get a database transaction open, returning
-// a tonic::Status in the event it fails (making it easier for callers to
-// pass through an error).
-pub async fn begin_txn(
-    db_conn: &Pool<Postgres>,
-    phase: impl std::fmt::Display,
-) -> Result<Transaction<'_, Postgres>, Status> {
-    db_conn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(format!("txn {phase}").as_str(), e))
-        .map_err(Status::from)
-}
-
-// commit_txn exists to attempt to commit a transaction, returning
-// a tonic::Status in the event it fails (making it easier for callers to
-// pass through an error).
-pub async fn commit_txn(
-    txn: Transaction<'_, Postgres>,
-    phase: impl std::fmt::Display,
-) -> Result<(), Status> {
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(format!("txn {phase}").as_str(), e))
-        .map_err(Status::from)
 }
