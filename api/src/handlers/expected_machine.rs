@@ -11,12 +11,10 @@
  */
 
 use ::rpc::forge as rpc;
-use db::DatabaseError;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use regex::Regex;
-use sqlx::{Postgres, Transaction};
 use tonic::Status;
 use uuid::Uuid;
 
@@ -34,11 +32,7 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::ExpectedMachine>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("get_expected_machine", e))?;
+    let mut txn = api.txn_begin("get_expected_machine").await?;
 
     let request = request.into_inner();
 
@@ -113,18 +107,11 @@ pub(crate) async fn add(
         db_data.override_id = Some(Uuid::new_v4());
     }
 
-    const DB_TXN_NAME: &str = "add_expected_machines";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("add_expected_machines").await?;
 
     db::expected_machine::create(&mut txn, parsed_mac, db_data).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
@@ -137,12 +124,7 @@ pub(crate) async fn delete(
 
     let request = request.into_inner();
 
-    const DB_TXN_NAME: &str = "delete_expected_machines";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_expected_machines").await?;
 
     if let Some(uuid_val) = request.id.clone() {
         let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
@@ -158,9 +140,7 @@ pub(crate) async fn delete(
         db::expected_machine::delete(parsed_mac, &mut txn).await?;
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
@@ -182,12 +162,7 @@ pub(crate) async fn update(
     let request_mac = request.bmc_mac_address.clone();
     let data: ExpectedMachineData = request.try_into()?;
 
-    const DB_TXN_NAME: &str = "update_expected_machine";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_expected_machine").await?;
 
     if let Some(uuid_val) = request_id.clone() {
         let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
@@ -206,9 +181,7 @@ pub(crate) async fn update(
         db::expected_machine::update(&mut expected_machine, &mut txn, data).await?;
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
@@ -220,18 +193,11 @@ pub(crate) async fn replace_all(
     log_request_data(&request);
     let request = request.into_inner();
 
-    const DB_TXN_NAME: &str = "replace_all_expected_machines";
-    let mut txn: Transaction<'_, Postgres> = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("replace_all_expected_machines").await?;
 
     db::expected_machine::clear(&mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     for expected_machine in request.expected_machines {
         add(api, tonic::Request::new(expected_machine)).await?;
@@ -245,11 +211,7 @@ pub(crate) async fn get_all(
 ) -> Result<tonic::Response<rpc::ExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("get_all_expected_machines", e))?;
+    let mut txn = api.txn_begin("get_all_expected_machines").await?;
 
     let expected_machine_list: Vec<ExpectedMachine> =
         db::expected_machine::find_all(&mut txn).await?;
@@ -264,11 +226,7 @@ pub(crate) async fn get_linked(
     request: tonic::Request<()>,
 ) -> Result<tonic::Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("get_linked", e))?;
+    let mut txn = api.txn_begin("get_linked").await?;
 
     let out = db::expected_machine::find_all_linked(&mut txn).await?;
     let list = rpc::LinkedExpectedMachineList {
@@ -283,18 +241,11 @@ pub(crate) async fn delete_all(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "delete_all_expected_machines";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_all_expected_machines").await?;
 
     db::expected_machine::clear(&mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
@@ -304,18 +255,11 @@ pub(crate) async fn query(
     api: &Api,
     mac: MacAddress,
 ) -> Result<Option<ExpectedMachine>, CarbideError> {
-    const DB_TXN_NAME: &str = "find_many_by_bmc_mac_address";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_many_by_bmc_mac_address").await?;
 
     let mut expected = db::expected_machine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(expected.remove(&mac))
 }

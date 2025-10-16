@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use db::DatabaseError;
+use db::{DatabaseError, Transaction};
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
@@ -143,16 +143,14 @@ impl PreingestionManager {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = PreingestionMetrics::new();
 
-        const DB_TXN_NAME: &str = "PreingestionManager::run_single_iteration";
-        let mut txn = self
-            .static_info
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = Transaction::begin(
+            &self.static_info.database_connection,
+            "PreingestionManager::run_single_iteration",
+        )
+        .await?;
 
         if !sqlx::query_scalar(PreingestionManager::DB_LOCK_QUERY)
-            .fetch_one(&mut *txn)
+            .fetch_one(txn.as_pgconn())
             .await
             .unwrap_or(false)
         {
@@ -229,9 +227,7 @@ impl PreingestionManager {
         );
         self.metric_holder.update_metrics(metrics);
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
         Ok(())
     }
 }
@@ -244,12 +240,11 @@ async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
     endpoint: ExploredEndpoint,
 ) -> CarbideResult<EndpointResult> {
-    const DB_TXN_NAME: &str = "PreingestionManager::one_endpoint";
-    let mut txn = static_info
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(
+        &static_info.database_connection,
+        "PreingestionManager::one_endpoint",
+    )
+    .await?;
 
     tracing::debug!("Preingestion on endpoint {:?}", endpoint);
 
@@ -337,9 +332,7 @@ async fn one_endpoint(
         }
     };
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(EndpointResult { delayed_upgrade })
 }

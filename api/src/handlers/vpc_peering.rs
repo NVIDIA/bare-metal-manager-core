@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::db::{DatabaseError, ObjectColumnFilter, vpc, vpc_peering as db};
+use ::db::{ObjectColumnFilter, vpc, vpc_peering as db};
 use ::rpc::forge as rpc;
 use forge_network::virtualization::VpcVirtualizationType;
 use tonic::{Request, Response, Status};
@@ -35,13 +35,7 @@ pub async fn create(
     let peer_vpc_id =
         peer_vpc_id.ok_or_else(|| CarbideError::MissingArgument("peer_vpc_id cannot be null"))?;
 
-    const DB_TXN_NAME: &str = "vpc_peering::create";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_peering::create").await?;
 
     // Check this VPC peering is permitted under current site vpc_peering_policy
     match api.runtime_config.vpc_peering_policy {
@@ -83,9 +77,7 @@ pub async fn create(
 
     let vpc_peering = db::create(&mut txn, vpc_id, peer_vpc_id).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(vpc_peering.into()))
 }
@@ -98,19 +90,11 @@ pub async fn find_ids(
 
     let rpc::VpcPeeringSearchFilter { vpc_id } = request.into_inner();
 
-    const DB_TXN_NAME: &str = "vpc_peering::find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_peering::find_ids").await?;
 
     let vpc_peering_ids = db::find_ids(&mut txn, vpc_id).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(rpc::VpcPeeringIdList {
         vpc_peering_ids,
@@ -125,19 +109,11 @@ pub async fn find_by_ids(
 
     let rpc::VpcPeeringsByIdsRequest { vpc_peering_ids } = request.into_inner();
 
-    const DB_TXN_NAME: &str = "vpc_peering::find_by_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_peering::find_by_ids").await?;
 
     let vpc_peerings = db::find_by_ids(&mut txn, vpc_peering_ids).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     let vpc_peerings = vpc_peerings.into_iter().map(Into::into).collect();
 
@@ -154,19 +130,11 @@ pub async fn delete(
 
     let id = id.ok_or_else(|| CarbideError::MissingArgument("id cannot be null"))?;
 
-    const DB_TXN_NAME: &str = "vpc_peering::delete";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("vpc_peering::delete").await?;
 
     let _ = db::delete(&mut txn, id).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(rpc::VpcPeeringDeletionResult {}))
 }

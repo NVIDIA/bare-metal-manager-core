@@ -11,7 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use db::DatabaseError;
 use forge_uuid::machine::MachineInterfaceId;
 use model::machine_boot_override::MachineBootOverride;
 
@@ -25,11 +24,7 @@ pub(crate) async fn get(
 
     let machine_interface_id = request.into_inner();
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("get_machine_boot_override ", e))?;
+    let mut txn = api.txn_begin("get_machine_boot_override ").await?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,
@@ -60,12 +55,7 @@ pub(crate) async fn set(
     crate::api::log_request_data(&request);
 
     let mbo: MachineBootOverride = request.into_inner().try_into()?;
-    const DB_TXN_NAME: &str = "set_machine_boot_override";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("set_machine_boot_override").await?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, mbo.machine_interface_id).await
     {
@@ -90,9 +80,7 @@ pub(crate) async fn set(
 
     db::machine_boot_override::update_or_insert(&mbo, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
@@ -105,12 +93,7 @@ pub(crate) async fn clear(
 
     let machine_interface_id = request.into_inner();
 
-    const DB_TXN_NAME: &str = "clear_machine_boot_override";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("clear_machine_boot_override").await?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,
@@ -133,9 +116,7 @@ pub(crate) async fn clear(
     }
     db::machine_boot_override::clear(&mut txn, machine_interface_id).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }

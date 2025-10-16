@@ -1,5 +1,3 @@
-use std::ops::DerefMut;
-
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ReprovisionRequest};
@@ -7,9 +5,9 @@ use model::machine_update_module::{
     AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,
     HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
-use sqlx::{Acquire, PgConnection};
+use sqlx::PgConnection;
 
-use crate::DatabaseError;
+use crate::{DatabaseError, Transaction};
 
 pub async fn get_fw_updates_running_count(txn: &mut PgConnection) -> Result<i64, DatabaseError> {
     let query = r#"SELECT COUNT(*) as count FROM machines m
@@ -27,11 +25,8 @@ pub async fn trigger_reprovisioning_for_managed_host(
     txn: &mut PgConnection,
     machine_updates: &[DpuMachineUpdate],
 ) -> Result<(), DatabaseError> {
-    const DB_TXN_NAME: &str = "trigger_reprovisioning_for_managed_host";
-    let mut inner_txn = txn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut inner_txn =
+        Transaction::begin_inner(txn, "trigger_reprovisioning_for_managed_host").await?;
 
     for machine_update in machine_updates {
         let initiator = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
@@ -53,7 +48,7 @@ pub async fn trigger_reprovisioning_for_managed_host(
         sqlx::query(query)
             .bind(sqlx::types::Json(req))
             .bind(machine_update.dpu_machine_id.to_string())
-            .fetch_one(inner_txn.deref_mut())
+            .fetch_one(inner_txn.as_pgconn())
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
@@ -64,10 +59,7 @@ pub async fn trigger_reprovisioning_for_managed_host(
             })?;
     }
 
-    inner_txn
-        .commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    inner_txn.commit().await?;
 
     Ok(())
 }

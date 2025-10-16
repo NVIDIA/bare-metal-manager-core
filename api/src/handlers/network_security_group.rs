@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
-use db::{DatabaseError, network_security_group};
+use db::network_security_group;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::network_security_group::NetworkSecurityGroupId;
 use forge_uuid::vpc::VpcId;
@@ -78,13 +78,7 @@ pub(crate) async fn create(
     validate_expanded_rule_set(&rules, max_nsg_size)?;
 
     // Start a new transaction for a db write.
-    const DB_TXN_NAME: &str = "create_network_security_group";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("create_network_security_group").await?;
 
     // Write a new NetworkSecurityGroup to the DB and get back
     // our new NetworkSecurityGroup.
@@ -110,9 +104,7 @@ pub(crate) async fn create(
     };
 
     //  Commit our txn if nothing has gone wrong so far.
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     // Send our response back.
     Ok(Response::new(rpc_out))
@@ -126,13 +118,7 @@ pub(crate) async fn find_ids(
 
     let req = request.into_inner();
 
-    const DB_TXN_NAME: &str = "find_network_security_group_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_network_security_group_ids").await?;
 
     let network_security_group_ids = network_security_group::find_ids(
         &mut txn,
@@ -157,9 +143,7 @@ pub(crate) async fn find_ids(
             .collect(),
     };
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc_out))
 }
@@ -200,13 +184,7 @@ pub(crate) async fn find_by_ids(
         })?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    const DB_TXN_NAME: &str = "find_network_security_groups_by_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_network_security_groups_by_ids").await?;
 
     // Make our DB query for the IDs to get our NetworkSecurityGroups
     let network_security_groups = network_security_group::find_by_ids(
@@ -240,9 +218,7 @@ pub(crate) async fn find_by_ids(
     };
 
     // Commit if nothing has gone wrong up to now
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     // Send our response back
     Ok(Response::new(rpc_out))
@@ -295,13 +271,7 @@ pub(crate) async fn update(
     validate_expanded_rule_set(&rules, max_nsg_size)?;
 
     // Start a new transaction for a db write.
-    const DB_TXN_NAME: &str = "update_network_security_group";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_network_security_group").await?;
 
     let tenant_organization_id =
         req.tenant_organization_id
@@ -389,9 +359,7 @@ pub(crate) async fn update(
     };
 
     // Commit our txn if nothing has gone wrong so far.
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     // Send our response back.
     Ok(Response::new(rpc_out))
@@ -412,13 +380,7 @@ pub(crate) async fn delete(
     })?;
 
     // Prepare our txn to delete from the DB
-    const DB_TXN_NAME: &str = "delete_network_security_group";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_network_security_group").await?;
 
     let tenant_organization_id =
         req.tenant_organization_id
@@ -490,9 +452,7 @@ pub(crate) async fn delete(
     let rpc_out = rpc::DeleteNetworkSecurityGroupResponse {};
 
     // Commit if nothing has gone wrong up to now
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     // Send our response back
     Ok(Response::new(rpc_out))
@@ -538,13 +498,7 @@ pub(crate) async fn get_propagation_status(
         })?;
 
     // Prepare our txn to associate machines with the NetworkSecurityGroup
-    const DB_TXN_NAME: &str = "get_propagation_status";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_propagation_status").await?;
 
     // Query the DB for propagation status.
     let (vpcs, instances) = network_security_group::get_propagation_status(
@@ -574,9 +528,7 @@ pub(crate) async fn get_propagation_status(
     };
 
     // Commit if nothing has gone wrong up to now
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     // Send our response back
     Ok(Response::new(rpc_out))
@@ -615,12 +567,7 @@ pub(crate) async fn get_attachments(
             ))
         })?;
 
-    const DB_TXN_NAME: &str = "get_attachments";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_attachments").await?;
 
     // Query the DB for propagation status.
     let attachments = network_security_group::find_objects_with_attachments(
@@ -636,9 +583,7 @@ pub(crate) async fn get_attachments(
     };
 
     // Commit if nothing has gone wrong up to now
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     // Send our response back
     Ok(Response::new(rpc_out))

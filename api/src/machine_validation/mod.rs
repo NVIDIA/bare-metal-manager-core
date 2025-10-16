@@ -15,7 +15,7 @@ mod metrics;
 use std::default::Default;
 use std::sync::Arc;
 
-use db::{DatabaseError, ObjectFilter};
+use db::ObjectFilter;
 use tokio::sync::oneshot;
 
 use self::metrics::MachineValidationMetrics;
@@ -79,12 +79,11 @@ impl MachineValidationManager {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = MachineValidationMetrics::new();
 
-        const DB_TXN_NAME: &str = "MachineValidationManager::run_single_iteration";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = db::Transaction::begin(
+            &self.database_connection,
+            "MachineValidationManager::run_single_iteration",
+        )
+        .await?;
 
         metrics.completed_validation = db::machine_validation::find_by(
             &mut txn,
@@ -122,9 +121,7 @@ impl MachineValidationManager {
         );
         self.metric_holder.update_metrics(metrics);
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(())
     }

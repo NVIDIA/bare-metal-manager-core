@@ -15,7 +15,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use db::DatabaseError;
+use db::Transaction;
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use eyre::WrapErr;
@@ -209,11 +209,7 @@ pub async fn start_api(
             "Not populating resource pools or route_servers in database, as listen_only=true"
         );
     } else {
-        const DB_TXN_NAME: &str = "define resource pools";
-        let mut txn = db_pool
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = Transaction::begin(&db_pool, "define resource pools").await?;
         db::resource_pool::define_all_from(
             &mut txn,
             carbide_config.pools.as_ref().ok_or_else(|| {
@@ -242,9 +238,7 @@ pub async fn start_api(
         db::route_servers::replace(&mut txn, &route_servers, RouteServerSourceType::ConfigFile)
             .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
     };
     let common_pools =
         db::resource_pool::create_common_pools(db_pool.clone(), ib_fabric_ids).await?;
@@ -371,18 +365,12 @@ pub async fn initialize_and_start_controllers(
     // As soon as we get the database up, observe this version of forge so that we know when it was
     // first deployed
     {
-        const DB_TXN_NAME: &str = "observe forge_version";
-        let mut txn = db_pool
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = Transaction::begin(db_pool, "observe forge_version").await?;
 
         db::forge_version::observe_as_latest_version(&mut txn, forge_version::v!(build_version))
             .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
     }
 
     if let Some(domain_name) = &carbide_config.initial_domain_name
@@ -391,11 +379,7 @@ pub async fn initialize_and_start_controllers(
         tracing::info!("Created initial domain {domain_name}");
     }
 
-    const DB_TXN_NAME: &str = "define resource pools";
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(db_pool, "define resource pools").await?;
     db::resource_pool::define_all_from(
         &mut txn,
         carbide_config.pools.as_ref().ok_or_else(|| {
@@ -405,20 +389,14 @@ pub async fn initialize_and_start_controllers(
         })?,
     )
     .await?;
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     const EXPECTED_MACHINE_FILE_PATH: &str = "/etc/forge/carbide-api/site/expected_machines.json";
     if let Ok(file_str) = tokio::fs::read_to_string(EXPECTED_MACHINE_FILE_PATH).await {
         if let Ok(expected_machines) =
             serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str())
         {
-            const DB_TXN_NAME: &str = "define expected machines";
-            let mut txn = db_pool
-                .begin()
-                .await
-                .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+            let mut txn = Transaction::begin(db_pool, "define expected machines").await?;
             if let Err(err) =
                 db::expected_machine::create_missing_from(&mut txn, &expected_machines).await
             {
@@ -427,9 +405,7 @@ pub async fn initialize_and_start_controllers(
                 );
             } else {
                 // everything worked, commit ok
-                txn.commit()
-                    .await
-                    .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+                txn.commit().await?;
 
                 tracing::info!("Successfully wrote expected machines to db, continuing startup.");
             }
@@ -461,11 +437,7 @@ pub async fn initialize_and_start_controllers(
         }
 
         // Populate IB specific resource pools
-        const DB_TXN_NAME: &str = "define resource pools";
-        let mut txn = db_pool
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = Transaction::begin(db_pool, "define resource pools").await?;
 
         for (fabric_id, x) in carbide_config.ib_fabrics.iter() {
             db::resource_pool::define(
@@ -480,9 +452,7 @@ pub async fn initialize_and_start_controllers(
             .await?;
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
     }
 
     let health_pool = db_pool.clone();

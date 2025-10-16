@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
-use db::DatabaseError;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -42,13 +41,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
         ))
     })?;
 
-    const DB_TXN_NAME: &str = "update machine hardware info";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update machine hardware info").await?;
 
     let machine_topology =
         db::machine_topology::find_latest_by_machine_ids(&mut txn, &[machine_id]).await?;
@@ -84,8 +77,6 @@ pub(crate) async fn handle_machine_hardware_info_update(
     // Set this so the next machine discovery overwrites the data?
     db::machine_topology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
     Ok(Response::new(()))
 }

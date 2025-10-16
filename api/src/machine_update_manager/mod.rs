@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use db::{DatabaseError, ObjectFilter};
+use db::{DatabaseError, ObjectFilter, Transaction};
 use forge_uuid::machine::MachineId;
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::MachineUpdateModule;
@@ -168,15 +168,14 @@ impl MachineUpdateManager {
         let mut current_updating_count = 0;
         let mut max_concurrent_updates = 0;
 
-        const DB_TXN_NAME: &str = "MachineUpdateManager::run_single_iteration";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = Transaction::begin(
+            &self.database_connection,
+            "MachineUpdateManager::run_single_iteration",
+        )
+        .await?;
 
         if sqlx::query_scalar(MachineUpdateManager::DB_LOCK_QUERY)
-            .fetch_one(&mut *txn)
+            .fetch_one(txn.as_pgconn())
             .await
             .unwrap_or(false)
         {
@@ -244,9 +243,7 @@ impl MachineUpdateManager {
                 update_module.update_metrics(&mut txn, &snapshots).await;
             }
 
-            txn.commit()
-                .await
-                .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+            txn.commit().await?;
         } else {
             tracing::debug!("Machine update manager failed to acquire the lock");
         }

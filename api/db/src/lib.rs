@@ -74,6 +74,7 @@ pub mod vpc_prefix;
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::ops::{Deref, DerefMut};
 use std::panic::Location;
 
 #[cfg(test)]
@@ -83,7 +84,7 @@ use model::ConfigValidationError;
 use model::hardware_info::HardwareInfoError;
 use model::tenant::TenantError;
 use rpc::errors::RpcDataConversionError;
-use sqlx::Postgres;
+use sqlx::{Acquire, Postgres};
 use tonic::Status;
 
 use crate::ip_allocator::DhcpError;
@@ -539,6 +540,71 @@ impl From<ResourcePoolDatabaseError> for DatabaseError {
 impl From<::measured_boot::Error> for DatabaseError {
     fn from(value: ::measured_boot::Error) -> Self {
         DatabaseError::internal(value.to_string())
+    }
+}
+
+pub struct Transaction<'a> {
+    inner: sqlx::PgTransaction<'a>,
+    name: &'static str,
+}
+
+impl<'a> AsMut<sqlx::PgTransaction<'a>> for Transaction<'a> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut sqlx::PgTransaction<'a> {
+        &mut self.inner
+    }
+}
+
+impl<'a> Transaction<'a> {
+    pub async fn begin(pool: &sqlx::PgPool, name: &'static str) -> Result<Self, DatabaseError> {
+        pool.begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(name, e))
+            .map(|inner| Self { inner, name })
+    }
+
+    pub async fn begin_inner(
+        conn: &'a mut sqlx::PgConnection,
+        name: &'static str,
+    ) -> Result<Self, DatabaseError> {
+        conn.begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(name, e))
+            .map(|inner| Self { inner, name })
+    }
+
+    pub async fn commit(self) -> Result<(), DatabaseError> {
+        self.inner
+            .commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(self.name, e))
+    }
+
+    pub async fn rollback(self) -> Result<(), DatabaseError> {
+        self.inner
+            .rollback()
+            .await
+            .map_err(|e| DatabaseError::txn_rollback(self.name, e))
+    }
+
+    pub fn as_pgconn(&mut self) -> &mut sqlx::PgConnection {
+        &mut self.inner
+    }
+}
+
+impl<'a> Deref for Transaction<'a> {
+    type Target = sqlx::PgTransaction<'a>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for Transaction<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 

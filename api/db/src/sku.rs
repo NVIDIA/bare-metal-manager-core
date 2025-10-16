@@ -13,9 +13,9 @@ use model::sku::{
     Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentInfinibandDevices,
     SkuComponentMemory, SkuComponentStorage, SkuComponentTpm, SkuComponents, diff_skus,
 };
-use sqlx::{Acquire, PgConnection};
+use sqlx::PgConnection;
 
-use crate::{DatabaseError, ObjectFilter, machine};
+use crate::{DatabaseError, ObjectFilter, Transaction, machine};
 
 /// The current version of the SKU format.  The state machine will create older
 /// versions from hardware using the currently assigned sku's version so that
@@ -70,15 +70,11 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseErr
         ));
     }
 
-    const DB_TXN_NAME: &str = "sku::create";
-    let mut inner_txn = txn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut inner_txn = Transaction::begin_inner(txn, "sku::create").await?;
 
     let query = "LOCK TABLE machine_skus IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(&mut *inner_txn)
+        .execute(inner_txn.as_pgconn())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -97,14 +93,11 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseErr
         .bind(&sku.description)
         .bind(sqlx::types::Json(&sku.components))
         .bind(sku.schema_version as i32)
-        .fetch_one(&mut *inner_txn)
+        .fetch_one(inner_txn.as_pgconn())
         .await
         .map_err(|e| DatabaseError::new("create sku", e))?;
 
-    inner_txn
-        .commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    inner_txn.commit().await?;
 
     Ok(())
 }
@@ -196,15 +189,11 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
         ));
     }
 
-    const DB_TXN_NAME: &str = "sku::replace";
-    let mut inner_txn = txn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut inner_txn = Transaction::begin_inner(txn, "sku::replace").await?;
 
     let query = "LOCK TABLE machine_skus IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(&mut *inner_txn)
+        .execute(inner_txn.as_pgconn())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -225,16 +214,13 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
         .bind(sku.schema_version as i32)
         .bind(&sku.device_type)
         .bind(&sku.id)
-        .fetch_one(&mut *inner_txn)
+        .fetch_one(inner_txn.as_pgconn())
         .await
         .map_err(|e| DatabaseError::new("replace sku: update", e))?;
 
     crate::machine::update_sku_status_verify_request_time_for_sku(&mut inner_txn, &sku.id).await?;
 
-    inner_txn
-        .commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    inner_txn.commit().await?;
 
     find(txn, std::slice::from_ref(&sku.id))
         .await?

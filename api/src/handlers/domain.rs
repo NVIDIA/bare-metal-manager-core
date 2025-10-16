@@ -12,7 +12,7 @@
 
 use ::rpc::forge as rpc;
 use db::domain::{self};
-use db::{self, DatabaseError, ObjectColumnFilter};
+use db::{self, ObjectColumnFilter};
 use model::domain::NewDomain;
 use tonic::{Request, Response, Status};
 
@@ -25,12 +25,7 @@ pub(crate) async fn create(
 ) -> Result<Response<rpc::Domain>, Status> {
     crate::api::log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "create_domain";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("create_domain").await?;
 
     let response = Ok(
         db::domain::persist(NewDomain::try_from(request.into_inner())?, &mut txn)
@@ -39,9 +34,7 @@ pub(crate) async fn create(
             .map(Response::new)?,
     );
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     response
 }
@@ -52,12 +45,7 @@ pub(crate) async fn update(
 ) -> Result<Response<rpc::Domain>, Status> {
     crate::api::log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "update_domain";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_domain").await?;
 
     let rpc::Domain { id, name, .. } = request.into_inner();
 
@@ -88,9 +76,7 @@ pub(crate) async fn update(
         .map(rpc::Domain::from)
         .map(Response::new)?);
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     response
 }
@@ -101,12 +87,7 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "delete_domain";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_domain").await?;
 
     let rpc::DomainDeletion { id, .. } = request.into_inner();
 
@@ -140,9 +121,7 @@ pub(crate) async fn delete(
         .map(|_| rpc::DomainDeletionResult {})
         .map(Response::new)?);
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     response
 }
@@ -153,11 +132,7 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::DomainList>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("find_domain", e))?;
+    let mut txn = api.txn_begin("find_domain").await?;
 
     let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
     let domains = match (id, name) {

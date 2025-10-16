@@ -13,7 +13,7 @@
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
-use db::{DatabaseError, ObjectColumnFilter, domain};
+use db::{ObjectColumnFilter, domain};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -27,13 +27,7 @@ pub(crate) async fn get_pxe_instructions(
 ) -> Result<Response<rpc::PxeInstructions>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "get_pxe_instructions";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_pxe_instructions").await?;
 
     let request = request.into_inner();
 
@@ -45,9 +39,7 @@ pub(crate) async fn get_pxe_instructions(
         .map_err(|_| Status::invalid_argument("Unknown arch received."))?;
     let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, interface_id, arch).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::PxeInstructions { pxe_script }))
 }
@@ -60,13 +52,7 @@ pub(crate) async fn get_cloud_init_instructions(
     let cloud_name = "nvidia".to_string();
     let platform = "forge".to_string();
 
-    const DB_TXN_NAME: &str = "get_cloud_init_instructions";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_cloud_init_instructions").await?;
 
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str
@@ -163,9 +149,7 @@ pub(crate) async fn get_cloud_init_instructions(
         }
     };
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(instructions))
 }

@@ -28,11 +28,11 @@ use model::network_prefix::NetworkPrefix;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
 };
-use sqlx::{Acquire, FromRow, PgConnection, query_as};
+use sqlx::{FromRow, PgConnection, query_as};
 
 use super::{ObjectColumnFilter, network_segment};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
-use crate::{DatabaseError, DatabaseResult};
+use crate::{DatabaseError, DatabaseResult, Transaction};
 
 #[derive(Copy, Clone)]
 pub struct PrefixColumn;
@@ -190,11 +190,7 @@ pub async fn allocate(
 ) -> DatabaseResult<InstanceNetworkConfig> {
     // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
     // We're potentially about to insert a couple rows, so create a savepoint.
-    const DB_TXN_NAME: &str = "instance_address::allocate";
-    let mut inner_txn = txn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut inner_txn = Transaction::begin_inner(txn, "instance_address::allocate").await?;
 
     let segment_ids = updated_config
         .interfaces
@@ -229,7 +225,7 @@ pub async fn allocate(
 
     let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(&mut *inner_txn)
+        .execute(inner_txn.as_pgconn())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -327,16 +323,13 @@ pub async fn allocate(
                 // eg. 10.3.2.0/30
                 .bind(segment.id)
                 .bind(IpNetwork::new(address.network(), address.prefix())?)
-                .fetch_all(&mut *inner_txn)
+                .fetch_all(inner_txn.as_pgconn())
                 .await
                 .map_err(|e| DatabaseError::query(query, e))?;
         }
     }
 
-    inner_txn
-        .commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    inner_txn.commit().await?;
 
     Ok(updated_config)
 }

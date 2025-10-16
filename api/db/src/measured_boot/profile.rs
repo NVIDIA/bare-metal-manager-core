@@ -33,7 +33,7 @@ use crate::measured_boot::interface::profile::{
     insert_measurement_profile_attr_records, insert_measurement_profile_record,
     rename_profile_for_profile_id, rename_profile_for_profile_name,
 };
-use crate::{DatabaseError, DatabaseResult};
+use crate::{DatabaseError, DatabaseResult, Transaction};
 
 pub async fn new_with_txn(
     txn: &mut PgConnection,
@@ -412,18 +412,11 @@ pub async fn new(
     name: Option<String>,
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<MeasurementSystemProfile> {
-    const DB_TXN_NAME: &str = "MeasurementSystemProfile.new";
-
-    let mut txn = db_conn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(db_conn, "MeasurementSystemProfile.new").await?;
 
     let profile = new_with_txn(&mut txn, name, attrs).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
     Ok(profile)
 }
 
@@ -456,10 +449,7 @@ pub async fn load_from_id(
     db_conn: &Pool<Postgres>,
     profile_id: MeasurementSystemProfileId,
 ) -> DatabaseResult<MeasurementSystemProfile> {
-    let mut txn = db_conn
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("MeasurementProfile.load_from_id", e))?;
+    let mut txn = Transaction::begin(db_conn, "MeasurementProfile.load_from_id").await?;
     load_from_id_with_txn(&mut txn, profile_id).await
 }
 

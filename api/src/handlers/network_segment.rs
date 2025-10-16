@@ -30,12 +30,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NetworkSegmentIdList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "network_segment::find_ids";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("network_segment::find_ids").await?;
 
     let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
 
@@ -51,13 +46,7 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::NetworkSegmentsByIdsRequest>,
 ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     log_request_data(&request);
-    const DB_TXN_NAME: &str = "network_segment::find_by_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("network_segment::find_by_ids").await?;
 
     let rpc::NetworkSegmentsByIdsRequest {
         network_segments_ids,
@@ -104,13 +93,7 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     crate::api::log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "find_network_segments";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_network_segments").await?;
 
     let rpc::NetworkSegmentQuery {
         id, search_config, ..
@@ -173,12 +156,7 @@ pub(crate) async fn create(
         }
     }
 
-    const DB_TXN_NAME: &str = "create_network_segment";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("create_network_segment").await?;
 
     let allocate_svi_ip = if let Some(vpc_id) = new_network_segment.vpc_id {
         if new_network_segment.can_stretch.unwrap_or(true) {
@@ -203,9 +181,7 @@ pub(crate) async fn create(
     let network_segment = save(api, &mut txn, new_network_segment, false, allocate_svi_ip).await?;
 
     let response = Ok(Response::new(network_segment.try_into()?));
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
     response
 }
 
@@ -215,12 +191,9 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Box<Status>> {
     crate::api::log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "delete_network_segment";
     let mut txn = api
-        .database_connection
-        .begin()
+        .txn_begin("delete_network_segment")
         .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))
         .map_err(Status::from)?;
 
     let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
@@ -254,10 +227,7 @@ pub(crate) async fn delete(
         .map(Response::new)
         .map_err(|e| Box::new(e.into()))?);
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))
-        .map_err(Status::from)?;
+    txn.commit().await.map_err(Status::from)?;
 
     response
 }
@@ -268,13 +238,7 @@ pub(crate) async fn for_vpc(
 ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     crate::api::log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "network_segments_for_vpc";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("network_segments_for_vpc").await?;
 
     let rpc::VpcSearchQuery { id, .. } = request.into_inner();
 

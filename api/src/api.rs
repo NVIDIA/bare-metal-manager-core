@@ -671,13 +671,7 @@ impl Forge for Api {
         })?;
         log_machine_id(&stable_machine_id);
 
-        const DB_TXN_NAME: &str = "discover_machine";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
-
+        let mut txn = self.txn_begin("discover_machine").await?;
         tracing::debug!(
             ?remote_ip,
             ?interface_id,
@@ -920,9 +914,7 @@ impl Forge for Api {
             attest_key_challenge: attest_key_bind_challenge_opt,
         }));
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         if hardware_info.is_dpu() {
             // WARNING: DONOT REUSE OLD TXN HERE. IT WILL CREATE DEADLOCK.
@@ -930,12 +922,7 @@ impl Forge for Api {
             // Create a new transaction here for network devices. Inner transaction is not so
             // helpful in postgres and using same transaction creates deadlock with
             // machine_interface table.
-            const DB_TXN_NAME: &str = "discover_machine dpu";
-            let mut txn = self
-                .database_connection
-                .begin()
-                .await
-                .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+            let mut txn = self.txn_begin("discover_machine dpu").await?;
 
             // Create DPU and LLDP Association.
             if let Some(dpu_info) = hardware_info.dpu_info.as_ref() {
@@ -948,9 +935,7 @@ impl Forge for Api {
                 .map_err(CarbideError::from)?;
             }
 
-            txn.commit()
-                .await
-                .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+            txn.commit().await?;
         }
 
         response
@@ -967,15 +952,17 @@ impl Forge for Api {
         let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
         let (machine, mut txn) = self
-            .load_machine(&machine_id, MachineSearchConfig::default())
+            .load_machine(
+                &machine_id,
+                MachineSearchConfig::default(),
+                "discovery_completed",
+            )
             .await?;
         db::machine::update_discovery_time(&machine.id, &mut txn).await?;
 
         let discovery_result = "Success".to_owned();
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit("discovery_completed", e))?;
+        txn.commit().await?;
 
         tracing::info!(
             %machine_id,
@@ -999,7 +986,11 @@ impl Forge for Api {
 
         // Load machine from DB
         let (machine, mut txn) = self
-            .load_machine(&machine_id, MachineSearchConfig::default())
+            .load_machine(
+                &machine_id,
+                MachineSearchConfig::default(),
+                "cleanup_machine_completed",
+            )
             .await?;
         db::machine::update_cleanup_time(&machine, &mut txn).await?;
 
@@ -1021,9 +1012,7 @@ impl Forge for Api {
             .await?;
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit("cleanup_machine_completed", e))?;
+        txn.commit().await?;
 
         // State handler should mark Machine as Adopted and reboot host for bios/bmc lockdown.
         Ok(Response::new(rpc::MachineCleanupResult {}))
@@ -1058,12 +1047,7 @@ impl Forge for Api {
         log_request_data(&request);
         let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-        const DB_TXN_NAME: &str = "get_machine";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("get_machine").await?;
 
         let snapshot = db::managed_host::load_snapshot(
             &mut txn,
@@ -1080,9 +1064,7 @@ impl Forge for Api {
             id: machine_id.to_string(),
         })?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let rpc_machine = snapshot
             .rpc_machine_state(match machine_id.machine_type().is_dpu() {
@@ -1102,11 +1084,7 @@ impl Forge for Api {
     ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
         log_request_data(&request);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("find_machines", e))?;
+        let mut txn = self.txn_begin("find_machines").await?;
 
         let search_config = request
             .into_inner()
@@ -1127,12 +1105,7 @@ impl Forge for Api {
         log_request_data(&request);
         let request = request.into_inner();
 
-        const DB_TXN_NAME: &str = "find_machines_by_ids";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("find_machines_by_ids").await?;
 
         let machine_ids = request.machine_ids;
 
@@ -1160,9 +1133,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(snapshot_map_to_rpc_machines(
             snapshots,
@@ -1191,12 +1162,7 @@ impl Forge for Api {
             .into());
         }
 
-        const DB_TXN_NAME: &str = "find_machine_state_histories";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("find_machine_state_histories").await?;
 
         let results =
             db::machine_state_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
@@ -1211,9 +1177,7 @@ impl Forge for Api {
             );
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(response))
     }
@@ -1240,12 +1204,7 @@ impl Forge for Api {
             .into());
         }
 
-        const DB_TXN_NAME: &str = "find_machine_health_histories";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("find_machine_health_histories").await?;
 
         let results =
             db::machine_health_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
@@ -1260,9 +1219,7 @@ impl Forge for Api {
             );
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(response))
     }
@@ -1273,11 +1230,7 @@ impl Forge for Api {
     ) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
         log_request_data(&request);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("find_tenant_organization_ids", e))?;
+        let mut txn = self.txn_begin("find_tenant_organization_ids").await?;
 
         let search_config = request.into_inner();
 
@@ -1296,12 +1249,7 @@ impl Forge for Api {
         log_request_data(&request);
         let request = request.into_inner();
 
-        const DB_TXN_NAME: &str = "find_tenants_by_organization_ids";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("find_tenants_by_organization_ids").await?;
 
         let tenant_organization_ids: Vec<String> = request.organization_ids;
 
@@ -1325,9 +1273,7 @@ impl Forge for Api {
                 .filter_map(|tenant| rpc::Tenant::try_from(tenant).ok())
                 .collect();
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(rpc::TenantList { tenants }))
     }
@@ -1340,12 +1286,7 @@ impl Forge for Api {
         log_request_data(&request);
         let request = request.into_inner();
 
-        const DB_TXN_NAME: &str = "find_machines";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("find_machines").await?;
 
         let search_config = request
             .search_config
@@ -1377,9 +1318,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(Response::new(snapshot_map_to_rpc_machines(snapshots)))
     }
@@ -1390,11 +1329,7 @@ impl Forge for Api {
     ) -> Result<Response<rpc::InterfaceList>, Status> {
         log_request_data(&request);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("find_interfaces", e))?;
+        let mut txn = self.txn_begin("find_interfaces").await?;
 
         let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
 
@@ -1468,12 +1403,7 @@ impl Forge for Api {
     ) -> Result<Response<()>, Status> {
         log_request_data(&request);
 
-        const DB_TXN_NAME: &str = "delete_interface";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("delete_interface").await?;
 
         let rpc::InterfaceDeleteQuery { id } = request.into_inner();
         let Some(id) = id else {
@@ -1504,9 +1434,7 @@ impl Forge for Api {
 
         db::machine_interface::delete(&interface.id, &mut txn).await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(Response::new(()))
     }
@@ -1677,7 +1605,11 @@ impl Forge for Api {
         let machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
         let (machine, mut txn) = self
-            .load_machine(&machine_id, MachineSearchConfig::default())
+            .load_machine(
+                &machine_id,
+                MachineSearchConfig::default(),
+                "forge_agent_control",
+            )
             .await?;
 
         let is_dpu = machine.is_dpu();
@@ -1854,9 +1786,7 @@ impl Forge for Api {
             "forge agent control",
         );
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit("forge_agent_control", e))?;
+        txn.commit().await?;
 
         Ok(Response::new(rpc::ForgeAgentControlResponse {
             action: action as i32,
@@ -1885,12 +1815,7 @@ impl Forge for Api {
 
         tracing::info!("admin_force_delete_machine query='{query}'");
 
-        const DB_TXN_NAME: &str = "admin_force_delete_machine";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("admin_force_delete_machine").await?;
 
         let machine = match db::machine::find_by_query(&mut txn, &query).await? {
             Some(machine) => machine,
@@ -1994,21 +1919,16 @@ impl Forge for Api {
             .await?;
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         // We start a new transaction
         // This makeas the ForceDeletion state visible to other consumers
 
         // Note: The following deletion steps are all ordered in an idempotent fashion
 
-        const DB_TXN_NAME_2: &str = "delete host and instance in admin_force_delete_machine";
         let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
+            .txn_begin("delete host and instance in admin_force_delete_machine")
+            .await?;
 
         if let Some(instance_id) = instance_id {
             instance::force_delete_instance(
@@ -2169,17 +2089,12 @@ impl Forge for Api {
             }
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME_2, e))?;
+        txn.commit().await?;
 
         for dpu_machine in dpu_machines.iter() {
-            const DB_TXN_NAME: &str = "delete dpu in admin_force_delete_machine";
             let mut txn = self
-                .database_connection
-                .begin()
-                .await
-                .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+                .txn_begin("delete dpu in admin_force_delete_machine")
+                .await?;
 
             // Free up all loopback IPs allocated for this DPU.
             db::vpc_dpu_loopback::delete_and_deallocate(
@@ -2240,9 +2155,7 @@ impl Forge for Api {
                 self.clear_bmc_credentials(dpu_machine).await?;
             }
 
-            txn.commit()
-                .await
-                .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+            txn.commit().await?;
         }
 
         Ok(Response::new(response))
@@ -2302,6 +2215,7 @@ impl Forge for Api {
                     include_predicted_host: true,
                     ..Default::default()
                 },
+                "update_machine_metadata handler",
             )
             .await?;
 
@@ -2312,9 +2226,7 @@ impl Forge for Api {
 
         db::machine::update_metadata(&mut txn, &machine_id, expected_version, metadata).await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit("update_machine_metadata handler", e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(()))
     }
@@ -2330,7 +2242,11 @@ impl Forge for Api {
         let machine_id = convert_and_log_machine_id(req.host_id.as_ref())?;
 
         let (host_machine, mut txn) = self
-            .load_machine(&machine_id, MachineSearchConfig::default())
+            .load_machine(
+                &machine_id,
+                MachineSearchConfig::default(),
+                "maintenance handler",
+            )
             .await?;
         if host_machine.is_dpu() {
             return Err(Status::invalid_argument(
@@ -2410,9 +2326,7 @@ impl Forge for Api {
             }
         };
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit("maintenance handler", e))?;
+        txn.commit().await?;
 
         Ok(Response::new(()))
     }
@@ -2452,22 +2366,14 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
-        const DB_TXN_NAME: &str = "get_power_options";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
-
+        let mut txn = self.txn_begin("get_power_options").await?;
         let power_options = if req.machine_id.is_empty() {
             db::power_options::get_all(&mut txn).await
         } else {
             db::power_options::get_by_ids(&req.machine_id, &mut txn).await
         }?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(rpc::PowerOptionResponse {
             response: power_options
@@ -2496,12 +2402,7 @@ impl Forge for Api {
 
         log_machine_id(&machine_id);
 
-        const DB_TXN_NAME: &str = "update_power_options";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("update_power_options").await?;
 
         let current_power_state = db::power_options::get_by_ids(&[machine_id], &mut txn).await?;
 
@@ -2564,9 +2465,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(rpc::PowerOptionResponse {
             response: vec![updated_value.into()],
@@ -2589,10 +2488,8 @@ impl Forge for Api {
         log_request_data(&request);
 
         let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("list_dpu_waiting_for_reprovisioning", e))?;
+            .txn_begin("list_dpu_waiting_for_reprovisioning")
+            .await?;
 
         let dpus = db::machine::list_machines_requested_for_reprovisioning(&mut txn)
             .await?
@@ -2642,12 +2539,7 @@ impl Forge for Api {
         let req = request.into_inner();
         let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
-        const DB_TXN_NAME: &str = "trigger_host_reprovisioning";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("trigger_host_reprovisioning").await?;
 
         let snapshot =
             db::managed_host::load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
@@ -2681,9 +2573,7 @@ impl Forge for Api {
             }
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(Response::new(()))
     }
@@ -2694,10 +2584,9 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::HostReprovisioningListResponse>, tonic::Status> {
         log_request_data(&request);
 
-        let mut txn =
-            self.database_connection.begin().await.map_err(|e| {
-                DatabaseError::txn_begin("list_hosts_waiting_for_reprovisioning ", e)
-            })?;
+        let mut txn = self
+            .txn_begin("list_hosts_waiting_for_reprovisioning")
+            .await?;
 
         let hosts = db::machine::list_machines_requested_for_host_reprovisioning(&mut txn)
             .await?
@@ -2739,18 +2628,11 @@ impl Forge for Api {
     ) -> Result<Response<rpc::GetDpuInfoListResponse>, Status> {
         log_request_data(&request);
 
-        const DB_TXN_NAME: &str = "get_dpu_info_list";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("get_dpu_info_list").await?;
 
         let dpu_list = db::machine::find_dpu_ids_and_loopback_ips(&mut txn).await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let response = rpc::GetDpuInfoListResponse { dpu_list };
         Ok(Response::new(response))
@@ -2784,12 +2666,7 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
-        const DB_TXN_NAME: &str = "get_network_topology";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("get_network_topology").await?;
 
         let query = match &req.id {
             Some(x) => ObjectFilter::One(x.as_str()),
@@ -2800,9 +2677,7 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(Response::new(data.into()))
     }
@@ -2821,12 +2696,7 @@ impl Forge for Api {
             .map(|id| try_parse_machine_id(id))
             .transpose()?;
 
-        const DB_TXN_NAME: &str = "admin_bmc_reset";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("admin_bmc_reset").await?;
 
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -2835,9 +2705,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let endpoint_address = bmc_endpoint_request.ip_address.clone();
 
@@ -2871,19 +2739,12 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
-        const DB_TXN_NAME: &str = "disable_secure_boot";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("disable_secure_boot").await?;
 
         let (bmc_endpoint_request, _) =
             validate_and_complete_bmc_endpoint_request(&mut txn, Some(req), None).await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         crate::handlers::bmc_endpoint_explorer::disable_secure_boot(
             self,
@@ -2912,12 +2773,7 @@ impl Forge for Api {
             ::rpc::forge::LockdownAction::Disable => libredfish::EnabledDisabled::Disabled,
         };
 
-        const DB_TXN_NAME: &str = "lockdown";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("lockdown").await?;
 
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -2926,9 +2782,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         crate::handlers::bmc_endpoint_explorer::lockdown(
             self,
@@ -2954,12 +2808,7 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
-        const DB_TXN_NAME: &str = "lockdown_status";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("lockdown_status").await?;
 
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -2968,9 +2817,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let response = crate::handlers::bmc_endpoint_explorer::lockdown_status(
             self,
@@ -2995,12 +2842,7 @@ impl Forge for Api {
             .map(|id| try_parse_machine_id(id))
             .transpose()?;
 
-        const DB_TXN_NAME: &str = "enable_infinite_boot";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("enable_infinite_boot").await?;
 
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -3009,9 +2851,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         crate::handlers::bmc_endpoint_explorer::enable_infinite_boot(
             self,
@@ -3042,12 +2882,7 @@ impl Forge for Api {
             .map(|id| try_parse_machine_id(id))
             .transpose()?;
 
-        const DB_TXN_NAME: &str = "is_infinite_boot_enabled";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("is_infinite_boot_enabled").await?;
 
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -3056,9 +2891,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let response = crate::handlers::bmc_endpoint_explorer::is_infinite_boot_enabled(
             self,
@@ -3092,12 +2925,7 @@ impl Forge for Api {
             .map(|id| try_parse_machine_id(id))
             .transpose()?;
 
-        const DB_TXN_NAME: &str = "forge_setup";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("forge_setup").await?;
 
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -3106,9 +2934,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let endpoint_address = bmc_endpoint_request.ip_address.clone();
 
@@ -3143,12 +2969,7 @@ impl Forge for Api {
             .map(|id| try_parse_machine_id(id))
             .transpose()?;
 
-        const DB_TXN_NAME: &str = "set_dpu_first_boot_order";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("set_dpu_first_boot_order").await?;
 
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -3157,9 +2978,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let endpoint_address = bmc_endpoint_request.ip_address.clone();
 
@@ -3361,11 +3180,7 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::ClearHostUefiPasswordResponse>, tonic::Status> {
         log_request_data(&request);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("clear_host_uefi_password", e))?;
+        let mut txn = self.txn_begin("clear_host_uefi_password").await?;
 
         let request = request.into_inner();
         let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
@@ -3425,12 +3240,7 @@ impl Forge for Api {
             ));
         }
 
-        const DB_TXN_NAME: &str = "set_host_uefi_password";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("set_host_uefi_password").await?;
 
         let snapshot = db::managed_host::load_snapshot(
             &mut txn,
@@ -3471,9 +3281,7 @@ impl Forge for Api {
                 tonic::Status::internal(format!("Failed to update BIOS password timestamp: {e}"))
             })?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
     }
@@ -3540,9 +3348,9 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::ConnectedDeviceList>, Status> {
         log_request_data(&request);
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::txn_begin("find_connected_devices_by_dpu_machine_ids", e)
-        })?;
+        let mut txn = self
+            .txn_begin("find_connected_devices_by_dpu_machine_ids")
+            .await?;
 
         let dpu_ids = request.into_inner().machine_ids;
 
@@ -3561,11 +3369,7 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::NetworkTopologyData>, Status> {
         log_request_data(&request);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("find_network_devices_by_device_ids", e))?;
+        let mut txn = self.txn_begin("find_network_devices_by_device_ids").await?;
         let request = request.into_inner(); // keep lifetime for this scope
         let network_device_ids: Vec<&str> = request
             .network_device_ids
@@ -3590,11 +3394,7 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::MachineIdBmcIpPairs>, Status> {
         log_request_data(&request);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("find_machine_ids_by_bmc_ips", e))?;
+        let mut txn = self.txn_begin("find_machine_ids_by_bmc_ips").await?;
 
         let pairs =
             db::machine_topology::find_machine_bmc_pairs(&mut txn, request.into_inner().bmc_ips)
@@ -3621,11 +3421,7 @@ impl Forge for Api {
         let req = request.into_inner();
         let bmc_ip = req.bmc_ip;
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("find_mac_address_by_bmc_ip", e))?;
+        let mut txn = self.txn_begin("find_mac_address_by_bmc_ip").await?;
 
         let interface = db::machine_interface::find_by_ip(&mut txn, bmc_ip.parse().unwrap())
             .await?
@@ -3653,12 +3449,7 @@ impl Forge for Api {
         // in bind_attest_key
         let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
-        const DB_TXN_NAME: &str = "machine attestation verify quote";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("machine attestation verify quote").await?;
 
         let ak_pub_bytes =
             match db_attest::secret_ak_pub::get_by_secret(&mut txn, &request.credential).await? {
@@ -3738,19 +3529,13 @@ impl Forge for Api {
             ))
         })?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         // if the attestation was successful and enabled, we can now vend the certs
         // - get attestation result
         // - if enabled and not successful, send response without certs
         // - else send response with certs
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("machine attestation verify quote", e))?;
+        let mut txn = self.txn_begin("machine attestation verify quote").await?;
 
         if self.runtime_config.attestation_enabled
             && !attest::has_passed_attestation(&mut txn, &machine_id, &report.report_id).await?
@@ -4366,13 +4151,15 @@ impl Forge for Api {
         let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
         let (machine, mut txn) = self
-            .load_machine(&machine_id, MachineSearchConfig::default())
+            .load_machine(
+                &machine_id,
+                MachineSearchConfig::default(),
+                "reboot_completed",
+            )
             .await?;
         db::machine::update_reboot_time(&machine, &mut txn).await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit("reboot_completed", e))?;
+        txn.commit().await?;
 
         Ok(Response::new(rpc::MachineRebootCompletedResponse {}))
     }
@@ -4407,12 +4194,7 @@ impl Forge for Api {
 
         let request = request.into_inner();
 
-        const DB_TXN_NAME: &str = "machine_set_auto_update";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("machine_set_auto_update").await?;
 
         let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
         let Some(_machine) =
@@ -4428,9 +4210,7 @@ impl Forge for Api {
         };
         db::machine::set_firmware_autoupdate(&mut txn, &machine_id, state).await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(Response::new(rpc::MachineSetAutoUpdateResponse {}))
     }
@@ -4617,12 +4397,7 @@ impl Forge for Api {
 
         let action = req.action();
 
-        const DB_TXN_NAME: &str = "admin_power_control";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("admin_power_control").await?;
 
         let (bmc_endpoint_request, machine_id) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -4685,9 +4460,7 @@ impl Forge for Api {
             }
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         crate::handlers::bmc_endpoint_explorer::redfish_power_control(
             self,
@@ -5043,21 +4816,14 @@ impl Forge for Api {
         let quarantine_state: ManagedHostQuarantineState =
             quarantine_state.try_into().map_err(CarbideError::from)?;
 
-        const DB_TXN_NAME: &str = "set_managed_host_quarantine_state";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("set_managed_host_quarantine_state").await?;
 
         let prior_quarantine_state =
             db::machine::set_quarantine_state(&mut txn, &machine_id, quarantine_state)
                 .await?
                 .map(Into::into);
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(
             rpc::SetManagedHostQuarantineStateResponse {
@@ -5074,20 +4840,13 @@ impl Forge for Api {
         let rpc::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
         let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
-        const DB_TXN_NAME: &str = "get_managed_host_quarantine_state";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("get_managed_host_quarantine_state").await?;
 
         let quarantine_state = db::machine::get_quarantine_state(&mut txn, &machine_id)
             .await?
             .map(Into::into);
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(
             rpc::GetManagedHostQuarantineStateResponse { quarantine_state },
@@ -5103,20 +4862,15 @@ impl Forge for Api {
         let rpc::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
         let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
-        const DB_TXN_NAME: &str = "clear_managed_host_quarantine_state";
         let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+            .txn_begin("clear_managed_host_quarantine_state")
+            .await?;
 
         let prior_quarantine_state = db::machine::clear_quarantine_state(&mut txn, &machine_id)
             .await?
             .map(Into::into);
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(tonic::Response::new(
             rpc::ClearManagedHostQuarantineStateResponse {
@@ -5132,18 +4886,11 @@ impl Forge for Api {
         log_request_data(&request);
         let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-        const DB_TXN_NAME: &str = "reset_host_reprovisioning";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("reset_host_reprovisioning").await?;
 
         db::host_machine_update::reset_host_reprovisioning_request(&mut txn, &machine_id, false)
             .await?;
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         Ok(Response::new(()))
     }
@@ -5273,12 +5020,7 @@ impl Forge for Api {
             .map(|id| try_parse_machine_id(id))
             .transpose()?;
 
-        const DB_TXN_NAME: &str = "create_bmc_user";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        let mut txn = self.txn_begin("create_bmc_user").await?;
 
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -5287,9 +5029,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let endpoint_address = bmc_endpoint_request.ip_address.clone();
 
@@ -5342,13 +5082,7 @@ impl Forge for Api {
             .map(|id| try_parse_machine_id(id))
             .transpose()?;
 
-        const DB_TXN_NAME: &str = "delete_bmc_user";
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
-
+        let mut txn = self.txn_begin("delete_bmc_user").await?;
         let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
@@ -5356,9 +5090,7 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+        txn.commit().await?;
 
         let endpoint_address = bmc_endpoint_request.ip_address.clone();
 
@@ -5409,9 +5141,7 @@ impl Forge for Api {
             }
         }
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new("begin start_explicit_updates", e))
-        })?;
+        let mut txn = self.txn_begin("set_firmware_update_time_window").await?;
 
         tracing::info!(
             "set_firmware_update_time_window: Setting update start/end ({:?} {:?}) for {:?}",
@@ -5435,12 +5165,7 @@ impl Forge for Api {
         .await
         .map_err(CarbideError::from)?;
 
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                "commit set_firmware_update_time_window",
-                e,
-            ))
-        })?;
+        txn.commit().await?;
 
         Ok(Response::new(rpc::SetFirmwareUpdateTimeWindowResponse {}))
     }
@@ -5507,11 +5232,7 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::TrimTableResponse>, tonic::Status> {
         log_request_data(&request);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| CarbideError::from(DatabaseError::new("begin trim_table", e)))?;
+        let mut txn = self.txn_begin("trim_table").await?;
 
         let total_deleted = db::trim_table::trim_table(
             &mut txn,
@@ -5521,9 +5242,7 @@ impl Forge for Api {
         .await
         .map_err(CarbideError::from)?;
 
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::from(DatabaseError::new("commit trim_table", e)))?;
+        txn.commit().await?;
 
         Ok(Response::new(rpc::TrimTableResponse {
             total_deleted: total_deleted.to_string(),
@@ -5724,16 +5443,20 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 }
 
 impl Api {
+    pub async fn txn_begin(
+        &self,
+        name: &'static str,
+    ) -> Result<db::Transaction<'_>, DatabaseError> {
+        db::Transaction::begin(&self.database_connection, name).await
+    }
+
     async fn load_machine(
         &self,
         machine_id: &MachineId,
         search_config: MachineSearchConfig,
-    ) -> CarbideResult<(Machine, sqlx::Transaction<'_, sqlx::Postgres>)> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin("load_machine", e))?;
+        txn_name: &'static str,
+    ) -> CarbideResult<(Machine, db::Transaction<'_>)> {
+        let mut txn = self.txn_begin(txn_name).await?;
 
         let machine = match db::machine::find_one(&mut txn, machine_id, search_config).await {
             Err(err) => {

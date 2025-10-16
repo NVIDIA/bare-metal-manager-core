@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Local};
-use db::DatabaseError;
+use db::Transaction;
 use db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
@@ -80,12 +80,7 @@ pub async fn redfish_list_actions(
 
     let request = request.into_inner();
 
-    const DB_TXN_NAME: &str = "list redfish actions";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("list redfish actions").await?;
 
     let result = list_requests(request, &mut txn).await?;
 
@@ -108,12 +103,7 @@ pub async fn redfish_create_action(
 
     let request = request.into_inner();
 
-    const DB_TXN_NAME: &str = "create redfish action";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("create redfish action").await?;
 
     let ip_to_serial = find_serials(&request.ips, &mut txn).await?;
     let machine_ips: Vec<_> = ip_to_serial.keys().cloned().collect();
@@ -126,9 +116,7 @@ pub async fn redfish_create_action(
 
     let request_id = insert_request(authored_by, request, &mut txn, machine_ips, serials).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         ::rpc::forge::RedfishCreateActionResponse { request_id },
@@ -147,12 +135,7 @@ pub async fn redfish_approve_action(
 
     let request = request.into_inner();
 
-    const DB_TXN_NAME: &str = "approve redfish action";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("approve redfish action").await?;
     let action_request = fetch_request(request, &mut txn).await?;
     if action_request.approvers.contains(&approver) {
         return Err(
@@ -166,9 +149,7 @@ pub async fn redfish_approve_action(
             CarbideError::InvalidArgument("user already approved request".to_owned()).into(),
         );
     }
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         ::rpc::forge::RedfishApproveActionResponse {},
@@ -187,12 +168,7 @@ pub async fn redfish_apply_action(
 
     let request = request.into_inner();
 
-    const DB_TXN_NAME: &str = "apply redfish action";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("apply redfish action").await?;
 
     let action_request = fetch_request(request, &mut txn).await?;
     if action_request.applied_at.is_some() {
@@ -251,9 +227,7 @@ pub async fn redfish_apply_action(
         });
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         ::rpc::forge::RedfishApplyActionResponse {},
@@ -266,15 +240,9 @@ async fn update_response_in_tx(
     index: usize,
     response: BMCResponse,
 ) -> Result<(), tonic::Status> {
-    const DB_TXN_NAME: &str = "update redfish action response";
-    let mut txn = pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = Transaction::begin(pool, "update redfish action response").await?;
     update_response(request, &mut txn, response, index).await?;
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
     Ok(())
 }
 
@@ -415,18 +383,11 @@ pub async fn redfish_cancel_action(
 
     let request = request.into_inner();
 
-    const DB_TXN_NAME: &str = "update redfish action response";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update redfish action response").await?;
 
     delete_request(request, &mut txn).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(tonic::Response::new(
         ::rpc::forge::RedfishCancelActionResponse {},

@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::str::FromStr;
 
 use ::rpc::forge::DpuInfo;
@@ -48,7 +48,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
 use uuid::Uuid;
 
-use super::{DatabaseError, ObjectFilter, queries};
+use super::{DatabaseError, ObjectFilter, Transaction, queries};
 use crate::DatabaseResult;
 
 #[derive(Serialize)]
@@ -1873,10 +1873,7 @@ pub async fn update_dpu_asns(
     db_pool: &Pool<Postgres>,
     common_pools: &CommonPools,
 ) -> Result<(), DatabaseError> {
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin("agent upgrade policy", e))?;
+    let mut txn = Transaction::begin(db_pool, "agent upgrade policy").await?;
 
     if crate::resource_pool::stats(db_pool, common_pools.ethernet.pool_fnn_asn.name())
         .await?
@@ -1895,7 +1892,7 @@ pub async fn update_dpu_asns(
     );
 
     let dpu_ids: Vec<MachineId> = sqlx::query_as(&query)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn.as_pgconn())
         .await
         .map_err(|e| DatabaseError::query(&query, e))?;
 
@@ -1917,14 +1914,12 @@ pub async fn update_dpu_asns(
         sqlx::query(query)
             .bind(asn)
             .bind(dpu_machine_id)
-            .execute(&mut *txn)
+            .execute(txn.as_pgconn())
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+    txn.commit().await?;
 
     Ok(())
 }

@@ -1249,7 +1249,7 @@ pub async fn create_test_env_with_overrides(
     );
 
     // Create some instance types
-    let mut txn = api.database_connection.begin().await.unwrap();
+    let mut txn = api.txn_begin("test").await.unwrap();
 
     for _ in 0..3 {
         let uid = uuid::Uuid::new_v4();
@@ -1390,7 +1390,7 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
         .unwrap();
 
     // Create default network security groups.
-    let mut txn = api.database_connection.begin().await.unwrap();
+    let mut txn = api.txn_begin("test").await.unwrap();
 
     // Just a default ID for group and single rule.
     let uid = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
