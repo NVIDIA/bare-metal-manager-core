@@ -1,0 +1,8 @@
+/book/**
+/dev/bin/copy-and-sanitize-repo.sh
+/dev/sanitize-denylist.txt
+/dev/production_ssh_configs
+/CHANGELOG.md
+/.gitlab/**
+/.gitlab-ci.yml
+/.gitlab-license-scanning.yml
