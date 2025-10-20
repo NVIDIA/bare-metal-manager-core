@@ -577,6 +577,8 @@ service Forge {
   rpc GetNextRemediationForMachine(GetNextRemediationForMachineRequest) returns (GetNextRemediationForMachineResponse);
   rpc RemediationApplied(RemediationAppliedRequest) returns (google.protobuf.Empty);
   // end DPU Remediation APIs
+
+  rpc SetPrimaryDpu(SetPrimaryDpuRequest) returns (google.protobuf.Empty);
 }
 
 message TpmCaAddedCaStatus{
@@ -5207,3 +5209,9 @@ message RemediationApplicationStatus {
   Metadata metadata = 2; // the name/description is ignored, only using the labels for status persistence.
 }
 // end DPU remediation models
+
+message SetPrimaryDpuRequest {
+  common.MachineId host_machine_id = 1;
+  common.MachineId dpu_machine_id = 2;
+  bool reboot=3;
+}

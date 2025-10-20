@@ -364,46 +364,6 @@ pub async fn allocate_instance(
     mut request: InstanceAllocationRequest,
     host_health_config: HostHealthConfig,
 ) -> Result<ManagedHostStateSnapshot, CarbideError> {
-    /*
-        let network_segment_physical_interface_count = request
-            .config
-            .network
-            .interfaces
-            .iter()
-            .filter(|i| {
-                matches!(i.function_id, InterfaceFunctionId::Physical {})
-                    // if network_details is none, it has to be a network segment
-                    && (i.network_details
-                        .as_ref()
-                        .is_none_or(|nd| matches!(nd, NetworkDetails::NetworkSegment { .. })))
-            })
-            .count();
-        let vpc_id_physical_interface_count = request
-            .config
-            .network
-            .interfaces
-            .iter()
-            .filter(|i| {
-                matches!(i.function_id, InterfaceFunctionId::Physical {})
-                    && i.network_details
-                        .as_ref()
-                        .is_none_or(|nd| matches!(nd, NetworkDetails::VpcPrefixId { .. }))
-            })
-            .count();
-
-        match (
-            network_segment_physical_interface_count,
-            vpc_id_physical_interface_count,
-        ) {
-            (1, 0) => {}
-            (0, _) => {}
-            _ => {
-                return Err(CarbideError::InvalidArgument(
-                    "Only 1 interface is allowed when using network segments".to_string(),
-                ));
-            }
-        }
-    */
     let mut txn = api.txn_begin("allocate_instance").await?;
 
     // Grab a row-level lock on the requested machine
