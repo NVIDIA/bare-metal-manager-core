@@ -108,6 +108,9 @@
                 update-source: lo
               underlay:
                 remote-as: external
+                address-family:
+                  l2vpn-evpn:
+                    enable: on
       vpc_0: 
         evpn:
           enable: on
