@@ -1298,12 +1298,16 @@ impl FirmwareGlobal {
             run_interval: Duration::seconds(5),
             concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
             firmware_directory: PathBuf::default(),
-            host_firmware_upgrade_retry_interval:
-                FirmwareGlobal::host_firmware_upgrade_retry_interval_default(),
+            host_firmware_upgrade_retry_interval: Self::get_retry_interval(),
             instance_updates_manual_tagging: false,
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn get_retry_interval() -> Duration {
+        Duration::seconds(1)
     }
 }
 

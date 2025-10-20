@@ -1098,6 +1098,8 @@ pub enum ManagedHostState {
     /// State used to indicate that host reprovisioning is going on
     HostReprovision {
         reprovision_state: HostReprovisionState,
+        #[serde(default)]
+        retry_count: u32,
     },
 
     /// State used to indicate the API is currently waiting on the
@@ -1168,6 +1170,13 @@ impl ManagedHostState {
                 | ManagedHostState::DPUInit { .. }
                 | ManagedHostState::DPUReprovision { .. }
         )
+    }
+
+    pub fn get_host_repro_retry_count(&self) -> u32 {
+        match self {
+            ManagedHostState::HostReprovision { retry_count, .. } => *retry_count,
+            _ => 0,
+        }
     }
 }
 
@@ -1889,7 +1898,9 @@ impl Display for ManagedHostState {
                     .unwrap_or("Unknown".to_string());
                 write!(f, "Reprovisioning/{dpu_lowest_state}")
             }
-            ManagedHostState::HostReprovision { reprovision_state } => {
+            ManagedHostState::HostReprovision {
+                reprovision_state, ..
+            } => {
                 write!(f, "HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::Measuring { measuring_state } => {
@@ -1961,7 +1972,9 @@ impl ManagedHostState {
                         .unwrap_or("Unknown DPU".to_string())
                 )
             }
-            ManagedHostState::HostReprovision { reprovision_state } => {
+            ManagedHostState::HostReprovision {
+                reprovision_state, ..
+            } => {
                 format!("HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::Measuring { measuring_state } => {
