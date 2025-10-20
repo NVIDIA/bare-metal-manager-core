@@ -731,6 +731,16 @@ async fn main() -> color_eyre::Result<()> {
             ManagedHost::StartUpdates(options) => {
                 crate::firmware::start_updates(&api_client, options).await?
             }
+            ManagedHost::SetPrimaryDpu(set_primary_args) => {
+                api_client
+                    .0
+                    .set_primary_dpu(forgerpc::SetPrimaryDpuRequest {
+                        host_machine_id: Some(set_primary_args.host_machine_id),
+                        dpu_machine_id: Some(set_primary_args.dpu_machine_id),
+                        reboot: set_primary_args.reboot,
+                    })
+                    .await?;
+            }
         },
         CliCommand::Measurement(cmd) => {
             let args = cfg::measurement::GlobalOptions {

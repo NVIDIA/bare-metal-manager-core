@@ -487,6 +487,7 @@ impl InternalRBACRules {
         x.perm("FindAppliedRemediationIds", vec![ForgeAdminCLI]);
         x.perm("GetNextRemediationForMachine", vec![Agent]);
         x.perm("RemediationApplied", vec![Agent]);
+        x.perm("SetPrimaryDpu", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

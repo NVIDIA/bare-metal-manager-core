@@ -1319,6 +1319,8 @@ pub enum ManagedHost {
     PowerOptions(PowerOptions),
     #[clap(about = "Start updates for machines with delayed updates, such as GB200")]
     StartUpdates(StartUpdates),
+    #[clap(about = "Set the primary DPU for the managed host")]
+    SetPrimaryDpu(SetPrimaryDpu),
 }
 
 #[derive(Parser, Debug)]
@@ -1364,6 +1366,16 @@ pub enum DesiredPowerState {
     On,
     Off,
     PowerManagerDisabled,
+}
+
+#[derive(Parser, Debug)]
+pub struct SetPrimaryDpu {
+    #[clap(help = "ID of the host machine")]
+    pub host_machine_id: MachineId,
+    #[clap(help = "ID of the DPU machine to make primary")]
+    pub dpu_machine_id: MachineId,
+    #[clap(long, help = "Reboot the host after the update")]
+    pub reboot: bool,
 }
 
 #[derive(Parser, Debug)]
