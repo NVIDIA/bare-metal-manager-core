@@ -40,9 +40,10 @@ use tokio::time::sleep;
 use tonic::Request;
 
 use crate::CarbideResult;
-use crate::cfg::file::{CarbideConfig, TimePeriod};
+use crate::cfg::file::{CarbideConfig, FirmwareGlobal, TimePeriod};
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::preingestion_manager::PreingestionManager;
+use crate::state_controller::machine::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
 
@@ -453,7 +454,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::WaitingForFirmwareUpgrade { firmware_type, .. } = reprovision_state
@@ -468,7 +472,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::ResetForNewFirmware { .. } = reprovision_state else {
@@ -481,7 +488,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::NewFirmwareReportedWait { .. } = reprovision_state else {
@@ -515,7 +525,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::CheckingFirmwareRepeat = reprovision_state else {
@@ -537,7 +550,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::WaitingForFirmwareUpgrade { firmware_type, .. } = reprovision_state
@@ -557,7 +573,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::WaitingForFirmwareUpgrade {
@@ -577,7 +596,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::ResetForNewFirmware { .. } = reprovision_state else {
@@ -615,7 +637,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::NewFirmwareReportedWait { .. } = reprovision_state else {
@@ -628,7 +653,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     // It should be checking
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     if reprovision_state != &HostReprovisionState::CheckingFirmwareRepeat {
@@ -1745,7 +1773,10 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::WaitingForScript { .. } = reprovision_state else {
@@ -1759,7 +1790,10 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::WaitingForScript { .. } = reprovision_state else {
@@ -1774,7 +1808,10 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::CheckingFirmwareRepeat = reprovision_state else {
@@ -1829,7 +1866,10 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
     let HostReprovisionState::WaitingForScript { .. } = reprovision_state else {
@@ -1844,9 +1884,99 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
-    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
         panic!("Not in HostReprovision");
     };
+    let HostReprovisionState::FailedFirmwareUpgrade { .. } = reprovision_state else {
+        panic!("Not in FailedFirmwareUpgrade");
+    };
+    txn.commit().await.unwrap();
+
+    for retry_i in 1..=MAX_FIRMWARE_UPGRADE_RETRIES {
+        // Wait and try again, it will increment the retry_count and move to CheckingFirmware again
+        tokio::time::sleep(std::time::Duration::from_secs(
+            FirmwareGlobal::get_retry_interval().as_seconds_f64() as u64,
+        ))
+        .await;
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.pool.begin().await.unwrap();
+        let host = mh.host().db_machine(&mut txn).await;
+
+        assert!(host.host_reprovision_requested.is_some());
+        let ManagedHostState::HostReprovision {
+            reprovision_state,
+            retry_count,
+        } = host.current_state()
+        else {
+            panic!("Not in HostReprovision");
+        };
+        assert_eq!(*retry_count, retry_i);
+        let HostReprovisionState::CheckingFirmware = reprovision_state else {
+            panic!("Not in CheckingFirmware");
+        };
+        txn.commit().await.unwrap();
+
+        // Now we want another tick of the state machine
+        env.run_machine_state_controller_iteration().await;
+
+        // It should have started the script
+        let mut txn = env.pool.begin().await.unwrap();
+        let host = mh.host().db_machine(&mut txn).await;
+
+        assert!(host.host_reprovision_requested.is_some());
+        let ManagedHostState::HostReprovision {
+            reprovision_state, ..
+        } = host.current_state()
+        else {
+            panic!("Not in HostReprovision");
+        };
+        let HostReprovisionState::WaitingForScript { .. } = reprovision_state else {
+            panic!("Not in WaitingForScript");
+        };
+        txn.commit().await.unwrap();
+
+        // Give it a bit to run, it will have exited with error code 0
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.pool.begin().await.unwrap();
+        let host = mh.host().db_machine(&mut txn).await;
+
+        assert!(host.host_reprovision_requested.is_some());
+        let ManagedHostState::HostReprovision {
+            reprovision_state,
+            retry_count,
+        } = host.current_state()
+        else {
+            panic!("Not in HostReprovision");
+        };
+        assert_eq!(*retry_count, retry_i);
+        let HostReprovisionState::FailedFirmwareUpgrade { .. } = reprovision_state else {
+            panic!("Not in FailedFirmwareUpgrade");
+        };
+        txn.commit().await.unwrap();
+    }
+
+    // Wait and try again, it should not retry any more and stay in FailedFirmwareUpgrade
+    tokio::time::sleep(std::time::Duration::from_secs(
+        FirmwareGlobal::get_retry_interval().as_seconds_f64() as u64,
+    ))
+    .await;
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::HostReprovision {
+        reprovision_state,
+        retry_count,
+    } = host.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    assert_eq!(*retry_count, MAX_FIRMWARE_UPGRADE_RETRIES);
     let HostReprovisionState::FailedFirmwareUpgrade { .. } = reprovision_state else {
         panic!("Not in FailedFirmwareUpgrade");
     };
