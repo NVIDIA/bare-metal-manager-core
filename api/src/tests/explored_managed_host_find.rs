@@ -40,7 +40,7 @@ async fn test_find_explored_managed_host_ids(
             }],
         });
     }
-    db::explored_managed_host::update(&mut txn, managed_hosts.as_slice()).await?;
+    db::explored_managed_host::update(&mut txn, &managed_hosts.iter().collect::<Vec<_>>()).await?;
     txn.commit().await?;
 
     let id_list = env
@@ -77,7 +77,7 @@ async fn test_find_explored_managed_hosts_by_ids(
             }],
         });
     }
-    db::explored_managed_host::update(&mut txn, managed_hosts.as_slice()).await?;
+    db::explored_managed_host::update(&mut txn, &managed_hosts.iter().collect::<Vec<_>>()).await?;
     txn.commit().await?;
 
     let id_list = env

@@ -179,16 +179,15 @@ impl PreingestionManager {
         let limit_sem = Arc::new(Semaphore::new(self.static_info.concurrency_limit));
         let mut task_set = JoinSet::new();
 
-        for endpoint in items.iter() {
+        for endpoint in items.into_iter() {
             let permit = limit_sem.clone().acquire_owned().await.unwrap();
             let static_info = self.static_info.clone();
-            let endpoint = endpoint.clone();
             let _abort_handle = task_set
                 .build_task()
                 .name(&format!("preingestion {}", endpoint.address))
                 .spawn(async move {
                     let _permit = permit; // retain semaphore until we're done
-                    one_endpoint(static_info, endpoint).await
+                    one_endpoint(static_info, &endpoint).await
                 });
         }
 
@@ -238,7 +237,7 @@ struct EndpointResult {
 
 async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
-    endpoint: ExploredEndpoint,
+    endpoint: &ExploredEndpoint,
 ) -> CarbideResult<EndpointResult> {
     let mut txn = Transaction::begin(
         &static_info.database_connection,
@@ -252,22 +251,22 @@ async fn one_endpoint(
     let delayed_upgrade = match &endpoint.preingestion_state {
         PreingestionState::Initial => {
             static_info
-                .check_firmware_versions_below_preingestion(&mut txn, &endpoint)
+                .check_firmware_versions_below_preingestion(&mut txn, endpoint)
                 .await?
         }
         PreingestionState::RecheckVersionsAfterFailure { .. } => {
             static_info
-                .start_firmware_uploads_or_continue(&mut txn, &endpoint, true)
+                .start_firmware_uploads_or_continue(&mut txn, endpoint, true)
                 .await?
         }
         PreingestionState::RecheckVersions => {
             static_info
-                .start_firmware_uploads_or_continue(&mut txn, &endpoint, true)
+                .start_firmware_uploads_or_continue(&mut txn, endpoint, true)
                 .await?
         }
         PreingestionState::InitialReset { phase, last_time } => {
             static_info
-                .pre_update_resets(&mut txn, &endpoint, Some(phase), Some(last_time))
+                .pre_update_resets(&mut txn, endpoint, Some(phase), Some(last_time))
                 .await?;
             false
         }
@@ -282,7 +281,7 @@ async fn one_endpoint(
                 .in_upgrade_firmware_wait(
                     &mut txn,
                     &InUpgradeFirmwareWaitArgs {
-                        endpoint: &endpoint,
+                        endpoint,
                         task_id,
                         final_version,
                         upgrade_type,
@@ -295,7 +294,7 @@ async fn one_endpoint(
         }
         details @ PreingestionState::ResetForNewFirmware { .. } => {
             static_info
-                .in_reset_for_new_firmware(&mut txn, &endpoint, details)
+                .in_reset_for_new_firmware(&mut txn, endpoint, details)
                 .await?;
             false
         }
@@ -307,7 +306,7 @@ async fn one_endpoint(
             static_info
                 .in_new_firmware_reported_wait(
                     &mut txn,
-                    &endpoint,
+                    endpoint,
                     final_version,
                     upgrade_type,
                     previous_reset_time,
@@ -316,7 +315,7 @@ async fn one_endpoint(
             false
         }
         PreingestionState::ScriptRunning => {
-            static_info.waiting_for_script(&mut txn, &endpoint).await?;
+            static_info.waiting_for_script(&mut txn, endpoint).await?;
             false
         }
         PreingestionState::Complete => {
@@ -504,7 +503,7 @@ impl PreingestionManagerStatic {
                 }
                 Some(to_install) => {
                     if to_install.script.is_some() {
-                        self.by_script(endpoint, &to_install, txn).await?;
+                        self.by_script(endpoint.address, &to_install, txn).await?;
                         return Ok((true, false));
                     }
                     let Ok(_active) = self.upload_limiter.try_acquire() else {
@@ -1154,20 +1153,20 @@ impl PreingestionManagerStatic {
 
     async fn by_script(
         &self,
-        endpoint: &ExploredEndpoint,
+        endpoint_address: std::net::IpAddr,
         to_install: &FirmwareEntry,
         txn: &mut PgConnection,
     ) -> Result<(), DatabaseError> {
         self.upgrade_script_state
-            .started(endpoint.address.to_string())
+            .started(endpoint_address.to_string())
             .await;
 
-        let address = endpoint.address.to_string().clone();
+        let address = endpoint_address.to_string();
         let script = to_install.script.clone().unwrap_or("/bin/false".into()); // Should always be Some at this point
         let upgrade_script_state = self.upgrade_script_state.clone();
         let (username, password) = if let Some(credential_provider) = &self.credential_provider {
             // We need to backtrack from the IP address to get the MAC address, which is what the credentials database is keyed on
-            let interface = db::machine_interface::find_by_ip(txn, endpoint.address).await?;
+            let interface = db::machine_interface::find_by_ip(txn, endpoint_address).await?;
             let Some(interface) = interface else {
                 tracing::warn!(
                     "Unable to run update script for {address}: MAC address not retrievable"
@@ -1200,7 +1199,6 @@ impl PreingestionManagerStatic {
         } else {
             ("Unknown".to_string(), "Unknown".to_string())
         };
-        let endpoint = endpoint.clone();
         tokio::spawn(async move {
             let mut cmd = match tokio::process::Command::new(script)
                 .env("BMC_IP", address.clone())
@@ -1213,9 +1211,7 @@ impl PreingestionManagerStatic {
                 Ok(cmd) => cmd,
                 Err(e) => {
                     tracing::error!("Upgrade script {address} command creation failed: {e}");
-                    upgrade_script_state
-                        .completed(endpoint.address.to_string(), false)
-                        .await;
+                    upgrade_script_state.completed(address, false).await;
                     return;
                 }
             };
@@ -1224,9 +1220,7 @@ impl PreingestionManagerStatic {
                 tracing::error!("Upgrade script {address} STDOUT creation failed");
                 let _ = cmd.kill().await;
                 let _ = cmd.wait().await;
-                upgrade_script_state
-                    .completed(endpoint.address.to_string(), false)
-                    .await;
+                upgrade_script_state.completed(address, false).await;
                 return;
             };
             let stdout = tokio::io::BufReader::new(stdout);
@@ -1235,9 +1229,7 @@ impl PreingestionManagerStatic {
                 tracing::error!("Upgrade script {address} STDERR creation failed");
                 let _ = cmd.kill().await;
                 let _ = cmd.wait().await;
-                upgrade_script_state
-                    .completed(endpoint.address.to_string(), false)
-                    .await;
+                upgrade_script_state.completed(address, false).await;
                 return;
             };
             let stderr = tokio::io::BufReader::new(stderr);
@@ -1259,27 +1251,21 @@ impl PreingestionManagerStatic {
             match cmd.wait().await {
                 Err(e) => {
                     tracing::info!("Upgrade script {address} FAILED: Wait failure {e}");
-                    upgrade_script_state
-                        .completed(endpoint.address.to_string(), false)
-                        .await;
+                    upgrade_script_state.completed(address, false).await;
                 }
                 Ok(errorcode) => {
                     if errorcode.success() {
                         tracing::info!("Upgrade script {address} completed successfully");
-                        upgrade_script_state
-                            .completed(endpoint.address.to_string(), true)
-                            .await;
+                        upgrade_script_state.completed(address, true).await;
                     } else {
                         tracing::warn!("Upgrade script {address} FAILED: Exited with {errorcode}");
-                        upgrade_script_state
-                            .completed(endpoint.address.to_string(), false)
-                            .await;
+                        upgrade_script_state.completed(address, false).await;
                     }
                 }
             }
         });
 
-        db::explored_endpoints::set_preingestion_script_running(endpoint.address, txn).await?;
+        db::explored_endpoints::set_preingestion_script_running(endpoint_address, txn).await?;
         Ok(())
     }
 
