@@ -121,9 +121,17 @@
             address:
               10.1.1.1/32: {} 
         router:
+          static:
+            192.168.0.12/32:
+              address-family: ipv4-unicast
+              via:
+                vlan10:
+                  type: interface
           bgp:
             address-family:
               ipv4-unicast:
+                network:
+                  192.168.0.12/32: {}
                 enable: on
                 redistribute:
                   connected:
