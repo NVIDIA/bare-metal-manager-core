@@ -89,7 +89,7 @@ pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredManagedHost>
 
 pub async fn update(
     txn: &mut PgConnection,
-    explored_hosts: &[ExploredManagedHost],
+    explored_hosts: &[&ExploredManagedHost],
 ) -> Result<(), DatabaseError> {
     let query = r#"DELETE FROM explored_managed_hosts;"#;
     sqlx::query(query)

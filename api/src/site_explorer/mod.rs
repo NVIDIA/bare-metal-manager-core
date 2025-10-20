@@ -525,12 +525,7 @@ impl SiteExplorer {
             let expected_machine = matched_expected_machines.get(&host.host_bmc_ip);
 
             match self
-                .create_managed_host(
-                    host.clone(),
-                    report,
-                    expected_machine,
-                    &self.database_connection,
-                )
+                .create_managed_host(&host, report, expected_machine, &self.database_connection)
                 .await
             {
                 Ok(true) => {
@@ -552,7 +547,7 @@ impl SiteExplorer {
     /// Returns `true` if new `Machine` objects have been created or `false` otherwise
     pub async fn create_managed_host(
         &self,
-        explored_host: ExploredManagedHost,
+        explored_host: &ExploredManagedHost,
         mut report: EndpointExplorationReport,
         expected_machine: Option<&ExpectedMachine>,
         pool: &PgPool,
@@ -573,15 +568,17 @@ impl SiteExplorer {
                 tracing::error!(%error, "Cannot create managed host for explored endpoint with no DPUs: Zero-dpu hosts are disallowed by config");
                 return Err(error);
             }
-            let did_create = self
+            if let Some(machine_id) = self
                 .create_zero_dpu_machine(
                     &mut txn,
-                    &mut managed_host,
+                    &managed_host,
                     &mut report,
                     metadata.unwrap_or(&Metadata::default()),
                 )
-                .await?;
-            if !did_create {
+                .await?
+            {
+                managed_host.machine_id = Some(machine_id);
+            } else {
                 // Site explorer has already created a machine for this endpoint previously, skip.
                 return Ok(false);
             }
@@ -589,7 +586,7 @@ impl SiteExplorer {
         }
 
         let mut dpu_ids = vec![];
-        for dpu_report in managed_host.explored_host.dpus.clone().iter() {
+        for dpu_report in managed_host.explored_host.dpus.iter() {
             // machine_id_if_valid_report makes sure that all optional fields on dpu_report are
             // actually set (like the machine-id etc) and returns the machine_id if everything
             // is valid.
@@ -607,19 +604,20 @@ impl SiteExplorer {
                 return Ok(false);
             }
 
-            self.attach_dpu_to_host(
-                &mut txn,
-                &mut managed_host,
-                dpu_report,
-                metadata.unwrap_or(&Metadata::default()),
-                sku_id,
-            )
-            .await?;
+            let host_machine_id = self
+                .attach_dpu_to_host(
+                    &mut txn,
+                    &managed_host,
+                    dpu_report,
+                    metadata.unwrap_or(&Metadata::default()),
+                    sku_id,
+                )
+                .await?;
+            managed_host.machine_id = Some(host_machine_id)
         }
 
         // Now since all DPUs are created, update host and DPUs state correctly.
         let host_machine_id = managed_host
-            .clone()
             .machine_id
             .ok_or(CarbideError::internal(format!(
                 "Failed to get machine ID for host: {managed_host:#?}"
@@ -695,20 +693,20 @@ impl SiteExplorer {
         // Match HOST and DPU using SerialNumber.
         // Compare DPU system.serial_number with HOST chassis.network_adapters[].serial_number
         let mut dpu_sn_to_endpoint = HashMap::new();
-        for ep in explored_dpus.values() {
+        for (_, ep) in explored_dpus {
             if let Some(sn) = ep
                 .report
                 .systems
                 .first()
                 .and_then(|system| system.serial_number.as_ref())
             {
-                dpu_sn_to_endpoint.insert(sn.trim(), ep);
+                dpu_sn_to_endpoint.insert(sn.trim().to_string(), ep);
             }
         }
 
         let mut managed_hosts = Vec::new();
 
-        let is_dpu_in_nic_mode = |dpu_ep: &&ExploredEndpoint, host_ep: &ExploredEndpoint| -> bool {
+        let is_dpu_in_nic_mode = |dpu_ep: &ExploredEndpoint, host_ep: &ExploredEndpoint| -> bool {
             let nic_mode = dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic);
             if nic_mode {
                 tracing::info!(
@@ -731,7 +729,7 @@ impl SiteExplorer {
             }
         };
 
-        for ep in explored_hosts.values() {
+        for (_, ep) in explored_hosts {
             // the list of DPUs that the site-explorer has explored for this host
             let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
             // the number of DPUs that the host reports are attached to it
@@ -749,10 +747,7 @@ impl SiteExplorer {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn) {
                             if let Some(model) = pcie_device.part_number.as_ref() {
                                 match self
-                                    .check_and_configure_dpu_mode(
-                                        (**dpu_ep).to_owned(),
-                                        model.to_string(),
-                                    )
+                                    .check_and_configure_dpu_mode(dpu_ep, model.to_string())
                                     .await
                                 {
                                     Ok(is_dpu_mode_configured_correctly) => {
@@ -773,7 +768,7 @@ impl SiteExplorer {
                             }
 
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(dpu_ep, ep) {
+                            if is_dpu_in_nic_mode(dpu_ep, &ep) {
                                 expected_num_dpus_attached_to_host -= 1;
                                 continue;
                             }
@@ -798,14 +793,11 @@ impl SiteExplorer {
                         }
 
                         if let Some(sn) = network_adapter.serial_number.as_ref()
-                            && let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn.trim())
+                            && let Some(dpu_ep) = dpu_sn_to_endpoint.remove(sn.trim())
                         {
                             if let Some(model) = network_adapter.part_number.as_ref() {
                                 match self
-                                    .check_and_configure_dpu_mode(
-                                        (**dpu_ep).to_owned(),
-                                        model.to_string(),
-                                    )
+                                    .check_and_configure_dpu_mode(&dpu_ep, model.to_string())
                                     .await
                                 {
                                     Ok(is_dpu_mode_configured_correctly) => {
@@ -826,14 +818,14 @@ impl SiteExplorer {
                             }
 
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(dpu_ep, ep) {
+                            if is_dpu_in_nic_mode(&dpu_ep, &ep) {
                                 expected_num_dpus_attached_to_host -= 1;
                                 continue;
                             }
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
-                                host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
-                                report: dpu_ep.report.clone(),
+                                host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
+                                report: dpu_ep.report,
                             });
                         }
                     }
@@ -849,9 +841,9 @@ impl SiteExplorer {
                 let mut dpu_added = false;
                 if let Some(expected_machine) = matched_expected_machines.get(&ep.address) {
                     for dpu_sn in expected_machine.data.fallback_dpu_serial_numbers.clone() {
-                        if let Some(dpu_ep) = dpu_sn_to_endpoint.get(dpu_sn.as_str()) {
+                        if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(dpu_sn.as_str()) {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(dpu_ep, ep)
+                            if is_dpu_in_nic_mode(&dpu_ep, &ep)
                                 && expected_num_dpus_attached_to_host > 0
                             {
                                 expected_num_dpus_attached_to_host -= 1;
@@ -869,8 +861,8 @@ impl SiteExplorer {
                             dpu_added = true;
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
-                                host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
-                                report: dpu_ep.report.clone(),
+                                host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
+                                report: dpu_ep.report,
                             });
                         }
                     }
@@ -978,7 +970,7 @@ impl SiteExplorer {
                     host_bmc_ip: ep.address,
                     dpus: dpus_explored_for_host,
                 },
-                ep.report.clone(),
+                ep.report,
             ));
             metrics.exploration_identified_managed_hosts += 1;
         }
@@ -991,7 +983,7 @@ impl SiteExplorer {
             &mut txn,
             managed_hosts
                 .iter()
-                .map(|h| h.0.clone())
+                .map(|(h, _)| h)
                 .collect::<Vec<_>>()
                 .as_slice(),
         )
@@ -1060,7 +1052,9 @@ impl SiteExplorer {
         }
 
         let mut explored_endpoints_by_address = HashMap::<IpAddr, ExploredEndpoint>::new();
+        let mut explored_endpoints_addresses = HashSet::new();
         for endpoint in explored_endpoints.into_iter() {
+            explored_endpoints_addresses.insert(endpoint.address);
             explored_endpoints_by_address.insert(endpoint.address, endpoint);
         }
 
@@ -1070,16 +1064,16 @@ impl SiteExplorer {
         let mut delete_endpoints = Vec::new();
         let mut priority_update_endpoints = Vec::new();
         let mut update_endpoints = Vec::with_capacity(explored_endpoints_by_address.len());
-        for (address, endpoint) in &explored_endpoints_by_address {
-            match underlay_interfaces_by_address.get(address) {
+        for (address, endpoint) in explored_endpoints_by_address {
+            match underlay_interfaces_by_address.get(&address) {
                 Some(iface) => {
                     if endpoint.exploration_requested {
-                        priority_update_endpoints.push((*address, *iface, endpoint));
+                        priority_update_endpoints.push((address, *iface, endpoint));
                     } else {
-                        update_endpoints.push((*address, *iface, endpoint));
+                        update_endpoints.push((address, *iface, endpoint));
                     }
                 }
-                None => delete_endpoints.push(*address),
+                None => delete_endpoints.push(address),
             }
         }
 
@@ -1101,10 +1095,10 @@ impl SiteExplorer {
         let mut unexplored_endpoints = Vec::with_capacity(
             underlay_interfaces_by_address
                 .len()
-                .saturating_sub(explored_endpoints_by_address.len()),
+                .saturating_sub(explored_endpoints_addresses.len()),
         );
         for (address, &iface) in &underlay_interfaces_by_address {
-            if !explored_endpoints_by_address.contains_key(address) {
+            if !explored_endpoints_addresses.contains(address) {
                 unexplored_endpoints.push((*address, iface));
             }
         }
@@ -1118,16 +1112,17 @@ impl SiteExplorer {
         let mut explore_endpoint_data = Vec::with_capacity(num_explore_endpoints);
 
         // We prioritize existing endpoints which have the `exploration_requested` flag set
-        for (address, iface, endpoint) in
-            priority_update_endpoints.iter().take(num_explore_endpoints)
+        for (address, iface, endpoint) in priority_update_endpoints
+            .into_iter()
+            .take(num_explore_endpoints)
         {
             explore_endpoint_data.push(Endpoint::new(
-                *address,
+                address,
                 (*iface).clone(),
                 endpoint.last_redfish_bmc_reset,
                 endpoint.last_ipmitool_bmc_reset,
                 endpoint.last_redfish_reboot,
-                Some((endpoint.report_version, endpoint.report.clone())),
+                Some((endpoint.report_version, endpoint.report)),
                 endpoint.pause_remediation,
             ));
         }
@@ -1156,16 +1151,17 @@ impl SiteExplorer {
             update_endpoints.sort_by_key(|(_address, _machine_interface, endpoint)| {
                 endpoint.report_version.timestamp()
             });
-            for (address, iface, endpoint) in
-                update_endpoints.iter().take(remaining_explore_endpoints)
+            for (address, iface, endpoint) in update_endpoints
+                .into_iter()
+                .take(remaining_explore_endpoints)
             {
                 explore_endpoint_data.push(Endpoint::new(
-                    *address,
+                    address,
                     (*iface).clone(),
                     endpoint.last_redfish_bmc_reset,
                     endpoint.last_ipmitool_bmc_reset,
                     endpoint.last_redfish_reboot,
-                    Some((endpoint.report_version, endpoint.report.clone())),
+                    Some((endpoint.report_version, endpoint.report)),
                     endpoint.pause_remediation,
                 ));
             }
@@ -1270,7 +1266,7 @@ impl SiteExplorer {
                         )
                         .await;
 
-                    if let Err(error) = result.clone() {
+                    if let Err(error) = &result {
                         // For logging purposes
                         let machine_state = match get_machine_state_by_bmc_ip(
                             &database_connection,
@@ -1462,13 +1458,14 @@ impl SiteExplorer {
         Ok(false)
     }
 
+    // Returns MachineId if machene was created.
     async fn create_zero_dpu_machine(
         &self,
         txn: &mut PgConnection,
-        managed_host: &mut ManagedHost,
+        managed_host: &ManagedHost<'_>,
         report: &mut EndpointExplorationReport,
         metadata: &Metadata,
-    ) -> CarbideResult<bool> {
+    ) -> CarbideResult<Option<MachineId>> {
         // If there's already a machine with the same MAC address as this endpoint, return false. We
         // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
         // already.
@@ -1478,7 +1475,7 @@ impl SiteExplorer {
                 .await?
                 .is_some()
             {
-                return Ok(false);
+                return Ok(None);
             }
 
             // If we already minted this machine and it hasn't DHCP'd yet, there will be an
@@ -1490,7 +1487,7 @@ impl SiteExplorer {
             .await?
             .is_empty()
             {
-                return Ok(false);
+                return Ok(None);
             }
         }
 
@@ -1529,7 +1526,7 @@ impl SiteExplorer {
                 predicted_host_macs=?mac_addresses,
                 "Predicted host already exists, with different mac addresses from this one. Potentially multiple machines with same serial number?"
             );
-            return Ok(false);
+            return Ok(None);
         }
 
         self.create_machine_from_explored_managed_host(
@@ -1540,9 +1537,6 @@ impl SiteExplorer {
             None,
         )
         .await?;
-
-        let machine_id = *machine_id; // 🦀 end the borrow so we can write to managed_host.machine_id
-        managed_host.machine_id = Some(machine_id);
 
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
@@ -1573,7 +1567,7 @@ impl SiteExplorer {
                     tracing::info!(%mac_address, %machine_id, "Migrating unowned machine_interface to new managed host");
                     db::machine_interface::associate_interface_with_machine(
                         &machine_interface.id,
-                        &machine_id,
+                        machine_id,
                         txn,
                     )
                     .await?;
@@ -1581,7 +1575,7 @@ impl SiteExplorer {
             } else {
                 db::predicted_machine_interface::create(
                     NewPredictedMachineInterface {
-                        machine_id: &machine_id,
+                        machine_id,
                         mac_address,
                         expected_network_segment_type: NetworkSegmentType::HostInband,
                     },
@@ -1591,7 +1585,7 @@ impl SiteExplorer {
             }
         }
 
-        Ok(true)
+        Ok(Some(*machine_id))
     }
 
     // configure_dpu_interface checks the machine_interfaces table to see if the DPU's machine interface has its machine id set.
@@ -1706,11 +1700,11 @@ impl SiteExplorer {
     async fn attach_dpu_to_host(
         &self,
         txn: &mut PgConnection,
-        explored_host: &mut ManagedHost,
+        explored_host: &ManagedHost<'_>,
         explored_dpu: &ExploredDpu,
         metadata: &Metadata,
         sku_id: Option<&String>,
-    ) -> CarbideResult<()> {
+    ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         // Create Host proactively.
         // In case host interface is created, this method will return existing one, instead
@@ -1731,32 +1725,25 @@ impl SiteExplorer {
             )));
         }
 
-        self.configure_host_machine(
-            txn,
-            explored_host,
-            &host_machine_interface,
-            explored_dpu,
-            metadata,
-            sku_id,
-        )
-        .await?;
-
-        // configure_host_machine should have setup the machine_id for the host
-        let host_machine_id = explored_host
-            .machine_id
-            .as_ref()
-            .ok_or(CarbideError::internal(format!(
-                "Failed to set machine ID for host: {explored_host:#?}"
-            )))?;
+        let host_machine_id = self
+            .configure_host_machine(
+                txn,
+                explored_host,
+                &host_machine_interface,
+                explored_dpu,
+                metadata,
+                sku_id,
+            )
+            .await?;
 
         db::machine_interface::associate_interface_with_machine(
             &host_machine_interface.id,
-            host_machine_id,
+            &host_machine_id,
             txn,
         )
         .await?;
 
-        Ok(())
+        Ok(host_machine_id)
     }
 
     // configure_host_machine configures the host's machine with the specific interface. It returns the host's machine ID.
@@ -1775,7 +1762,7 @@ impl SiteExplorer {
     async fn configure_host_machine(
         &self,
         txn: &mut PgConnection,
-        explored_host: &mut ManagedHost,
+        explored_host: &ManagedHost<'_>,
         host_machine_interface: &MachineInterfaceSnapshot,
         explored_dpu: &ExploredDpu,
         metadata: &Metadata,
@@ -1800,7 +1787,7 @@ impl SiteExplorer {
                 let host_machine_id = self
                     .create_host_from_dpu_hw_info(
                         txn,
-                        &explored_host.explored_host,
+                        explored_host.explored_host,
                         explored_dpu,
                         metadata,
                         sku_id,
@@ -1813,7 +1800,6 @@ impl SiteExplorer {
                     "Created host machine proactively in site-explorer",
                 );
 
-                explored_host.machine_id = Some(host_machine_id);
                 db::machine_interface::set_primary_interface(&host_machine_interface.id, true, txn)
                     .await?;
                 Ok(host_machine_id)
@@ -1865,7 +1851,7 @@ impl SiteExplorer {
     async fn create_machine_from_explored_managed_host(
         &self,
         txn: &mut PgConnection,
-        managed_host: &ManagedHost,
+        managed_host: &ManagedHost<'_>,
         predicted_machine_id: &MachineId,
         metadata: &Metadata,
         sku_id: Option<&String>,
@@ -2498,7 +2484,7 @@ impl SiteExplorer {
     // if check_and_configure_dpu_mode returns false, it will try to configure the DPU appropriately (put a BF3 SuperNIC in NIC mode or put a BF3 DPU in DPU mode)
     async fn check_and_configure_dpu_mode(
         &self,
-        dpu_ep: ExploredEndpoint,
+        dpu_ep: &ExploredEndpoint,
         dpu_model: String,
     ) -> CarbideResult<bool> {
         match dpu_ep.report.nic_mode() {
@@ -2508,7 +2494,7 @@ impl SiteExplorer {
                         "site explorer found a BF3 SuperNIC ({}) that is in DPU mode; will try setting it into NIC mode",
                         dpu_ep.address
                     );
-                    self.set_nic_mode(&dpu_ep, NicMode::Nic).await?;
+                    self.set_nic_mode(dpu_ep, NicMode::Nic).await?;
                     Ok(false)
                 } else {
                     Ok(true)
@@ -2520,7 +2506,7 @@ impl SiteExplorer {
                         "site explorer found a BF3 DPU ({}) that is in NIC mode; will try setting it into DPU mode",
                         dpu_ep.address
                     );
-                    self.set_nic_mode(&dpu_ep, NicMode::Dpu).await?;
+                    self.set_nic_mode(dpu_ep, NicMode::Dpu).await?;
                     Ok(false)
                 } else {
                     Ok(true)
