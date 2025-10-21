@@ -24,7 +24,7 @@ use sqlx::{FromRow, PgConnection, Row};
 
 use crate::DatabaseError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct DbExploredEndpoint {
     /// The IP address of the node we explored
     address: std::net::IpAddr,

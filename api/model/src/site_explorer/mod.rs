@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
@@ -438,7 +439,7 @@ pub struct ExploredDpu {
     pub host_pf_mac_address: Option<MacAddress>,
 
     #[serde(skip)]
-    pub report: EndpointExplorationReport,
+    pub report: Arc<EndpointExplorationReport>,
 }
 
 impl From<&ExploredDpu> for rpc::site_explorer::ExploredDpu {
@@ -628,7 +629,7 @@ impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
 }
 
 /// That that we gathered from exploring a site
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SiteExplorationReport {
     /// The endpoints that had been explored

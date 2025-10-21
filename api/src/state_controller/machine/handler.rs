@@ -7651,9 +7651,12 @@ pub async fn find_explored_refreshed_endpoint(
         .map_err(StateHandlerError::GenericError)?;
 
     let endpoint = db::explored_endpoints::find_by_ips(txn, vec![addr]).await?;
-    let endpoint = endpoint.first().ok_or(StateHandlerError::GenericError(
-        eyre! {"Unable to find explored_endpoint for {machine_id}"},
-    ))?;
+    let endpoint = endpoint
+        .into_iter()
+        .next()
+        .ok_or(StateHandlerError::GenericError(
+            eyre! {"Unable to find explored_endpoint for {machine_id}"},
+        ))?;
 
     if endpoint.waiting_for_explorer_refresh {
         // In the cases where this was called, we care about prompt updates, so poke site explorer to revisit this endpoint next time it runs
@@ -7665,7 +7668,7 @@ pub async fn find_explored_refreshed_endpoint(
         .await?;
         return Ok(None);
     }
-    Ok(Some(endpoint.clone()))
+    Ok(Some(endpoint))
 }
 
 // If already reprovisioning is started, we can restart.

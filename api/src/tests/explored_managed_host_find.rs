@@ -36,7 +36,7 @@ async fn test_find_explored_managed_host_ids(
             dpus: vec![ExploredDpu {
                 bmc_ip,
                 host_pf_mac_address: Some(mac_address),
-                report: EndpointExplorationReport::default(),
+                report: EndpointExplorationReport::default().into(),
             }],
         });
     }
@@ -73,7 +73,7 @@ async fn test_find_explored_managed_hosts_by_ids(
             dpus: vec![ExploredDpu {
                 bmc_ip,
                 host_pf_mac_address: Some(mac_address),
-                report: EndpointExplorationReport::default(),
+                report: EndpointExplorationReport::default().into(),
             }],
         });
     }
