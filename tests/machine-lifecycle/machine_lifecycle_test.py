@@ -146,18 +146,29 @@ def main():
         )
         ngc.unassign_instance_type(site_config.site, test_config.machine_under_test, strict=False)
 
-        # Perform force delete and wait for reingestion to Ready state
-        force_delete_and_await_reingestion(test_config, site_config, machine_info)
+        try:
+            # Perform force delete and wait for reingestion to Ready state
+            force_delete_and_await_reingestion(test_config, site_config, machine_info)
 
-        # If we performed a downgrade before reingestion, verify firmware has been upgraded by Forge
-        if test_config.dpu_fw_downgrade:
-            verify_firmware_versions(test_config, site_config, machine_info, downgraded=False)
+            # If we performed a downgrade before reingestion, verify firmware has been upgraded by Forge
+            if test_config.dpu_fw_downgrade:
+                verify_firmware_versions(test_config, site_config, machine_info, downgraded=False)
 
-        # Validate machine capabilities after ingestion (currently only tested in QA2)
-        if test_config.site_under_test == "pdx-qa2-new":
-            capability_validator.validate_machine_capabilities(
-                test_config.machine_under_test, machine_capabilities, admin_cli
+            # Validate machine capabilities after ingestion (currently only tested in QA2)
+            if test_config.site_under_test == "pdx-qa2-new":
+                capability_validator.validate_machine_capabilities(
+                    test_config.machine_under_test, machine_capabilities, admin_cli
+                )
+        finally:
+            # Attempt to re-assign the instance type even if we hit a failure above.
+            # This is a best-effort at keeping the machine marked as 'reserved'.
+            ngc.assign_instance_type(
+                site_config.site,
+                ngc_uuids.instance_type_uuid,
+                test_config.machine_under_test,
+                strict=False,
             )
+
     else:
         print("Skipping ingestion portion due to $DEBUG_INSTANCE_PROVISION_ONLY flag")
 
