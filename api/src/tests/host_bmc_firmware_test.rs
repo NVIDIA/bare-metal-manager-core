@@ -130,7 +130,7 @@ async fn test_preingestion_bmc_upgrade(
 
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
     assert!(endpoints.len() == 1);
-    let endpoint = endpoints.first().unwrap().clone();
+    let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         // We expect it to be waiting for task completion
         PreingestionState::UpgradeFirmwareWait {
@@ -182,10 +182,9 @@ async fn test_preingestion_bmc_upgrade(
     let mut txn = pool.begin().await.unwrap();
     let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
     assert!(endpoints.len() == 1);
-    let endpoint = endpoints.first().unwrap();
+    let mut endpoint = endpoints.into_iter().next().unwrap();
 
     // Now we simulate site explorer coming through and reading the new updated version
-    let mut endpoint = endpoint.clone();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     assert!(
         db::explored_endpoints::try_update(
@@ -279,7 +278,7 @@ async fn test_preingestion_upgrade_script(
     let mut txn = pool.begin().await.unwrap();
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
     assert!(endpoints.len() == 1);
-    let endpoint = endpoints.first().unwrap().clone();
+    let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         // We expect it to be waiting for task completion
         PreingestionState::ScriptRunning => {}
@@ -296,7 +295,7 @@ async fn test_preingestion_upgrade_script(
     let mut txn = pool.begin().await.unwrap();
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
     assert!(endpoints.len() == 1);
-    let endpoint = endpoints.first().unwrap().clone();
+    let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         // We expect it to be have gone back to rechecking versions, we won't bother testing that here
         PreingestionState::RecheckVersions => {}
@@ -503,7 +502,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
-    let mut endpoint = endpoints.first().unwrap().clone();
+    let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
         .report
@@ -943,7 +942,7 @@ async fn test_preingestion_preupdate_powercycling(
     // Expect "reset" the BMC
     let mut txn = pool.begin().await.unwrap();
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
-    let endpoint = endpoints.first().unwrap().clone();
+    let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::InitialReset { phase, .. } => {
             assert_eq!(*phase, InitialResetPhase::BMCWasReset);
@@ -958,7 +957,7 @@ async fn test_preingestion_preupdate_powercycling(
     // Expect WaitHostBoot
     let mut txn = pool.begin().await.unwrap();
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
-    let endpoint = endpoints.first().unwrap().clone();
+    let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::InitialReset { phase, .. } => {
             assert_eq!(*phase, InitialResetPhase::WaitHostBoot);
@@ -979,7 +978,7 @@ async fn test_preingestion_preupdate_powercycling(
     // Recheck versions
     let mut txn = pool.begin().await.unwrap();
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
-    let endpoint = endpoints.first().unwrap().clone();
+    let endpoint = endpoints.first().unwrap();
     assert_eq!(
         endpoint.preingestion_state,
         PreingestionState::RecheckVersions
@@ -992,7 +991,7 @@ async fn test_preingestion_preupdate_powercycling(
 
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
     assert!(endpoints.len() == 1);
-    let mut endpoint = endpoints.first().unwrap().clone();
+    let mut endpoint = endpoints.into_iter().next().unwrap();
     match &endpoint.preingestion_state {
         // We expect it to be waiting for task completion
         PreingestionState::UpgradeFirmwareWait {
@@ -1036,7 +1035,7 @@ async fn test_preingestion_preupdate_powercycling(
         let mut txn = pool.begin().await.unwrap();
         let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
         assert!(endpoints.len() == 1);
-        let endpoint = endpoints.first().unwrap();
+        let mut endpoint = endpoints.into_iter().next().unwrap();
         tracing::debug!("State should be {state:?}");
         match &endpoint.preingestion_state {
             PreingestionState::ResetForNewFirmware {
@@ -1054,7 +1053,6 @@ async fn test_preingestion_preupdate_powercycling(
         }
 
         // At some point in here we would have picked up the new version
-        let mut endpoint = endpoint.clone();
         endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
         assert!(
             db::explored_endpoints::try_update(
@@ -1377,7 +1375,7 @@ async fn test_instance_upgrading_actual_part_2(
         db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
-    let mut endpoint = endpoints.first().unwrap().clone();
+    let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
         .report

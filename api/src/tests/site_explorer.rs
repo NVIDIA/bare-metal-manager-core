@@ -244,22 +244,19 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     for report in &explored {
         assert_eq!(report.report_version.version_nr(), 1);
         let guard = endpoint_explorer.reports.lock().unwrap();
-        let res = guard.get(&report.address).unwrap();
+        let res = guard.get(&report.address).unwrap().as_ref();
         if res.is_err() {
             assert_eq!(
-                res.clone().unwrap_err(),
-                report.report.last_exploration_error.clone().unwrap()
+                res.unwrap_err(),
+                report.report.last_exploration_error.as_ref().unwrap()
             );
         } else {
-            assert_eq!(
-                res.clone().unwrap().endpoint_type,
-                report.report.endpoint_type
-            );
-            assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
-            assert_eq!(res.clone().unwrap().managers, report.report.managers);
-            assert_eq!(res.clone().unwrap().systems, report.report.systems);
-            assert_eq!(res.clone().unwrap().chassis, report.report.chassis);
-            assert_eq!(res.clone().unwrap().service, report.report.service);
+            assert_eq!(res.unwrap().endpoint_type, report.report.endpoint_type);
+            assert_eq!(res.unwrap().vendor, report.report.vendor);
+            assert_eq!(res.unwrap().managers, report.report.managers);
+            assert_eq!(res.unwrap().systems, report.report.systems);
+            assert_eq!(res.unwrap().chassis, report.report.chassis);
+            assert_eq!(res.unwrap().service, report.report.service);
         }
     }
 
@@ -310,22 +307,19 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     for report in &explored {
         versions.push(report.report_version.version_nr());
         let guard = endpoint_explorer.reports.lock().unwrap();
-        let res = guard.get(&report.address).unwrap();
+        let res = guard.get(&report.address).unwrap().as_ref();
         if res.is_err() {
             assert_eq!(
-                res.clone().unwrap_err(),
-                report.report.last_exploration_error.clone().unwrap()
+                res.unwrap_err(),
+                report.report.last_exploration_error.as_ref().unwrap()
             );
         } else {
-            assert_eq!(
-                res.clone().unwrap().endpoint_type,
-                report.report.endpoint_type
-            );
-            assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
-            assert_eq!(res.clone().unwrap().managers, report.report.managers);
-            assert_eq!(res.clone().unwrap().systems, report.report.systems);
-            assert_eq!(res.clone().unwrap().chassis, report.report.chassis);
-            assert_eq!(res.clone().unwrap().service, report.report.service);
+            assert_eq!(res.unwrap().endpoint_type, report.report.endpoint_type);
+            assert_eq!(res.unwrap().vendor, report.report.vendor);
+            assert_eq!(res.unwrap().managers, report.report.managers);
+            assert_eq!(res.unwrap().systems, report.report.systems);
+            assert_eq!(res.unwrap().chassis, report.report.chassis);
+            assert_eq!(res.unwrap().service, report.report.service);
         }
     }
     versions.sort();
@@ -707,22 +701,19 @@ async fn test_site_explorer_audit_exploration_results(
     for report in &explored {
         assert_eq!(report.report_version.version_nr(), 2);
         let guard = endpoint_explorer.reports.lock().unwrap();
-        let res = guard.get(&report.address).unwrap();
+        let res = guard.get(&report.address).unwrap().as_ref();
         if res.is_err() {
             assert_eq!(
-                res.clone().unwrap_err(),
-                report.report.last_exploration_error.clone().unwrap()
+                res.unwrap_err(),
+                report.report.last_exploration_error.as_ref().unwrap()
             );
         } else {
-            assert_eq!(
-                res.clone().unwrap().endpoint_type,
-                report.report.endpoint_type
-            );
-            assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
-            assert_eq!(res.clone().unwrap().managers, report.report.managers);
-            assert_eq!(res.clone().unwrap().systems, report.report.systems);
-            assert_eq!(res.clone().unwrap().chassis, report.report.chassis);
-            assert_eq!(res.clone().unwrap().service, report.report.service);
+            assert_eq!(res.unwrap().endpoint_type, report.report.endpoint_type);
+            assert_eq!(res.unwrap().vendor, report.report.vendor);
+            assert_eq!(res.unwrap().managers, report.report.managers);
+            assert_eq!(res.unwrap().systems, report.report.systems);
+            assert_eq!(res.unwrap().chassis, report.report.chassis);
+            assert_eq!(res.unwrap().service, report.report.service);
         }
     }
 
@@ -1139,6 +1130,7 @@ async fn test_site_explorer_creates_managed_host(
     let mut addresses = iface.address;
     let host_bmc_ip = addresses.remove(0);
 
+    let dpu_report = Arc::new(dpu_report);
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: vec![ExploredDpu {
@@ -1525,6 +1517,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
         let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
         dpu_report.generate_machine_id(false)?;
+        let dpu_report = Arc::new(dpu_report);
         explored_dpus.push(ExploredDpu {
             bmc_ip: IpAddr::from_str(format!("192.168.1.{i}").as_str())?,
             host_pf_mac_address: Some(mock_dpu.host_mac_address),
@@ -1912,7 +1905,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await.unwrap();
 
     // Mark explored endpoints as pre-ingestion_complete
-    for ee in explored_endpoints.clone() {
+    for ee in &explored_endpoints {
         db::explored_endpoints::set_preingestion_complete(ee.address, &mut txn).await?;
     }
     txn.commit().await?;
@@ -2167,6 +2160,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
 
     let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
     dpu_report.generate_machine_id(false)?;
+    let dpu_report = Arc::new(dpu_report);
 
     let explored_dpus = vec![ExploredDpu {
         bmc_ip: IpAddr::from_str("192.168.1.2")?,
@@ -2269,6 +2263,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
 
     let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
     dpu_report.generate_machine_id(false)?;
+    let dpu_report = Arc::new(dpu_report);
     let dpu_machine_id = dpu_report.machine_id.unwrap();
 
     let explored_dpus = vec![ExploredDpu {
@@ -2460,10 +2455,11 @@ async fn test_fetch_host_primary_interface_mac(
 
         let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
         dpu_report.generate_machine_id(false)?;
+        let dpu_report = Arc::new(dpu_report);
         explored_dpus.push(ExploredDpu {
             bmc_ip: IpAddr::from_str(format!("192.168.1.{i}").as_str())?,
             host_pf_mac_address: Some(mock_dpu.host_mac_address),
-            report: dpu_report.clone(),
+            report: dpu_report,
         });
     }
 
@@ -2930,11 +2926,11 @@ async fn test_site_explorer_unknown_vendor(
     );
 
     let guard = endpoint_explorer.reports.lock().unwrap();
-    let res = guard.get(&report.address).unwrap();
+    let res = guard.get(&report.address).unwrap().as_ref();
     assert!(res.is_err());
     assert_eq!(
-        res.clone().unwrap_err(),
-        report.report.last_exploration_error.clone().unwrap()
+        res.unwrap_err(),
+        report.report.last_exploration_error.as_ref().unwrap()
     );
 
     Ok(())
@@ -3167,7 +3163,7 @@ async fn test_machine_creation_with_sku(
     let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await.unwrap();
 
     // Mark explored endpoints as pre-ingestion_complete
-    for ee in explored_endpoints.clone() {
+    for ee in &explored_endpoints {
         db::explored_endpoints::set_preingestion_complete(ee.address, &mut txn).await?;
     }
     txn.commit().await?;

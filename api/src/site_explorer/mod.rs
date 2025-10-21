@@ -69,7 +69,7 @@ use model::predicted_machine_interface::NewPredictedMachineInterface;
 use self::metrics::exploration_error_to_metric_label;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Endpoint {
     address: IpAddr,
     iface: MachineInterfaceSnapshot,
@@ -744,10 +744,10 @@ impl SiteExplorer {
 
                     if pcie_device.serial_number.is_some() {
                         let sn = pcie_device.serial_number.as_ref().unwrap().trim();
-                        if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn) {
+                        if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(sn) {
                             if let Some(model) = pcie_device.part_number.as_ref() {
                                 match self
-                                    .check_and_configure_dpu_mode(dpu_ep, model.to_string())
+                                    .check_and_configure_dpu_mode(&dpu_ep, model.to_string())
                                     .await
                                 {
                                     Ok(is_dpu_mode_configured_correctly) => {
@@ -768,15 +768,18 @@ impl SiteExplorer {
                             }
 
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(dpu_ep, &ep) {
+                            if is_dpu_in_nic_mode(&dpu_ep, &ep) {
                                 expected_num_dpus_attached_to_host -= 1;
+                                // return back DPU report to the hashmap. It is needed below when we go through
+                                // the network_adapters.
+                                dpu_sn_to_endpoint.insert(sn.to_string(), dpu_ep);
                                 continue;
                             }
 
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
-                                host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
-                                report: dpu_ep.report.clone(),
+                                host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
+                                report: dpu_ep.report.into(),
                             });
                         }
                     }
@@ -820,12 +823,15 @@ impl SiteExplorer {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                             if is_dpu_in_nic_mode(&dpu_ep, &ep) {
                                 expected_num_dpus_attached_to_host -= 1;
+                                // return back DPU report to the hashmap. It is needed below when we go through
+                                // expected machines.
+                                dpu_sn_to_endpoint.insert(sn.to_string(), dpu_ep);
                                 continue;
                             }
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
                                 host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
-                                report: dpu_ep.report,
+                                report: dpu_ep.report.into(),
                             });
                         }
                     }
@@ -862,7 +868,7 @@ impl SiteExplorer {
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
                                 host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
-                                report: dpu_ep.report,
+                                report: dpu_ep.report.into(),
                             });
                         }
                     }
