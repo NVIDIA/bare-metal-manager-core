@@ -1,10 +1,14 @@
 [package]
-name = "forge-uuid"
-version = "0.0.1"
+name = "carbide-uuid"
+version = "0.0.0"
 edition.workspace = true
 description = "Common UUID types Forge components."
 license-file.workspace = true
 authors.workspace = true
+
+# TODO: rename to carbide_uuid in source
+[lib]
+name = "forge_uuid"
 
 [features]
 sqlx = ["dep:sqlx"]

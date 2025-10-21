@@ -1,9 +1,12 @@
 [package]
-name = "forge-certs"
-version = "0.1.0"
+name = "carbide-certs"
+version = "0.0.0"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
+
+[lib]
+name = "forge_certs"
 
 [dependencies]
 eyre = "*"
@@ -15,9 +18,9 @@ tonic = { workspace = true }
 tracing = "*"
 
 # [local-dependencies]
-forge-host-support = { path = "../../common/host-support" }
-forge-tls = { path = "../../common/tls" }
-rpc = { path = "../../rpc" }
+carbide-host-support = { path = "../../common/host-support" }
+carbide-tls = { path = "../../common/tls" }
+carbide-rpc = { path = "../../rpc" }
 
 [lints]
 workspace = true

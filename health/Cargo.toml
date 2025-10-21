@@ -1,11 +1,12 @@
 [package]
-name = "health"
+name = "carbide-health"
 version = "0.0.1"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
 [[bin]]
+# TODO: rename to carbide-hw-health
 name = "forge-hw-health"
 path = "src/main.rs"
 
@@ -38,15 +39,15 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 
 # [local-dependencies]
-health-report = { path = "../common/health-report" }
-rpc = { path = "../rpc" }
-forge-tls = { path = "../common/tls" }
-forge-version = { path = "../common/version" }
-utils = { path = "../common/utils" }
-forge-uuid = { path = "../common/uuid" }
+carbide-health-report = { path = "../common/health-report" }
+carbide-rpc = { path = "../rpc" }
+carbide-tls = { path = "../common/tls" }
+carbide-version = { path = "../common/version" }
+carbide-utils = { path = "../common/utils" }
+carbide-uuid = { path = "../common/uuid" }
 
 [build-dependencies]
-forge-version = { path = "../common/version" }
+carbide-version = { path = "../common/version" }
 
 [lints]
 workspace = true

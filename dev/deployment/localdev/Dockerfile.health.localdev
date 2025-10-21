@@ -11,4 +11,4 @@
 # its affiliates is strictly prohibited.
 FROM runtime-container-localdev:latest as carbide
 WORKDIR ./carbide
-COPY .skaffold/target/health/debug/forge-hw-health /opt/carbide/
+COPY .skaffold/target/carbide-health/debug/forge-hw-health /opt/carbide/

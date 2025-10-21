@@ -1,11 +1,12 @@
 [package]
-name = "admin"
+name = "carbide-admin-cli"
 version = "0.0.1"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
 [[bin]]
+# TODO: rename to carbide-admin-cli
 name = "forge-admin-cli"
 path = "src/main.rs"
 
@@ -13,16 +14,16 @@ path = "src/main.rs"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../common/bmc-vendor" }
-forge-network = { path = "../common/network" }
-forge-ssh = { path = "../common/ssh" }
-forge-tls = { path = "../common/tls" }
-forge-uuid = { path = "../common/uuid" }
-forge-version = { path = "../common/version" }
-forge_secrets = { path = "../common/secrets" }
-health-report = { path = "../common/health-report" }
-measured-boot = { path = "../common/measured-boot", features = ["cli"] }
-rpc = { path = "../rpc", features = ["cli"] }
-utils = { path = "../common/utils" }
+carbide-network = { path = "../common/network" }
+carbide-ssh = { path = "../common/ssh" }
+carbide-tls = { path = "../common/tls" }
+carbide-uuid = { path = "../common/uuid" }
+carbide-version = { path = "../common/version" }
+carbide-secrets = { path = "../common/secrets" }
+carbide-health-report = { path = "../common/health-report" }
+carbide-measured-boot = { path = "../common/measured-boot", features = ["cli"] }
+carbide-rpc = { path = "../rpc", features = ["cli"] }
+carbide-utils = { path = "../common/utils" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 chrono = "0.4.34"
@@ -49,7 +50,7 @@ x509-parser = { version = "0.17.0", features = ["validate"] }
 
 [build-dependencies]
 clap = { workspace = true }
-forge-version = { path = "../common/version" }
+carbide-version = { path = "../common/version" }
 
 [lints]
 workspace = true

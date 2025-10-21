@@ -40,31 +40,29 @@ script = '''
         DEB_ARCH="arm64"
     fi
 
-    for pkg in ${CARBIDE_PACKAGE}
-    do
-        PACKAGE_BIN=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(any(.; .name == "'${pkg}'")) | .targets[] | select(any(.kind[]; . == "bin")) | .name')
-        if [ -z "$PACKAGE_BIN" ]
-        then
-          echo "Could not determine binary for package ${pkg}"
-          exit 1
-        fi
-        MISC_DIR=${pkg}/misc
-        DEB_CONFIG_DIR=${MISC_DIR}/DEBIAN
-        : "${INSTALL_DIR:=/opt/forge}"
-        if [ ! -d ${DEB_CONFIG_DIR} ]
-        then
-          echo "Cannot package ${pkg}.  No package configuration"
-          exit 1
-        fi
+    PACKAGE_BIN=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(any(.; .name == "'${CARBIDE_CRATE}'")) | .targets[] | select(any(.kind[]; . == "bin")) | .name')
+    if [ -z "$PACKAGE_BIN" ]
+    then
+      echo "Could not determine binary for package ${CARBIDE_PACKAGE}"
+      exit 1
+    fi
+    MISC_DIR=${CARBIDE_CRATE_DIR}/misc
+    DEB_CONFIG_DIR=${MISC_DIR}/DEBIAN
+    : "${INSTALL_DIR:=/opt/forge}"
+    if [ ! -d ${DEB_CONFIG_DIR} ]
+    then
+      echo "Cannot package ${CARBIDE_PACKAGE}.  No package configuration"
+      exit 1
+    fi
 
-        echo "creating package for ${CARBIDE_ARCH} ${pkg} (${PACKAGE_BIN}) (${PKG_VERSION}) with install path ${INSTALL_DIR}"
-        WORKING_DIR="${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${PACKAGE_BIN}_${PKG_VERSION}_${DEB_ARCH}"
-        mkdir -p "${WORKING_DIR}/lib/systemd/system"
-        mkdir -p "${WORKING_DIR}${INSTALL_DIR}"
-        cp "${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${CARBIDE_PROFILE}/${PACKAGE_BIN}" "${WORKING_DIR}${INSTALL_DIR}"
-        cp ${MISC_DIR}/*.service "${WORKING_DIR}/lib/systemd/system/"
-        cp -r ${DEB_CONFIG_DIR} "${WORKING_DIR}/"
-        echo 'Package: '${pkg}'
+    echo "creating package for ${CARBIDE_ARCH} ${CARBIDE_PACKAGE} (${PACKAGE_BIN}) (${PKG_VERSION}) with install path ${INSTALL_DIR}"
+    WORKING_DIR="${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${PACKAGE_BIN}_${PKG_VERSION}_${DEB_ARCH}"
+    mkdir -p "${WORKING_DIR}/lib/systemd/system"
+    mkdir -p "${WORKING_DIR}${INSTALL_DIR}"
+    cp "${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${CARBIDE_PROFILE}/${PACKAGE_BIN}" "${WORKING_DIR}${INSTALL_DIR}"
+    cp ${MISC_DIR}/*.service "${WORKING_DIR}/lib/systemd/system/"
+    cp -r ${DEB_CONFIG_DIR} "${WORKING_DIR}/"
+    echo 'Package: '${CARBIDE_PACKAGE}'
 Version: '${PKG_VERSION}'
 Section: base
 Priority: optional
@@ -72,8 +70,6 @@ Architecture: '${DEB_ARCH}'
 Maintainer: Forge team <swngc-forge-dev@nvidia.com>
 Description: Forge scout for performaing hardware discovery
 ' > ${WORKING_DIR}/DEBIAN/control
-        mkdir -p ${REPO_ROOT}/target/debs/
-        dpkg-deb --build --root-owner-group ${WORKING_DIR} ${REPO_ROOT}/target/debs/${PACKAGE_BIN}_${PKG_VERSION}_${DEB_ARCH}.deb
-    done
-
+    mkdir -p ${REPO_ROOT}/target/debs/
+    dpkg-deb --build --root-owner-group ${WORKING_DIR} ${REPO_ROOT}/target/debs/${PACKAGE_BIN}_${PKG_VERSION}_${DEB_ARCH}.deb
 '''

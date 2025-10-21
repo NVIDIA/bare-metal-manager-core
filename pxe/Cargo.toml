@@ -12,11 +12,11 @@ path = "src/main.rs"
 
 [dependencies]
 # [begin-local-dependencies]
-forge-host-support = { path = "../common/host-support" }
-forge-tls = { path = "../common/tls" }
-forge-version = { path = "../common/version" }
-rpc = { path = "../rpc" }
-forge-uuid = { path = "../common/uuid" }
+carbide-host-support = { path = "../common/host-support" }
+carbide-tls = { path = "../common/tls" }
+carbide-version = { path = "../common/version" }
+carbide-rpc = { path = "../rpc" }
+carbide-uuid = { path = "../common/uuid" }
 # [end-local-dependencies]
 
 axum = { workspace = true }
@@ -43,7 +43,7 @@ tower-service = "0.3"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [build-dependencies]
-forge-version = { path = "../common/version" }
+carbide-version = { path = "../common/version" }
 
 [dev-dependencies]
 tempfile = "3"

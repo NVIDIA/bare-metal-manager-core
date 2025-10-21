@@ -1,12 +1,15 @@
 [package]
-name = "mlxconfig-runner"
-version = "0.1.0"
+name = "carbide-mlxconfig-runner"
+version = "0.0.0"
 edition = "2021"
 description = "Pulls together the mlxconfig-{registry,variables} crates to safely execute mlxconfig commands."
 
+[lib]
+name = "mlxconfig_runner"
+
 [dependencies]
-mlxconfig-device = { path = "../device" }
-mlxconfig-variables = { path = "../variables" }
+carbide-mlxconfig-device = { path = "../device" }
+carbide-mlxconfig-variables = { path = "../variables" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9.27"

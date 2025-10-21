@@ -1,6 +1,6 @@
 [package]
 name = "carbide-api-db"
-version = "0.0.1"
+version = "0.0.0"
 edition.workspace = true
 description = "Database functions for carbide-api"
 license-file.workspace = true
@@ -13,14 +13,14 @@ name = "db"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 config-version = { path = "../../common/config-version", features = ["sqlx"] }
-forge-host-support = { path = "../../common/host-support", default-features = false }
-forge-network = { path = "../../common/network", features = ["sqlx"] }
-forge-version = { path = "../../common/version" }
-health-report = { path = "../../common/health-report" }
-rpc = { path = "../../rpc", features = ["sqlx"] }
-utils = { path = "../../common/utils", features = ["sqlx"] }
-forge-uuid = { path = "../../common/uuid", features = ["sqlx"] }
-measured-boot = { path = "../../common/measured-boot", features = ["sqlx"] }
+carbide-host-support = { path = "../../common/host-support", default-features = false }
+carbide-network = { path = "../../common/network", features = ["sqlx"] }
+carbide-version = { path = "../../common/version" }
+carbide-health-report = { path = "../../common/health-report" }
+carbide-rpc = { path = "../../rpc", features = ["sqlx"] }
+carbide-utils = { path = "../../common/utils", features = ["sqlx"] }
+carbide-uuid = { path = "../../common/uuid", features = ["sqlx"] }
+carbide-measured-boot = { path = "../../common/measured-boot", features = ["sqlx"] }
 carbide-api-model = { path = "../model" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
@@ -57,17 +57,17 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 default = ["linux-build"]
 linux-build = [
     "tss-esapi",
-    "sqlx-testing/linux-build",
-    "forge-host-support/linux-build",
+    "carbide-sqlx-testing/linux-build",
+    "carbide-host-support/linux-build",
 ]
 
 [build-dependencies]
-forge-version = { path = "../../common/version" }
+carbide-version = { path = "../../common/version" }
 
 [dev-dependencies]
 lazy_static = "1.4.0"
 carbide-macros = { path = "../../common/carbide-macros" }
-sqlx-testing = { path = "../../common/sqlx-testing", default-features = false }
+carbide-sqlx-testing = { path = "../../common/sqlx-testing", default-features = false }
 
 [lints]
 workspace = true

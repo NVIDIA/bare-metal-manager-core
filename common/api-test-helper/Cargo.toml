@@ -1,24 +1,27 @@
 [package]
-name = "api-test-helper"
-version = "0.1.0"
+name = "carbide-api-test-helper"
+version = "0.0.0"
 description = "Helpers to launch carbide-api for integration testing"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
+
+[lib]
+name = "api_test_helper"
 
 [dependencies]
 
 # [local-dependencies]
 bmc-mock = { path = "../../dev/bmc-mock" }
 carbide-api = { path = "../../api", default-features = false }
-forge-version = { path = "../version" }
-rpc = { path = "../../rpc" }
-machine-a-tron = { path = "../../dev/machine-a-tron" }
-forge-tls = { path = "../tls" }
-forge_secrets = { path = "../secrets" }
-utils = { path = "../utils" }
+carbide-version = { path = "../version" }
+carbide-rpc = { path = "../../rpc" }
+carbide-machine-a-tron = { path = "../../dev/machine-a-tron" }
+carbide-tls = { path = "../tls" }
+carbide-secrets = { path = "../secrets" }
+carbide-utils = { path = "../utils" }
 metrics-endpoint = { path = "../metrics-endpoint" }
-forge-uuid = { path = "../uuid" }
+carbide-uuid = { path = "../uuid" }
 
 chrono = "0.4.34"
 eyre = "*"
@@ -40,7 +43,7 @@ uuid = "1.17.0"
 thiserror = "2.0.12"
 
 [build-dependencies]
-forge-version = { path = "../version" }
+carbide-version = { path = "../version" }
 
 [lints]
 workspace = true

@@ -1,8 +1,11 @@
 [package]
-name = "mlxconfig-lockdown"
-version = "0.1.0"
+name = "carbide-mlxconfig-lockdown"
+version = "0.0.0"
 edition = "2021"
 description = "A Rust crate for managing Mellanox NIC hardware access locks."
+
+[lib]
+name = "mlxconfig_lockdown"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }

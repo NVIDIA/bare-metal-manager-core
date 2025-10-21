@@ -70,7 +70,7 @@ category = "Build"
 description = "Build forge-admin-cli in CI"
 workspace = false
 script = '''
-cargo build -p admin
+cargo build -p carbide-admin-cli
 '''
 
 [tasks.build-cli]
@@ -86,7 +86,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
-	cargo build -p admin --release
+	cargo build -p carbide-admin-cli --release
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -103,7 +103,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
-	cargo build -p health
+	cargo build -p carbide-health
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -120,7 +120,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
-	cargo build -p log-parser
+	cargo build -p carbide-log-parser
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -150,9 +150,9 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "--release" \
     "--target=aarch64-unknown-linux-gnu" \
     "-p" \
-    "admin" \
+    "carbide-admin-cli" \
     "-p" \
-    "scout" 
+    "carbide-scout"
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-admin-cli" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"   
@@ -360,7 +360,7 @@ args = ["clippy", "--locked", "--all-targets", "--all-features"]
 
 [tasks.build-debug-test-prerequisites]
 script = '''
-cargo build -p agent -p admin -p carbide-api
+cargo build -p carbide-agent -p carbide-admin-cli -p carbide-api
 '''
 workspace = false
 
@@ -420,37 +420,37 @@ done
 
 [tasks.build-scout-x86_64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
 run_task = "build-component-local"
 
 [tasks.build-scout-aarch64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
 run_task = "build-component-local"
 
 [tasks.build-scout-aarch64-release-cross]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
 run_task = "build-component-in-container"
 
 [tasks.package-scout-x86_64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-local"
 
 [tasks.package-scout-aarch64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-local"
 
 [tasks.package-scout-aarch64-release-cross]
 workspace = false
-env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-in-container"
 
 [tasks.package-scout-cross-x86_64-release]
 workspace = false
-env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-in-container"
 
 [tasks.setup-nightly-rustfmt]

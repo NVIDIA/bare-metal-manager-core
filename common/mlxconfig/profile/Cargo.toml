@@ -1,14 +1,17 @@
 [package]
-name = "mlxconfig-profile"
-version = "0.1.0"
+name = "carbide-mlxconfig-profile"
+version = "0.0.0"
 edition = "2021"
 description = "Profile-based configuration management via mlxconfig."
 
+[lib]
+name = "mlxconfig_profile"
+
 [dependencies]
-mlxconfig-variables = { path = "../variables" }
-mlxconfig-registry = { path = "../registry" }
-mlxconfig-runner = { path = "../runner" }
-rpc = { path = "../../../rpc" }
+carbide-mlxconfig-variables = { path = "../variables" }
+carbide-mlxconfig-registry = { path = "../registry" }
+carbide-mlxconfig-runner = { path = "../runner" }
+carbide-rpc = { path = "../../../rpc" }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1.0"

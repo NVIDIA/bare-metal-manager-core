@@ -1,10 +1,14 @@
 [package]
-name = "forge-network"
-version = "0.0.1"
+name = "carbide-network"
+version = "0.0.0"
 edition.workspace = true
 description = "Common networking code for Forge components."
 license-file.workspace = true
 authors.workspace = true
+
+# TODO: rename to carbide_network in source
+[lib]
+name = "forge_network"
 
 [features]
 default = ["ipnetwork"]
@@ -20,7 +24,7 @@ serde = { version = "1.0", features = ["derive"] }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
 thiserror = { version = "2" }
 
-rpc = { path = "../../rpc" }
+carbide-rpc = { path = "../../rpc" }
 
 [lints]
 workspace = true

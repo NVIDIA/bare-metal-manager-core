@@ -18,52 +18,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "admin"
-version = "0.0.1"
-dependencies = [
- "bmc-vendor",
- "chrono",
- "clap",
- "clap_complete",
- "color-eyre",
- "csv",
- "eyre",
- "forge-network",
- "forge-ssh",
- "forge-tls",
- "forge-uuid",
- "forge-version",
- "forge_secrets",
- "futures",
- "health-report",
- "ipnet",
- "libredfish",
- "mac_address",
- "measured-boot",
- "prettytable-rs",
- "rpc",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "utils",
- "uuid",
- "x509-parser",
-]
-
-[[package]]
-name = "admin-fuzz"
-version = "0.0.0"
-dependencies = [
- "libfuzzer-sys",
- "ssh-console",
-]
-
-[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -96,88 +50,6 @@ dependencies = [
  "ctr",
  "ghash",
  "subtle",
-]
-
-[[package]]
-name = "agent"
-version = "0.1.0"
-dependencies = [
- "arc-swap",
- "async-trait",
- "axum 0.8.4",
- "axum-server",
- "blake3",
- "chrono",
- "clap",
- "colored",
- "config-version",
- "containerd-client",
- "ctor 0.2.9",
- "data-encoding",
- "diff",
- "eyre",
- "forge-certs",
- "forge-dpu-agent-utils",
- "forge-dpu-remediation",
- "forge-host-support",
- "forge-http-connector",
- "forge-network",
- "forge-systemd",
- "forge-tls",
- "forge-uuid",
- "forge-version",
- "futures",
- "futures-util",
- "governor",
- "gtmpl",
- "gtmpl_derive",
- "gtmpl_value",
- "health-report",
- "hickory-resolver",
- "http-body",
- "http-body-util",
- "humantime",
- "hyper",
- "hyper-util",
- "ipnetwork",
- "lazy_static",
- "libc",
- "mac_address",
- "mockall",
- "netlink-packet-route",
- "nix 0.29.0",
- "nonzero_ext",
- "opentelemetry",
- "opentelemetry-prometheus",
- "opentelemetry-semantic-conventions 0.28.0",
- "opentelemetry_sdk",
- "prometheus",
- "prost 0.14.1",
- "rand 0.9.2",
- "regex",
- "reqwest",
- "resolv-conf",
- "rpc",
- "rtnetlink",
- "rustls 0.23.32",
- "rustls-pemfile",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "similar",
- "surge-ping",
- "tempfile",
- "tokio",
- "tonic 0.14.2",
- "tower 0.5.2",
- "tower-http",
- "tracing",
- "utils",
- "uuid",
- "uzers",
- "version-compare 0.2.0",
 ]
 
 [[package]]
@@ -294,40 +166,6 @@ name = "anyhow"
 version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
-
-[[package]]
-name = "api-test-helper"
-version = "0.1.0"
-dependencies = [
- "bmc-mock",
- "carbide-api",
- "chrono",
- "ctor 0.2.9",
- "eyre",
- "forge-tls",
- "forge-uuid",
- "forge-version",
- "forge_secrets",
- "futures",
- "itertools 0.14.0",
- "lazy_static",
- "machine-a-tron",
- "metrics-endpoint",
- "rand 0.8.5",
- "rpc",
- "serde",
- "serde_json",
- "serial_test",
- "sqlx",
- "temp-dir",
- "tempfile",
- "thiserror 2.0.16",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "utils",
- "uuid",
-]
 
 [[package]]
 name = "arbitrary"
@@ -1294,6 +1132,126 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ade8366b8bd5ba243f0a58f036cc0ca8a2f069cff1a2351ef1cac6b083e16fc0"
 
 [[package]]
+name = "carbide-admin-cli"
+version = "0.0.1"
+dependencies = [
+ "bmc-vendor",
+ "carbide-health-report",
+ "carbide-measured-boot",
+ "carbide-network",
+ "carbide-rpc",
+ "carbide-secrets",
+ "carbide-ssh",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "clap",
+ "clap_complete",
+ "color-eyre",
+ "csv",
+ "eyre",
+ "futures",
+ "ipnet",
+ "libredfish",
+ "mac_address",
+ "prettytable-rs",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "x509-parser",
+]
+
+[[package]]
+name = "carbide-agent"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "axum 0.8.4",
+ "axum-server",
+ "blake3",
+ "carbide-certs",
+ "carbide-dpu-agent-utils",
+ "carbide-dpu-remediation",
+ "carbide-health-report",
+ "carbide-host-support",
+ "carbide-http-connector",
+ "carbide-network",
+ "carbide-rpc",
+ "carbide-systemd",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "clap",
+ "colored",
+ "config-version",
+ "containerd-client",
+ "ctor 0.2.9",
+ "data-encoding",
+ "diff",
+ "eyre",
+ "futures",
+ "futures-util",
+ "governor",
+ "gtmpl",
+ "gtmpl_derive",
+ "gtmpl_value",
+ "hickory-resolver",
+ "http-body",
+ "http-body-util",
+ "humantime",
+ "hyper",
+ "hyper-util",
+ "ipnetwork",
+ "lazy_static",
+ "libc",
+ "mac_address",
+ "mockall",
+ "netlink-packet-route",
+ "nix 0.29.0",
+ "nonzero_ext",
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry-semantic-conventions 0.28.0",
+ "opentelemetry_sdk",
+ "prometheus",
+ "prost 0.14.1",
+ "rand 0.9.2",
+ "regex",
+ "reqwest",
+ "resolv-conf",
+ "rtnetlink",
+ "rustls 0.23.32",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "similar",
+ "surge-ping",
+ "tempfile",
+ "tokio",
+ "tonic 0.14.2",
+ "tower 0.5.2",
+ "tower-http",
+ "tracing",
+ "uuid",
+ "uzers",
+ "version-compare 0.2.0",
+]
+
+[[package]]
 name = "carbide-api"
 version = "0.0.1"
 dependencies = [
@@ -1311,7 +1269,19 @@ dependencies = [
  "bytes",
  "carbide-api-db",
  "carbide-api-model",
+ "carbide-health-report",
+ "carbide-host-support",
  "carbide-macros",
+ "carbide-measured-boot",
+ "carbide-mlxconfig-device",
+ "carbide-network",
+ "carbide-rpc",
+ "carbide-secrets",
+ "carbide-sqlx-testing",
+ "carbide-ssh",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
  "casbin",
  "chrono",
  "clap",
@@ -1323,15 +1293,8 @@ dependencies = [
  "duration-str 0.12.0",
  "eyre",
  "figment",
- "forge-host-support",
- "forge-network",
- "forge-ssh",
- "forge-uuid",
- "forge-version",
- "forge_secrets",
  "futures",
  "futures-util",
- "health-report",
  "hex",
  "http",
  "http-body-util",
@@ -1347,8 +1310,6 @@ dependencies = [
  "logfmt",
  "mac_address",
  "md5",
- "measured-boot",
- "mlxconfig-device",
  "mqttea",
  "num-bigint-dig",
  "num_cpus",
@@ -1366,7 +1327,6 @@ dependencies = [
  "rcgen",
  "regex",
  "reqwest",
- "rpc",
  "rsa",
  "rumqttc",
  "rustls 0.23.32",
@@ -1376,7 +1336,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
- "sqlx-testing",
  "strum",
  "temp-dir",
  "thiserror 2.0.16",
@@ -1393,7 +1352,6 @@ dependencies = [
  "tracing-subscriber",
  "tss-esapi",
  "url",
- "utils",
  "uuid",
  "version-compare 0.2.0",
  "x509-parser",
@@ -1401,37 +1359,38 @@ dependencies = [
 
 [[package]]
 name = "carbide-api-db"
-version = "0.0.1"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "carbide-api-model",
+ "carbide-health-report",
+ "carbide-host-support",
  "carbide-macros",
+ "carbide-measured-boot",
+ "carbide-network",
+ "carbide-rpc",
+ "carbide-sqlx-testing",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
  "chrono",
  "config-version",
  "domain",
  "eyre",
- "forge-host-support",
- "forge-network",
- "forge-uuid",
- "forge-version",
  "futures",
  "futures-util",
- "health-report",
  "ipnetwork",
  "itertools 0.12.1",
  "lazy_static",
  "libnvmesh",
  "mac_address",
- "measured-boot",
  "names",
  "octseq",
  "regex",
- "rpc",
  "rustc-hash 2.1.1",
  "serde",
  "serde_json",
  "sqlx",
- "sqlx-testing",
  "thiserror 2.0.16",
  "time",
  "tokio",
@@ -1439,47 +1398,49 @@ dependencies = [
  "tonic 0.14.2",
  "tracing",
  "tss-esapi",
- "utils",
  "uuid",
 ]
 
 [[package]]
 name = "carbide-api-integration-tests"
-version = "0.0.1"
+version = "0.0.0"
 dependencies = [
- "api-test-helper",
  "bmc-mock",
+ "carbide-api-test-helper",
+ "carbide-machine-a-tron",
+ "carbide-utils",
  "ctor 0.2.9",
  "eyre",
  "futures",
  "itertools 0.12.1",
- "machine-a-tron",
  "serde_json",
  "sqlx",
  "temp-dir",
  "tokio",
  "tracing",
- "utils",
 ]
 
 [[package]]
 name = "carbide-api-model"
-version = "0.0.1"
+version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "bmc-vendor",
+ "carbide-health-report",
+ "carbide-host-support",
+ "carbide-network",
+ "carbide-rpc",
+ "carbide-sqlx-testing",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
  "casbin",
  "chrono",
  "config-version",
  "duration-str 0.12.0",
  "eyre",
- "forge-host-support",
- "forge-network",
- "forge-uuid",
- "forge-version",
- "health-report",
  "ipnetwork",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "lazy_static",
  "libnvmesh",
  "libredfish",
@@ -1488,22 +1449,127 @@ dependencies = [
  "prost 0.14.1",
  "rand 0.9.2",
  "regex",
- "rpc",
  "serde",
  "serde_json",
  "serde_regex",
  "sha2 0.10.9",
  "sqlx",
- "sqlx-testing",
  "strum",
  "strum_macros",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
  "tss-esapi",
- "utils",
  "uuid",
  "version-compare 0.2.0",
+]
+
+[[package]]
+name = "carbide-api-test-helper"
+version = "0.0.0"
+dependencies = [
+ "bmc-mock",
+ "carbide-api",
+ "carbide-machine-a-tron",
+ "carbide-rpc",
+ "carbide-secrets",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "ctor 0.2.9",
+ "eyre",
+ "futures",
+ "itertools 0.14.0",
+ "lazy_static",
+ "metrics-endpoint",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "temp-dir",
+ "tempfile",
+ "thiserror 2.0.16",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-certs"
+version = "0.0.0"
+dependencies = [
+ "carbide-host-support",
+ "carbide-rpc",
+ "carbide-tls",
+ "eyre",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-dhcp"
+version = "0.0.0"
+dependencies = [
+ "carbide-rpc",
+ "carbide-tls",
+ "cbindgen",
+ "cc",
+ "chrono",
+ "derive_builder",
+ "dhcproto",
+ "eyre",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "ipnetwork",
+ "lazy_static",
+ "libc",
+ "log",
+ "lru 0.13.0",
+ "mac_address",
+ "metrics-endpoint",
+ "once_cell",
+ "opentelemetry",
+ "prometheus",
+ "prost 0.14.1",
+ "serde_json",
+ "tempfile",
+ "test-cdylib",
+ "tokio",
+ "tonic 0.14.2",
+]
+
+[[package]]
+name = "carbide-dhcp-server"
+version = "0.1.0"
+dependencies = [
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "clap",
+ "dhcproto",
+ "futures",
+ "ipnetwork",
+ "logfmt",
+ "lru 0.13.0",
+ "serde",
+ "serde_yaml",
+ "socket2 0.5.10",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1511,11 +1577,11 @@ name = "carbide-dns"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-version",
  "clap",
  "eyre",
- "forge-tls",
- "forge-version",
- "rpc",
  "tokio",
  "tonic 0.14.2",
  "tracing",
@@ -1525,8 +1591,246 @@ dependencies = [
 ]
 
 [[package]]
-name = "carbide-macros"
+name = "carbide-dpu-agent-utils"
+version = "0.0.0"
+dependencies = [
+ "carbide-rpc",
+ "carbide-tls",
+ "eyre",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-dpu-otel-agent"
 version = "0.0.1"
+dependencies = [
+ "carbide-certs",
+ "carbide-host-support",
+ "carbide-rpc",
+ "carbide-systemd",
+ "carbide-tls",
+ "clap",
+ "ctor 0.2.9",
+ "eyre",
+ "humantime",
+ "prost 0.14.1",
+ "rand 0.9.2",
+ "reqwest",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "tempfile",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "typed-builder",
+]
+
+[[package]]
+name = "carbide-dpu-remediation"
+version = "0.0.0"
+dependencies = [
+ "carbide-dpu-agent-utils",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "eyre",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-health"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "carbide-health-report",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "clap",
+ "eyre",
+ "futures",
+ "http-body-util",
+ "humantime",
+ "hyper",
+ "hyper-util",
+ "lazy_static",
+ "libredfish",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0-rc.2",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "carbide-health-report"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "carbide-host-support"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "csv",
+ "eyre",
+ "ipnetwork",
+ "libudev",
+ "logfmt",
+ "procfs",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "smbios-lib",
+ "thiserror 2.0.16",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "tryhard",
+ "uname",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-http-connector"
+version = "0.0.0"
+dependencies = [
+ "dsocket",
+ "futures-util",
+ "hickory-resolver",
+ "hyper",
+ "hyper-util",
+ "socket2 0.5.10",
+ "tokio",
+ "tokio-socks",
+ "tower-service",
+ "tracing",
+ "tryhard",
+]
+
+[[package]]
+name = "carbide-log-parser"
+version = "0.0.2"
+dependencies = [
+ "anyhow",
+ "carbide-health-report",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "getopts",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+]
+
+[[package]]
+name = "carbide-machine-a-tron"
+version = "0.0.0"
+dependencies = [
+ "axum 0.8.4",
+ "base64 0.22.1",
+ "bmc-mock",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "clap",
+ "crossterm",
+ "dhcproto",
+ "duration-str 0.12.0",
+ "eyre",
+ "figment",
+ "futures",
+ "ipnetwork",
+ "lazy_static",
+ "libredfish",
+ "mac_address",
+ "rand 0.9.2",
+ "rand_core 0.6.4",
+ "ratatui",
+ "rcgen",
+ "reqwest",
+ "russh",
+ "serde",
+ "serde_json",
+ "socket2 0.5.10",
+ "tempfile",
+ "thiserror 2.0.16",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-machine-validation"
+version = "0.0.0"
+dependencies = [
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "futures",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-macros"
+version = "0.0.0"
 dependencies = [
  "eyre",
  "proc-macro2",
@@ -1534,6 +1838,168 @@ dependencies = [
  "sqlx",
  "sqlx-macros-core",
  "syn 2.0.106",
+]
+
+[[package]]
+name = "carbide-measured-boot"
+version = "0.0.0"
+dependencies = [
+ "carbide-rpc",
+ "carbide-uuid",
+ "chrono",
+ "clap",
+ "eyre",
+ "prettytable-rs",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.16",
+ "tonic 0.14.2",
+]
+
+[[package]]
+name = "carbide-mlxconfig-device"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "carbide-rpc",
+ "chrono",
+ "clap",
+ "hostname",
+ "mac_address",
+ "prettytable-rs",
+ "prost-types 0.14.1",
+ "quick-xml",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "carbide-mlxconfig-embedded"
+version = "0.0.0"
+dependencies = [
+ "carbide-mlxconfig-device",
+ "carbide-mlxconfig-lockdown",
+ "carbide-mlxconfig-profile",
+ "carbide-mlxconfig-registry",
+ "carbide-mlxconfig-runner",
+ "carbide-mlxconfig-variables",
+ "clap",
+ "prettytable-rs",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
+name = "carbide-mlxconfig-lockdown"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "carbide-mlxconfig-profile"
+version = "0.0.0"
+dependencies = [
+ "carbide-mlxconfig-registry",
+ "carbide-mlxconfig-runner",
+ "carbide-mlxconfig-variables",
+ "carbide-rpc",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "carbide-mlxconfig-registry"
+version = "0.0.0"
+dependencies = [
+ "carbide-mlxconfig-device",
+ "carbide-mlxconfig-variables",
+ "once_cell",
+ "serde",
+ "serde_yaml",
+]
+
+[[package]]
+name = "carbide-mlxconfig-runner"
+version = "0.0.0"
+dependencies = [
+ "backon",
+ "carbide-mlxconfig-device",
+ "carbide-mlxconfig-variables",
+ "hex",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 1.0.69",
+ "uuid",
+ "wait-timeout",
+]
+
+[[package]]
+name = "carbide-mlxconfig-variables"
+version = "0.0.0"
+dependencies = [
+ "carbide-mlxconfig-device",
+ "hex",
+ "mac_address",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
+name = "carbide-mockdpa"
+version = "0.0.0"
+dependencies = [
+ "carbide-rpc",
+ "chrono",
+ "clap",
+ "mqttea",
+ "prost 0.14.1",
+ "prost-build 0.14.1",
+ "rumqttc",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "carbide-network"
+version = "0.0.0"
+dependencies = [
+ "carbide-rpc",
+ "eyre",
+ "ipnet",
+ "ipnetwork",
+ "mac_address",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -1546,18 +2012,18 @@ dependencies = [
  "axum-template",
  "base64 0.22.1",
  "bytes",
+ "carbide-host-support",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "carbide-version",
  "clap",
- "forge-host-support",
- "forge-tls",
- "forge-uuid",
- "forge-version",
  "http-body",
  "metrics",
  "metrics-exporter-prometheus",
  "mime",
  "pin-project-lite",
  "rand 0.8.5",
- "rpc",
  "serde",
  "tempfile",
  "tera",
@@ -1570,6 +2036,282 @@ dependencies = [
  "tower-service",
  "uuid",
 ]
+
+[[package]]
+name = "carbide-rpc"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-health-report",
+ "carbide-http-connector",
+ "carbide-tls",
+ "carbide-uuid",
+ "chrono",
+ "clap",
+ "data-encoding",
+ "eyre",
+ "hickory-resolver",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "ipnetwork",
+ "log",
+ "mac_address",
+ "nonempty",
+ "prettytable-rs",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "resolv-conf",
+ "rustls 0.23.32",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-client-wrapper",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower 0.5.2",
+ "tracing",
+ "tryhard",
+ "uuid",
+ "x509-parser",
+]
+
+[[package]]
+name = "carbide-scout"
+version = "0.0.1"
+dependencies = [
+ "carbide-host-support",
+ "carbide-machine-validation",
+ "carbide-mlxconfig-device",
+ "carbide-mlxconfig-lockdown",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "clap",
+ "efivar",
+ "eyre",
+ "futures-util",
+ "lazy_static",
+ "once_cell",
+ "prost-types 0.14.1",
+ "pwhash",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "smbios-lib",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "tryhard",
+ "tss-esapi",
+ "uname",
+ "uuid",
+ "x509-parser",
+]
+
+[[package]]
+name = "carbide-secrets"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "bmc-vendor",
+ "carbide-rpc",
+ "eyre",
+ "mac_address",
+ "opentelemetry",
+ "rand 0.9.2",
+ "serde",
+ "tokio",
+ "tracing",
+ "vaultrs",
+]
+
+[[package]]
+name = "carbide-sqlx-testing"
+version = "0.0.0"
+dependencies = [
+ "carbide-api-db",
+ "sqlx",
+ "sqlx-core",
+ "tokio",
+]
+
+[[package]]
+name = "carbide-ssh"
+version = "0.0.0"
+dependencies = [
+ "humantime",
+ "openssl",
+ "ssh2",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-ssh-console"
+version = "0.1.0"
+dependencies = [
+ "bmc-mock",
+ "carbide-api-test-helper",
+ "carbide-machine-a-tron",
+ "carbide-rpc",
+ "carbide-ssh-console-mock-api-server",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "clap",
+ "ctor 0.4.3",
+ "duration-str 0.17.0",
+ "eyre",
+ "futures",
+ "futures-util",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "indoc",
+ "lazy_static",
+ "libc",
+ "nix 0.30.1",
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
+ "prometheus-text-parser",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "rand 0.9.2",
+ "ringbuf",
+ "russh",
+ "serde",
+ "size",
+ "strip-ansi-escapes",
+ "temp-dir",
+ "thiserror 2.0.16",
+ "tokio",
+ "toml 0.8.23",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-ssh-console-fuzz"
+version = "0.0.0"
+dependencies = [
+ "carbide-ssh-console",
+ "libfuzzer-sys",
+]
+
+[[package]]
+name = "carbide-ssh-console-mock-api-server"
+version = "0.0.0"
+dependencies = [
+ "carbide-api-test-helper",
+ "carbide-rpc",
+ "carbide-uuid",
+ "carbide-version",
+ "eyre",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "rustls 0.23.32",
+ "rustls-pemfile",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-systemd"
+version = "0.0.0"
+dependencies = [
+ "carbide-host-support",
+ "carbide-rpc",
+ "eyre",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-tls"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tonic 0.14.2",
+]
+
+[[package]]
+name = "carbide-utils"
+version = "0.0.0"
+dependencies = [
+ "byte-unit",
+ "carbide-health-report",
+ "carbide-network",
+ "carbide-rpc",
+ "carbide-uuid",
+ "chrono",
+ "clap",
+ "config-version",
+ "eyre",
+ "humantime",
+ "ipnetwork",
+ "prettytable-rs",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-uuid"
+version = "0.0.0"
+dependencies = [
+ "data-encoding",
+ "eyre",
+ "prost 0.14.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.16",
+ "tonic 0.14.2",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-version"
+version = "0.0.0"
 
 [[package]]
 name = "cargo_metadata"
@@ -2437,16 +3179,7 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d67778784b508018359cbc8696edb3db78160bab2c2a28ba7f56ef6932997f8"
 dependencies = [
- "derive_builder_macro 0.12.0",
-]
-
-[[package]]
-name = "derive_builder"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "507dfb09ea8b7fa618fcf76e953f4f5e192547945816d5358edffe39f6f94947"
-dependencies = [
- "derive_builder_macro 0.20.2",
+ "derive_builder_macro",
 ]
 
 [[package]]
@@ -2462,35 +3195,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "derive_builder_core"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8"
-dependencies = [
- "darling 0.20.11",
- "proc-macro2",
- "quote",
- "syn 2.0.106",
-]
-
-[[package]]
 name = "derive_builder_macro"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebcda35c7a396850a55ffeac740804b40ffec779b98fffbb1738f4033f0ee79e"
 dependencies = [
- "derive_builder_core 0.12.0",
+ "derive_builder_core",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "derive_builder_macro"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
-dependencies = [
- "derive_builder_core 0.20.2",
- "syn 2.0.106",
 ]
 
 [[package]]
@@ -2498,64 +3209,6 @@ name = "deunicode"
 version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
-
-[[package]]
-name = "dhcp"
-version = "0.0.1"
-dependencies = [
- "cbindgen",
- "cc",
- "chrono",
- "derive_builder 0.20.2",
- "dhcproto",
- "eyre",
- "forge-tls",
- "http-body-util",
- "hyper",
- "hyper-util",
- "ipnetwork",
- "lazy_static",
- "libc",
- "log",
- "lru 0.13.0",
- "mac_address",
- "metrics-endpoint",
- "once_cell",
- "opentelemetry",
- "prometheus",
- "prost 0.14.1",
- "rpc",
- "serde_json",
- "tempfile",
- "test-cdylib",
- "tokio",
- "tonic 0.14.2",
-]
-
-[[package]]
-name = "dhcp-server"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "dhcproto",
- "forge-tls",
- "forge-uuid",
- "futures",
- "ipnetwork",
- "logfmt",
- "lru 0.13.0",
- "rpc",
- "serde",
- "serde_yaml",
- "socket2 0.5.10",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "utils",
-]
 
 [[package]]
 name = "dhcproto"
@@ -3081,194 +3734,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
-name = "forge-certs"
-version = "0.1.0"
-dependencies = [
- "eyre",
- "forge-host-support",
- "forge-tls",
- "rand 0.9.2",
- "rpc",
- "serde",
- "serde_json",
- "thiserror 2.0.16",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
-name = "forge-dpu-agent-utils"
-version = "0.1.0"
-dependencies = [
- "eyre",
- "forge-tls",
- "rand 0.9.2",
- "rpc",
- "serde",
- "serde_json",
- "thiserror 2.0.16",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
-name = "forge-dpu-remediation"
-version = "0.1.0"
-dependencies = [
- "eyre",
- "forge-dpu-agent-utils",
- "forge-tls",
- "forge-uuid",
- "rand 0.9.2",
- "rpc",
- "serde",
- "serde_json",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "forge-host-support"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "csv",
- "eyre",
- "forge-tls",
- "forge-uuid",
- "ipnetwork",
- "libudev",
- "logfmt",
- "procfs",
- "regex",
- "rpc",
- "serde",
- "serde_json",
- "serde_with",
- "smbios-lib",
- "thiserror 2.0.16",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "tryhard",
- "uname",
- "utils",
- "uuid",
-]
-
-[[package]]
-name = "forge-http-connector"
-version = "0.1.0"
-dependencies = [
- "dsocket",
- "futures-util",
- "hickory-resolver",
- "hyper",
- "hyper-util",
- "socket2 0.5.10",
- "tokio",
- "tokio-socks",
- "tower-service",
- "tracing",
- "tryhard",
-]
-
-[[package]]
-name = "forge-network"
-version = "0.0.1"
-dependencies = [
- "eyre",
- "ipnet",
- "ipnetwork",
- "mac_address",
- "rpc",
- "serde",
- "sqlx",
- "thiserror 2.0.16",
-]
-
-[[package]]
-name = "forge-ssh"
-version = "0.1.0"
-dependencies = [
- "humantime",
- "openssl",
- "ssh2",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
-name = "forge-systemd"
-version = "0.1.0"
-dependencies = [
- "eyre",
- "forge-host-support",
- "rand 0.9.2",
- "rpc",
- "serde",
- "serde_json",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
-name = "forge-tls"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.16",
- "tonic 0.14.2",
-]
-
-[[package]]
-name = "forge-uuid"
-version = "0.0.1"
-dependencies = [
- "data-encoding",
- "eyre",
- "prost 0.14.1",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "thiserror 2.0.16",
- "tonic 0.14.2",
- "uuid",
-]
-
-[[package]]
-name = "forge-version"
-version = "0.1.0"
-
-[[package]]
-name = "forge_secrets"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bmc-vendor",
- "eyre",
- "mac_address",
- "opentelemetry",
- "rand 0.9.2",
- "rpc",
- "serde",
- "tokio",
- "tracing",
- "vaultrs",
-]
-
-[[package]]
 name = "form_urlencoded"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3662,53 +4127,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.5",
-]
-
-[[package]]
-name = "health"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "clap",
- "eyre",
- "forge-tls",
- "forge-uuid",
- "forge-version",
- "futures",
- "health-report",
- "http-body-util",
- "humantime",
- "hyper",
- "hyper-util",
- "lazy_static",
- "libredfish",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry-prometheus",
- "opentelemetry_sdk",
- "prometheus",
- "rpc",
- "serde",
- "serde_json",
- "sha2 0.11.0-rc.2",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "utils",
-]
-
-[[package]]
-name = "health-report"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -4616,26 +5034,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "log-parser"
-version = "0.0.2"
-dependencies = [
- "anyhow",
- "chrono",
- "forge-tls",
- "forge-uuid",
- "forge-version",
- "getopts",
- "health-report",
- "regex",
- "rpc",
- "serde",
- "serde_json",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
-]
-
-[[package]]
 name = "logfmt"
 version = "0.1.0"
 dependencies = [
@@ -4695,68 +5093,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "machine-a-tron"
-version = "0.1.0"
-dependencies = [
- "axum 0.8.4",
- "base64 0.22.1",
- "bmc-mock",
- "chrono",
- "clap",
- "crossterm",
- "dhcproto",
- "duration-str 0.12.0",
- "eyre",
- "figment",
- "forge-tls",
- "forge-uuid",
- "forge-version",
- "futures",
- "ipnetwork",
- "lazy_static",
- "libredfish",
- "mac_address",
- "rand 0.9.2",
- "rand_core 0.6.4",
- "ratatui",
- "rcgen",
- "reqwest",
- "rpc",
- "russh",
- "serde",
- "serde_json",
- "socket2 0.5.10",
- "tempfile",
- "thiserror 2.0.16",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "machine-validation"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "forge-tls",
- "forge-uuid",
- "futures",
- "futures-util",
- "reqwest",
- "rpc",
- "serde",
- "serde_json",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "utils",
 ]
 
 [[package]]
@@ -4828,22 +5164,6 @@ name = "md5"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
-
-[[package]]
-name = "measured-boot"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "eyre",
- "forge-uuid",
- "prettytable-rs",
- "rpc",
- "serde",
- "sqlx",
- "thiserror 2.0.16",
- "tonic 0.14.2",
-]
 
 [[package]]
 name = "memchr"
@@ -4979,119 +5299,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mlxconfig-device"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "hostname",
- "mac_address",
- "prettytable-rs",
- "prost-types 0.14.1",
- "quick-xml",
- "regex",
- "rpc",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 1.0.69",
- "tokio",
- "tokio-test",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "mlxconfig-embedded"
-version = "0.1.0"
-dependencies = [
- "clap",
- "mlxconfig-device",
- "mlxconfig-lockdown",
- "mlxconfig-profile",
- "mlxconfig-registry",
- "mlxconfig-runner",
- "mlxconfig-variables",
- "prettytable-rs",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
-]
-
-[[package]]
-name = "mlxconfig-lockdown"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "mlxconfig-profile"
-version = "0.1.0"
-dependencies = [
- "mlxconfig-registry",
- "mlxconfig-runner",
- "mlxconfig-variables",
- "rpc",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 1.0.69",
- "toml 0.8.23",
-]
-
-[[package]]
-name = "mlxconfig-registry"
-version = "0.1.0"
-dependencies = [
- "mlxconfig-device",
- "mlxconfig-variables",
- "once_cell",
- "serde",
- "serde_yaml",
-]
-
-[[package]]
-name = "mlxconfig-runner"
-version = "0.1.0"
-dependencies = [
- "backon",
- "hex",
- "mlxconfig-device",
- "mlxconfig-variables",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 1.0.69",
- "uuid",
- "wait-timeout",
-]
-
-[[package]]
-name = "mlxconfig-variables"
-version = "0.1.0"
-dependencies = [
- "hex",
- "mac_address",
- "mlxconfig-device",
- "serde",
- "serde_json",
- "serde_yaml",
-]
-
-[[package]]
 name = "mockall"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5115,25 +5322,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
-]
-
-[[package]]
-name = "mockdpa"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "mqttea",
- "prost 0.14.1",
- "prost-build 0.14.1",
- "rpc",
- "rumqttc",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5669,33 +5857,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
-]
-
-[[package]]
-name = "otel-agent"
-version = "0.0.1"
-dependencies = [
- "clap",
- "ctor 0.2.9",
- "eyre",
- "forge-certs",
- "forge-host-support",
- "forge-systemd",
- "forge-tls",
- "humantime",
- "prost 0.14.1",
- "rand 0.9.2",
- "reqwest",
- "rpc",
- "rustls-pemfile",
- "rustls-pki-types",
- "tempfile",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "tracing-subscriber",
- "typed-builder",
 ]
 
 [[package]]
@@ -6969,51 +7130,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rpc"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "chrono",
- "clap",
- "data-encoding",
- "eyre",
- "forge-http-connector",
- "forge-tls",
- "forge-uuid",
- "health-report",
- "hickory-resolver",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "ipnetwork",
- "log",
- "mac_address",
- "nonempty",
- "prettytable-rs",
- "prost 0.14.1",
- "prost-types 0.14.1",
- "resolv-conf",
- "rustls 0.23.32",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "sqlx",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tonic-client-wrapper",
- "tonic-prost",
- "tonic-prost-build",
- "tower 0.5.2",
- "tracing",
- "tryhard",
- "uuid",
- "x509-parser",
-]
-
-[[package]]
 name = "rsa"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7445,44 +7561,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "scout"
-version = "0.0.1"
-dependencies = [
- "chrono",
- "clap",
- "efivar",
- "eyre",
- "forge-host-support",
- "forge-tls",
- "forge-uuid",
- "forge-version",
- "futures-util",
- "lazy_static",
- "machine-validation",
- "mlxconfig-device",
- "mlxconfig-lockdown",
- "once_cell",
- "prost-types 0.14.1",
- "pwhash",
- "regex",
- "reqwest",
- "rpc",
- "serde",
- "serde_json",
- "smbios-lib",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
- "tryhard",
- "tss-esapi",
- "uname",
- "utils",
- "uuid",
- "x509-parser",
-]
 
 [[package]]
 name = "scrypt"
@@ -8201,16 +8279,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqlx-testing"
-version = "0.0.1"
-dependencies = [
- "carbide-api-db",
- "sqlx",
- "sqlx-core",
- "tokio",
-]
-
-[[package]]
 name = "ssh-cipher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8225,58 +8293,6 @@ dependencies = [
  "poly1305",
  "ssh-encoding",
  "subtle",
-]
-
-[[package]]
-name = "ssh-console"
-version = "0.1.0"
-dependencies = [
- "api-test-helper",
- "bmc-mock",
- "chrono",
- "clap",
- "ctor 0.4.3",
- "duration-str 0.17.0",
- "eyre",
- "forge-tls",
- "forge-uuid",
- "futures",
- "futures-util",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
- "indoc",
- "lazy_static",
- "libc",
- "machine-a-tron",
- "nix 0.30.1",
- "opentelemetry",
- "opentelemetry-prometheus",
- "opentelemetry_sdk",
- "prometheus",
- "prometheus-text-parser",
- "prost 0.14.1",
- "prost-types 0.14.1",
- "rand 0.9.2",
- "ringbuf",
- "rpc",
- "russh",
- "serde",
- "size",
- "ssh_console_mock_api_server",
- "strip-ansi-escapes",
- "temp-dir",
- "thiserror 2.0.16",
- "tokio",
- "toml 0.8.23",
- "tonic 0.14.2",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "tracing-subscriber",
- "utils",
- "uuid",
 ]
 
 [[package]]
@@ -8301,27 +8317,6 @@ dependencies = [
  "libc",
  "libssh2-sys",
  "parking_lot",
-]
-
-[[package]]
-name = "ssh_console_mock_api_server"
-version = "0.1.0"
-dependencies = [
- "api-test-helper",
- "eyre",
- "forge-uuid",
- "forge-version",
- "prost 0.14.1",
- "prost-types 0.14.1",
- "rpc",
- "rustls 0.23.32",
- "rustls-pemfile",
- "tokio",
- "tonic 0.14.2",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -9584,32 +9579,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
-name = "utils"
-version = "0.1.0"
-dependencies = [
- "byte-unit",
- "chrono",
- "clap",
- "config-version",
- "eyre",
- "forge-network",
- "forge-uuid",
- "health-report",
- "humantime",
- "ipnetwork",
- "prettytable-rs",
- "rpc",
- "serde",
- "serde_json",
- "serde_yaml",
- "sqlx",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.14.2",
- "tracing",
-]
-
-[[package]]
 name = "uuid"
 version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9651,7 +9620,7 @@ checksum = "f81eb4d9221ca29bad43d4b6871b6d2e7656e1af2cfca624a87e5d17880d831d"
 dependencies = [
  "async-trait",
  "bytes",
- "derive_builder 0.12.0",
+ "derive_builder",
  "http",
  "reqwest",
  "rustify",
