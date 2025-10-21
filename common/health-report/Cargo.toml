@@ -1,9 +1,12 @@
 [package]
-name = "health-report"
-version = "0.1.0"
+name = "carbide-health-report"
+version = "0.0.0"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
+
+[lib]
+name = "health_report"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -1,8 +1,11 @@
 [package]
-name = "mlxconfig-embedded"
-version = "0.1.0"
+name = "carbide-mlxconfig-embedded"
+version = "0.0.0"
 edition = "2021"
 description = "Example CLI tool for working with the mlxconfig_registry/variables crates."
+
+[lib]
+name = "mlxconfig_embedded"
 
 [[bin]]
 name = "mlxconfig-embedded"
@@ -15,9 +18,9 @@ serde_yaml = "0.9"
 regex = "1.10"
 clap = { version = "4.0", features = ["derive"] }
 prettytable-rs = "^0.10"
-mlxconfig-device = { path = "../../common/mlxconfig/device" }
-mlxconfig-lockdown = { path = "../../common/mlxconfig/lockdown" }
-mlxconfig-profile = { path = "../../common/mlxconfig/profile" }
-mlxconfig-registry = { path = "../../common/mlxconfig/registry" }
-mlxconfig-runner = { path = "../../common/mlxconfig/runner" }
-mlxconfig-variables = { path = "../../common/mlxconfig/variables" }
+carbide-mlxconfig-device = { path = "../../common/mlxconfig/device" }
+carbide-mlxconfig-lockdown = { path = "../../common/mlxconfig/lockdown" }
+carbide-mlxconfig-profile = { path = "../../common/mlxconfig/profile" }
+carbide-mlxconfig-registry = { path = "../../common/mlxconfig/registry" }
+carbide-mlxconfig-runner = { path = "../../common/mlxconfig/runner" }
+carbide-mlxconfig-variables = { path = "../../common/mlxconfig/variables" }

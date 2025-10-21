@@ -1,9 +1,16 @@
 [package]
-name = "machine-a-tron"
-version = "0.1.0"
+name = "carbide-machine-a-tron"
+version = "0.0.0"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
+
+[lib]
+name = "machine_a_tron"
+
+[[bin]]
+name = "machine-a-tron"
+path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -46,17 +53,17 @@ russh = { version = "0.52.1" }
 rand_core = "0.6.4" # russh needs an old version >_<
 
 # [local-dependencies]
-rpc = { path = "../../rpc" }
+carbide-rpc = { path = "../../rpc" }
 bmc-mock = { path = "../bmc-mock" }
-forge-tls = { path = "../../common/tls" }
-forge-version = { path = "../../common/version" }
-forge-uuid = { path = "../../common/uuid" }
+carbide-tls = { path = "../../common/tls" }
+carbide-version = { path = "../../common/version" }
+carbide-uuid = { path = "../../common/uuid" }
 
 [dev-dependencies]
 toml = "0.8.20"
 
 [build-dependencies]
-forge-version = { path = "../../common/version" }
+carbide-version = { path = "../../common/version" }
 
 [lints]
 workspace = true

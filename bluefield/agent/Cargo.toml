@@ -1,11 +1,15 @@
 [package]
-name = "agent"
+name = "carbide-agent"
 version = "0.1.0"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
+[lib]
+name = "agent"
+
 [[bin]]
+# TODO: rename to carbide-dpu-agent
 name = "forge-dpu-agent"
 path = "src/main.rs"
 
@@ -14,19 +18,19 @@ path = "src/main.rs"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 config-version = { path = "../../common/config-version" }
-forge-certs = { path = "../certs" }
-forge-dpu-agent-utils = { path = "../utils"}
-forge-dpu-remediation = { path = "../remediation"}
-forge-host-support = { path = "../../common/host-support" }
-forge-http-connector = { path = "../../common/http-connector" }
-forge-network = { path = "../../common/network" }
-forge-systemd = { path = "../systemd" }
-forge-tls = { path = "../../common/tls" }
-forge-uuid = { path = "../../common/uuid" }
-forge-version = { path = "../../common/version" }
-health-report = { path = "../../common/health-report" }
-rpc = { path = "../../rpc" }
-utils = { path = "../../common/utils" }
+carbide-certs = { path = "../certs" }
+carbide-dpu-agent-utils = { path = "../utils"}
+carbide-dpu-remediation = { path = "../remediation"}
+carbide-host-support = { path = "../../common/host-support" }
+carbide-http-connector = { path = "../../common/http-connector" }
+carbide-network = { path = "../../common/network" }
+carbide-systemd = { path = "../systemd" }
+carbide-tls = { path = "../../common/tls" }
+carbide-uuid = { path = "../../common/uuid" }
+carbide-version = { path = "../../common/version" }
+carbide-health-report = { path = "../../common/health-report" }
+carbide-rpc = { path = "../../rpc" }
+carbide-utils = { path = "../../common/utils" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
@@ -90,7 +94,7 @@ version-compare = "0.2.0"
 #these are alphabetized
 
 [build-dependencies]
-forge-version = { path = "../../common/version" }
+carbide-version = { path = "../../common/version" }
 
 [dev-dependencies]
 ctor = "0.2"

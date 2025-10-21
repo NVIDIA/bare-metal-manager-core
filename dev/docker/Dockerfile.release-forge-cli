@@ -16,7 +16,7 @@ COPY . ./
 RUN cd /carbide && \
 export SCCACHE_DIR=/sccache && \
 export RUST_WRAPPER=sccache && \
-cargo build --release -p admin
+cargo build --release -p carbide-admin-cli
 
 FROM debian:12-slim
 

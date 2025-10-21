@@ -14,4 +14,4 @@ WORKDIR ./carbide
 
 RUN mkdir -p /var/log/consoles
 
-COPY .skaffold/target/ssh-console/debug/ssh-console /opt/carbide/
+COPY .skaffold/target/carbide-ssh-console/debug/ssh-console /opt/carbide/

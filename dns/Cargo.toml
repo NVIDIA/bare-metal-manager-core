@@ -22,12 +22,12 @@ trust-dns-server = "0.23.2"
 trust-dns-resolver = "0.23.2"
 
 # [local-dependencies]
-forge-tls = { path = "../common/tls" }
-forge-version = { path = "../common/version" }
-rpc = { path = "../rpc" }
+carbide-tls = { path = "../common/tls" }
+carbide-version = { path = "../common/version" }
+carbide-rpc = { path = "../rpc" }
 
 [build-dependencies]
-forge-version = { path = "../common/version" }
+carbide-version = { path = "../common/version" }
 
 [lints]
 workspace = true

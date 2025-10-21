@@ -18,19 +18,19 @@ path = "src/main.rs"
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../common/bmc-vendor" }
 config-version = { path = "../common/config-version", features = ["sqlx"] }
-forge-host-support = { path = "../common/host-support", default-features = false }
-forge-network = { path = "../common/network", features = ["sqlx"] }
-forge_secrets = { path = "../common/secrets" }
-forge-version = { path = "../common/version" }
-health-report = { path = "../common/health-report" }
+carbide-host-support = { path = "../common/host-support", default-features = false }
+carbide-network = { path = "../common/network", features = ["sqlx"] }
+carbide-secrets = { path = "../common/secrets" }
+carbide-version = { path = "../common/version" }
+carbide-health-report = { path = "../common/health-report" }
 logfmt = { path = "../common/logfmt" }
-mlxconfig-device = { path = "../common/mlxconfig/device" }
+carbide-mlxconfig-device = { path = "../common/mlxconfig/device" }
 mqttea = { path = "../common/mqttea" }
-rpc = { path = "../rpc", features = ["sqlx"] }
-utils = { path = "../common/utils", features = ["sqlx"] }
-forge-ssh = { path = "../common/ssh" }
-forge-uuid = { path = "../common/uuid", features = ["sqlx"] }
-measured-boot = { path = "../common/measured-boot", features = ["sqlx"] }
+carbide-rpc = { path = "../rpc", features = ["sqlx"] }
+carbide-utils = { path = "../common/utils", features = ["sqlx"] }
+carbide-ssh = { path = "../common/ssh" }
+carbide-uuid = { path = "../common/uuid", features = ["sqlx"] }
+carbide-measured-boot = { path = "../common/measured-boot", features = ["sqlx"] }
 carbide-api-model = { path = "./model" }
 carbide-api-db = { path = "./db" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
@@ -119,12 +119,12 @@ x509-parser = { version = "0.17.0", features = ["verify"] }
 default = ["linux-build"]
 linux-build = [
     "tss-esapi",
-    "sqlx-testing/linux-build",
-    "forge-host-support/linux-build",
+    "carbide-sqlx-testing/linux-build",
+    "carbide-host-support/linux-build",
 ]
 
 [build-dependencies]
-forge-version = { path = "../common/version" }
+carbide-version = { path = "../common/version" }
 
 [dev-dependencies]
 figment = { version = "0.10.10", features = ["env", "test", "toml"] }
@@ -133,7 +133,7 @@ lazy_static = "1.4.0"
 const_format = "0.2.26"
 rcgen = "0.13.1"
 carbide-macros = { path = "../common/carbide-macros" }
-sqlx-testing = { path = "../common/sqlx-testing", default-features = false }
+carbide-sqlx-testing = { path = "../common/sqlx-testing", default-features = false }
 prometheus-text-parser = { path = "../common/prometheus-text-parser" }
 
 [lints]

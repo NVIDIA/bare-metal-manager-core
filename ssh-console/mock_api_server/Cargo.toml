@@ -1,15 +1,19 @@
 [package]
-name = "ssh_console_mock_api_server"
-version = "0.1.0"
+name = "carbide-ssh-console-mock-api-server"
+version = "0.0.0"
 edition.workspace = true
+
+[lib]
+# TODO: rename to carbide_ssh_console_mock_api_server in source
+name = "ssh_console_mock_api_server"
 
 [dependencies]
 
 # local dependencies
-forge-version = { path = "../../common/version" }
-api-test-helper = { path = "../../common/api-test-helper" }
-rpc = { path = "../../rpc" }
-forge-uuid = { path = "../../common/uuid" }
+carbide-version = { path = "../../common/version" }
+carbide-api-test-helper = { path = "../../common/api-test-helper" }
+carbide-rpc = { path = "../../rpc" }
+carbide-uuid = { path = "../../common/uuid" }
 
 tonic = { version = "0.14", features = ["tls-ring"] }
 tonic-prost = "0.14"
@@ -24,5 +28,5 @@ rustls = { workspace = true, features = ["ring"] }
 rustls-pemfile = "2.2.0"
 
 [build-dependencies]
-forge-version = { path = "../../common/version" }
+carbide-version = { path = "../../common/version" }
 tonic-prost-build = "0.14"

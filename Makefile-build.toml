@@ -19,16 +19,13 @@ description = "compile carbide package"
 workspace = false
 script = '''
 
-echo "building ${CARBIDE_PROFILE}/${CARBIDE_ARCH} of ${CARBIDE_PACKAGE}"
+echo "building ${CARBIDE_PROFILE}/${CARBIDE_ARCH} of ${CARBIDE_CRATE}"
 
 if [ "${CARBIDE_PROFILE}" = "release" ]
 then
   profile_arg="--release"
 fi
-for pkg in ${CARBIDE_PACKAGE}
-do
-  pkg_args="${pkg_args} -p ${pkg}"
-done
+pkg_args="${pkg_args} -p ${CARBIDE_CRATE}"
 
 cargo build ${profile_arg} --target=${CARBIDE_ARCH}-unknown-linux-gnu ${pkg_args}
 '''
@@ -39,7 +36,7 @@ description = "compile carbide package x86_64"
 workspace = false
 script = '''
 
-echo "building ${CARBIDE_PROFILE}/${CARBIDE_ARCH} of ${CARBIDE_PACKAGE}"
+echo "building ${CARBIDE_PROFILE}/${CARBIDE_ARCH} of ${CARBIDE_CRATE}"
 
 if [ "${CARBIDE_PROFILE}" = "release" ]
 then
@@ -59,10 +56,7 @@ case "${CARBIDE_ARCH}" in
     ;;
 esac
 
-for pkg in ${CARBIDE_PACKAGE}
-do
-  pkg_args="${pkg_args} -p ${pkg}"
-done
+pkg_args="${pkg_args} -p ${CARBIDE_CRATE}"
 
 docker run \
     --rm \

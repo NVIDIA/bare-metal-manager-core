@@ -1,7 +1,10 @@
 [package]
-name = "mlxconfig-device"
-version = "0.1.0"
+name = "carbide-mlxconfig-device"
+version = "0.0.0"
 edition = "2021"
+
+[lib]
+name = "mlxconfig_device"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -19,7 +22,7 @@ regex = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 hostname = "0.3"
 mac_address = { version = "1.1", features = ["serde"] }
-rpc = { path = "../../../rpc" }
+carbide-rpc = { path = "../../../rpc" }
 prost-types = "0.14.1"
 
 [dev-dependencies]

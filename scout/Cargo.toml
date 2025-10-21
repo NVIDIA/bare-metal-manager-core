@@ -1,26 +1,30 @@
 [package]
-name = "scout"
+name = "carbide-scout"
 version = "0.0.1"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
+[lib]
+name = "scout"
+
 [[bin]]
+# TODO: rename to carbide-scout
 name = "forge-scout"
 path = "src/main.rs"
 
 [dependencies]
 
 # [local-dependencies]
-rpc = { path = "../rpc" }
-forge-host-support = { path = "../common/host-support" }
-forge-tls = { path = "../common/tls" }
-forge-uuid = { path = "../common/uuid" }
-forge-version = { path = "../common/version" }
-utils = { path = "../common/utils" }
-machine-validation = { path = "../common/machine-validation" }
-mlxconfig-device = { path = "../common/mlxconfig/device" }
-mlxconfig-lockdown = { path = "../common/mlxconfig/lockdown" }
+carbide-rpc = { path = "../rpc" }
+carbide-host-support = { path = "../common/host-support" }
+carbide-tls = { path = "../common/tls" }
+carbide-uuid = { path = "../common/uuid" }
+carbide-version = { path = "../common/version" }
+carbide-utils = { path = "../common/utils" }
+carbide-machine-validation = { path = "../common/machine-validation" }
+carbide-mlxconfig-device = { path = "../common/mlxconfig/device" }
+carbide-mlxconfig-lockdown = { path = "../common/mlxconfig/lockdown" }
 
 chrono = "0.4.34"
 clap = { workspace = true }
@@ -50,7 +54,7 @@ prost-types = "0.14.1"
 x509-parser = "0.17.0"
 
 [build-dependencies]
-forge-version = { path = "../common/version" }
+carbide-version = { path = "../common/version" }
 
 [lints]
 workspace = true

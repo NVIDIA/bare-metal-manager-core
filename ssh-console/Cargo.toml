@@ -1,20 +1,24 @@
 [package]
-name = "ssh-console"
+name = "carbide-ssh-console"
 version = "0.1.0"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
+[lib]
+name = "ssh_console"
+
 [[bin]]
+# TODO: rename to carbide-ssh-console
 name = "ssh-console"
 path = "src/main.rs"
 
 [dependencies]
 
 # local dependencies
-rpc = { path = "../rpc" }
-forge-uuid = { path = "../common/uuid" }
-forge-tls = { path = "../common/tls" }
+carbide-rpc = { path = "../rpc" }
+carbide-uuid = { path = "../common/uuid" }
+carbide-tls = { path = "../common/tls" }
 
 ctor = "0.4.2"
 lazy_static = "1.5.0"
@@ -53,12 +57,12 @@ size = { version = "0.5.0", features = ["serde"] }
 
 [dev-dependencies]
 bmc-mock = { path = "../dev/bmc-mock" }
-machine-a-tron = { path = "../dev/machine-a-tron" }
-utils = { path = "../common/utils" }
+carbide-machine-a-tron = { path = "../dev/machine-a-tron" }
+carbide-utils = { path = "../common/utils" }
 temp-dir = "0.1.14"
 futures = "0.3.31"
-api-test-helper = { path = "../common/api-test-helper" }
-ssh_console_mock_api_server = { path = "mock_api_server" }
+carbide-api-test-helper = { path = "../common/api-test-helper" }
+carbide-ssh-console-mock-api-server = { path = "mock_api_server" }
 eyre = "0.6.12"
 indoc = "2.0.6"
 prometheus-text-parser = { path = "../common/prometheus-text-parser" }

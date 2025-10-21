@@ -1,24 +1,27 @@
 [package]
-name = "machine-validation"
-version = "0.1.0"
+name = "carbide-machine-validation"
+version = "0.0.0"
 edition.workspace = true
-license = "LicenseRef-NvidiaProprietary"
-authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
+license-file.workspace = true
+authors.workspace = true
+
+[lib]
+name = "machine_validation"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 
-forge-uuid = { path = "../uuid" }
+carbide-uuid = { path = "../uuid" }
 
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = { version = "2", registry = "cratesio" }
 futures = { version = "0.3", default-features = false }
-forge-tls = { path = "../tls" }
-rpc = { path = "../../rpc" }
-utils = { path = "../../common/utils" }
+carbide-tls = { path = "../tls" }
+carbide-rpc = { path = "../../rpc" }
+carbide-utils = { path = "../../common/utils" }
 tonic = { workspace = true }
 chrono = { version = "0.4.34", features = ["serde"] }
 tracing = "0.1.40"

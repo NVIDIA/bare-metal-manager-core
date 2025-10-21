@@ -1,14 +1,17 @@
 [package]
-name = "mlxconfig-variables"
-version = "0.1.0"
+name = "carbide-mlxconfig-variables"
+version = "0.0.0"
 edition = "2021"
 description = "Type definitions for Mellanox hardware configuration registry."
+
+[lib]
+name = "mlxconfig_variables"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 hex = "0.4.3"
-mlxconfig-device = { path = "../device" }
+carbide-mlxconfig-device = { path = "../device" }
 
 [dev-dependencies]
 serde_json = "1.0"
