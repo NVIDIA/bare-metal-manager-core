@@ -5008,13 +5008,7 @@ impl Forge for Api {
 
         log_machine_id(&host_machine_id);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e: sqlx::Error| {
-                CarbideError::from(DatabaseError::new("begin set_primary_dpu", e))
-            })?;
+        let mut txn = self.txn_begin("set_primary_dpu").await?;
 
         let interface_map =
             db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id]).await?;
@@ -5093,9 +5087,7 @@ impl Forge for Api {
             .mac_address
             .to_string();
 
-        txn.rollback()
-            .await
-            .map_err(|e| CarbideError::from(DatabaseError::new("rollback set_primary_dpu", e)))?;
+        txn.rollback().await?;
 
         let Some(current_primary_interface_id) = current_primary_interface_id else {
             return Err(CarbideError::internal(
@@ -5120,13 +5112,7 @@ impl Forge for Api {
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e: sqlx::Error| {
-                CarbideError::from(DatabaseError::new("begin set_primary_dpu", e))
-            })?;
+        let mut txn = self.txn_begin("set_primary_dpu").await?;
 
         // update the primary interface
         db::machine_interface::set_primary_interface(
@@ -5164,9 +5150,7 @@ impl Forge for Api {
             .await?;
         }
 
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::from(DatabaseError::new("commit set_primary_dpu", e)))?;
+        txn.commit().await?;
 
         // optionally reboot the host.  if there is an instance, this is probably a required step,
         // but an operator will need to make that call.  The scout image handles this pretty well,
