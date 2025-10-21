@@ -121,7 +121,7 @@ pub fn parse_carbide_config(
         }
     }
 
-    tracing::trace!("Carbide config: {:#?}", config);
+    tracing::trace!("Carbide config: {:#?}", config.redacted());
     Ok(Arc::new(config))
 }
 

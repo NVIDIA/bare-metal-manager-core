@@ -21,7 +21,9 @@ use tracing::subscriber::NoSubscriber;
 use utils::HostPortPair;
 
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
-use crate::logging::setup::{Logging, create_metrics, setup_logging};
+use crate::logging::setup::{
+    Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
+};
 use crate::profiler::profiler_service::{ProfilerEndpointConfig, run_profiler_endpoint};
 use crate::redfish::RedfishClientPoolImpl;
 use crate::{CarbideError, dynamic_settings, setup};
@@ -68,6 +70,7 @@ pub async fn run(
     );
 
     let metrics = create_metrics()?;
+    create_metric_for_spancount_reader(&metrics.meter, tconf.spancount_reader);
 
     // Spin up the webserver which servers `/metrics` requests
     let (metrics_stop_tx, metrics_stop_rx) = oneshot::channel();

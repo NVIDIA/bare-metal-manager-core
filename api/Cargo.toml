@@ -33,6 +33,7 @@ carbide-uuid = { path = "../common/uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../common/measured-boot", features = ["sqlx"] }
 carbide-api-model = { path = "./model" }
 carbide-api-db = { path = "./db" }
+spancounter = { path = "../common/spancounter" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
