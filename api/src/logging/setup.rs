@@ -23,6 +23,7 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::{Sampler, ShouldSample};
 use opentelemetry_semantic_conventions as semcov;
+use spancounter::SpanCountReader;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::layer::Filter;
 use tracing_subscriber::prelude::*;
@@ -36,6 +37,7 @@ use crate::logging::sqlx_query_tracing;
 pub struct Logging {
     pub filter: Arc<ArcSwap<ActiveLevel>>,
     pub tracing_enabled: Arc<AtomicBool>,
+    pub spancount_reader: Option<spancounter::SpanCountReader>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +105,8 @@ pub fn setup_logging(
         }
     });
     let logfmt_stdout_formatter = logfmt::layer();
+    let spancount_layer = spancounter::layer();
+    let spancount_reader = spancount_layer.reader();
 
     // == Dynamic filter for tracing enabled/disabled ==
     // This doesn't track levels but instead just enabled/disabled (when we want tracing enabled, we
@@ -145,6 +149,7 @@ pub fn setup_logging(
             };
 
         tracing_subscriber::registry()
+            .with(spancount_layer)
             .with(maybe_otel_tracing_layer)
             .with(logfmt_stdout_formatter.with_filter(combined_log_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
@@ -155,6 +160,7 @@ pub fn setup_logging(
     Ok(Logging {
         filter: dyn_log_filter,
         tracing_enabled,
+        spancount_reader: Some(spancount_reader),
     })
 }
 
@@ -278,6 +284,24 @@ impl ShouldSample for CarbideSpanSampler {
             trace_state: Default::default(),
         }
     }
+}
+
+pub fn create_metric_for_spancount_reader(
+    meter: &Meter,
+    spancount_reader: Option<SpanCountReader>,
+) {
+    meter
+        .u64_observable_gauge("carbide_api_tracing_spans_open")
+        .with_description("Whether the Forge Site Controller API is running")
+        .with_callback(move |observer| {
+            let open_spans = if let Some(spancount_reader) = &spancount_reader {
+                spancount_reader.open_spans()
+            } else {
+                0
+            };
+            observer.observe(open_spans as u64, &[]);
+        })
+        .build();
 }
 
 #[cfg(test)]

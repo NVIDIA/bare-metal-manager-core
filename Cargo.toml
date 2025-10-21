@@ -28,6 +28,7 @@ members = [
     "common/mqttea",
     "common/prometheus-text-parser",
     "common/secrets",
+    "common/spancounter",
     "common/sqlx-testing",
     "common/ssh",
     "common/tls",

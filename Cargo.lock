@@ -1336,6 +1336,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "spancounter",
  "sqlx",
  "strum",
  "temp-dir",
@@ -8199,6 +8200,15 @@ checksum = "233504af464074f9d066d7b5416c5f9b894a5862a6506e306f7b816cdd6f1807"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "spancounter"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
