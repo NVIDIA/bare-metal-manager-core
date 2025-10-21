@@ -49,6 +49,7 @@ mod machine_validation;
 mod measured_boot;
 mod network_segment;
 mod preingestion_manager;
+mod profiler;
 mod redfish;
 mod run;
 mod setup;

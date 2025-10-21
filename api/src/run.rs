@@ -22,6 +22,7 @@ use utils::HostPortPair;
 
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{Logging, create_metrics, setup_logging};
+use crate::profiler::profiler_service::{ProfilerEndpointConfig, run_profiler_endpoint};
 use crate::redfish::RedfishClientPoolImpl;
 use crate::{CarbideError, dynamic_settings, setup};
 
@@ -84,6 +85,25 @@ pub async fn run(
                 .await
                 {
                     tracing::error!("Metrics endpoint failed with error: {}", e);
+                }
+            })?;
+    }
+
+    // Spin up the heap-profiling server which serves '/pprof' requests
+    let (profiler_stop_tx, profiler_stop_rx) = oneshot::channel();
+    if let Some(profiler_address) = carbide_config.profiler_endpoint {
+        tokio::task::Builder::new()
+            .name("profiler_endpoint")
+            .spawn(async move {
+                if let Err(e) = run_profiler_endpoint(
+                    &ProfilerEndpointConfig {
+                        address: profiler_address,
+                    },
+                    profiler_stop_rx,
+                )
+                .await
+                {
+                    tracing::error!("Profiler endpoint failed with error: {}", e);
                 }
             })?;
     }
@@ -170,6 +190,9 @@ pub async fn run(
         })?;
         _ = metrics_stop_tx.send(()).inspect_err(|_| {
             tracing::error!("could not send stop signal to metrics server. already stopped?");
+        });
+        _ = profiler_stop_tx.send(()).inspect_err(|_| {
+            tracing::error!("could not send stop signal to profiling server. already stopped?");
         });
         _ = api_stop_tx.send(()).inspect_err(|_| {
             tracing::error!("could not send stop signal to api server. already stopped?");
