@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::{IpAddr, SocketAddr};
@@ -742,46 +743,47 @@ impl SiteExplorer {
                         expected_num_dpus_attached_to_host += 1;
                     }
 
-                    if pcie_device.serial_number.is_some() {
-                        let sn = pcie_device.serial_number.as_ref().unwrap().trim();
-                        if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(sn) {
-                            if let Some(model) = pcie_device.part_number.as_ref() {
-                                match self
-                                    .check_and_configure_dpu_mode(&dpu_ep, model.to_string())
-                                    .await
-                                {
-                                    Ok(is_dpu_mode_configured_correctly) => {
-                                        if !is_dpu_mode_configured_correctly {
-                                            all_dpus_configured_properly_in_host = false;
-                                            // we do not want to ingest a host with an incorrectly configured DPU
-                                            continue;
-                                        }
-                                    }
-                                    Err(err) => {
-                                        tracing::warn!(
-                                            "failed to check DPU mode against {}: {err}",
-                                            dpu_ep.address
-                                        );
+                    if let Some(sn) = pcie_device.serial_number.as_ref().map(|sn| sn.trim())
+                        && let Entry::Occupied(dpu_ep_entry) =
+                            dpu_sn_to_endpoint.entry(sn.to_string())
+                    {
+                        let dpu_ep = dpu_ep_entry.get();
+                        if let Some(model) = pcie_device.part_number.as_ref() {
+                            match self
+                                .check_and_configure_dpu_mode(dpu_ep, model.to_string())
+                                .await
+                            {
+                                Ok(is_dpu_mode_configured_correctly) => {
+                                    if !is_dpu_mode_configured_correctly {
+                                        all_dpus_configured_properly_in_host = false;
+                                        // we do not want to ingest a host with an incorrectly configured DPU
                                         continue;
                                     }
-                                };
-                            }
-
-                            // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(&dpu_ep, &ep) {
-                                expected_num_dpus_attached_to_host -= 1;
-                                // return back DPU report to the hashmap. It is needed below when we go through
-                                // the network_adapters.
-                                dpu_sn_to_endpoint.insert(sn.to_string(), dpu_ep);
-                                continue;
-                            }
-
-                            dpus_explored_for_host.push(ExploredDpu {
-                                bmc_ip: dpu_ep.address,
-                                host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
-                                report: dpu_ep.report.into(),
-                            });
+                                }
+                                Err(err) => {
+                                    tracing::warn!(
+                                        "failed to check DPU mode against {}: {err}",
+                                        dpu_ep.address
+                                    );
+                                    continue;
+                                }
+                            };
                         }
+
+                        // We do not want to attach bluefields that are in NIC mode as DPUs to the host
+                        if is_dpu_in_nic_mode(dpu_ep, &ep) {
+                            expected_num_dpus_attached_to_host -= 1;
+                            continue;
+                        }
+
+                        // TODO: we can use dpu_ep_entry.remove() here but we need to
+                        // make sure that it will not affect fallback_dpu_serial_numbers logic.
+                        let dpu_ep = dpu_ep_entry.get().clone();
+                        dpus_explored_for_host.push(ExploredDpu {
+                            bmc_ip: dpu_ep.address,
+                            host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
+                            report: dpu_ep.report.into(),
+                        });
                     }
                 }
             }
@@ -795,12 +797,14 @@ impl SiteExplorer {
                             expected_num_dpus_attached_to_host += 1;
                         }
 
-                        if let Some(sn) = network_adapter.serial_number.as_ref()
-                            && let Some(dpu_ep) = dpu_sn_to_endpoint.remove(sn.trim())
+                        if let Some(sn) = network_adapter.serial_number.as_ref().map(|sn| sn.trim())
+                            && let Entry::Occupied(dpu_ep_entry) =
+                                dpu_sn_to_endpoint.entry(sn.to_string())
                         {
+                            let dpu_ep = dpu_ep_entry.get();
                             if let Some(model) = network_adapter.part_number.as_ref() {
                                 match self
-                                    .check_and_configure_dpu_mode(&dpu_ep, model.to_string())
+                                    .check_and_configure_dpu_mode(dpu_ep, model.to_string())
                                     .await
                                 {
                                     Ok(is_dpu_mode_configured_correctly) => {
@@ -821,13 +825,14 @@ impl SiteExplorer {
                             }
 
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(&dpu_ep, &ep) {
+                            if is_dpu_in_nic_mode(dpu_ep, &ep) {
                                 expected_num_dpus_attached_to_host -= 1;
-                                // return back DPU report to the hashmap. It is needed below when we go through
-                                // expected machines.
-                                dpu_sn_to_endpoint.insert(sn.to_string(), dpu_ep);
                                 continue;
                             }
+
+                            // TODO: we can use dpu_ep_entry.remove() insted of clone here but we need to
+                            // make sure that it will not affect fallback_dpu_serial_numbers logic.
+                            let dpu_ep = dpu_ep_entry.get().clone();
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
                                 host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
