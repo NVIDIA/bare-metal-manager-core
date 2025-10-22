@@ -43,7 +43,8 @@ def wait_for_redfish_endpoint(
     :raises TimeoutError: if not successful within `max_retries`
     """
     _time_print(
-        f"Attempting to connect to Redfish API on {hostname} up to {max_retries} times with {sleep_time=}, requiring {consecutive_successes} consecutive successes"
+        f"Attempting to connect to Redfish API on {hostname} up to {max_retries} times with "
+        f"{sleep_time=}, requiring {consecutive_successes} consecutive successes"
     )
     url = f"https://{hostname}/redfish/v1/"
     retry_count = 0
@@ -58,11 +59,15 @@ def wait_for_redfish_endpoint(
                 raise KeyError("The 'Vendor' field is missing or empty.")
 
             success_count += 1
-            _time_print(f"Successful response from Redfish API on {hostname} ({success_count}/{consecutive_successes})")
+            _time_print(
+                f"Successful response from Redfish API on {hostname} "
+                f"({success_count}/{consecutive_successes})"
+            )
 
             if success_count >= consecutive_successes:
                 _time_print(
-                    f"Redfish API on {hostname} is consistently responding after {consecutive_successes} consecutive successes"
+                    f"Redfish API on {hostname} is consistently responding after "
+                    f"{consecutive_successes} consecutive successes"
                 )
                 return
 
@@ -81,20 +86,76 @@ def wait_for_redfish_endpoint(
             retry_count += 1
             time.sleep(sleep_time)
 
-    raise TimeoutError(_time_print(f"No consistent response from {hostname} within the time limit."))
+    raise TimeoutError(
+        _time_print(f"No consistent response from {hostname} within the time limit.")
+    )
 
 
-def check_dpu_password_reset(bmc_ip: str) -> None:
-    """Check that the DPU BMC password is reset to default."""
+def check_dpu_password_reset(bmc_ip: str, max_retries: int = 5) -> None:
+    """Check that the DPU BMC password is reset to default with retry mechanism.
+
+    This function performs multiple checks to ensure the BMC is consistently in the
+    password-reset state. Sleeping 20 seconds between attempts.
+
+    Args:
+        bmc_ip: IP address of the BMC to check
+        max_retries: Number of times to attempt to connect to BMC (default: 5)
+    """
+    required_successes = 3  # Require multiple consecutive successes for stability
+    consecutive_successes = 0
+    sleep_time = 20
     url = f"https://{bmc_ip}/redfish/v1/UpdateService"  # Any auth'd endpoint will do
-    response = requests.get(url, auth=("root", "0penBmc"), timeout=10, verify=False)
-    if "PasswordChangeRequired" in response.text:
-        print(f"Password is reset successfully on BMC {bmc_ip}")
-    else:
-        print(
-            f"Password is not reset on BMC {bmc_ip}. Redfish response from default creds: \n{response.text}"
+    _time_print(f"Checking DPU password reset on BMC {bmc_ip} with {max_retries} retries")
+
+    for attempt in range(max_retries):
+        try:
+            # Check for 403 with text PasswordChangeRequired.
+            # This indicates successful password reset
+            response = requests.get(url, auth=("root", "0penBmc"), timeout=10, verify=False)
+            password_change_required = "PasswordChangeRequired" in response.text
+
+            if password_change_required and response.status_code == 403:
+                consecutive_successes += 1
+                _time_print(
+                    f"Password reset check {consecutive_successes}/{required_successes} passed on "
+                    f"BMC {bmc_ip}"
+                )
+
+                if consecutive_successes >= required_successes:
+                    _time_print(
+                        f"Password reset successfully verified with {consecutive_successes} "
+                        f"consecutive checks on BMC {bmc_ip}"
+                    )
+                    return
+
+                # Pause between consecutive checks
+                time.sleep(sleep_time)
+            else:
+                consecutive_successes = 0  # Reset on any failure
+                _time_print(
+                    f"Password reset check failed on BMC {bmc_ip} "
+                    f"(attempt {attempt + 1}/{max_retries}). "
+                    f"Status: {response.status_code}, PasswordChangeRequired: "
+                    f"{password_change_required}. "
+                    f"Expected: HTTP 403 with PasswordChangeRequired present in response"
+                )
+                if attempt < max_retries - 1:  # Don't sleep on last attempt
+                    time.sleep(sleep_time)
+
+        except requests.exceptions.RequestException as e:
+            consecutive_successes = 0  # Reset on any failure
+            _time_print(
+                f"Network error checking BMC {bmc_ip} (attempt {attempt + 1}/{max_retries}): {e}"
+            )
+            if attempt < max_retries - 1:
+                time.sleep(sleep_time)
+
+    # If we get here, all retries failed
+    raise Exception(
+        _time_print(
+            f"Password reset verification failed on BMC {bmc_ip} after {max_retries} attempts"
         )
-        raise Exception(f"Password is not reset on {bmc_ip}")
+    )
 
 
 def _time_print(message) -> str:
