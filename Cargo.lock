@@ -1274,6 +1274,8 @@ dependencies = [
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-mlxconfig-device",
+ "carbide-mlxconfig-profile",
+ "carbide-mlxconfig-variables",
  "carbide-network",
  "carbide-rpc",
  "carbide-secrets",

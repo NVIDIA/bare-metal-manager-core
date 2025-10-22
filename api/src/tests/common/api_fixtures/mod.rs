@@ -966,6 +966,7 @@ pub fn get_config() -> CarbideConfig {
         },
         auto_machine_repair_plugin: Default::default(),
         vmaas_config: None,
+        mlxconfig_profiles: None,
     }
 }
 

@@ -27,6 +27,7 @@ use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
+use mlxconfig_profile::serialization::SerializableProfile;
 use model::DpuModel;
 use model::firmware::{
     AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
@@ -294,6 +295,9 @@ pub struct CarbideConfig {
 
     /// configuration for using forge with a VM system
     pub vmaas_config: Option<VmaasConfig>,
+
+    #[serde(rename = "mlx-config-profiles")]
+    pub mlxconfig_profiles: Option<HashMap<String, SerializableProfile>>,
 }
 
 /// Parameters used by the Power config.
@@ -1970,6 +1974,7 @@ mod tests {
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
     use libredfish::model::service_root::RedfishVendor;
+    use mlxconfig_variables::MlxValueType;
     use model::resource_pool;
 
     use super::*;
@@ -2173,6 +2178,9 @@ mod tests {
                 run_interval: MeasuredBootMetricsCollectorConfig::default_run_interval(),
             }
         });
+        // And make sure lack of [mlx-config-profiles] doesn't blow up
+        // for sites not configured with any.
+        assert!(config.mlxconfig_profiles.is_none());
     }
 
     #[test]
@@ -2523,6 +2531,35 @@ mod tests {
                 .day(),
             8
         );
+        // Do some more in-depth validation of the MlxConfigProfile section, ensuring
+        // we're able to deserialize the SerializedProfile into an MlxConfigProfile
+        // and validate entries were properly deserialized back to their types + values.
+        //
+        // First verify that both serialized profiles are detected.
+        assert_eq!(config.mlxconfig_profiles.clone().unwrap().len(), 2);
+        // And then pluck out one of them and validate everything deserialized
+        // as expected. All of this is generally handled by existing unit tests
+        // within the mlxconfig_profile tests already, but it doesn't hurt to
+        // verify stuff here also.
+        let serialized_profile = config
+            .mlxconfig_profiles
+            .unwrap()
+            .get("test-profile")
+            .unwrap()
+            .clone();
+        let mlxconfig_profile = serialized_profile.into_profile().unwrap();
+        assert_eq!(mlxconfig_profile.name, "test-profile");
+        assert_eq!(mlxconfig_profile.registry.name, "mlx_generic");
+        assert_eq!(mlxconfig_profile.config_values.len(), 2);
+        assert_eq!(
+            mlxconfig_profile.get_variable("SRIOV_EN").unwrap().value,
+            MlxValueType::Boolean(true)
+        );
+        assert_eq!(
+            mlxconfig_profile.get_variable("NUM_OF_VFS").unwrap().value,
+            MlxValueType::Integer(4)
+        );
+        assert!(mlxconfig_profile.get_variable("NONEXISTENT_GOO").is_none());
     }
 
     #[test]

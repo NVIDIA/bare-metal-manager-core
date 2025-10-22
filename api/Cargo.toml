@@ -31,6 +31,8 @@ carbide-utils = { path = "../common/utils", features = ["sqlx"] }
 carbide-ssh = { path = "../common/ssh" }
 carbide-uuid = { path = "../common/uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../common/measured-boot", features = ["sqlx"] }
+carbide-mlxconfig-profile = { path = "../common/mlxconfig/profile" }
+carbide-mlxconfig-variables = { path = "../common/mlxconfig/variables" }
 carbide-api-model = { path = "./model" }
 carbide-api-db = { path = "./db" }
 spancounter = { path = "../common/spancounter" }
