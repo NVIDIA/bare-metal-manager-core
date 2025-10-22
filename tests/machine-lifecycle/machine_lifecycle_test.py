@@ -131,7 +131,7 @@ def main():
         ####################################
         # 3. Factory reset host and DPU(s) #
         ####################################
-        # NB: This is non-optional if the firmware downgrade has run
+        # NB: This is non-optional if the firmware downgrade has run (see setup_test_config())
         if not test_config.skip_factory_reset:
             perform_factory_reset(test_config, site_config, machine_info)
 
@@ -889,16 +889,6 @@ def _factory_reset_dpu(
         time.sleep(5)
         network.wait_for_redfish_endpoint(hostname=machine_info.dpu_info_map[dpu_id]["bmc_ip"])
 
-        # Confirm password is reset before force-deleting, so we won't hit 'AvoidLockout' error
-        time.sleep(5)
-        try:
-            network.check_dpu_password_reset(machine_info.dpu_info_map[dpu_id]["bmc_ip"])
-        except Exception as e:
-            _error_and_exit(
-                f"Password reset check failed on DPU{i}: {e}",
-                set_maintenance=True,
-                machine_id=test_config.machine_under_test,
-            )
         i += 1
 
 
@@ -1039,6 +1029,23 @@ def perform_factory_reset(
     """
     _factory_reset_dpu(test_config, site_config, machine_info)
     _factory_reset_host(test_config, site_config, machine_info)
+
+    # Confirm DPU password is reset before force-deleting, so we won't hit AvoidLockout error
+    i = 1
+    for dpu_id in machine_info.dpu_ids:
+        time.sleep(5)
+        print(f"Checking DPU{i} BMC password is reset")
+        try:
+            network.check_dpu_password_reset(
+                machine_info.dpu_info_map[dpu_id]["bmc_ip"], max_retries=5
+            )
+        except Exception as e:
+            _error_and_exit(
+                f"Password reset check failed on DPU{i}: {e}",
+                set_maintenance=True,
+                machine_id=test_config.machine_under_test,
+            )
+        i += 1
 
     # Ensure the machine is still "Ready" after the factory-reset
     print(f"Checking {test_config.machine_under_test} is still Ready")
