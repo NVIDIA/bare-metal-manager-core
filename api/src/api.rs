@@ -64,6 +64,8 @@ use tss_esapi::{
 use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
+#[cfg(feature = "linux-build")]
+use crate::attestation as attest;
 use crate::cfg::file::CarbideConfig;
 use crate::handlers::instance;
 use crate::handlers::machine_validation::{
@@ -83,8 +85,7 @@ use crate::redfish::{RedfishAuth, RedfishClientPool};
 use crate::site_explorer::EndpointExplorer;
 use crate::storage::NvmeshClientPool;
 use crate::{
-    CarbideError, CarbideResult, attestation as attest, auth, dynamic_settings,
-    ethernet_virtualization, measured_boot,
+    CarbideError, CarbideResult, auth, dynamic_settings, ethernet_virtualization, measured_boot,
 };
 
 pub struct Api {
