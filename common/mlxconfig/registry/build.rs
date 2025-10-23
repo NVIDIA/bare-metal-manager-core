@@ -310,6 +310,13 @@ fn write_generated_code(code: &str) {
     }
 
     let dest_path = src_dir.join("registries.rs");
+
+    if let Ok(existing) = fs::read_to_string(&dest_path) {
+        if existing == code {
+            // Avoid rewriting it if it hasn't changed, so that we don't bump the timestamp and cause rebuilds
+            return;
+        }
+    }
     fs::write(dest_path, code).expect("Failed to write generated code");
 }
 
