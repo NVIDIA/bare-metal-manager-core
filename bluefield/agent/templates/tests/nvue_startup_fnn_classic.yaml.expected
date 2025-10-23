@@ -4,16 +4,6 @@
     rev-id: 1.0
     version: Cumulus Linux 5.6.0
 - set:
-    bridge:
-      domain:
-        br_default:
-          vlan:
-            '196':
-              vni:
-                '1025196': {}
-            '185':
-              vni:
-                '1025185': {}
     evpn:
       enable: on
     interface:
@@ -32,42 +22,66 @@
         type: swp
       pf0vf0_if:
         type: swp
+        acl: 
+          p0000_deny_prefixes_ipv4:
+            inbound: {}
+          p0009_vpc_peer_egress_from_host:
+            inbound: {}
+          p0009_vpc_peer_ingress_to_host:
+            outbound: {}
+          p0010_vpc_isolation_ipv4:
+            inbound: {}
+          dhcp_flood_prevention:
+            inbound: {} 
         bridge:
           domain:
             br_default:
-              access: 196
+              access: 196 
+      vlan196:
+        type: svi
+        vlan: 196
+        ip:
+          address:
+            10.217.5.172/24: {} 
+          vrf: vpc_0 
+          vrr:
+            address:
+              10.217.5.169/29: {} 
+            enable: on
+            mac-address: 00:00:01:02:51:96 
+            state:
+              up: {}
       pf0hpf_if:
         type: swp
-        bridge:
-          domain:
-            br_default:
-              access: 185
+        acl: 
+          p0000_deny_prefixes_ipv4:
+            inbound: {}
+          p0009_vpc_peer_egress_from_host:
+            inbound: {}
+          p0009_vpc_peer_ingress_to_host:
+            outbound: {}
+          p0010_vpc_isolation_ipv4:
+            inbound: {} 
+        ip:
+          address:
+            10.217.5.161/30: {} 
+          vrf: vpc_0 
     nve:
       vxlan:
         arp-nd-suppress: on
         enable: on
         source:
-          address: 10.217.5.39
+          address: 10.217.5.39 
     router:
       bgp:
-        autonomous-system: 4259912557
+        autonomous-system: 4259912557 
         enable: on
         router-id: 10.217.5.39
       vrr:
         enable: on
       policy:
         prefix-list:
-          FORGE_FROM_UNDERLAY:
-            rule:
-              '10':
-                action: permit
-                match:
-                  0.0.0.0/0: {}
-              '1000':
-                action: deny
-                match:
-                  any: {}
-          dpu_from_instance:
+          dpu_from_instance: 
             rule:
               '10':
                 action: permit
@@ -80,6 +94,9 @@
               '10':
                 action:
                   deny: {}
+    system:
+      reflexive-acl:
+        enable: on
     vrf:
       default:
         router:
@@ -126,13 +143,141 @@
                 update-source: lo
               underlay:
                 remote-as: external
+      vpc_0: 
+        evpn:
+          enable: on
+          vni:
+            '0': {} 
+        loopback:
+          ip:
+            address:
+              10.217.5.124/32: {} 
+        router:
+          bgp:
+            address-family:
+              ipv4-unicast:
+                enable: on
+                redistribute:
+                  connected:
+                    enable: on
+                route-export:
+                  to-evpn:
+                    enable: on
+            enable: on
+            neighbor:
+              10.217.5.170:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
+              10.217.5.162:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
+            peer-group:
+              tenant:
                 address-family:
                   ipv4-unicast:
                     policy:
                       inbound:
-                        prefix-list: FORGE_FROM_UNDERLAY
+                        prefix-list: dpu_from_instance
+                      outbound:
+                        route-map: dpu_to_instance
+                nexthop-connected-check: off
+                remote-as: external
+                timers:
+                  connection-retry: 10
+                  hold: 9
+                  keepalive: 3
+                  route-advertisement: none
+            route-export:
+              to-evpn:
+                route-target:
+                  11414:0: {}
+                  11415:200: {} 
+            route-import:
+              from-evpn:
+                route-target:
+                  11414:0: {}
+                  11414:1337: {} 
+                  11414:1025186: {} 
+                  11414:1025187: {} 
+                  11111:22222: {}
+                  auto: {}
     acl:
-      ACL_tenancy:
+      dhcp_flood_prevention:
+        rule: 
+          '10':
+            action:
+              deny: {}
+            hw-offload: off
+            match:
+              ip:
+                dest-ip: 255.255.255.255
+                dest-port:
+                  '67': {}
+                protocol: udp
+                source-port:
+                  '68': {}
+        type: ipv4
+      p0000_deny_prefixes_ipv4:
+        type: ipv4
+        rule:
+          '10':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.5.160/30
+          '11':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.5.168/29
+          '20':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.5.160/30
+          '21':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.5.168/29
+          '1001':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 192.0.2.0/24
+          '1002':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 198.51.100.0/24
+      p0009_vpc_peer_egress_from_host:
+        type: ipv4
+        rule:
+          '1':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.6.176/29
+      p0009_vpc_peer_ingress_to_host:
+        type: ipv4
+        rule:
+          '1':
+            action:
+              permit: {}
+            match:
+              ip:
+                source-ip: 10.217.6.176/29
+      p0010_vpc_isolation_ipv4:
+        type: ipv4
         rule:
           '10':
             action:
@@ -163,26 +308,4 @@
               deny: {}
             match:
               ip:
-                dest-ip: 192.0.2.0/24
-          '1001':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 198.51.100.0/24
-        type: ipv4
-      drop_dhcp_flood_over_overlay:
-        rule:
-          '10':
-            action:
-              deny: {}
-            hw-offload: off
-            match:
-              ip:
-                dest-ip: 255.255.255.255
-                protocol: udp
-                dest-port:
-                  '67': {}
-                source-port:
-                  '68': {}
-        type: ipv4
+                dest-ip: 10.217.0.0/16

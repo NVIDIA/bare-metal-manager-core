@@ -1883,11 +1883,8 @@ mod tests {
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml.
-        // TODO: This should be fixed when new template is merged.
-        //
-        // let expected = include_str!("../templates/tests/nvue_startup_fnn_classic.yaml.expected");
-        // compare_diffed(hbn_root.join(nvue::PATH), expected)?;
-        // Until then... let's at least confirm valid YAML...
+        let expected = include_str!("../templates/tests/nvue_startup_fnn_classic.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
         const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
         let startup_yaml = fs::read_to_string(hbn_root.join(nvue::PATH))?;
         let _: Vec<serde_yaml::Value> = serde_yaml::from_str(&startup_yaml)
