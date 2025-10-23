@@ -6,3 +6,5 @@
 /.gitlab/**
 /.gitlab-ci.yml
 /.gitlab-license-scanning.yml
+/tests
+/pxe/nvinit_setup
