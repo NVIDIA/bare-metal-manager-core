@@ -4312,9 +4312,14 @@ impl StateHandler for HostMachineStateHandler {
                         .await?;
 
                     match redfish_client.lockdown_status().await {
+                        Err(libredfish::RedfishError::NotSupported(_)) => {
+                            tracing::info!(
+                                "BMC vendor does not support checking lockdown status for {host_machine_id}."
+                            );
+                        }
                         Err(e) => {
                             tracing::warn!(
-                                "Error fetching lockdown status for {host_machine_id} during forge_setup check: {e}"
+                                "Error fetching lockdown status for {host_machine_id} during machine_setup check: {e}"
                             );
                             return Ok(StateHandlerOutcome::wait(format!(
                                 "Failed to fetch lockdown status: {}",
@@ -4323,7 +4328,7 @@ impl StateHandler for HostMachineStateHandler {
                         }
                         Ok(lockdown_status) if !lockdown_status.is_fully_disabled() => {
                             tracing::info!(
-                                "Lockdown is enabled for {host_machine_id} during forge_setup, disabling now."
+                                "Lockdown is enabled for {host_machine_id} during machine_setup, disabling now."
                             );
                             let next_state =
                                 handler_host_lockdown(txn, ctx, mh_snapshot, LockdownMode::Disable)
