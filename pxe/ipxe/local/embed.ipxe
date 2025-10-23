@@ -43,7 +43,7 @@ exit
 goto start
 
 :error_handler
-prompt --key x Hit the ${bold}x${boldoff} key to continue
+prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to continue (4 seconds timeout)...
 goto forge_menu
 
 :debug
