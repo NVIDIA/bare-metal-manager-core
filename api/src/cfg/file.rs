@@ -27,7 +27,10 @@ use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
-use mlxconfig_profile::serialization::SerializableProfile;
+use mlxconfig_profile::MlxConfigProfile;
+use mlxconfig_profile::serialization::{
+    deserialize_option_profile_map, serialize_option_profile_map,
+};
 use model::DpuModel;
 use model::firmware::{
     AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
@@ -296,8 +299,14 @@ pub struct CarbideConfig {
     /// configuration for using forge with a VM system
     pub vmaas_config: Option<VmaasConfig>,
 
-    #[serde(rename = "mlx-config-profiles")]
-    pub mlxconfig_profiles: Option<HashMap<String, SerializableProfile>>,
+    #[serde(
+        default,
+        rename = "mlx-config-profiles",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_option_profile_map",
+        serialize_with = "serialize_option_profile_map"
+    )]
+    pub mlxconfig_profiles: Option<HashMap<String, MlxConfigProfile>>,
 }
 
 /// Parameters used by the Power config.
@@ -2541,13 +2550,12 @@ mod tests {
         // as expected. All of this is generally handled by existing unit tests
         // within the mlxconfig_profile tests already, but it doesn't hurt to
         // verify stuff here also.
-        let serialized_profile = config
+        let mlxconfig_profile = config
             .mlxconfig_profiles
+            .as_ref()
             .unwrap()
             .get("test-profile")
-            .unwrap()
-            .clone();
-        let mlxconfig_profile = serialized_profile.into_profile().unwrap();
+            .unwrap();
         assert_eq!(mlxconfig_profile.name, "test-profile");
         assert_eq!(mlxconfig_profile.registry.name, "mlx_generic");
         assert_eq!(mlxconfig_profile.config_values.len(), 2);

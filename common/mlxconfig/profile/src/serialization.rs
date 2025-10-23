@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 
 use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::MlxProfileError;
 use crate::profile::MlxConfigProfile;
@@ -40,7 +40,7 @@ pub struct SerializableProfile {
 }
 
 impl SerializableProfile {
-    // Creates a new serializable profile.
+    // new creates a new serializable profile.
     pub fn new<N: Into<String>, R: Into<String>>(name: N, registry_name: R) -> Self {
         Self {
             name: name.into(),
@@ -50,13 +50,13 @@ impl SerializableProfile {
         }
     }
 
-    // Sets the description for this profile.
+    // with_description sets the description for this profile.
     pub fn with_description<D: Into<String>>(mut self, description: D) -> Self {
         self.description = Some(description.into());
         self
     }
 
-    // Adds a variable configuration to this profile.
+    // with_config adds a variable configuration to this profile.
     pub fn with_config<K: Into<String>, V: Into<serde_yaml::Value>>(
         mut self,
         variable_name: K,
@@ -66,8 +66,8 @@ impl SerializableProfile {
         self
     }
 
-    // Converts this serializable profile to an MlxConfigProfile by resolving
-    // the registry and validating all variable configurations.
+    // into_profile converts this serializable profile to an MlxConfigProfile by
+    // resolving the registry and validating all variable configurations.
     pub fn into_profile(self) -> Result<MlxConfigProfile, MlxProfileError> {
         // Look up the registry
         let registry = mlxconfig_registry::registries::get(&self.registry_name)
@@ -89,7 +89,7 @@ impl SerializableProfile {
         Ok(profile)
     }
 
-    // Creates a SerializableProfile from an MlxConfigProfile.
+    // from_profile creates a SerializableProfile from an MlxConfigProfile.
     pub fn from_profile(profile: &MlxConfigProfile) -> Result<Self, MlxProfileError> {
         let mut serializable = Self::new(&profile.name, &profile.registry.name);
 
@@ -249,9 +249,103 @@ impl TryFrom<SerializableProfile> for SerializableMlxConfigProfilePb {
     }
 }
 
-// Converts an MlxConfigValue back to a simple YAML value for serialization.
+// config_value_to_yaml_value converts an MlxConfigValue back to a simple
+// YAML value for serialization.
 fn config_value_to_yaml_value(
     config_value: &mlxconfig_variables::MlxConfigValue,
 ) -> Result<serde_yaml::Value, MlxProfileError> {
     Ok(config_value.value.to_yaml_value())
+}
+
+// serialize_profile_map a HashMap<String, MlxConfigProfile> by converting each
+// profile to SerializableProfile, helping to reduce the extra hop needed to
+// serialize an MlxConfigProfile to a SerializeableProfile.
+pub fn serialize_profile_map<S>(
+    profiles: &HashMap<String, MlxConfigProfile>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    use serde::ser::Error;
+
+    // Convert MlxConfigProfile -> SerializableProfile for each entry.
+    let serializable_map: Result<HashMap<String, SerializableProfile>, MlxProfileError> = profiles
+        .iter()
+        .map(|(k, v)| Ok((k.clone(), SerializableProfile::from_profile(v)?)))
+        .collect();
+
+    let serializable_map = serializable_map.map_err(Error::custom)?;
+    serializable_map.serialize(serializer)
+}
+
+// deserialize_profile_map deserializes a HashMap<String, SerializableProfile>,
+// converting each  back to an MlxConfigProfile.
+pub fn deserialize_profile_map<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, MlxConfigProfile>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    // First deserialize to HashMap<String, SerializableProfile>.
+    let serializable_map = HashMap::<String, SerializableProfile>::deserialize(deserializer)?;
+
+    // Then convert each SerializableProfile -> MlxConfigProfile.
+    serializable_map
+        .into_iter()
+        .map(|(k, v)| {
+            v.into_profile()
+                .map(|profile| (k, profile))
+                .map_err(Error::custom)
+        })
+        .collect()
+}
+
+// serialize_option_profile_map is used in cases where the MlxConfigProfile
+// is part of an Option HashMap, like in the case of the Carbide config file.
+pub fn serialize_option_profile_map<S>(
+    profiles: &Option<HashMap<String, MlxConfigProfile>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match profiles {
+        Some(map) => serialize_profile_map(map, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+// deserialize_option_profile_map is used in cases where the MlxConfigProfile
+// is part of an Option HashMap, like in the case of the Carbide config file.
+pub fn deserialize_option_profile_map<'de, D>(
+    deserializer: D,
+) -> Result<Option<HashMap<String, MlxConfigProfile>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    // Deserialize as Option<HashMap<String, SerializableProfile>>.
+    let serializable_map_opt =
+        Option::<HashMap<String, SerializableProfile>>::deserialize(deserializer)?;
+
+    // Convert if Some, or return None.
+    match serializable_map_opt {
+        Some(serializable_map) => {
+            let profile_map: Result<HashMap<String, MlxConfigProfile>, _> = serializable_map
+                .into_iter()
+                .map(|(k, v)| {
+                    v.into_profile()
+                        .map(|profile| (k, profile))
+                        .map_err(Error::custom)
+                })
+                .collect();
+
+            profile_map.map(Some)
+        }
+        None => Ok(None),
+    }
 }
