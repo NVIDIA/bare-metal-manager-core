@@ -1,4 +1,6 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::Path;
 
 use heck::{ToSnakeCase, ToUpperCamelCase};
@@ -201,7 +203,7 @@ impl CodeGenerator {
             }
         };
 
-        write_token_stream(file, &out)?;
+        write_token_stream_if_not_up_to_date(file, &out)?;
         Ok(())
     }
 
@@ -230,15 +232,21 @@ impl CodeGenerator {
 
         let mut converters = TokenStream::new();
         // Look up each input type in self.message_types to get its metadata
-        for message_and_package in method_inputs_type_strings
+        let mut sorted_messages = method_inputs_type_strings
             .into_iter()
             .filter_map(|t| self.message_types.get(t))
-        {
+            .collect::<Vec<_>>();
+
+        sorted_messages.sort_by(|a, b| match a.package.cmp(&b.package) {
+            Ordering::Equal => a.message.name.cmp(&b.message.name),
+            other => other,
+        });
+        for message_and_package in sorted_messages {
             // Generate a convenience converter for each one.
             converters.append_all(self.make_convenience_converter(message_and_package)?);
         }
 
-        write_token_stream(converters, &out)?;
+        write_token_stream_if_not_up_to_date(converters, &out)?;
         Ok(())
     }
 
@@ -489,17 +497,26 @@ impl MessageWithPackage {
     }
 }
 
-fn write_token_stream<T: AsRef<Path>>(token_stream: TokenStream, out: T) -> Result<()> {
+fn write_token_stream_if_not_up_to_date<T: AsRef<Path>>(
+    token_stream: TokenStream,
+    out: T,
+) -> Result<()> {
     let ast: syn::File = syn::parse2(token_stream)?;
     let code = prettyplease::unparse(&ast);
-    std::fs::write(&out, code)?;
+
+    let up_to_date = match fs::read_to_string(&out) {
+        Ok(existing) => code == existing,
+        Err(_) => false,
+    };
+
+    if !up_to_date {
+        fs::write(&out, code)?;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
 
     fn test_generator(proto_file: &str) -> CodeGenerator {
