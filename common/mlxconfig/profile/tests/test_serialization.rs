@@ -12,9 +12,13 @@
 
 use std::collections::HashMap;
 
-use mlxconfig_profile::serialization::SerializableProfile;
-use mlxconfig_profile::MlxProfileError;
+use mlxconfig_profile::serialization::{
+    deserialize_option_profile_map, serialize_option_profile_map, SerializableProfile,
+};
+use mlxconfig_profile::{MlxConfigProfile, MlxProfileError};
+use mlxconfig_registry::registries;
 use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn test_serializable_profile_creation() {
@@ -615,8 +619,6 @@ PCI_DOWNSTREAM_PORT_OWNER = [
 
 #[test]
 fn test_toml_multiple_profiles_hashmap() {
-    use serde::Deserialize;
-
     // Define a container struct similar what would be in
     // the carbide-api-site-config.toml file.
     #[derive(Deserialize)]
@@ -1126,4 +1128,322 @@ fn test_file_paths_with_extensions() {
 
         assert!(path.exists(), "File should exist: {}", path.display());
     }
+}
+
+#[test]
+fn test_option_hashmap_deserialize_with_profiles() {
+    #[derive(Deserialize)]
+    struct TestConfig {
+        #[serde(
+            default,
+            rename = "mlx-config-profiles",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_option_profile_map"
+        )]
+        mlx_config_profiles: Option<HashMap<String, MlxConfigProfile>>,
+    }
+
+    let toml = r#"
+[mlx-config-profiles.test-profile-1]
+name = "test-profile-1"
+registry_name = "mlx_generic"
+description = "First test profile"
+
+[mlx-config-profiles.test-profile-1.config]
+SRIOV_EN = true
+NUM_OF_VFS = 8
+
+[mlx-config-profiles.test-profile-2]
+name = "test-profile-2"
+registry_name = "mlx_generic"
+description = "Second test profile"
+
+[mlx-config-profiles.test-profile-2.config]
+SRIOV_EN = false
+NUM_OF_VFS = 4
+"#;
+
+    let config: TestConfig = toml::from_str(toml).expect("should deserialize TOML with profiles");
+
+    // Verify we got Some(HashMap) with 2 profiles.
+    assert!(config.mlx_config_profiles.is_some());
+    let profiles = config.mlx_config_profiles.as_ref().unwrap();
+    assert_eq!(profiles.len(), 2);
+
+    // Verify profile 1.
+    let profile1 = profiles
+        .get("test-profile-1")
+        .expect("should have profile 1");
+    assert_eq!(profile1.name, "test-profile-1");
+    assert_eq!(profile1.registry.name, "mlx_generic");
+    assert_eq!(profile1.description, Some("First test profile".to_string()));
+    assert_eq!(profile1.variable_count(), 2);
+
+    // Verify profile 2.
+    let profile2 = profiles
+        .get("test-profile-2")
+        .expect("should have profile 2");
+    assert_eq!(profile2.name, "test-profile-2");
+    assert_eq!(profile2.registry.name, "mlx_generic");
+    assert_eq!(
+        profile2.description,
+        Some("Second test profile".to_string())
+    );
+    assert_eq!(profile2.variable_count(), 2);
+}
+
+#[test]
+fn test_option_hashmap_deserialize_missing_field() {
+    #[derive(Deserialize)]
+    struct TestConfig {
+        some_other_field: String,
+        #[serde(
+            default,
+            rename = "mlx-config-profiles",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_option_profile_map"
+        )]
+        mlx_config_profiles: Option<HashMap<String, MlxConfigProfile>>,
+    }
+
+    let toml = r#"
+some_other_field = "test"
+# No mlx-config-profiles section at all
+"#;
+
+    let config: TestConfig =
+        toml::from_str(toml).expect("should deserialize TOML without profiles section");
+
+    // Verify we got None because field was missing and
+    // we used the default attribute.
+    assert!(config.mlx_config_profiles.is_none());
+    assert_eq!(config.some_other_field, "test");
+}
+
+#[test]
+fn test_option_hashmap_deserialize_empty_section() {
+    #[derive(Deserialize)]
+    struct TestConfig {
+        #[serde(
+            default,
+            rename = "mlx-config-profiles",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_option_profile_map"
+        )]
+        mlx_config_profiles: Option<HashMap<String, MlxConfigProfile>>,
+    }
+
+    let toml = r#"
+[mlx-config-profiles]
+# Empty section - no actual profiles defined
+"#;
+
+    let config: TestConfig =
+        toml::from_str(toml).expect("should deserialize empty profiles section");
+
+    // Should get Some(empty HashMap) not None,
+    // because the section exists.
+    assert!(config.mlx_config_profiles.is_some());
+    let profiles = config.mlx_config_profiles.unwrap();
+    assert_eq!(profiles.len(), 0);
+}
+
+#[test]
+fn test_option_hashmap_serialize_with_profiles() {
+    #[derive(Serialize)]
+    struct TestConfig {
+        #[serde(
+            default,
+            rename = "mlx-config-profiles",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_option_profile_map"
+        )]
+        mlx_config_profiles: Option<HashMap<String, MlxConfigProfile>>,
+    }
+
+    // Create some test profiles
+    let registry = registries::get("mlx_generic")
+        .expect("should have mlx_generic registry")
+        .clone();
+
+    let profile1 = MlxConfigProfile::new("test-profile-1", registry.clone())
+        .with_description("First test profile")
+        .with("SRIOV_EN", true)
+        .expect("should add config")
+        .with("NUM_OF_VFS", 8)
+        .expect("should add config");
+
+    let profile2 = MlxConfigProfile::new("test-profile-2", registry)
+        .with_description("Second test profile")
+        .with("SRIOV_EN", false)
+        .expect("should add config")
+        .with("NUM_OF_VFS", 4)
+        .expect("should add config");
+
+    let mut profiles = HashMap::new();
+    profiles.insert("test-profile-1".to_string(), profile1);
+    profiles.insert("test-profile-2".to_string(), profile2);
+
+    let config = TestConfig {
+        mlx_config_profiles: Some(profiles),
+    };
+
+    // Serialize to TOML
+    let toml = toml::to_string_pretty(&config).expect("should serialize to TOML");
+
+    // Verify the TOML contains our profiles
+    assert!(toml.contains("[mlx-config-profiles.test-profile-1]"));
+    assert!(toml.contains("[mlx-config-profiles.test-profile-2]"));
+    assert!(toml.contains("name = \"test-profile-1\""));
+    assert!(toml.contains("name = \"test-profile-2\""));
+    assert!(toml.contains("registry_name = \"mlx_generic\""));
+}
+
+#[test]
+fn test_option_hashmap_serialize_none() {
+    #[derive(Serialize)]
+    struct TestConfig {
+        some_field: String,
+        #[serde(
+            default,
+            rename = "mlx-config-profiles",
+            skip_serializing_if = "Option::is_none",
+            serialize_with = "serialize_option_profile_map"
+        )]
+        mlx_config_profiles: Option<HashMap<String, MlxConfigProfile>>,
+    }
+
+    let config = TestConfig {
+        some_field: "test".to_string(),
+        mlx_config_profiles: None,
+    };
+
+    // Serialize to TOML.
+    let toml = toml::to_string_pretty(&config).expect("should serialize to TOML");
+
+    // Verify the profiles section is NOT in the output
+    // (skip_serializing_if works).
+    assert!(!toml.contains("mlx-config-profiles"));
+    assert!(toml.contains("some_field = \"test\""));
+}
+
+#[test]
+fn test_option_hashmap_roundtrip() {
+    #[derive(Serialize, Deserialize)]
+    struct TestConfig {
+        #[serde(
+            default,
+            rename = "mlx-config-profiles",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_option_profile_map",
+            serialize_with = "serialize_option_profile_map"
+        )]
+        mlx_config_profiles: Option<HashMap<String, MlxConfigProfile>>,
+    }
+
+    // Create original config.
+    let registry = registries::get("mlx_generic")
+        .expect("Should have mlx_generic registry")
+        .clone();
+
+    let profile = MlxConfigProfile::new("roundtrip-test", registry)
+        .with_description("testing roundtrip")
+        .with("SRIOV_EN", true)
+        .expect("should add config")
+        .with("NUM_OF_VFS", 16)
+        .expect("should add config");
+
+    let mut profiles = HashMap::new();
+    profiles.insert("roundtrip-test".to_string(), profile);
+
+    let original_config = TestConfig {
+        mlx_config_profiles: Some(profiles),
+    };
+
+    // Serialize to TOML.
+    let toml = toml::to_string_pretty(&original_config).expect("should serialize");
+
+    // Deserialize back.
+    let roundtrip_config: TestConfig = toml::from_str(&toml).expect("should deserialize");
+
+    // Verify roundtrip worked.
+    assert!(roundtrip_config.mlx_config_profiles.is_some());
+    let roundtrip_profiles = roundtrip_config.mlx_config_profiles.as_ref().unwrap();
+    assert_eq!(roundtrip_profiles.len(), 1);
+
+    let roundtrip_profile = roundtrip_profiles
+        .get("roundtrip-test")
+        .expect("should have profile");
+    assert_eq!(roundtrip_profile.name, "roundtrip-test");
+    assert_eq!(roundtrip_profile.registry.name, "mlx_generic");
+    assert_eq!(roundtrip_profile.variable_count(), 2);
+}
+
+#[test]
+fn test_option_hashmap_with_multiple_profiles_and_arrays() {
+    #[derive(Deserialize)]
+    struct TestConfig {
+        #[serde(
+            default,
+            rename = "mlx-config-profiles",
+            deserialize_with = "deserialize_option_profile_map"
+        )]
+        mlx_config_profiles: Option<HashMap<String, MlxConfigProfile>>,
+    }
+
+    let toml = r#"
+[mlx-config-profiles.profile-with-arrays]
+name = "profile-with-arrays"
+registry_name = "mlx_generic"
+description = "Profile testing array support"
+
+[mlx-config-profiles.profile-with-arrays.config]
+SRIOV_EN = true
+NUM_OF_VFS = 8
+# PCI_DOWNSTREAM_PORT_OWNER needs exactly 16 elements
+PCI_DOWNSTREAM_PORT_OWNER = [
+    "EMBEDDED_CPU",
+    "HOST_0",
+    "HOST_1",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT",
+    "DEVICE_DEFAULT"
+]
+
+[mlx-config-profiles.simple-profile]
+name = "simple-profile"
+registry_name = "mlx_generic"
+
+[mlx-config-profiles.simple-profile.config]
+SRIOV_EN = false
+NUM_OF_VFS = 2
+"#;
+
+    let config: TestConfig = toml::from_str(toml).expect("should deserialize");
+
+    assert!(config.mlx_config_profiles.is_some());
+    let profiles = config.mlx_config_profiles.as_ref().unwrap();
+    assert_eq!(profiles.len(), 2);
+
+    // Verify profile with arrays
+    let array_profile = profiles
+        .get("profile-with-arrays")
+        .expect("should have array profile");
+    assert_eq!(array_profile.variable_count(), 3);
+
+    // Verify simple profile
+    let simple_profile = profiles
+        .get("simple-profile")
+        .expect("should have simple profile");
+    assert_eq!(simple_profile.variable_count(), 2);
 }
