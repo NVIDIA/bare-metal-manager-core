@@ -7,14 +7,14 @@ authors.workspace = true
 
 [dependencies]
 hyper = { workspace = true }
-hyper-util = { version = "^0.1", features = ["server", "http1", "http2", "tokio"] }
+hyper-util = { features = ["server", "http1", "http2", "tokio"] , workspace = true }
 tokio = { workspace = true }
-http-body-util = "^0.1"
-bytes = "^1"
+http-body-util = { workspace = true }
+bytes = { workspace = true }
 
-prometheus = "0.13.4"
-tracing = "*"
-eyre = "*"
+prometheus = { workspace = true }
+tracing = { workspace = true }
+eyre = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 opentelemetry-prometheus = { workspace = true }

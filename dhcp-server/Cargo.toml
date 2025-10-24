@@ -21,23 +21,23 @@ carbide-rpc = { path = "../rpc" }
 carbide-utils = { path = "../common/utils" }
 carbide-uuid = { path = "../common/uuid" }
 
-serde_yaml = "0.9.27"
-serde = { version = "1.0.190", features = ["derive"] }
+serde_yaml = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 ipnetwork = { workspace = true }
-clap = { version = "4.4.7", features = ["derive"] }
-dhcproto = "0.12.0"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = [
+clap = { features = ["derive"] , workspace = true }
+dhcproto = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { features = [
     "env-filter",
     "local-time",
-] }
-thiserror = "2.0.3"
-lru = "0.13.0"
-socket2 = "0.5.5"
-chrono = "0.4.38"
-futures = "*"
+] , workspace = true }
+thiserror = { workspace = true }
+lru = { workspace = true }
+socket2 = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
 
 [lints]
 workspace = true

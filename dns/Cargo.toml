@@ -11,15 +11,15 @@ name = "carbide-dns"
 path = "src/main.rs"
 
 [dependencies]
-async-trait = "0.1.43"
+async-trait = { workspace = true }
 clap = { workspace = true }
-eyre = "*"
+eyre = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-tracing = "*"
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-trust-dns-server = "0.23.2"
-trust-dns-resolver = "0.23.2"
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+trust-dns-server = { workspace = true }
+trust-dns-resolver = { workspace = true }
 
 # [local-dependencies]
 carbide-tls = { path = "../common/tls" }

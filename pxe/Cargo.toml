@@ -20,34 +20,34 @@ carbide-uuid = { path = "../common/uuid" }
 # [end-local-dependencies]
 
 axum = { workspace = true }
-axum-response-cache = "0.4"
+axum-response-cache = { workspace = true }
 axum-client-ip = { workspace = true }
 axum-template = { workspace = true, features = ["tera"] }
-base64 = "0.22.1"
-bytes = "1"
+base64 = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
-http-body = "1.0"
-metrics = "0.24"
-metrics-exporter-prometheus = "0.16"
-mime = "0.3"
-pin-project-lite = "0.2"
-serde = { version = "*", features = ["derive"] }
-tera = "1.20"
+http-body = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+mime = { workspace = true }
+pin-project-lite = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
+tera = { workspace = true }
 tokio = { workspace = true }
-toml = "0.8"
+toml = { workspace = true }
 tonic = { workspace = true }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["fs"] }
-tower-layer = "0.3"
-tower-service = "0.3"
-uuid = { version = "1.0", features = ["v4", "serde"] }
+tower = { workspace = true }
+tower-http = { features = ["fs"] , workspace = true }
+tower-layer = { workspace = true }
+tower-service = { workspace = true }
+uuid = { features = ["v4", "serde"] , workspace = true }
 
 [build-dependencies]
 carbide-version = { path = "../common/version" }
 
 [dev-dependencies]
-tempfile = "3"
-rand = "0.8.5"
+tempfile = { workspace = true }
+rand = { workspace = true }
 
 [lints]
 workspace = true

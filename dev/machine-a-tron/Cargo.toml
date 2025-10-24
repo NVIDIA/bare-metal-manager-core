@@ -15,42 +15,43 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.4.18", features = ["derive", "env"] }
-lazy_static = "1.4.0"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-uuid = { version = "1.6.1", features = ["v4"] }
+clap = { features = ["derive", "env"] , workspace = true }
+lazy_static = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter"] , workspace = true }
+uuid = { features = ["v4"] , workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
-serde = "1.0.195"
-serde_json = "1.0.111"
+serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-socket2 = "0.5.5"
-base64 = "0.22.1"
-chrono = "0.4.34"
-thiserror = "2"
+socket2 = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
 axum = { workspace = true }
-crossterm = { version = "0.28.1", features = ["event-stream"] }
-ratatui = "0.29.0"
-dhcproto = "0.12.0"
-mac_address = "1.1.5"
-futures = "0.3.30"
-figment = { version = "0.10.16", features = ["toml"] }
+crossterm = { features = ["event-stream"] , workspace = true }
+ratatui = { workspace = true }
+dhcproto = { workspace = true }
+mac_address = { workspace = true }
+futures = { workspace = true }
+figment = { features = ["toml"] , workspace = true }
 libredfish = { workspace = true }
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { default-features = false, features = [
     "json",
     "rustls-tls",
     "stream",
     "socks",
     "multipart",
-] }
-eyre = "0.6.12"
-tempfile = "3"
-duration-str = "0.12"
-rand = "0.9"
-rcgen = "0.13.1"
-russh = { version = "0.52.1" }
-rand_core = "0.6.4" # russh needs an old version >_<
+] , workspace = true }
+eyre = { workspace = true }
+tempfile = { workspace = true }
+duration-str = { workspace = true }
+rand = { workspace = true }
+rcgen = { workspace = true }
+russh = { workspace = true }
+# NOTE: russh needs an old version of rand_core, we can't use the workspace version
+rand_core = "0.6.4" # move-deps-to-workspace:ignore
 
 # [local-dependencies]
 carbide-rpc = { path = "../../rpc" }
@@ -60,7 +61,7 @@ carbide-version = { path = "../../common/version" }
 carbide-uuid = { path = "../../common/uuid" }
 
 [dev-dependencies]
-toml = "0.8.20"
+toml = { workspace = true }
 
 [build-dependencies]
 carbide-version = { path = "../../common/version" }

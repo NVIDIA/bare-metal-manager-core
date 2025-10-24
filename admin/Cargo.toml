@@ -26,27 +26,27 @@ carbide-rpc = { path = "../rpc", features = ["cli"] }
 carbide-utils = { path = "../common/utils" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
-chrono = "0.4.34"
+chrono = { workspace = true }
 clap = { workspace = true }
-clap_complete = "*"
-color-eyre = "*"
-csv = "1.3.1"
-eyre = "*"
-futures = "0.3"
-ipnet = "2.10.1"
+clap_complete = { workspace = true }
+color-eyre = { workspace = true }
+csv = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+ipnet = { workspace = true }
 libredfish = { workspace = true }
-mac_address = "1.1.2"
-prettytable-rs = "^0.10"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_yaml = "0.9.25"
+mac_address = { workspace = true }
+prettytable-rs = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 tokio = { workspace = true }
-toml = "0.8.8"
+toml = { workspace = true }
 tonic = { workspace = true }
-tracing = "*"
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-uuid = "1.0"
-x509-parser = { version = "0.17.0", features = ["validate"] }
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+uuid = { workspace = true }
+x509-parser = { features = ["validate"] , workspace = true }
 
 [build-dependencies]
 clap = { workspace = true }

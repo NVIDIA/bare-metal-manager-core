@@ -12,19 +12,19 @@ name = "forge_http_connector"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hickory-resolver = { version = "0.24.0" }
+hickory-resolver = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
-tracing = "0.1.40"
-socket2 = "0.5.5"
+tracing = { workspace = true }
+socket2 = { workspace = true }
 hyper = { workspace = true, features = [
     "client",
 ] }
-hyper-util = { version = "0.1.10", features = ["tokio"] }
+hyper-util = { features = ["tokio"] , workspace = true }
 
-futures-util = "0.3.28"
-tower-service = "0.3.2"
-tokio-socks = "0.5.1"
-tryhard = "0.5.1"
+futures-util = { workspace = true }
+tower-service = { workspace = true }
+tokio-socks = { workspace = true }
+tryhard = { workspace = true }
 
 # [local-dependencies]
 dsocket = { path = "../dsocket" }

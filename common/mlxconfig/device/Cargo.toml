@@ -7,23 +7,23 @@ edition = "2021"
 name = "mlxconfig_device"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-clap = { version = "4.0", features = ["derive"] }
-tokio = { version = "1.0", features = ["full"] }
-anyhow = "1.0"
-thiserror = "1.0"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-quick-xml = { version = "0.31", features = ["serialize"] }
-prettytable-rs = "0.10"
-regex = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-hostname = "0.3"
-mac_address = { version = "1.1", features = ["serde"] }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+clap = { features = ["derive"] , workspace = true }
+tokio = { features = ["full"] , workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter"] , workspace = true }
+quick-xml = { features = ["serialize"] , workspace = true }
+prettytable-rs = { workspace = true }
+regex = { workspace = true }
+chrono = { features = ["serde"] , workspace = true }
+hostname = { workspace = true }
+mac_address = { features = ["serde"] , workspace = true }
 carbide-rpc = { path = "../../../rpc" }
-prost-types = "0.14.1"
+prost-types = { workspace = true }
 
 [dev-dependencies]
-tokio-test = "0.4"
+tokio-test = { workspace = true }

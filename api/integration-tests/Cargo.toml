@@ -16,15 +16,15 @@ bmc-mock = { path = "../../dev/bmc-mock" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
-ctor = "0.2"
-eyre = "*"
-futures = "0.3"
-itertools = "*"
-serde_json = "*"
+ctor = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["postgres"] }
-temp-dir = "0.1.14"
+temp-dir = { workspace = true }
 tokio = { workspace = true }
-tracing = "*"
+tracing = { workspace = true }
 #these are alphabetized
 
 [lints]

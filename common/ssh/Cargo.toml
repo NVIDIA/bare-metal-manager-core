@@ -12,11 +12,11 @@ name = "forge_ssh"
 [dependencies]
 tokio = { workspace = true }
 tonic = { workspace = true }
-ssh2 = { version = "0.9" }
-openssl = { version = "0.10", features = ["aws-lc"] }
-humantime = "2.1.0"
-thiserror = "2.0.3"
-tracing = "*"
+ssh2 = { workspace = true }
+openssl = { features = ["aws-lc"] , workspace = true }
+humantime = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
 
 
 [lints]

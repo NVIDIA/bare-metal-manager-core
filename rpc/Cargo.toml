@@ -21,39 +21,39 @@ carbide-health-report = { path = "../common/health-report" }
 tonic-client-wrapper = { path = "../common/tonic-client-wrapper", default-features = false }
 carbide-uuid = { path = "../common/uuid" }
 
-chrono = { version = "0.4.34", features = ["serde"] }
-eyre = "0.6"
+chrono = { features = ["serde"] , workspace = true }
+eyre = { workspace = true }
 hyper = { workspace = true, features = ["full"] }
 hyper-rustls = { workspace = true, features = ["http2"] }
-hyper-util = { version = "^0.1", features = ["server", "http1", "http2", "tokio", "client", "client-legacy"] }
-mac_address = "*"
-prost = "0.14.1"
-prost-types = "0.14.1"
-rustls-pemfile = "^2"
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
+hyper-util = { features = ["server", "http1", "http2", "tokio", "client", "client-legacy"] , workspace = true }
+mac_address = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+rustls-pemfile = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-tower = "0.5.1"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-x509-parser = "0.17.0"
-log = "0.4.19"
-hickory-resolver = "0.24.0"
-resolv-conf = "0.7.0"
-tracing = "0.1.37"
-thiserror = "2.0"
-tonic-prost = "0.14"
-tonic-prost-build = "0.14"
-tryhard = "0.5.1"
+tower = { workspace = true }
+uuid = { features = ["v4", "serde"] , workspace = true }
+x509-parser = { workspace = true }
+log = { workspace = true }
+hickory-resolver = { workspace = true }
+resolv-conf = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tonic-prost = { workspace = true }
+tonic-prost-build = { workspace = true }
+tryhard = { workspace = true }
 rustls = { workspace = true, features = ["default", "ring"] }
-async-trait = "0.1.88"
-nonempty = "0.11.0"
-clap = { version = "4.5.45", features = ["derive"], optional = true }
+async-trait = { workspace = true }
+nonempty = { workspace = true }
+clap = { features = ["derive"], optional = true , workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
-prettytable-rs = { version = "^0.10", optional = true }
-serde_yaml = { version = "*", optional = true }
-data-encoding = "2.9.0"
-sha2 = "0.10.9"
+prettytable-rs = { optional = true , workspace = true }
+serde_yaml = { optional = true , workspace = true }
+data-encoding = { workspace = true }
+sha2 = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 
 [build-dependencies]

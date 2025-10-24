@@ -40,84 +40,85 @@ spancounter = { path = "../common/spancounter" }
 
 #these are alphabetized
 ansi-to-html = { workspace = true }
-arc-swap = "1.6"
-askama = { version = "0.12.1", features = ["serde-json"] }
-askama_escape = "0.10"
-asn1-rs = "0.7.0"
-async-trait = "*"
+arc-swap = { workspace = true }
+askama = { features = ["serde-json"] , workspace = true }
+askama_escape = { workspace = true }
+asn1-rs = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true, features = ["http2"] }
 axum-extra = { workspace = true, features = ["cookie", "cookie-private"] }
-base64 = "0.22.1"
-byteorder = "1.5.0"
-bytes = "1.8.0"
-casbin = { version = "2.0", features = ["glob"] }
-chrono = "0.4.34"
+base64 = { workspace = true }
+byteorder = { workspace = true }
+bytes = { workspace = true }
+casbin = { features = ["glob"] , workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
-dashmap = "6.1.0"
-data-encoding = "2.3.3"
-duration-str = "0.12.0"
-eyre = "*"
-figment = { version = "0.10.10", features = ["env", "toml"] }
-futures = "0.3"
-futures-util = "0.3"
-hex = "0.4.3"
-http = "1"
-http-body-util = { version = "^0.1" }
+crypto-bigint = { workspace = true }
+dashmap = { workspace = true }
+data-encoding = { workspace = true }
+duration-str = { workspace = true }
+eyre = { workspace = true }
+figment = { features = ["env", "toml"] , workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["full"] }
 hyper-rustls = { workspace = true }
 hyper-timeout = { workspace = true }
 hyper-util = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
-itertools = "*"
-jemalloc_pprof = { version = "0.8", features = ["flamegraph"] }
-lazy_static = "1.5.0"
+itertools = { workspace = true }
+jemalloc_pprof = { features = ["flamegraph"] , workspace = true }
+lazy_static = { workspace = true }
 libnvmesh = { workspace = true }
 libredfish = { workspace = true }
-mac_address = "1.1.2"
-md5 = "0.7"
-num-bigint-dig = "0.8.4"
-num_cpus = "1.16.0"
-oauth2 = { version = "5", default-features = false }
-oid-registry = "0.8"
+mac_address = { workspace = true }
+md5 = { workspace = true }
+num-bigint-dig = { workspace = true }
+num_cpus = { workspace = true }
+oauth2 = { default-features = false , workspace = true }
+oid-registry = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus.workspace = true
-opentelemetry-semantic-conventions = { version = "0.27", features = ["semconv_experimental"] }
+opentelemetry-semantic-conventions = { features = ["semconv_experimental"] , workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["logs", "rt-tokio", "spec_unstable_metrics_views", "testing"] }
-pkcs1 = "0.7.5"
-prometheus = "0.13"
-rand = "0.9"
-regex = "1.6"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
-rsa = "0.9.6"
-rumqttc = "0.24"
+pkcs1 = { workspace = true }
+prometheus = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { default-features = false, features = ["rustls-tls", "stream"] , workspace = true }
+rsa = { workspace = true }
+rumqttc = { workspace = true }
 rustls = { workspace = true, features = ["default", "ring"] }
-rustls-pemfile = "2.2"
+rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "*"
-sha2 = "0.10.3"
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
-strum = "0.26.2"
-temp-dir = "0.1.14"
-thiserror = "2.0"
-time = "0.3.36"
-tikv-jemallocator = { version = "0.6.1", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
+strum = { workspace = true }
+temp-dir = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tikv-jemallocator = { features = ["profiling", "unprefixed_malloc_on_supported_platforms"] , workspace = true }
 tokio = { workspace = true }
-tokio-rustls = "0.26"
-toml = "0.8.8"
+tokio-rustls = { workspace = true }
+toml = { workspace = true }
 tonic = { workspace = true }
-tonic-reflection = "0.12"
-tower = "0.5"
-tower-http = { version = "0.6.1", features = ["add-extension", "auth", "normalize-path", ] }
-tracing = "*"
+tonic-reflection = { workspace = true }
+tower = { workspace = true }
+tower-http = { features = ["add-extension", "auth", "normalize-path", ] , workspace = true }
+tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-tss-esapi = { version = "7.5.0", optional = true }
-url = { version = "2", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
-version-compare = "0.2.0"
-x509-parser = { version = "0.17.0", features = ["verify"] }
+tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+tss-esapi = { optional = true , workspace = true }
+url = { features = ["serde"] , workspace = true }
+uuid = { features = ["v4", "serde"] , workspace = true }
+version-compare = { workspace = true }
+x509-parser = { features = ["verify"] , workspace = true }
 #these are alphabetized
 
 [features]
@@ -132,16 +133,16 @@ linux-build = [
 carbide-version = { path = "../common/version" }
 
 [dev-dependencies]
-figment = { version = "0.10.10", features = ["env", "test", "toml"] }
-ctor = "0.2"
-lazy_static = "1.4.0"
-const_format = "0.2.26"
-rcgen = "0.13.1"
+figment = { features = ["env", "test", "toml"] , workspace = true }
+ctor = { workspace = true }
+lazy_static = { workspace = true }
+const_format = { workspace = true }
+rcgen = { workspace = true }
 carbide-macros = { path = "../common/carbide-macros" }
 carbide-sqlx-testing = { path = "../common/sqlx-testing", default-features = false }
 prometheus-text-parser = { path = "../common/prometheus-text-parser" }
 carbide-prost-builder = { path = "../common/prost-builder" }
-prost = "0.14.1"
+prost = { workspace = true }
 
 [lints]
 workspace = true

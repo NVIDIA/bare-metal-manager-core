@@ -11,30 +11,30 @@ name = "forge-hw-health"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.92"
-base64 = "0.22.1"
+anyhow = { workspace = true }
+base64 = { workspace = true }
 clap = { workspace = true }
-chrono = "*"
-eyre = "*"
-futures = "0.3"
+chrono = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
 libredfish = { workspace = true }
-humantime = "*"
+humantime = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true, features = ["tokio"] }
-http-body-util = "0.1.2"
-lazy_static = "1.5.0"
+http-body-util = { workspace = true }
+lazy_static = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
-prometheus = "0.13"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+prometheus = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
 # The "*" version has old `digest` who's `subtle` conflicts with reqwest
-sha2 = "0.11.0-pre.1"
-tracing = "*"
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-thiserror = "2"
+sha2 = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 

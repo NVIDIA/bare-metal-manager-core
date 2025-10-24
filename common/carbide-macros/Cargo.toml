@@ -11,11 +11,11 @@ proc-macro = true
 
 [dependencies]
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
-sqlx-macros-core = "0.8.2"
-syn = "2.0.90"
-quote = { version = "1.0.37", default-features = false }
-eyre = { version = "0.6.12" }
-proc-macro2 = { version = "1.0.92", features = ["proc-macro"] }
+sqlx-macros-core = { workspace = true }
+syn = { workspace = true }
+quote = { default-features = false , workspace = true }
+eyre = { workspace = true }
+proc-macro2 = { features = ["proc-macro"] , workspace = true }
 
 [lints]
 workspace = true

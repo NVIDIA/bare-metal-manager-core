@@ -14,3 +14,6 @@ cratesio = { index = "https://github.com/rust-lang/crates.io-index" }
 
 [env]
 RUST_TEST_THREADS = "8"
+
+[alias]
+xtask = "run --package xtask --"

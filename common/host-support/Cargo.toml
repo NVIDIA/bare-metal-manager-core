@@ -20,26 +20,26 @@ carbide-rpc = { path = "../../rpc" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 
-base64 = "0.22.1"
-csv = "1.2.1"
-eyre = "*"
+base64 = { workspace = true }
+csv = { workspace = true }
+eyre = { workspace = true }
 ipnetwork = { workspace = true }
-libudev = { version = "0.3", optional = true }
-procfs = { version = "0.17", optional = true }
-regex = "1.6"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-smbios-lib = "0.9.0"
-thiserror = "2"
+libudev = { optional = true , workspace = true }
+procfs = { optional = true , workspace = true }
+regex = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
+smbios-lib = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
-toml = "0.8.8"
+toml = { workspace = true }
 tonic = { workspace = true }
-tracing = "*"
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-tryhard = "0.5.1"
-uname = "0.1"
-uuid = "1.0"
-serde_with = "3.12.0"
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+tryhard = { workspace = true }
+uname = { workspace = true }
+uuid = { workspace = true }
+serde_with = { workspace = true }
 
 [lints]
 workspace = true

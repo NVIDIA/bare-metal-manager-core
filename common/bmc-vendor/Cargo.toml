@@ -8,7 +8,7 @@ authors.workspace = true
 [dependencies]
 clap = { workspace = true }
 libredfish = { workspace = true }
-serde = { version = "1", features = ["derive"] }
+serde = { features = ["derive"] , workspace = true }
 
 [lints]
 workspace = true
