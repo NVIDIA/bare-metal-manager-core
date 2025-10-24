@@ -37,8 +37,8 @@ use model::site_explorer::{
     ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredManagedHost, UefiDevicePath,
 };
+use rpc::forge::GetSiteExplorationRequest;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{DhcpDiscovery, GetSiteExplorationRequest};
 use rpc::site_explorer::{
     ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost,
 };
@@ -60,6 +60,7 @@ use crate::tests::common::api_fixtures::network_segment::{
     create_host_inband_network_segment,
 };
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
+use crate::tests::common::rpc_builder::DhcpDiscovery;
 use crate::tests::common::test_meter::TestMeter;
 
 #[derive(Clone, Debug)]
@@ -104,19 +105,17 @@ trait DiscoverDhcp {
 #[async_trait::async_trait]
 impl DiscoverDhcp for FakeMachine {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
+        let relay_address = match self.segment {
+            s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
+            _ => "192.0.2.1".to_string(),
+        };
         let response = env
             .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: self.mac.to_string(),
-                relay_address: match self.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-                link_address: None,
-                vendor_string: Some(self.dhcp_vendor.clone()),
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(
+                DhcpDiscovery::builder(self.mac, relay_address)
+                    .vendor_string(&self.dhcp_vendor)
+                    .tonic_request(),
+            )
             .await?
             .into_inner();
         tracing::info!(
@@ -830,14 +829,11 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
     let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:98")?;
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: host_bmc_mac.to_string(),
-            relay_address: "192.0.1.1".to_string(),
-            link_address: None,
-            vendor_string: Some("SomeVendor".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(host_bmc_mac, "192.0.1.1")
+                .vendor_string("SomeVendor")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -1069,14 +1065,11 @@ async fn test_site_explorer_creates_managed_host(
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: oob_mac.to_string(),
-            relay_address: "192.0.1.1".to_string(),
-            link_address: None,
-            vendor_string: Some("NVIDIA/OOB".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(oob_mac, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -1101,14 +1094,11 @@ async fn test_site_explorer_creates_managed_host(
 
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mock_host.bmc_mac_address.to_string(),
-            relay_address: "192.0.1.1".to_string(),
-            link_address: None,
-            vendor_string: Some("NVIDIA/OOB".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -1498,14 +1488,11 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         let oob_mac = mock_dpu.oob_mac_address;
         let response = env
             .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: oob_mac.to_string(),
-                relay_address: "192.0.1.1".to_string(),
-                link_address: None,
-                vendor_string: Some("NVIDIA/OOB".to_string()),
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(
+                DhcpDiscovery::builder(oob_mac, "192.0.1.1")
+                    .vendor_string("NVIDIA/OOB")
+                    .tonic_request(),
+            )
             .await
             .unwrap()
             .into_inner();
@@ -1528,14 +1515,11 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     let host_bmc_mac = mock_host.bmc_mac_address;
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: host_bmc_mac.to_string(),
-            relay_address: "192.0.1.1".to_string(),
-            link_address: None,
-            vendor_string: Some("NVIDIA/OOB".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(host_bmc_mac, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -1781,14 +1765,11 @@ async fn test_disable_machine_creation_outside_site_explorer(
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: oob_mac.to_string(),
-            relay_address: "192.0.1.1".to_string(),
-            link_address: None,
-            vendor_string: Some("NVIDIA/OOB".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(oob_mac, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -2147,14 +2128,11 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     // Create mi now.
     let _response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: oob_mac.to_string(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: Some("bluefield".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(oob_mac, "192.0.2.1")
+                .vendor_string("bluefield")
+                .tonic_request(),
+        )
         .await?
         .into_inner();
 
@@ -2170,14 +2148,11 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
 
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mock_host.bmc_mac_address.to_string(),
-            relay_address: "192.0.1.1".to_string(),
-            link_address: None,
-            vendor_string: Some("NVIDIA/OOB".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -2274,14 +2249,11 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
 
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mock_host.bmc_mac_address.to_string(),
-            relay_address: "192.0.1.1".to_string(),
-            link_address: None,
-            vendor_string: Some("NVIDIA/OOB".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -2369,14 +2341,11 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // Create mi now.
     let _response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mock_dpu.oob_mac_address.to_string(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: Some("bluefield".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(mock_dpu.oob_mac_address, "192.0.2.1")
+                .vendor_string("bluefield")
+                .tonic_request(),
+        )
         .await?
         .into_inner();
 
@@ -2436,14 +2405,11 @@ async fn test_fetch_host_primary_interface_mac(
         let oob_mac = mock_dpu.bmc_mac_address;
         let response = env
             .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: oob_mac.to_string(),
-                relay_address: "192.0.1.1".to_string(),
-                link_address: None,
-                vendor_string: Some("NVIDIA/OOB".to_string()),
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(
+                DhcpDiscovery::builder(oob_mac, "192.0.1.1")
+                    .vendor_string("NVIDIA/OOB")
+                    .tonic_request(),
+            )
             .await
             .unwrap()
             .into_inner();

@@ -17,6 +17,7 @@ use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::VpcId;
 use model::instance::config::network::DeviceLocator;
+use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;
@@ -33,6 +34,7 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
     create_test_env, populate_network_security_groups, site_explorer,
 };
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 async fn update_network_status_observation(
     env: &TestEnv,
@@ -861,25 +863,18 @@ async fn test_network_security_group_delete(
     let default_tenant_org = "Tenant1";
 
     // Our known fixture network security group
-    let good_network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448".to_string();
-    let bad_network_security_group_id = "ddfcabc4-92dc-41e2-874e-2c7eeb9fa156".to_string();
+    let good_network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
+    let bad_network_security_group_id = "ddfcabc4-92dc-41e2-874e-2c7eeb9fa156";
 
     // Create a VPC
     let vpc = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "".to_string(),
-            tenant_organization_id: default_tenant_org.to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: Some(good_network_security_group_id.clone()),
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", default_tenant_org)
+                .network_security_group_id(good_network_security_group_id)
+                .metadata(Metadata::new_with_default_name())
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -902,7 +897,7 @@ async fn test_network_security_group_delete(
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 storage: None,
-                network_security_group_id: Some(good_network_security_group_id.clone()),
+                network_security_group_id: Some(good_network_security_group_id.into()),
             }),
             instance_id: None,
             instance_type_id: None,
@@ -1141,15 +1136,10 @@ async fn test_network_security_group_propagation_impl(
 
     let segment_ids = env
         .create_vpc_and_tenant_segments_with_vpc_details(
-            rpc::forge::VpcCreationRequest {
-                id: Some(vpc_id),
-                name: "Tenant1".to_string(),
-                tenant_organization_id: default_tenant_org.to_string(),
-                tenant_keyset_id: None,
-                network_virtualization_type: None,
-                metadata: None,
-                network_security_group_id: Some(good_network_security_group_id.to_string()),
-            },
+            VpcCreationRequest::builder("Tenant1", default_tenant_org)
+                .id(vpc_id)
+                .network_security_group_id(good_network_security_group_id)
+                .rpc(),
             dpu_count,
         )
         .await;
@@ -1771,15 +1761,12 @@ async fn test_network_security_group_get_attachments(
 
     // Create a VPC
     let segment_id = env
-        .create_vpc_and_tenant_segment_with_vpc_details(rpc::forge::VpcCreationRequest {
-            id: Some(vpc_id),
-            name: "Tenant1".to_string(),
-            tenant_organization_id: default_tenant_org.to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            metadata: None,
-            network_security_group_id: Some(good_network_security_group_id.to_string()),
-        })
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder("Tenant1", default_tenant_org)
+                .id(vpc_id)
+                .network_security_group_id(good_network_security_group_id)
+                .rpc(),
+        )
         .await;
 
     // Create a new managed host in the DB and get the snapshot.

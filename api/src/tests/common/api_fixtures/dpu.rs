@@ -26,7 +26,6 @@ use model::site_explorer::{
     EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, PowerState,
     Service, UefiDevicePath,
 };
-use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use sqlx::PgConnection;
@@ -37,6 +36,7 @@ use crate::cfg::file::DpuConfig as InitialDpuConfig;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost};
 use crate::tests::common::mac_address_pool;
+use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 /// The version identifier that is used by dpu-agent in unit-tests
 pub const TEST_DPU_AGENT_VERSION: &str = "test";
@@ -282,14 +282,9 @@ pub async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
 pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> MachineInterfaceId {
     let response = env
         .api
-        .discover_dhcp(Request::new(DhcpDiscovery {
-            mac_address: mac_address.to_string(),
-            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
-            vendor_string: None,
-            link_address: None,
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();

@@ -24,6 +24,7 @@ use sqlx::migrate::MigrateDatabase;
 
 use crate::tests;
 use crate::tests::common;
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 // Define an IPv4 pool from a range via the admin grpc
 #[crate::sqlx_test]
@@ -243,23 +244,10 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     txn.commit().await?;
 
     // CreateVpc rpc call
-    let vpc_req = rpc::forge::VpcCreationRequest {
-        id: None,
-        name: "test_vpc_assign_after_delete_1".to_string(),
-        tenant_organization_id: "test".to_string(),
-        tenant_keyset_id: None,
-        network_virtualization_type: Some(
-            rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
-        ),
-        metadata: None,
-        network_security_group_id: None,
-    };
-    let vpc1 = env
-        .api
-        .create_vpc(tonic::Request::new(vpc_req))
-        .await
-        .unwrap()
-        .into_inner();
+    let vpc_req = VpcCreationRequest::builder("test_vpc_assign_after_delete_1", "test")
+        .network_virtualization_type(rpc::forge::VpcVirtualizationType::EthernetVirtualizer)
+        .tonic_request();
+    let vpc1 = env.api.create_vpc(vpc_req).await.unwrap().into_inner();
 
     // Value is allocated
     let mut txn = db_pool.begin().await?;
@@ -285,23 +273,10 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     txn.commit().await?;
 
     // CreateVpc
-    let vpc_req = rpc::forge::VpcCreationRequest {
-        id: None,
-        name: "test_vpc_assign_after_delete_2".to_string(),
-        tenant_organization_id: "test".to_string(),
-        tenant_keyset_id: None,
-        network_virtualization_type: Some(
-            rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
-        ),
-        metadata: None,
-        network_security_group_id: None,
-    };
-    let vpc2 = env
-        .api
-        .create_vpc(tonic::Request::new(vpc_req))
-        .await
-        .unwrap()
-        .into_inner();
+    let vpc_req = VpcCreationRequest::builder("test_vpc_assign_after_delete_2", "test")
+        .network_virtualization_type(rpc::forge::VpcVirtualizationType::EthernetVirtualizer)
+        .tonic_request();
+    let vpc2 = env.api.create_vpc(vpc_req).await.unwrap().into_inner();
 
     // Value allocated again
     let mut txn = db_pool.begin().await?;

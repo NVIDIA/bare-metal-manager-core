@@ -36,6 +36,7 @@ use crate::tests::common::api_fixtures::{
     TestEnv, TestManagedHost, forge_agent_control, get_machine_validation_runs,
     machine_validation_completed, persist_machine_validation_result, update_machine_validation_run,
 };
+use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 /// MockExploredHost presents a fluent interface for declaring a mock host and running it through
 /// the site-explorer ingestion lifecycle. Its methods are intended to be chained together to
@@ -83,14 +84,14 @@ impl<'a> MockExploredHost<'a> {
         let result = self
             .test_env
             .api
-            .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
-                mac_address: self.managed_host.bmc_mac_address.to_string(),
-                relay_address: FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip().to_string(),
-                link_address: None,
-                vendor_string: Some("SomeVendor".to_string()),
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(
+                DhcpDiscovery::builder(
+                    self.managed_host.bmc_mac_address,
+                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(),
+                )
+                .vendor_string("SomeVendor")
+                .tonic_request(),
+            )
             .await;
 
         if let Ok(ref response) = result {
@@ -115,16 +116,14 @@ impl<'a> MockExploredHost<'a> {
         let result = self
             .test_env
             .api
-            .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
-                mac_address: self.managed_host.dpus[dpu_index as usize]
-                    .bmc_mac_address
-                    .to_string(),
-                relay_address: FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip().to_string(),
-                link_address: None,
-                vendor_string: Some("SomeVendor".to_string()),
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(
+                DhcpDiscovery::builder(
+                    self.managed_host.dpus[dpu_index as usize].bmc_mac_address,
+                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(),
+                )
+                .vendor_string("SomeVendor")
+                .tonic_request(),
+            )
             .await;
 
         if let Ok(ref response) = result {
@@ -186,14 +185,11 @@ impl<'a> MockExploredHost<'a> {
         let result = self
             .test_env
             .api
-            .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
-                mac_address: self.managed_host.dhcp_mac_address().to_string(),
-                relay_address,
-                vendor_string: Some("Bluefield".to_string()),
-                link_address: None,
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(
+                DhcpDiscovery::builder(self.managed_host.dhcp_mac_address(), relay_address)
+                    .vendor_string("Bluefield")
+                    .tonic_request(),
+            )
             .await;
         if let Ok(ref response) = result {
             self.host_dhcp_response = Some(response.get_ref().clone());
@@ -206,16 +202,14 @@ impl<'a> MockExploredHost<'a> {
         let _ = self
             .test_env
             .api
-            .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
-                mac_address: self.managed_host.dpus[dpu_index as usize]
-                    .oob_mac_address
-                    .to_string(),
-                relay_address: FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.ip().to_string(),
-                link_address: None,
-                vendor_string: Some("SomeVendor".to_string()),
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(
+                DhcpDiscovery::builder(
+                    self.managed_host.dpus[dpu_index as usize].oob_mac_address,
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.ip(),
+                )
+                .vendor_string("SomeVendor")
+                .tonic_request(),
+            )
             .await;
 
         self
@@ -234,14 +228,11 @@ impl<'a> MockExploredHost<'a> {
         let result = self
             .test_env
             .api
-            .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
-                mac_address,
-                relay_address,
-                vendor_string: Some("Bluefield".to_string()),
-                link_address: None,
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(
+                DhcpDiscovery::builder(mac_address, relay_address)
+                    .vendor_string("Bluefield")
+                    .tonic_request(),
+            )
             .await;
         if let Ok(ref response) = result {
             self.host_dhcp_response = Some(response.get_ref().clone());

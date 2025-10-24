@@ -23,6 +23,7 @@ use model::vpc::{UpdateVpc, UpdateVpcVirtualization};
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
+use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcUpdateRequest};
 use crate::{DatabaseError, db_init};
 
 #[crate::sqlx_test]
@@ -32,19 +33,15 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // No network_virtualization_type, should default
     let forge_vpc = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "".to_string(),
-            tenant_organization_id: String::new(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", "")
+                .metadata(rpc::forge::Metadata {
+                    name: "Forge".to_string(),
+                    description: "".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -58,22 +55,17 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     let no_org_vpc = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "".to_string(),
-            tenant_organization_id: String::new(),
-            tenant_keyset_id: None,
-            network_security_group_id: None,
-            network_virtualization_type: Some(
-                rpc::forge::VpcVirtualizationType::from(VpcVirtualizationType::EthernetVirtualizer)
-                    .into(),
-            ),
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge no Org".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", "")
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::from(
+                    VpcVirtualizationType::EthernetVirtualizer,
+                ))
+                .metadata(Metadata {
+                    name: "Forge no Org".to_string(),
+                    ..Metadata::default()
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -283,28 +275,18 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     let forge_vpc = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "".to_string(),
-            network_security_group_id: None,
-            tenant_organization_id: "Forge_unit_tests".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "test_VPC_with_labels".to_string(),
-                description: "this VPC must have labels.".to_string(),
-                labels: vec![
-                    rpc::forge::Label {
-                        key: "key1".to_string(),
-                        value: Some("value1".to_string()),
-                    },
-                    rpc::forge::Label {
-                        key: "key2".to_string(),
-                        value: None,
-                    },
-                ],
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", "Forge_unit_tests")
+                .metadata(Metadata {
+                    name: "test_VPC_with_labels".to_string(),
+                    description: "this VPC must have labels.".to_string(),
+                    labels: vec![("key1", "value1"), ("key2", "")]
+                        .into_iter()
+                        .map(|(k, v)| (k.into(), v.into()))
+                        .collect(),
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -405,15 +387,11 @@ async fn create_vpc_with_invalid_metadata(
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
         let result = env
             .api
-            .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-                id: None,
-                name: "".to_string(),
-                tenant_organization_id: "Forge_unit_tests".to_string(),
-                tenant_keyset_id: None,
-                network_virtualization_type: None,
-                metadata: Some(invalid_metadata.clone()),
-                network_security_group_id: None,
-            }))
+            .create_vpc(
+                VpcCreationRequest::builder("", "Forge_unit_tests")
+                    .metadata(invalid_metadata.clone())
+                    .tonic_request(),
+            )
             .await;
 
         let err = result.expect_err(&format!(
@@ -438,19 +416,15 @@ async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let forge_vpc1 = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "vpc_name".to_string(),
-            tenant_organization_id: "Forge_unit_tests".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "vpc_another_name".to_string(),
-                description: "No description.".to_string(),
-                labels: vec![],
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("vpc_name", "Forge_unit_tests")
+                .metadata(Metadata {
+                    name: "vpc_another_name".to_string(),
+                    description: "No description.".to_string(),
+                    ..Default::default()
+                })
+                .tonic_request(),
+        )
         .await;
 
     match forge_vpc1 {
@@ -465,19 +439,14 @@ async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let forge_vpc2 = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "vpc_name".to_string(),
-            tenant_organization_id: "Forge_unit_tests".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "".to_string(),
-                description: "No description.".to_string(),
-                labels: vec![],
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("vpc_name", "Forge_unit_tests")
+                .metadata(Metadata {
+                    description: "No description.".to_string(),
+                    ..Default::default()
+                })
+                .tonic_request(),
+        )
         .await;
 
     match forge_vpc2 {
@@ -503,38 +472,28 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     let forge_vpc_1 = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "".to_string(),
-            tenant_organization_id: String::new(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "prevent_duplicate_vni".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", "")
+                .metadata(Metadata {
+                    name: "prevent_duplicate_vni".to_string(),
+                    ..Default::default()
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
     assert!(forge_vpc_1.vni.is_some());
     let forge_vpc_2 = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "".to_string(),
-            tenant_organization_id: String::new(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "prevent_duplicate_vni".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", "")
+                .metadata(Metadata {
+                    name: "prevent_duplicate_vni".to_string(),
+                    ..Default::default()
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -588,19 +547,15 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     // No network_virtualization_type, should default
     let forge_vpc = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: Some(id),
-            name: "".to_string(),
-            tenant_organization_id: String::new(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", "")
+                .id(id)
+                .metadata(Metadata {
+                    name: "Forge".to_string(),
+                    ..Default::default()
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -613,25 +568,13 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(pool).await;
 
-    let vpc_req = rpc::forge::VpcCreationRequest {
-        id: None,
-        name: "".to_string(),
-        tenant_organization_id: "test".to_string(),
-        tenant_keyset_id: None,
-        network_virtualization_type: None,
-        network_security_group_id: None,
-        metadata: Some(rpc::forge::Metadata {
+    let vpc_req = VpcCreationRequest::builder("", "test")
+        .metadata(Metadata {
             name: "test_vpc".to_string(),
-            description: "".to_string(),
-            labels: Vec::new(),
-        }),
-    };
-    let resp = env
-        .api
-        .create_vpc(tonic::Request::new(vpc_req))
-        .await
-        .unwrap()
-        .into_inner();
+            ..Default::default()
+        })
+        .tonic_request();
+    let resp = env.api.create_vpc(vpc_req).await.unwrap().into_inner();
 
     let vpc_id = resp.id.unwrap();
     assert_eq!(resp.name, "test_vpc");
@@ -737,8 +680,8 @@ async fn create_update_network_security_group_for_vpc(
 
     populate_network_security_groups(env.api.clone()).await;
 
-    let good_network_security_group_id = Some("fd3ab096-d811-11ef-8fe9-7be4b2483448".to_string());
-    let bad_network_security_group_id = Some("ddfcabc4-92dc-41e2-874e-2c7eeb9fa156".to_string());
+    let good_network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
+    let bad_network_security_group_id = "ddfcabc4-92dc-41e2-874e-2c7eeb9fa156";
 
     let default_tenant_org = "Tenant1";
 
@@ -746,38 +689,24 @@ async fn create_update_network_security_group_for_vpc(
     // different tenant.  This should fail.
     let _ = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "".to_string(),
-            tenant_organization_id: default_tenant_org.to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: bad_network_security_group_id.clone(),
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", default_tenant_org)
+                .network_security_group_id(bad_network_security_group_id)
+                .metadata(Metadata::new_with_default_name())
+                .tonic_request(),
+        )
         .await
         .unwrap_err();
 
     // Try again with a good NSG ID.
     let vpc = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "".to_string(),
-            tenant_organization_id: default_tenant_org.to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            network_security_group_id: good_network_security_group_id.clone(),
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("", default_tenant_org)
+                .network_security_group_id(good_network_security_group_id)
+                .metadata(Metadata::new_with_default_name())
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -785,8 +714,8 @@ async fn create_update_network_security_group_for_vpc(
     // Make sure the VPC has the security group we expect
 
     assert_eq!(
-        vpc.network_security_group_id,
-        good_network_security_group_id
+        vpc.network_security_group_id.as_deref(),
+        Some(good_network_security_group_id)
     );
 
     let vpc_id = vpc.id;
@@ -795,34 +724,26 @@ async fn create_update_network_security_group_for_vpc(
     // different tenant.  This should fail.
     let _ = env
         .api
-        .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
-            id: vpc_id,
-            if_version_match: None,
-            name: "".to_string(),
-            network_security_group_id: bad_network_security_group_id.clone(),
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .update_vpc(
+            VpcUpdateRequest::builder("")
+                .set_id(vpc_id)
+                .network_security_group_id(bad_network_security_group_id)
+                .metadata(Metadata::new_with_default_name())
+                .tonic_request(),
+        )
         .await
         .unwrap_err();
 
     // Try again with a good NSG ID.
     let vpc = env
         .api
-        .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
-            id: vpc_id,
-            if_version_match: None,
-            name: "".to_string(),
-            network_security_group_id: good_network_security_group_id.clone(),
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .update_vpc(
+            VpcUpdateRequest::builder("")
+                .set_id(vpc_id)
+                .network_security_group_id(good_network_security_group_id)
+                .metadata(Metadata::new_with_default_name())
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner()
@@ -831,24 +752,19 @@ async fn create_update_network_security_group_for_vpc(
 
     // Make sure the VPC has the security group we expect
     assert_eq!(
-        vpc.network_security_group_id,
-        good_network_security_group_id
+        vpc.network_security_group_id.as_deref(),
+        Some(good_network_security_group_id)
     );
 
     // Update again to clear the the NSG attachment.
     let vpc = env
         .api
-        .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
-            id: vpc_id,
-            if_version_match: None,
-            name: "".to_string(),
-            network_security_group_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "Forge".to_string(),
-                description: "".to_string(),
-                labels: Vec::new(),
-            }),
-        }))
+        .update_vpc(
+            VpcUpdateRequest::builder("")
+                .set_id(vpc_id)
+                .metadata(Metadata::new_with_default_name())
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner()

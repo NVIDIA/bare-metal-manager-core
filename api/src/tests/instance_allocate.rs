@@ -30,6 +30,7 @@ use crate::tests::common::api_fixtures::network_segment::{
 };
 use crate::tests::common::api_fixtures::{TestEnv, TestEnvOverrides};
 use crate::tests::common::mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL;
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 #[derive(Debug, Default)]
 struct TestEnvOptions {
@@ -93,30 +94,20 @@ async fn create_test_env_for_instance_allocation(
 
     let vpc_1 = env
         .api
-        .create_vpc(tonic::Request::new(forge::VpcCreationRequest {
-            id: None,
-            name: "test vpc 1".to_string(),
-            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            metadata: None,
-            network_security_group_id: None,
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
 
     let vpc_2 = env
         .api
-        .create_vpc(tonic::Request::new(forge::VpcCreationRequest {
-            id: None,
-            name: "test vpc 2".to_string(),
-            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            metadata: None,
-            network_security_group_id: None,
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("test vpc 2", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();

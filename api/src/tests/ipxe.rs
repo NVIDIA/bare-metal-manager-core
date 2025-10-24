@@ -6,13 +6,14 @@ use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::machine::{DpuInitState, MachineState, ManagedHostState};
+use rpc::forge::CloudInitInstructionsRequest;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery};
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
 use crate::tests::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
+use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 async fn move_machine_to_needed_state(
     machine_id: MachineId,
@@ -298,14 +299,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
     let _ = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mac_address.clone(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: None,
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(DhcpDiscovery::builder(&mac_address, "192.0.2.1").tonic_request())
         .await
         .unwrap()
         .into_inner();

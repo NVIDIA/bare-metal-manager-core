@@ -18,6 +18,7 @@ use rpc::forge_server::Forge;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::vpc::create_vpc;
 use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 #[crate::sqlx_test]
 async fn test_find_vpc_ids(pool: sqlx::PgPool) {
@@ -231,28 +232,24 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
 
     for i in 0..=3 {
         env.api
-            .create_vpc(tonic::Request::new(rpc::VpcCreationRequest {
-                id: None,
-                name: "".to_string(),
-                tenant_organization_id: "Forge_unit_tests".to_string(),
-                tenant_keyset_id: None,
-                network_security_group_id: None,
-                network_virtualization_type: None,
-                metadata: Some(rpc::Metadata {
-                    name: format!("VPC_{i}{i}{i}").to_string(),
-                    description: format!("VPC_{i}{i}{i} have labels").to_string(),
-                    labels: vec![
-                        rpc::Label {
-                            key: format!("key_A_{i}{i}{i}").to_string(),
-                            value: Some(format!("value_A_{i}{i}{i}").to_string()),
-                        },
-                        rpc::Label {
-                            key: format!("key_B_{i}{i}{i}").to_string(),
-                            value: None,
-                        },
-                    ],
-                }),
-            }))
+            .create_vpc(
+                VpcCreationRequest::builder("", "Forge_unit_tests")
+                    .metadata(rpc::Metadata {
+                        name: format!("VPC_{i}{i}{i}").to_string(),
+                        description: format!("VPC_{i}{i}{i} have labels").to_string(),
+                        labels: vec![
+                            rpc::Label {
+                                key: format!("key_A_{i}{i}{i}").to_string(),
+                                value: Some(format!("value_A_{i}{i}{i}").to_string()),
+                            },
+                            rpc::Label {
+                                key: format!("key_B_{i}{i}{i}").to_string(),
+                                value: None,
+                            },
+                        ],
+                    })
+                    .tonic_request(),
+            )
             .await
             .unwrap()
             .into_inner();

@@ -46,6 +46,7 @@ use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
 };
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 #[crate::sqlx_test]
 async fn test_advance_network_prefix_state(
@@ -57,15 +58,10 @@ async fn test_advance_network_prefix_state(
 
     let vpc = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "test vpc 1".to_string(),
-            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            metadata: None,
-            network_security_group_id: None,
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();

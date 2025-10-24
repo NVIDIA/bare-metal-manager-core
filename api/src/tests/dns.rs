@@ -1,11 +1,11 @@
 use common::api_fixtures::{create_managed_host, create_test_env};
 use const_format::concatcp;
 use forge_uuid::machine::MachineId;
-use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
 use sqlx::{Postgres, Row};
 
 use crate::tests::common;
+use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 // These should probably go in a common place for both
 // this and tests/integration/api_server.rs to share.
@@ -24,14 +24,7 @@ async fn test_dns(pool: sqlx::PgPool) {
 
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
     let interface1 = api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mac_address.clone(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: None,
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(DhcpDiscovery::builder(&mac_address, "192.0.2.1").tonic_request())
         .await
         .unwrap()
         .into_inner();
@@ -40,14 +33,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     let ip1 = interface1.address;
     let mac_address = "F1:FF:FF:FF:FF:FF".to_string();
     let interface2 = api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mac_address.clone(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: None,
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(DhcpDiscovery::builder(&mac_address, "192.0.2.1").tonic_request())
         .await
         .unwrap()
         .into_inner();
