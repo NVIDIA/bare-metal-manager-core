@@ -19,11 +19,12 @@ use db::{self, ObjectColumnFilter, dhcp_entry};
 use forge_uuid::machine::MachineInterfaceId;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use rpc::forge::ManagedHostNetworkConfigRequest;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{DhcpDiscovery, ManagedHostNetworkConfigRequest};
 
 use crate::DatabaseError;
 use crate::tests::common;
+use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 #[crate::sqlx_test]
 async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -101,17 +102,12 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     );
     txn.commit().await.unwrap();
 
-    let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
+    let mac_address = "FF:FF:FF:FF:FF:FF";
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mac_address.clone(),
-            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
-            link_address: None,
-            vendor_string: None,
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -159,14 +155,7 @@ async fn test_multiple_machines_dhcp_with_api(
         let expected_ip = format!("192.0.2.{}", i + 3); // IP starts with 3.
         let response = env
             .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: mac.clone(),
-                relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
-                link_address: None,
-                vendor_string: None,
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(DhcpDiscovery::builder(&mac, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request())
             .await
             .unwrap()
             .into_inner();
@@ -311,17 +300,16 @@ async fn machine_interface_discovery_persists_vendor_strings(
     async fn dhcp_with_vendor(
         env: &TestEnv,
         mac_address: MacAddress,
-        vendor_string: Option<String>,
+        vendor_string: Option<&str>,
     ) -> rpc::protos::forge::DhcpRecord {
+        let builder = DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS);
+        let builder = if let Some(vendor_string) = vendor_string {
+            builder.vendor_string(vendor_string)
+        } else {
+            builder
+        };
         env.api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: mac_address.to_string(),
-                relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
-                vendor_string,
-                link_address: None,
-                circuit_id: None,
-                remote_id: None,
-            }))
+            .discover_dhcp(builder.tonic_request())
             .await
             .unwrap()
             .into_inner()
@@ -330,13 +318,13 @@ async fn machine_interface_discovery_persists_vendor_strings(
     let env = create_test_env(pool.clone()).await;
     let mac_address = MacAddress::from_str("ab:cd:ff:ff:ff:ff").unwrap();
 
-    let response = dhcp_with_vendor(&env, mac_address, Some("vendor1".to_string())).await;
+    let response = dhcp_with_vendor(&env, mac_address, Some("vendor1")).await;
     let interface_id = response
         .machine_interface_id
         .expect("machine_interface_id must be set");
     assert_vendor_strings_equal(&pool, &interface_id, &["vendor1"]).await;
 
-    let _ = dhcp_with_vendor(&env, mac_address, Some("vendor2".to_string())).await;
+    let _ = dhcp_with_vendor(&env, mac_address, Some("vendor2")).await;
     assert_vendor_strings_equal(&pool, &interface_id, &["vendor1", "vendor2"]).await;
 
     let _ = dhcp_with_vendor(&env, mac_address, None).await;
@@ -344,7 +332,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
 
     // DHCP with a previously known vendor string
     // This should not fail
-    let _ = dhcp_with_vendor(&env, mac_address, Some("vendor2".to_string())).await;
+    let _ = dhcp_with_vendor(&env, mac_address, Some("vendor2")).await;
 
     Ok(())
 }
@@ -363,14 +351,7 @@ async fn test_dpu_machine_dhcp_for_existing_dpu(
 
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mac.clone(),
-            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
-            link_address: None,
-            vendor_string: None,
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(DhcpDiscovery::builder(&mac, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request())
         .await
         .unwrap()
         .into_inner();

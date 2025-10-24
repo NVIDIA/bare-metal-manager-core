@@ -140,6 +140,8 @@ rcgen = "0.13.1"
 carbide-macros = { path = "../common/carbide-macros" }
 carbide-sqlx-testing = { path = "../common/sqlx-testing", default-features = false }
 prometheus-text-parser = { path = "../common/prometheus-text-parser" }
+carbide-prost-builder = { path = "../common/prost-builder" }
+prost = "0.14.1"
 
 [lints]
 workspace = true

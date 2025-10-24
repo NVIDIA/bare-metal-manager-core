@@ -32,7 +32,6 @@ use model::site_explorer::{
     InitialResetPhase, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
 };
 use regex::Regex;
-use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
 use sqlx::PgConnection;
 use temp_dir::TempDir;
@@ -46,6 +45,7 @@ use crate::preingestion_manager::PreingestionManager;
 use crate::state_controller::machine::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
+use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 #[crate::sqlx_test]
 async fn test_preingestion_bmc_upgrade(
@@ -67,14 +67,11 @@ async fn test_preingestion_bmc_upgrade(
 
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: "b8:3f:d2:90:97:a6".to_string(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: Some("iDRac".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", "192.0.2.1")
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
         .await?
         .into_inner();
 
@@ -256,14 +253,11 @@ async fn test_preingestion_upgrade_script(
 
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: "b8:3f:d2:90:97:a6".to_string(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: Some("iDRac".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", "192.0.2.1")
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
         .await?
         .into_inner();
 
@@ -921,14 +915,11 @@ async fn test_preingestion_preupdate_powercycling(
 
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: "b8:3f:d2:90:97:a6".to_string(),
-            relay_address: "192.0.2.1".to_string(),
-            link_address: None,
-            vendor_string: Some("iDRac".to_string()),
-            circuit_id: None,
-            remote_id: None,
-        }))
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", "192.0.2.1")
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
         .await?
         .into_inner();
 

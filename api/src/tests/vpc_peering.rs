@@ -12,6 +12,7 @@
 
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::VpcId;
+use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
@@ -22,6 +23,7 @@ use tonic::{Request, Response, Status};
 
 use super::common::api_fixtures::{self, TestEnv};
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 async fn create_test_vpcs(env: &TestEnv, count: i32) -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..count {
@@ -29,19 +31,14 @@ async fn create_test_vpcs(env: &TestEnv, count: i32) -> Result<(), Box<dyn std::
 
         let _ = env
             .api
-            .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-                id: None,
-                name: name.clone(),
-                tenant_organization_id: String::new(),
-                tenant_keyset_id: None,
-                network_virtualization_type: None,
-                network_security_group_id: None,
-                metadata: Some(rpc::forge::Metadata {
-                    name,
-                    description: String::new(),
-                    labels: vec![],
-                }),
-            }))
+            .create_vpc(
+                VpcCreationRequest::builder(&name, "")
+                    .metadata(Metadata {
+                        name,
+                        ..Default::default()
+                    })
+                    .tonic_request(),
+            )
             .await
             .unwrap()
             .into_inner();

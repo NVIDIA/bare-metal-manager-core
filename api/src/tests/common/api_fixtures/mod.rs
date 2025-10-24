@@ -102,6 +102,7 @@ use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
     create_tenant_network_segment, create_underlay_network_segment,
 };
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 use crate::tests::common::test_certificates::TestCertificateProvider;
 use crate::tests::common::test_meter::TestMeter;
 
@@ -601,22 +602,12 @@ impl TestEnv {
         Option<u32>,
         NetworkSegmentId,
     ) {
-        let vpc_details = rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "test vpc".to_string(),
-            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: Some(vtype1 as i32),
-            metadata: None,
-            network_security_group_id: None,
-        };
+        let vpc_details =
+            VpcCreationRequest::builder("test vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .network_virtualization_type(vtype1)
+                .tonic_request();
 
-        let vpc = self
-            .api
-            .create_vpc(tonic::Request::new(vpc_details))
-            .await
-            .unwrap()
-            .into_inner();
+        let vpc = self.api.create_vpc(vpc_details).await.unwrap().into_inner();
 
         let tenant_network_id = create_tenant_network_segment(
             &self.api,
@@ -631,19 +622,14 @@ impl TestEnv {
         self.run_network_segment_controller_iteration().await;
         self.run_network_segment_controller_iteration().await;
 
-        let peer_vpc_details = rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "test peer vpc".to_string(),
-            tenant_organization_id: "e65a9d69-39d2-4872-a53e-e5cb87c84e75".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: Some(vtype2 as i32),
-            metadata: None,
-            network_security_group_id: None,
-        };
+        let peer_vpc_details =
+            VpcCreationRequest::builder("test peer vpc", "e65a9d69-39d2-4872-a53e-e5cb87c84e75")
+                .network_virtualization_type(vtype2)
+                .tonic_request();
 
         let peer_vpc = self
             .api
-            .create_vpc(tonic::Request::new(peer_vpc_details))
+            .create_vpc(peer_vpc_details)
             .await
             .unwrap()
             .into_inner();
@@ -672,15 +658,9 @@ impl TestEnv {
     }
 
     pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
-        self.create_vpc_and_tenant_segment_with_vpc_details(rpc::forge::VpcCreationRequest {
-            id: None,
-            name: "test vpc 1".to_string(),
-            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            metadata: None,
-            network_security_group_id: None,
-        })
+        self.create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93").rpc(),
+        )
         .await
     }
 
@@ -689,15 +669,7 @@ impl TestEnv {
         segment_count: usize,
     ) -> Vec<NetworkSegmentId> {
         self.create_vpc_and_tenant_segments_with_vpc_details(
-            rpc::forge::VpcCreationRequest {
-                id: None,
-                network_security_group_id: None,
-                name: "test vpc 1".to_string(),
-                tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-                tenant_keyset_id: None,
-                network_virtualization_type: None,
-                metadata: None,
-            },
+            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93").rpc(),
             segment_count,
         )
         .await
@@ -706,15 +678,10 @@ impl TestEnv {
     pub async fn create_vpc_and_dual_tenant_segment(&self) -> (NetworkSegmentId, NetworkSegmentId) {
         let vpc = self
             .api
-            .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-                id: None,
-                network_security_group_id: None,
-                name: "test vpc 1".to_string(),
-                tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-                tenant_keyset_id: None,
-                network_virtualization_type: None,
-                metadata: None,
-            }))
+            .create_vpc(
+                VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                    .tonic_request(),
+            )
             .await
             .unwrap()
             .into_inner();

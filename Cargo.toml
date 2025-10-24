@@ -27,6 +27,7 @@ members = [
     "common/mlxconfig/variables",
     "common/mqttea",
     "common/prometheus-text-parser",
+    "common/prost-builder",
     "common/secrets",
     "common/spancounter",
     "common/sqlx-testing",

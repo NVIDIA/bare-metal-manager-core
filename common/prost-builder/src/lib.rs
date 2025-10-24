@@ -1,0 +1,185 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+//! This proc_macro gives possibility to derive Builder implementation
+//! for prost Message structures.
+//!
+//! To use it you need to copy generated struct and derive the Builder.
+//! For example:
+//! ```rust,ignore
+//! #[derive(carbide_prost_builder::Builder)]
+//! pub struct DhcpDiscovery {
+//!     pub mac_address: ::prost::alloc::string::String,
+//!     pub relay_address: ::prost::alloc::string::String,
+//!     pub vendor_string: ::core::option::Option<::prost::alloc::string::String>,
+//!     pub link_address: ::core::option::Option<::prost::alloc::string::String>,
+//!     pub circuit_id: ::core::option::Option<::prost::alloc::string::String>,
+//!     pub remote_id: ::core::option::Option<::prost::alloc::string::String>,
+//! }
+//! ```
+//!
+//! All required fields will be requested in fn `DhcpDiscovery::builder` constructor.
+//!
+//! For all optional field of type `Type` two methods will be generated:
+//! 1. `pub fn <name>(self, impl Into<Type>)` - to set corresponding field from anything convertable to Type
+//! 2. `pub fn set_<name>(self, Option<Type>)` - to set convertable field as is.
+//!
+//! As result you can use it as following:
+//!
+//! To produce tonic request of corresponding type:
+//! ```rust,ignore
+//! DhcpDiscovery::builder(mac_address, relay_address)
+//!    .vendor_string("Some vendor")
+//!    .tonic_request()
+//! ```
+//!
+//! To produce prost::Message of corresponding type:
+//! ```rust,ignore
+//! DhcpDiscovery::builder(mac_address, relay_address)
+//!    .vendor_string("Some vendor")
+//!    .rpc()
+//! ```
+//!
+use proc_macro::TokenStream;
+use proc_macro2::{Span, TokenStream as TokenStream2};
+use quote::quote;
+use syn::{Data, DeriveInput, Fields, GenericArgument, Ident, PathArguments, Type};
+
+#[proc_macro_derive(Builder, attributes(implement, transparent, capability, permissive))]
+pub fn derive_builder(input: TokenStream) -> TokenStream {
+    let derive = syn::parse_macro_input!(input as DeriveInput);
+    let name = derive.ident;
+    type FieldData = (Ident, Type);
+    let fields = match derive.data {
+        Data::Struct(ref ds) => match &ds.fields {
+            Fields::Named(named) => named
+                .named
+                .iter()
+                .map(|f| (f.ident.clone().unwrap(), f.ty.clone()))
+                .collect::<Vec<FieldData>>(),
+            _ => panic!("#[derive(Builder)] requires a normal struct"),
+        },
+        _ => panic!("#[derive(Builder)] can only be used on structs"),
+    };
+
+    let (required_fields, optional_fields): (Vec<_>, Vec<_>) =
+        fields.into_iter().partition(|(_, tp)| match tp {
+            Type::Path(typepath) => typepath
+                .path
+                .segments
+                .last()
+                .is_none_or(|segment| segment.ident != "Option"),
+            _ => false,
+        });
+
+    let mut args = TokenStream2::new();
+    let mut all_fields_move = TokenStream2::new();
+    let mut required_ctor_impl = TokenStream2::new();
+    for (name, tp) in required_fields {
+        if is_string(&tp) {
+            // Special treatment for String. We want reduce noise in
+            // tests...
+            args.extend(quote! { #name: impl ::std::fmt::Display, });
+            required_ctor_impl.extend(quote! { #name: #name.to_string(), });
+        } else {
+            args.extend(quote! { #name: #tp, });
+            required_ctor_impl.extend(quote! { #name, });
+        }
+        all_fields_move.extend(quote! { #name: self.#name, })
+    }
+    let mut optional_ctor_impl = TokenStream2::new();
+    let mut optional_methods_impl = TokenStream2::new();
+    for (name, tp) in optional_fields {
+        optional_ctor_impl.extend(quote! { #name: None, });
+        let tp = match tp {
+            Type::Path(typepath) => typepath,
+            _ => panic!("Type::Path is expected"),
+        };
+        let last_segment = tp.path.segments.last().expect("must be Option");
+        let ftype = match &last_segment.arguments {
+            PathArguments::AngleBracketed(ab) => {
+                let arg = ab
+                    .args
+                    .first()
+                    .expect("Option must have type as first argument");
+                match arg {
+                    GenericArgument::Type(ftype) => ftype,
+                    _ => panic!("Option expect first generic argument as Type"),
+                }
+            }
+            _ => {
+                panic!("Option must have angle-bracked argument");
+            }
+        };
+        if is_string(ftype) {
+            optional_methods_impl.extend(quote! {
+                pub fn #name(mut self, #name: impl ::std::fmt::Display) -> Self {
+                    self.#name = Some(#name.to_string());
+                    self
+                }
+            });
+        } else {
+            optional_methods_impl.extend(quote! {
+                pub fn #name(mut self, #name: impl Into<#ftype>) -> Self {
+                    self.#name = Some(#name.into());
+                    self
+                }
+            });
+        }
+        let setter_name = Ident::new(format!("set_{name}").as_str(), Span::call_site());
+        optional_methods_impl.extend(quote! {
+            pub fn #setter_name(mut self, #name: #tp) -> Self {
+                self.#name = #name;
+                self
+            }
+        });
+        all_fields_move.extend(quote! { #name: self.#name, });
+    }
+
+    TokenStream::from(quote! {
+        impl #name {
+            pub fn builder(#args) -> Self {
+                Self {
+                    #required_ctor_impl
+                    #optional_ctor_impl
+                }
+            }
+            #optional_methods_impl
+
+            pub fn tonic_request(self) -> ::tonic::Request<::rpc::forge::#name> {
+                ::tonic::Request::new(self.rpc())
+            }
+
+            pub fn rpc(self) -> ::rpc::forge::#name {
+                ::rpc::forge::#name {
+                    #all_fields_move
+                }
+            }
+        }
+        impl From<#name> for ::rpc::forge::#name {
+            fn from(v: #name) -> Self {
+                v.rpc()
+            }
+        }
+    })
+}
+
+fn is_string(tp: &Type) -> bool {
+    match tp {
+        Type::Path(typepath) => typepath
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "String"),
+        _ => false,
+    }
+}

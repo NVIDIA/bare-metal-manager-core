@@ -41,7 +41,6 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::dpu_machine_update::DpuMachineUpdate;
-use model::instance::config::InstanceConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
@@ -67,12 +66,15 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tonic::Request;
 
 use crate::cfg::file::VmaasConfig;
-use crate::instance::{InstanceAllocationRequest, allocate_instance, allocate_network};
+use crate::instance::{allocate_instance, allocate_network};
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::single_interface_network_config_with_vfs;
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host_multi_dpu, create_managed_host_with_ek, update_time_params,
+};
+use crate::tests::common::rpc_builder::{
+    InstanceAllocationRequest, InstanceConfig, VpcCreationRequest,
 };
 
 #[crate::sqlx_test]
@@ -768,25 +770,21 @@ async fn test_allocate_instance_with_invalid_metadata(_: PgPoolOptions, options:
 
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
         let tenant_config = default_tenant_config();
-        let config = rpc::InstanceConfig {
-            tenant: Some(tenant_config),
-            os: Some(default_os_config()),
-            network: Some(single_interface_network_config(segment_id)),
-            infiniband: None,
-            storage: None,
-            network_security_group_id: None,
-        };
+        let config = InstanceConfig::builder()
+            .tenant(tenant_config)
+            .os(default_os_config())
+            .network(single_interface_network_config(segment_id))
+            .rpc();
 
         let result = env
             .api
-            .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-                instance_id: None,
-                machine_id: host_machine_id.into(),
-                instance_type_id: None,
-                config: Some(config),
-                metadata: Some(invalid_metadata.clone()),
-                allow_unhealthy_machine: false,
-            }))
+            .allocate_instance(
+                InstanceAllocationRequest::builder(false)
+                    .machine_id(host_machine_id)
+                    .config(config)
+                    .metadata(invalid_metadata.clone())
+                    .tonic_request(),
+            )
             .await;
 
         let err = result.expect_err(&format!(
@@ -933,14 +931,11 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
     //Create instance with no hostname set
     let mut tenant_config = default_tenant_config();
     tenant_config.hostname = None;
-    let instance_config = rpc::InstanceConfig {
-        tenant: Some(tenant_config),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let instance_config = InstanceConfig::builder()
+        .tenant(tenant_config)
+        .os(default_os_config())
+        .network(single_interface_network_config(segment_id))
+        .rpc();
 
     mh.instance_builer(&env)
         .config(instance_config)
@@ -1083,31 +1078,25 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
-    let config = rpc::InstanceConfig {
-        os: Some(default_os_config()),
-        tenant: Some(default_tenant_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
 
     let instance_id: InstanceId = uuid::Uuid::new_v4().into();
 
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(instance_id),
-            machine_id: host_machine_id.into(),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test_instance".to_string(),
-                description: "tests/instance".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .instance_id(instance_id)
+                .machine_id(host_machine_id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .expect("Create instance failed.")
         .into_inner();
@@ -1129,29 +1118,22 @@ async fn test_instance_deletion_before_provisioning_finishes(
     let mh = create_managed_host(&env).await;
 
     // Create an instance in non-ready state
-    let config = rpc::InstanceConfig {
-        os: Some(default_os_config()),
-        tenant: Some(default_tenant_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: Default::default(),
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
 
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: mh.host().id.into(),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test_instance".to_string(),
-                description: "tests/instance".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.host().id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .expect("Create instance failed.")
         .into_inner();
@@ -1249,31 +1231,26 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
     let (host_machine_id_2, _dpu_machine_id_2) = create_managed_host(&env).await.into();
 
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id))
+        .rpc();
 
     let instance_id: InstanceId = uuid::Uuid::new_v4().into();
 
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(instance_id),
-            machine_id: host_machine_id.into(),
-            instance_type_id: None,
-            config: Some(config.clone()),
-            metadata: Some(rpc::Metadata {
-                name: "test_instance".to_string(),
-                description: "tests/instance".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .instance_id(instance_id)
+                .machine_id(host_machine_id)
+                .config(config.clone())
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .expect("Create instance failed.")
         .into_inner();
@@ -1281,18 +1258,18 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
 
     let result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(instance_id),
-            machine_id: host_machine_id_2.into(),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test_instance".to_string(),
-                description: "tests/instance".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .instance_id(instance_id)
+                .machine_id(host_machine_id_2)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await;
 
     // TODO: Do not leak the full database error to users
@@ -1617,11 +1594,11 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let host_config = env.managed_host_config();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
-    let request = InstanceAllocationRequest {
+    let request = crate::instance::InstanceAllocationRequest {
         instance_id: InstanceId::from(uuid::Uuid::new_v4()),
         machine_id: dpu_machine_id,
         instance_type_id: None,
-        config: InstanceConfig {
+        config: model::instance::config::InstanceConfig {
             os: default_os_config().try_into().unwrap(),
             tenant: default_tenant_config().try_into().unwrap(),
             network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &Vec::default()),
@@ -1810,25 +1787,20 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
 
     let result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: host_machine_id.into(),
-            instance_type_id: None,
-            config: Some(rpc::InstanceConfig {
-                os: Some(default_os_config()),
-                tenant: Some(default_tenant_config()),
-                network: Some(single_interface_network_config(segment_id)),
-                infiniband: None,
-                storage: None,
-                network_security_group_id: None,
-            }),
-            metadata: Some(rpc::Metadata {
-                name: "test_instance".to_string(),
-                description: "tests/instance".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(host_machine_id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id)),
+                )
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await;
     let Err(err) = result else {
         panic!("Creating an instance should have been refused");
@@ -1881,25 +1853,21 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
 
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(instance_id),
-            machine_id: host_machine_id.into(),
-            instance_type_id: None,
-            config: Some(rpc::InstanceConfig {
-                os: Some(default_os_config()),
-                tenant: Some(default_tenant_config()),
-                network: Some(single_interface_network_config(segment_id)),
-                infiniband: None,
-                storage: None,
-                network_security_group_id: None,
-            }),
-            metadata: Some(rpc::Metadata {
-                name: "test_instance".to_string(),
-                description: "tests/instance".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: true,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(true)
+                .instance_id(instance_id)
+                .machine_id(host_machine_id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id)),
+                )
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .expect("Create instance failed.")
         .into_inner();
@@ -2067,18 +2035,18 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
 
     let err = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(instance_id),
-            machine_id: host_machine_id.into(),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test_instance".to_string(),
-                description: "tests/instance".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .instance_id(instance_id)
+                .machine_id(host_machine_id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .expect_err("Duplicate TenantKeyset IDs should not be accepted");
 
@@ -2126,18 +2094,18 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
 
     let err = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(instance_id),
-            machine_id: host_machine_id.into(),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test_instance".to_string(),
-                description: "tests/instance".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .instance_id(instance_id)
+                .machine_id(host_machine_id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .expect_err("More than 10 TenantKeyset IDs should not be accepted");
 
@@ -2278,7 +2246,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         network_security_group_id: None,
     };
 
-    let mut config: InstanceConfig = config.try_into().unwrap();
+    let mut config: model::instance::config::InstanceConfig = config.try_into().unwrap();
 
     assert!(config.network.interfaces[0].network_segment_id.is_none());
 
@@ -2596,15 +2564,10 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     // Make a VPC and prefix
     let vpc = env
         .api
-        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: None,
-            network_security_group_id: None,
-            name: "test vpc 1".to_string(),
-            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            metadata: None,
-        }))
+        .create_vpc(
+            VpcCreationRequest::builder("test vpc 1", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -2820,25 +2783,21 @@ async fn test_allocate_with_instance_type_id(
     // This should fail.
     let _ = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
-                tenant: Some(default_tenant_config()),
-                network_security_group_id: None,
-                os: Some(default_os_config()),
-                network: Some(single_interface_network_config(segment_id)),
-                infiniband: None,
-                storage: None,
-            }),
-            instance_id: None,
-            instance_type_id: Some(bad_id.clone()),
-            metadata: Some(rpc::forge::Metadata {
-                name: "newinstance".to_string(),
-                description: "desc".to_string(),
-                labels: vec![],
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.host_snapshot.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id)),
+                )
+                .instance_type_id(bad_id.clone())
+                .metadata(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap_err();
 
@@ -2846,25 +2805,22 @@ async fn test_allocate_with_instance_type_id(
     // This should pass.
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
-                network_security_group_id: None,
-                tenant: Some(default_tenant_config()),
-                os: Some(default_os_config()),
-                network: Some(single_interface_network_config(segment_id)),
-                infiniband: None,
-                storage: None,
-            }),
-            instance_id: None,
-            instance_type_id: Some(good_id.clone()),
-            metadata: Some(rpc::forge::Metadata {
-                name: "newinstance".to_string(),
-                description: "desc".to_string(),
-                labels: vec![],
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.host_snapshot.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id))
+                        .rpc(),
+                )
+                .instance_type_id(good_id.clone())
+                .metadata(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -2891,25 +2847,20 @@ async fn test_allocate_with_instance_type_id(
     // to see if we inherit it from the machine.
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh2.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
-                network_security_group_id: None,
-                tenant: Some(default_tenant_config()),
-                os: Some(default_os_config()),
-                network: Some(single_interface_network_config(segment_id)),
-                infiniband: None,
-                storage: None,
-            }),
-            instance_id: None,
-            instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "newinstance".to_string(),
-                description: "desc".to_string(),
-                labels: vec![],
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh2.host_snapshot.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id)),
+                )
+                .metadata(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -2928,10 +2879,10 @@ async fn test_allocate_and_update_with_network_security_group(
     populate_network_security_groups(env.api.clone()).await;
 
     // NSG ID of and NSG for the default tenant provided by fixtures.
-    let good_network_security_group_id = Some("fd3ab096-d811-11ef-8fe9-7be4b2483448".to_string());
+    let good_network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
 
     // NSG ID of not-the-default-tenant provided by fixtures.
-    let bad_network_security_group_id = Some("ddfcabc4-92dc-41e2-874e-2c7eeb9fa156".to_string());
+    let bad_network_security_group_id = "ddfcabc4-92dc-41e2-874e-2c7eeb9fa156";
 
     // Create a new managed host in the DB and get the snapshot.
     let mh = site_explorer::new_host(&env, ManagedHostConfig::default())
@@ -2946,25 +2897,22 @@ async fn test_allocate_and_update_with_network_security_group(
     // This should fail.
     let _ = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
-                tenant: Some(default_tenant_config()),
-                os: Some(default_os_config()),
-                network: Some(single_interface_network_config(segment_id)),
-                infiniband: None,
-                storage: None,
-                network_security_group_id: bad_network_security_group_id.clone(),
-            }),
-            instance_id: None,
-            instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "newinstance".to_string(),
-                description: "desc".to_string(),
-                labels: vec![],
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.host_snapshot.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id))
+                        .network_security_group_id(bad_network_security_group_id)
+                        .rpc(),
+                )
+                .metadata(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap_err();
 
@@ -2972,33 +2920,30 @@ async fn test_allocate_and_update_with_network_security_group(
     // that has the same tenant as the instance.
     let i = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
-                tenant: Some(default_tenant_config()),
-                os: Some(default_os_config()),
-                network: Some(single_interface_network_config(segment_id)),
-                infiniband: None,
-                storage: None,
-                network_security_group_id: good_network_security_group_id.clone(),
-            }),
-            instance_id: None,
-            instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "newinstance".to_string(),
-                description: "desc".to_string(),
-                labels: vec![],
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.host_snapshot.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id))
+                        .network_security_group_id(good_network_security_group_id)
+                        .rpc(),
+                )
+                .metadata(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
 
     // Check that the instance actually has the ID we expect
     assert_eq!(
-        i.config.unwrap().network_security_group_id,
-        good_network_security_group_id
+        i.config.unwrap().network_security_group_id.as_deref(),
+        Some(good_network_security_group_id)
     );
 
     let instance_id = i.id.unwrap();
@@ -3009,14 +2954,11 @@ async fn test_allocate_and_update_with_network_security_group(
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
                 if_version_match: None,
-                config: Some(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
-                    os: Some(default_os_config()),
-                    network: Some(single_interface_network_config(segment_id)),
-                    infiniband: None,
-                    storage: None,
-                    network_security_group_id: None,
-                }),
+                config: Some(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id))
+                        .into(),
+                ),
                 instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
@@ -3039,14 +2981,12 @@ async fn test_allocate_and_update_with_network_security_group(
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
                 if_version_match: None,
-                config: Some(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
-                    os: Some(default_os_config()),
-                    network: Some(single_interface_network_config(segment_id)),
-                    infiniband: None,
-                    storage: None,
-                    network_security_group_id: bad_network_security_group_id.clone(),
-                }),
+                config: Some(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id))
+                        .network_security_group_id(bad_network_security_group_id)
+                        .rpc(),
+                ),
                 instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
@@ -3064,14 +3004,12 @@ async fn test_allocate_and_update_with_network_security_group(
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
                 if_version_match: None,
-                config: Some(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
-                    os: Some(default_os_config()),
-                    network: Some(single_interface_network_config(segment_id)),
-                    infiniband: None,
-                    storage: None,
-                    network_security_group_id: good_network_security_group_id.clone(),
-                }),
+                config: Some(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(single_interface_network_config(segment_id))
+                        .network_security_group_id(good_network_security_group_id)
+                        .into(),
+                ),
                 instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
@@ -3086,8 +3024,8 @@ async fn test_allocate_and_update_with_network_security_group(
 
     // Check that the instance actually has the ID we expect
     assert_eq!(
-        i.config.unwrap().network_security_group_id,
-        good_network_security_group_id
+        i.config.unwrap().network_security_group_id.as_deref(),
+        Some(good_network_security_group_id)
     );
 
     Ok(())
@@ -3124,34 +3062,30 @@ async fn test_network_details_migration(
     // Create an instance with only network_segment_id
     let i = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh_without_network_details.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
-                tenant: Some(default_tenant_config()),
-                os: Some(default_os_config()),
-                network: Some(rpc::InstanceNetworkConfig {
-                    interfaces: vec![rpc::InstanceInterfaceConfig {
-                        function_type: rpc::InterfaceFunctionType::Physical as i32,
-                        network_segment_id: Some(segment_id),
-                        network_details: None,
-                        device: None,
-                        device_instance: 0,
-                        virtual_function_id: None,
-                    }],
-                }),
-                infiniband: None,
-                storage: None,
-                network_security_group_id: None,
-            }),
-            instance_id: None,
-            instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "newinstance".to_string(),
-                description: "desc".to_string(),
-                labels: vec![],
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh_without_network_details.host_snapshot.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(rpc::InstanceNetworkConfig {
+                            interfaces: vec![rpc::InstanceInterfaceConfig {
+                                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                                network_segment_id: Some(segment_id),
+                                network_details: None,
+                                device: None,
+                                device_instance: 0,
+                                virtual_function_id: None,
+                            }],
+                        })
+                        .rpc(),
+                )
+                .metadata(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -4284,7 +4218,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
         network_security_group_id: None,
     };
 
-    let mut config: InstanceConfig = config.try_into().unwrap();
+    let mut config: model::instance::config::InstanceConfig = config.try_into().unwrap();
 
     assert!(
         config
@@ -4357,31 +4291,24 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
     // Create instance configuration
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
 
     // Allocate an instance using correct API structure
     let instance_result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: mh.id.into(),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test-backward-compat".to_string(),
-                description: "Enhanced instance release API backward compatibility test"
-                    .to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test-backward-compat".to_string(),
+                    description: "Enhanced instance release API backward compatibility test"
+                        .to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .expect("Failed to allocate instance");
 
@@ -4489,30 +4416,23 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
         let mh = create_managed_host(&env).await;
 
         // Create instance configuration
-        let config = rpc::InstanceConfig {
-            tenant: Some(default_tenant_config()),
-            os: Some(default_os_config()),
-            network: Some(single_interface_network_config(segment_id)),
-            infiniband: None,
-            storage: None,
-            network_security_group_id: None,
-        };
+        let config = InstanceConfig::default_tenant_and_os()
+            .network(single_interface_network_config(segment_id));
 
         // Allocate an instance
         let instance_result = env
             .api
-            .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-                instance_id: None,
-                machine_id: mh.id.into(),
-                instance_type_id: None,
-                config: Some(config),
-                metadata: Some(rpc::Metadata {
-                    name: test_name.to_string(),
-                    description: description.to_string(),
-                    labels: Vec::new(),
-                }),
-                allow_unhealthy_machine: false,
-            }))
+            .allocate_instance(
+                InstanceAllocationRequest::builder(false)
+                    .machine_id(mh.id)
+                    .config(config)
+                    .metadata(rpc::Metadata {
+                        name: test_name.to_string(),
+                        description: description.to_string(),
+                        labels: Vec::new(),
+                    })
+                    .tonic_request(),
+            )
             .await
             .expect("Failed to allocate instance");
 
@@ -4587,31 +4507,24 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
     // Create instance configuration
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
 
     // Allocate an instance
     let instance_result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: mh.id.into(),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test-combined-enhancements".to_string(),
-                description: "Testing combined issue reporting and repair tenant functionality"
-                    .to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test-combined-enhancements".to_string(),
+                    description: "Testing combined issue reporting and repair tenant functionality"
+                        .to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .expect("Failed to allocate instance");
 
@@ -4687,30 +4600,23 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
     let mh = create_managed_host(&env).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
 
     // Allocate instance
     let instance_result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: mh.id.into(),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test-auto-repair-enabled".to_string(),
-                description: "Test auto-repair enabled scenario".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test-auto-repair-enabled".to_string(),
+                    description: "Test auto-repair enabled scenario".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await
         .unwrap();
 
@@ -4807,26 +4713,18 @@ async fn test_instance_release_repair_tenant_successful_completion(
     let mh = create_managed_host(&env).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
 
     // Step 1: Regular tenant allocates and releases with issue (creates both overrides)
     let allocation_response = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: mh.id.into(),
-            instance_type_id: None,
-            config: Some(config.clone()),
-            metadata: None,
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(config)
+                .tonic_request(),
+        )
         .await
         .unwrap();
 
@@ -4932,26 +4830,18 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
     let mh = create_managed_host(&env).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
 
     // Step 1: Send a instance allocation request.
     let allocation_response = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: mh.id.into(),
-            instance_type_id: None,
-            config: Some(config.clone()),
-            metadata: None,
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(config)
+                .tonic_request(),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -5026,14 +4916,9 @@ async fn test_can_not_update_instance_config_after_deletion(
         )),
     };
 
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(initial_os.clone()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id))
+        .rpc();
 
     let tinstance = mh
         .instance_builer(&env)
@@ -5125,30 +5010,23 @@ async fn test_instance_with_vf_when_vf_disabled(_: PgPoolOptions, options: PgCon
     let segment_id = env.create_vpc_and_tenant_segments(2).await;
 
     // Create instance configuration
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config_with_vfs(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config_with_vfs(segment_id));
 
     // Allocate an instance
     let instance_result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: Some(managed_host.id),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test-disabled-vf".to_string(),
-                description: "Testing instance creation when vf disabled".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(managed_host.id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test-disabled-vf".to_string(),
+                    description: "Testing instance creation when vf disabled".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await;
 
     assert!(instance_result.is_err());
@@ -5168,30 +5046,23 @@ async fn test_instance_without_vf_when_vf_disabled(_: PgPoolOptions, options: Pg
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
     // Create instance configuration
-    let config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
-        os: Some(default_os_config()),
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        storage: None,
-        network_security_group_id: None,
-    };
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
 
     // Allocate an instance
     let instance_result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: Some(managed_host.id),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: Some(rpc::Metadata {
-                name: "test-disabled-vf".to_string(),
-                description: "Testing instance creation when vf disabled".to_string(),
-                labels: Vec::new(),
-            }),
-            allow_unhealthy_machine: false,
-        }))
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(managed_host.id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test-disabled-vf".to_string(),
+                    description: "Testing instance creation when vf disabled".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
         .await;
 
     assert!(instance_result.is_ok());

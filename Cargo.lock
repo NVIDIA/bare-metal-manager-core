@@ -1277,6 +1277,7 @@ dependencies = [
  "carbide-mlxconfig-profile",
  "carbide-mlxconfig-variables",
  "carbide-network",
+ "carbide-prost-builder",
  "carbide-rpc",
  "carbide-secrets",
  "carbide-sqlx-testing",
@@ -1326,6 +1327,7 @@ dependencies = [
  "pkcs1",
  "prometheus",
  "prometheus-text-parser",
+ "prost 0.14.1",
  "rand 0.9.2",
  "rcgen",
  "regex",
@@ -2005,6 +2007,15 @@ dependencies = [
  "serde",
  "sqlx",
  "thiserror 2.0.16",
+]
+
+[[package]]
+name = "carbide-prost-builder"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
 ]
 
 [[package]]
