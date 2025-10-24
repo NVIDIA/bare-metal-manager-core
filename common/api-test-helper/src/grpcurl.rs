@@ -13,8 +13,7 @@
 use std::net::SocketAddr;
 
 use eyre::ContextCompat;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
+use rand::prelude::IndexedRandom;
 use serde::{Deserialize, Serialize};
 use tokio::process;
 
@@ -35,7 +34,7 @@ pub async fn grpcurl_for<T: ToString>(
     for_ip: Option<&str>,
 ) -> eyre::Result<String> {
     let address = addrs
-        .choose(&mut thread_rng())
+        .choose(&mut rand::rng())
         .context("No API servers configured")?
         .to_string();
     let grpc_endpoint = format!("forge.Forge/{endpoint}");

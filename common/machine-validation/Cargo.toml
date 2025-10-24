@@ -14,22 +14,22 @@ name = "machine_validation"
 
 carbide-uuid = { path = "../uuid" }
 
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = { version = "2", registry = "cratesio" }
-futures = { version = "0.3", default-features = false }
+tokio = { features = ["full"] , workspace = true }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+futures = { default-features = false , workspace = true }
 carbide-tls = { path = "../tls" }
 carbide-rpc = { path = "../../rpc" }
 carbide-utils = { path = "../../common/utils" }
 tonic = { workspace = true }
-chrono = { version = "0.4.34", features = ["serde"] }
-tracing = "0.1.40"
-reqwest = { version = "*", default-features = false, features = [
+chrono = { features = ["serde"] , workspace = true }
+tracing = { workspace = true }
+reqwest = { default-features = false, features = [
     "rustls-tls",
     "stream",
-] }
-futures-util = "0.3"
+] , workspace = true }
+futures-util = { workspace = true }
 
 [lints]
 workspace = true

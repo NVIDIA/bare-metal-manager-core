@@ -8,7 +8,7 @@ description = "Compile-time Mellanox hardware configuration registry."
 name = "mlxconfig_registry"
 
 [dependencies]
-once_cell = "1.19"
+once_cell = { workspace = true }
 carbide-mlxconfig-device = { path = "../device" }
 carbide-mlxconfig-variables = { path = "../variables" }
 

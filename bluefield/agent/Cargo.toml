@@ -34,74 +34,74 @@ carbide-utils = { path = "../../common/utils" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
-arc-swap = "1.6"
-async-trait = "0.1.77"
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
-blake3 = "1.4"
-chrono = "0.4.38"
+axum-server = { features = ["tls-rustls"] , workspace = true }
+blake3 = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
-colored = "2.2.0"
-containerd-client = "0.6"
-data-encoding = "2.3.3"
-diff = "0.1"
-eyre = "*"
-futures = "0.3"
-futures-util = "0.3"
-governor = "*"
-gtmpl = "0.7.1"
-gtmpl_derive = "0.5.0"
-gtmpl_value = "0.5.1"
-hickory-resolver = "0.24.0"
-http-body = "1.0.1"
-http-body-util = "0.1.2"
-humantime = "*"
+colored = { workspace = true }
+containerd-client = { workspace = true }
+data-encoding = { workspace = true }
+diff = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+governor = { workspace = true }
+gtmpl = { workspace = true }
+gtmpl_derive = { workspace = true }
+gtmpl_value = { workspace = true }
+hickory-resolver = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+humantime = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true, features = ["client-legacy"] }
 ipnetwork = { workspace = true }
-lazy_static = "*"
-libc = "*"
-mac_address = "1.1.2"
-mockall = "0.13.0"
-netlink-packet-route = "=0.19"
-nix = { version = "=0.29.0", features = ["fs", "user"] }
-nonzero_ext = "*"
+lazy_static = { workspace = true }
+libc = { workspace = true }
+mac_address = { workspace = true }
+mockall = { workspace = true }
+netlink-packet-route = { workspace = true }
+nix = { features = ["fs", "user"] , workspace = true }
+nonzero_ext = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 opentelemetry_sdk = { workspace = true, features = ["spec_unstable_metrics_views"] }
-prometheus = "0.13.3"
-rand = "0.9"
-regex = "1.10.2"
-resolv-conf = "0.7.0"
-rtnetlink = "0.14"
+prometheus = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+resolv-conf = { workspace = true }
+rtnetlink = { workspace = true }
 rustls = { workspace = true }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1"
-serde_yaml = "0.9.27"
-sha2 = "0.10.8"
-similar = "2.7.0"
-surge-ping = "0.8.1"
-tempfile = "3"
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+similar = { workspace = true }
+surge-ping = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-tower = "0.5.2"
-tower-http = { version = "0.6.6", features = ["trace"] }
-tracing = "*"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-uzers = "0.12.1"
-version-compare = "0.2.0"
+tower = { workspace = true }
+tower-http = { features = ["trace"] , workspace = true }
+tracing = { workspace = true }
+uuid = { features = ["v4", "serde"] , workspace = true }
+uzers = { workspace = true }
+version-compare = { workspace = true }
 #these are alphabetized
 
 [build-dependencies]
 carbide-version = { path = "../../common/version" }
 
 [dev-dependencies]
-ctor = "0.2"
-prost = "0.14.1"
-reqwest = { version = "*", default-features = false, features = ["rustls-tls", "stream"] }
-rustls-pemfile = "2.2.0"
-rustls-pki-types = "1.10.0"
+ctor = { workspace = true }
+prost = { workspace = true }
+reqwest = { default-features = false, features = ["rustls-tls", "stream"] , workspace = true }
+rustls-pemfile = { workspace = true }
+rustls-pki-types = { workspace = true }
 
 [lints]
 workspace = true

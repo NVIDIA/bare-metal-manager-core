@@ -25,32 +25,32 @@ carbide-api-model = { path = "../model" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
-async-trait = "*"
-chrono = "0.4.34"
-domain = "0.10.1"
-eyre = "*"
-futures = "0.3"
-futures-util = "0.3"
+async-trait = { workspace = true }
+chrono = { workspace = true }
+domain = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
-itertools = "*"
-lazy_static = "1.5.0"
+itertools = { workspace = true }
+lazy_static = { workspace = true }
 libnvmesh = { workspace = true }
-mac_address = "1.1.2"
-names = { version = "0.14.0", default-features = false }
-octseq = "0.5.1"
-regex = "1.6"
-rustc-hash = "2.1.1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "*"
+mac_address = { workspace = true }
+names = { default-features = false , workspace = true }
+octseq = { workspace = true }
+regex = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
-thiserror = "2.0"
-time = "0.3.36"
+thiserror = { workspace = true }
+time = { workspace = true }
 tokio = { workspace = true }
-toml = "0.8.8"
+toml = { workspace = true }
 tonic = { workspace = true }
-tracing = "*"
-tss-esapi = { version = "7.5.0", optional = true }
-uuid = { version = "1.0", features = ["v4", "serde"] }
+tracing = { workspace = true }
+tss-esapi = { optional = true , workspace = true }
+uuid = { features = ["v4", "serde"] , workspace = true }
 #these are alphabetized
 
 [features]
@@ -65,7 +65,7 @@ linux-build = [
 carbide-version = { path = "../../common/version" }
 
 [dev-dependencies]
-lazy_static = "1.4.0"
+lazy_static = { workspace = true }
 carbide-macros = { path = "../../common/carbide-macros" }
 carbide-sqlx-testing = { path = "../../common/sqlx-testing", default-features = false }
 

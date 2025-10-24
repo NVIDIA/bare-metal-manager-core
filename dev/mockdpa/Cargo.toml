@@ -8,16 +8,16 @@ name = "mockdpa"
 path = "src/main.rs"
 
 [dependencies]
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.4", features = ["derive"] }
-rumqttc = "0.24"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-prost = "0.14"
-tokio = { version = "1.0", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
+chrono = { features = ["serde"] , workspace = true }
+clap = { features = ["derive"] , workspace = true }
+rumqttc = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+prost = { workspace = true }
+tokio = { features = ["full"] , workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 mqttea = { path = "../../common/mqttea" }
 carbide-rpc = { path = "../../rpc" }
 

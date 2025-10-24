@@ -23,24 +23,24 @@ carbide-utils = { path = "../utils" }
 metrics-endpoint = { path = "../metrics-endpoint" }
 carbide-uuid = { path = "../uuid" }
 
-chrono = "0.4.34"
-eyre = "*"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "*"
-serial_test = "3"
+chrono = { workspace = true }
+eyre = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
-tempfile = "3"
+tempfile = { workspace = true }
 tokio.workspace = true
-tracing = "*"
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-futures = "0.3"
-itertools = "0.14"
-ctor = "0.2"
-temp-dir = "0.1.14"
-rand = "0.8.5"
-lazy_static = "1.5.0"
-uuid = "1.17.0"
-thiserror = "2.0.12"
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+ctor = { workspace = true }
+temp-dir = { workspace = true }
+rand = { workspace = true }
+lazy_static = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
 
 [build-dependencies]
 carbide-version = { path = "../version" }

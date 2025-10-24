@@ -16,13 +16,13 @@ ipnetwork = ["dep:ipnetwork"]
 sqlx = ["dep:sqlx", "dep:ipnetwork"]
 
 [dependencies]
-eyre = "*"
-ipnet = { version = "2", features = ["serde"] }
+eyre = { workspace = true }
+ipnet = { features = ["serde"] , workspace = true }
 ipnetwork = { workspace = true, features = ["serde"], optional = true}
-mac_address = "1.1.2"
-serde = { version = "1.0", features = ["derive"] }
+mac_address = { workspace = true }
+serde = { features = ["derive"] , workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
-thiserror = { version = "2" }
+thiserror = { workspace = true }
 
 carbide-rpc = { path = "../../rpc" }
 

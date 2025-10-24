@@ -10,21 +10,21 @@ name = "dhcp"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-chrono = "0.4.34"
-derive_builder = "*"
-eyre = "*"
+chrono = { workspace = true }
+derive_builder = { workspace = true }
+eyre = { workspace = true }
 hyper = { workspace = true, features = ["http2"] }
 hyper-util = { workspace = true, features = ["tokio"] }
-http-body-util = "0.1.2"
+http-body-util = { workspace = true }
 ipnetwork = { workspace = true }
-lazy_static = "1.4.0"
-libc = "*"
-log = "*"
-lru = "0.13.0"
-mac_address = "*"
-once_cell = "*"
+lazy_static = { workspace = true }
+libc = { workspace = true }
+log = { workspace = true }
+lru = { workspace = true }
+mac_address = { workspace = true }
+once_cell = { workspace = true }
 opentelemetry = { workspace = true }
-prost = "0.14.1"
+prost = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 
@@ -34,13 +34,13 @@ carbide-tls = { path = "../common/tls" }
 metrics-endpoint = { path = "../common/metrics-endpoint" }
 
 [dev-dependencies]
-eyre = "*"
-dhcproto = "0.12.0"
-serde_json = "1.0.89"
-test-cdylib = "1.1.0"
-tempfile = "3"
+eyre = { workspace = true }
+dhcproto = { workspace = true }
+serde_json = { workspace = true }
+test-cdylib = { workspace = true }
+tempfile = { workspace = true }
 carbide-rpc = { path = "../rpc" }
-prometheus = "0.13.4"
+prometheus = { workspace = true }
 
 [build-dependencies]
 cbindgen = "*"

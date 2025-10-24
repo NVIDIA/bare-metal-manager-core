@@ -15,15 +15,15 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true }
-eyre = "*"
-humantime = "*"
-rand = "0.9"
-thiserror = "2.0.3"
+eyre = { workspace = true }
+humantime = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
 tonic = { workspace = true }
 tokio = { workspace = true }
-tracing = "*"
-tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-typed-builder = "0.20.0"
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+typed-builder = { workspace = true }
 
 # [local-dependencies]
 carbide-certs = { path = "../../certs" }
@@ -33,15 +33,15 @@ carbide-tls = { path = "../../../common/tls" }
 carbide-rpc = { path = "../../../rpc" }
 
 [dev-dependencies]
-ctor = "0.2"
-tempfile = "3"
-prost = "0.14.1"
-reqwest = { version = "*", default-features = false, features = [
+ctor = { workspace = true }
+tempfile = { workspace = true }
+prost = { workspace = true }
+reqwest = { default-features = false, features = [
     "rustls-tls",
     "stream",
-] }
-rustls-pemfile = "2.2.0"
-rustls-pki-types = "1.10.0"
+] , workspace = true }
+rustls-pemfile = { workspace = true }
+rustls-pki-types = { workspace = true }
 
 [lints]
 workspace = true

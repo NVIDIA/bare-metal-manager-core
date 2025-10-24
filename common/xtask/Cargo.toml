@@ -1,13 +1,14 @@
 [package]
-name = "prometheus-text-parser"
+name = "xtask"
 version = "0.1.0"
-description = "Helper to parse prometheus results for testing assertions"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
 [dependencies]
-thiserror = { workspace = true }
+toml_edit = { workspace = true }
+walkdir = { workspace = true }
+eyre = { workspace = true }
 
 [lints]
 workspace = true

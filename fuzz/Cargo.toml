@@ -8,7 +8,7 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = { workspace = true }
 carbide-ssh-console = { path = "../ssh-console" }
 
 [[bin]]
