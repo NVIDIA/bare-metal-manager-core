@@ -12,7 +12,7 @@
 
 ### Internal Changes
 
-## [Unreleased (v2025.10.24-rc2-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc2-0...v2025.10.24-rc2-0)
+## [v2025.10.24-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc2-0...v2025.10.24-rc2-0)
 
 ### Added
 
@@ -79,6 +79,49 @@
 - [MR-4712](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4712): Internal change where resource_pool types were moved into the model crate and database features were moved to the db module as part of the carbide-api split, enabling the db crate to access these types independently.
 - [MR-4700](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4700): Internal change where the `api/src/model` module was split out into its own crate (`carbide-api-model`), stored in `api/model`. This involved rewriting imports and types for the new crate, removing `cfg(test)` gates that can’t be used across crates, moving some `From<T>` implementations to the model crate, duplicating certain `include_bytes!` constants as needed, and moving legacy `TopologyDataV1` and related test definitions to the relevant test modules to avoid polluting the model crate.
 
+## [v2025.10.10-rca-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc9-0...v2025.10.10-rca-0)
+
+### Fixed
+
+- [MR-4757](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4757): Only insert NSG-related policies in FNN NVUE config if an NSG is applied.
+
+## [v2025.10.10-rc9-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc8-0...v2025.10.10-rc9-0)
+
+### Fixed
+
+- [MR-4759](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4759): Don't wait for a key press if getting ipxe instructions fails.
+- [MR-4761](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4761): Don't check lockdown for GB200 in the state machine.
+
+## [v2025.10.10-rc8-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc7-0...v2025.10.10-rc8-0)
+
+### Fixed
+
+- [MR-4743](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4743): Add static/network routes for FNN when on admin network.
+
+## [v2025.10.10-rc7-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc6-0...v2025.10.10-rc7-0)
+
+### Added
+
+- [MR-4738](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4738): Allows FNN-enabled sites to also choose TOR evpn sessions when route-servers are disabled.
+
+## [v2025.10.10-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc5-0...v2025.10.10-rc6-0)
+
+### Fixed
+
+- [MR-4717](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4717): Fixed the token refreshing in vault.
+
+## [v2025.10.10-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc3-0...v2025.10.10-rc5-0)
+
+### Changed
+
+- [MR-4721](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4721): Update DOCA control pipe sizes to a new value that works, for DOCA >=2.8.
+
+## [v2025.10.10-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc2-0...v2025.10.10-rc3-0)
+
+### Added
+
+- [MR-4630](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4630): Add steps to the tenant release flow to reboot the host and reset BIOS settings before booting Scout.
+
 ## [v2025.10.10-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc2-0...v2025.10.10-rc2-0)
 
 ### Added
@@ -134,6 +177,54 @@
 - [MR-4664](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4664): Internal change where usage of the `date` command was updated to be portable across both GNU and BSD systems.
 - [MR-4652](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4652): Internal change where a script was added to easily run Carbide on Mac, implementing the relevant notes from the README to streamline execution and setup in macOS environments.
 - [MR-4655](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4655): Internal change where a page was added to the book explaining how to manage VPC peering using `forge-admin-cli` commands.
+
+## [v2025.09.26-rc3-6](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc3-5...v2025.09.26-rc3-6)
+
+### Fixed
+
+- [MR-4757](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4757): Only insert NSG-related policies in FNN NVUE config if an NSG is applied.
+
+## [v2025.09.26-rc3-5](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc3-4...v2025.09.26-rc3-5)
+
+### Fixed
+
+- [MR-4759](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4759): Don't wait for a key press if getting ipxe instructions fails.
+- [MR-4761](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4761): Don't check for lockdown for GB200 in the state machine.
+
+## [v2025.09.26-rc3-4](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc3-3...v2025.09.26-rc3-4)
+
+### Added
+
+- [MR-4665](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4665): Add FileEnsure support to duppet so we can delete files too.
+
+## [v2025.09.26-rc3-3](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc3-2...v2025.09.26-rc3-3)
+
+### Fixed
+
+- [MR-4743](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4743): Add static/network routes for FNN when on admin network
+
+## [v2025.09.26-rc3-2](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc3-1...v2025.09.26-rc3-2)
+
+### Added
+
+- [MR-4738](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4738): Allows FNN-enabled sites to also choose TOR evpn sessions when route-servers are disabled.
+
+## [v2025.09.26-rc3-1](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc3-0...v2025.09.26-rc3-1)
+
+### Changed
+
+- [MR-4721](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4721): Update DOCA control pipe sizes to a new value that works, for DOCA >=2.8
+
+## [v2025.09.26-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc2-0...v2025.09.26-rc3-0)
+
+### Added
+
+- [MR-4665](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4665): Add support for FileEnsure in Duppet, used to work around issues in DOCA 2.9.3
+
+### Fixed
+
+- [MR-4671](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4671): Fixes an issue managing DPU configs where the defaults would not be merged correctly.
+- [MR-4662](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4662): Clean up hack around management of certain files by DOCA 2.9.3
 
 ## [v2025.09.26-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...v2025.09.26-rc2-0)
 
@@ -200,6 +291,18 @@
 - [MR-4626](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4626): Internal change where comprehensive documentation was added for the breakfix integration, including a complete user guide for the Release Instance API enhancements, a visual workflow diagram, an FAQ covering common operational scenarios, CLI command references for troubleshooting, and configuration guidance for auto-repair settings. Documentation files were added to the book, including a new entry in `SUMMARY.md`, a dedicated documentation page, and a workflow diagram image.
 - [FORGE-6905](https://jirasw.nvidia.com/browse/FORGE-6905), [MR-4616](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4616): Internal change where the CODEOWNERS file was updated to use the new GitLab group syntax, since the `@@role` syntax is not available in GitLab 17.x.
 
+## [v2025.09.12-rc7-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc3-0...v2025.09.12-rc7-0)
+
+### Fixed
+
+- [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed stuck PXE boots by skipping NSGs in BootingWithDiscoveryImage state
+
+## [v2025.09.12-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...v2025.09.12-rc3-0)
+
+### Fixed
+
+- [MR-4503](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4354): Fixes an issue where machines are getting stuck due to lockdown mode
+
 ## [v2025.09.12-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...v2025.09.12-rc2-0)
 
 ### Added
@@ -255,6 +358,29 @@
 - [MR-4530](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4530): Updated libredfish to trunk and fix bmc-mock to support chassis collection.
 - [5481973](https://nvbugspro.nvidia.com/bug/5481973), [MR-4519](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4519): Add check for password reset during machine lifecycle test.
 - [MR-4527](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4527): Empty commit to advance tag.
+
+## [v2025.08.29-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc3-0...v2025.08.29-rc4-0)
+
+### Fixed
+
+- [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed stuck PXE boots by skipping NSGs in BootingWithDiscoveryImage state
+- [MR-4528](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4528): Make the DPU reprovisioning workflow use the redfish path to read BMC firmware version
+
+## [v2025.08.29-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...v2025.08.29-rc3-0)
+
+### Added 
+
+- [MR-4533](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4533): Adds functionality to infinite reboot a machine with a toggle in the CLI
+
+### Fixed
+
+- [MR-4531](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4533): Fixes issues with GB200 firmware updating
+
+### Internal Changes
+
+- [MR-4538](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4538): Update version of libredfish to better support lenovo SR675v3
+- [MR-4530](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4530): Update version of libredfish to better support GB200
+
 
 ## [v2025.08.29-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...v2025.08.29-rc2-0)
 
@@ -331,6 +457,67 @@
 - [FORGE-6794](https://jirasw.nvidia.com/browse/FORGE-6794), [MR-4457](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4457): chore: FORGE-6794: tests: instances: added rpc instance helper.
 - [MR-4454](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4454): fix: typo: BIOS => BOSS.
 - [MR-4521](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4521): Unit tests: separate modules for test object helpers.
+
+## [v2025.08.15-rca-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc9-0...v2025.08.15-rca-0)
+
+### Fixed
+
+- Updated version of libredfish to allow for fixes in YTL
+
+### Internal Changes
+
+- [MR-4535](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4535): Fix auto-deploy script so it pushes direct to forged/main.
+- [MR-4553](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4553): chore: Zero initialize forge_ib_monitor_ufm_changes_applied_total metric.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4537](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4537): refactor: database error handling unification in the Carbide API: errors with transactions.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4540](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4540): refactor: database error handling unification in the Carbide API: errors with transactions part 2.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4541](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4541): refactor: database error handling unification in the Carbide API: tracking file / line using track_caller Rust feature.
+- [MR-4548](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4548): refactor: remove unnecessary explicit conversions to CarbideError.
+- [MR-4594](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4594): Added retry and timeout logic to ipmitool in an attempt to fix hanging installs of the bfb
+
+- [FORGE-6905](https://jirasw.nvidia.com/browse/FORGE-6905), [MR-4539](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4539): chore: Add CODEOWNERS file.
+- [MR-4555](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4555): chore: Unify to a single MachineId type.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4524](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4524): Added Merge Request template.
+- [MR-4532](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4532): database error handling unification in the Carbide API: errors with query.
+- [MR-4529](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4529): chore: tests: Added: TestManagedHost::machine_validation_completed.
+- [MR-4530](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4530): Updated libredfish to trunk and fix bmc-mock to support chassis collection.
+- [5481973](https://nvbugspro.nvidia.com/bug/5481973), [MR-4519](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4519): Add check for password reset during machine lifecycle test.
+- [MR-4527](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4527): Empty commit to advance tag.
+
+## [v2025.08.15-rc8-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc7-0...v2025.08.15-rc8-0)
+
+### Fixed
+
+- [MR-4495](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4495): Don't acknowledge GPU VRAM quantity in SKU validation
+
+## [v2025.08.15-rc7-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc6-0...v2025.08.15-rc7-0)
+
+### Fixed
+
+- Fixed an issue with parsing libredfish degraded state parsing
+
+## [v2025.08.15-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc5-0...v2025.08.15-rc6-0)
+
+### Fixed
+
+- Fixed version pinning on libredfish to download the correct version
+
+## [v2025.08.15-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc4-0...v2025.08.15-rc5-0)
+
+### Fixed
+
+- [MR-4477](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4477): Update libredfish version to fix issue with GB200 calls
+
+## [v2025.08.15-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc3-0...v2025.08.15-rc4-0)
+
+### Fixed
+
+- [MR-4476](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4476): Update Axum router to not have `InsecureClientIP` field
+
+## [v2025.08.15-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...v2025.08.15-rc3-0)
+
+### Fixed
+
+- [MR-4450](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4450): Fixes an issue with SKU config not having a default value
 
 ## [v2025.08.15-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.01-rc2-0...v2025.08.15-rc2-0)
 
@@ -674,6 +861,14 @@
 ### Added
 
 - [MR-4139](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4139): Added the ability to automatically identify the BFB firmware to copy when using `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim` with automatic appending of the BFB configuration.
+
+## [v2025.06.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc2-0...v2025.06.06-rc3-0)
+
+### Added
+
+- [MR-4139](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4139): Do not require the user to specify the BFB to copy to a DPU's BMC.
+  - Old method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22 '/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb'`
+  - New method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22`
 
 ## [v2025.06.06-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc3-0...v2025.06.06-rc1-0)
 
