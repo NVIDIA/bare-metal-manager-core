@@ -1,13 +1,13 @@
 #set shell := ["bash", "-uc"]
 export DOCKER_BUILDKIT := "1"
 
-components_dir := "api pxe dns dhcp dev/bmc-mock dev/machine-a-tron admin health dhcp-server ssh-console"
+components_dir := "api pxe dns dhcp bmc-mock machine-a-tron admin-cli health dhcp-server ssh-console"
 components_name := "carbide-api carbide-pxe carbide-dns carbide-dhcp bmc-mock carbide-machine-a-tron carbide-admin-cli carbide-health carbide-dhcp-server carbide-ssh-console"
 image_name := "carbide-api carbide-pxe carbide-dns carbide-dhcp bmc-mock machine-a-tron carbide-hardware-health carbide-dhcp-server ssh-console-rs"
 
 # Start cargo-watch for components "{{components}}"
 watch: check forged-link skaffold-dirs
-  parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C {1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
+  parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C crates/{1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
 
 # Build components one time
 build: check forged-link skaffold-dirs

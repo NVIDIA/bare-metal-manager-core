@@ -729,7 +729,7 @@ build-release-machine-validation-runner:
   script:
     - docker build -t intermediate-artifacts-$CI_COMMIT_SHORT_SHA -f $DOCKER_FILE --build-arg VERSION=$VERSION --build-arg CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA --build-arg CONTAINER_RUNTIME_X86_64=$CONTAINER_ARTIFACTS_X86_64 .
     - docker tag "intermediate-artifacts-$CI_COMMIT_SHORT_SHA" $MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION:latest
-    - docker save --output common/machine-validation/images/machine-validation-runner.tar $MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION:latest
+    - docker save --output crates/machine-validation/images/machine-validation-runner.tar $MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION:latest
     - |
         echo "In case if there is registry access. May not be required Check later"
         if test "$DEPLOY_BUILT_CONTAINER" = "true"; then
@@ -750,7 +750,7 @@ build-release-machine-validation-runner:
         DEPLOY_BUILT_CONTAINER: "false"
   artifacts:
     paths:
-      - common/machine-validation/images
+      - crates/machine-validation/images
     when: always
     expire_in: 1 day
 
@@ -856,7 +856,7 @@ proto-police:
     name: yoheimuta/protolint
     entrypoint: [""]
   script:
-    - protolint lint -config_path=.protolint.yaml --reporter ci-glab rpc/proto/
+    - protolint lint -config_path=.protolint.yaml --reporter ci-glab crates/rpc/proto/
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
@@ -1306,18 +1306,18 @@ dev-env-test-with-carbide:
       changes:
         - .gitlab/dev-env-test-with-carbide.sh
         - '.skaffold/**/*'
-        - 'api/**/*'
+        - 'crates/api/**/*'
         - 'bluefield/**/*'
-        - 'common/**/*'
         - 'dev/**/*'
-        - 'dhcp/**/*'
-        - 'dhcp-server/**/*'
-        - 'dns/**/*'
-        - 'health/**/*'
+        - 'crates/dhcp/**/*'
+        - 'crates/dhcp-server/**/*'
+        - 'crates/dns/**/*'
+        - 'crates/health/**/*'
         - 'include/**/*'
         - 'pxe/**/*'
-        - 'rpc/**/*'
-        - 'scout/**/*'
+        - 'crates/pxe/**/*'
+        - 'crates/rpc/**/*'
+        - 'crates/scout/**/*'
         - '.envrc'
         - 'Cargo.lock'
         - 'Cargo.toml'

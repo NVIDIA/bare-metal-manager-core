@@ -12,8 +12,8 @@ ARG CONTAINER_RUNTIME_X86_64
 FROM $CONTAINER_RUNTIME_X86_64
 
 WORKDIR /
-COPY common/machine-validation/config /machine-validation/config
+COPY crates/machine-validation/config /machine-validation/config
 RUN cd /machine-validation/config && tar -cvf /tmp/config.tar . && cp /tmp/config.tar /machine-validation/config/
-COPY common/machine-validation/images /machine-validation/images
+COPY crates/machine-validation/images /machine-validation/images
 
 CMD exec /bin/sh -c "trap : TERM INT; sleep 9999999999d & wait"

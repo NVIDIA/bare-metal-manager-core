@@ -13,10 +13,10 @@ FROM runtime-container-localdev:latest as carbide
 
 WORKDIR ./carbide
 COPY .skaffold/target/carbide-machine-a-tron/debug/machine-a-tron /opt/machine-a-tron/bin/
-COPY dev/bmc-mock/dell_poweredge_r750.tar.gz /opt/machine-a-tron/
-COPY dev/bmc-mock/nvidia_dpu.tar.gz /opt/machine-a-tron/
-COPY dev/machine-a-tron/templates /opt/machine-a-tron/templates
+COPY crates/bmc-mock/dell_poweredge_r750.tar.gz /opt/machine-a-tron/
+COPY crates/bmc-mock/nvidia_dpu.tar.gz /opt/machine-a-tron/
+COPY crates/machine-a-tron/templates /opt/machine-a-tron/templates
 
 # bmc-mock expects certs here
-COPY dev/bmc-mock/tls.crt /opt/carbide/
-COPY dev/bmc-mock/tls.key /opt/carbide/
+COPY crates/bmc-mock/tls.crt /opt/carbide/
+COPY crates/bmc-mock/tls.key /opt/carbide/
