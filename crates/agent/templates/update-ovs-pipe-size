@@ -21,9 +21,9 @@ if [ "${total_mem}" -gt "30000" ]; then
 	# We know what we need for 2.8 and 2.9, but 64 for everyone else.
 	target_pipesize=64
 
-	if crictl inspect $(crictl ps | grep hbn | cut -d' ' -f 1) | grep 'doca2\.9\.' &>/dev/null;then
+	if grep 'doca2\.9\.' /opt/forge/doca_container_configs/configs/doca_hbn.yaml &>/dev/null;then
 		target_pipesize=32768
-	elif crictl inspect $(crictl ps | grep hbn | cut -d' ' -f 1) | grep 'doca2\.8\.' &>/dev/null;then
+	elif grep 'doca2\.8\.' /opt/forge/doca_container_configs/configs/doca_hbn.yaml &>/dev/null;then
 		target_pipesize=1024
 	fi
 
