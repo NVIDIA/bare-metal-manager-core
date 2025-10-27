@@ -85,10 +85,13 @@ rsync -a \
     "${DEST}"/
 
 # Copy the .git dir of each module
-for submodule in pxe/ipxe/upstream pxe/mkosi
-do
-    mkdir -p "${DEST}/${submodule}" && cp -a "${submodule}/.git" "${DEST}/${submodule}"
-done
+mkdir -p "${DEST}/pxe/ipxe/upstream"
+cp -a pxe/ipxe/upstream/.git "${DEST}/pxe/ipxe/upstream"
+mkdir -p "${DEST}/.git/modules/pxe/ipxe"
+cp -a .git/modules/pxe/ipxe/upstream "${DEST}/.git/modules/pxe/ipxe"
+mkdir -p "${DEST}/pxe/mkosi"
+cp -a pxe/mkosi/.git "${DEST}/pxe/mkosi"
+cp -a .git/modules/mkosi "${DEST}/.git/modules"
 
 # Create our own readme without a bunch of jira links
 cat >"${DEST}/README.md" <<-EOF
