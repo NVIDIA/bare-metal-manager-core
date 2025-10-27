@@ -10,13 +10,35 @@ use uuid::Uuid;
 
 use crate::metadata::Metadata;
 
+// Important : new fields for expected machine should be Optional _and_ #[serde(default)],
+// unless you want to go update all the files in each production deployment that autoload
+// the expected machines on api startup
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExpectedMachine {
+    #[serde(default)]
     pub id: Option<Uuid>,
     pub bmc_mac_address: MacAddress,
     #[serde(flatten)]
     pub data: ExpectedMachineData,
 }
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExpectedMachineData {
+    pub bmc_username: String,
+    pub bmc_password: String,
+    pub serial_number: String,
+    #[serde(default)]
+    pub fallback_dpu_serial_numbers: Vec<String>,
+    #[serde(default)]
+    pub sku_id: Option<String>,
+    #[serde(default)]
+    pub metadata: Metadata,
+    #[serde(skip)]
+    pub override_id: Option<Uuid>,
+}
+// Important : new fields for expected machine (and data) should be optional _and_ serde(default),
+// unless you want to go update all the files in each production deployment that autoload
+// the expected machines on api startup
 
 impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
@@ -79,20 +101,6 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
             machine_id: m.machine_id,
         }
     }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct ExpectedMachineData {
-    pub bmc_username: String,
-    pub bmc_password: String,
-    pub serial_number: String,
-    #[serde(default)]
-    pub fallback_dpu_serial_numbers: Vec<String>,
-    pub sku_id: Option<String>,
-    #[serde(default)]
-    pub metadata: Metadata,
-    #[serde(skip)]
-    pub override_id: Option<Uuid>,
 }
 
 impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {

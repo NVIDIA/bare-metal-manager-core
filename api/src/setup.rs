@@ -393,25 +393,19 @@ pub async fn initialize_and_start_controllers(
 
     const EXPECTED_MACHINE_FILE_PATH: &str = "/etc/forge/carbide-api/site/expected_machines.json";
     if let Ok(file_str) = tokio::fs::read_to_string(EXPECTED_MACHINE_FILE_PATH).await {
-        if let Ok(expected_machines) =
-            serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str())
-        {
-            let mut txn = Transaction::begin(db_pool, "define expected machines").await?;
-            if let Err(err) =
-                db::expected_machine::create_missing_from(&mut txn, &expected_machines).await
-            {
+        let expected_machines = serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str()).inspect_err(|err| {
+                tracing::error!("expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing: {err}.");
+            })?;
+        let mut txn = Transaction::begin(db_pool, "define expected machines").await?;
+        db::expected_machine::create_missing_from(&mut txn, &expected_machines)
+            .await
+            .inspect_err(|err| {
                 tracing::error!(
-                    "Unable to update database from expected_machines list, error: {err}"
+                    "Unable to update database from expected_machines list, bailing: {err}"
                 );
-            } else {
-                // everything worked, commit ok
-                txn.commit().await?;
-
-                tracing::info!("Successfully wrote expected machines to db, continuing startup.");
-            }
-        } else {
-            tracing::error!("Unable to parse expected_machines file, nothing was written to db.");
-        }
+            })?;
+        txn.commit().await?;
+        tracing::info!("Successfully wrote expected machines to db, continuing startup.");
     } else {
         tracing::info!("No expected machine file found, continuing startup.");
     }
