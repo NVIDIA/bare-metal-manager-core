@@ -420,37 +420,37 @@ done
 
 [tasks.build-scout-x86_64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="crates/scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
 run_task = "build-component-local"
 
 [tasks.build-scout-aarch64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="crates/scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
 run_task = "build-component-local"
 
 [tasks.build-scout-aarch64-release-cross]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="crates/scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
 run_task = "build-component-in-container"
 
 [tasks.package-scout-x86_64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="crates/scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-local"
 
 [tasks.package-scout-aarch64-release-local]
 workspace = false
-env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="crates/scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-local"
 
 [tasks.package-scout-aarch64-release-cross]
 workspace = false
-env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="crates/scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-in-container"
 
 [tasks.package-scout-cross-x86_64-release]
 workspace = false
-env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_CRATE"="carbide-scout", "CARBIDE_CRATE_DIR"="crates/scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
 run_task = "package-component-in-container"
 
 [tasks.setup-nightly-rustfmt]

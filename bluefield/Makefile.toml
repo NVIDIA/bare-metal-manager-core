@@ -347,7 +347,7 @@ script = '''
   cp misc/otelcol-contrib.service "forge-dpu_${vers}_arm64/lib/systemd/system/"
   cp otel/otelcol-wrapper "forge-dpu_${vers}_arm64/etc/otelcol-contrib/" && chmod u+x "forge-dpu_${vers}_arm64/etc/otelcol-contrib/otelcol-wrapper"
   cp otel/otel_config.yaml "forge-dpu_${vers}_arm64/etc/otelcol-contrib/config.yaml"
-  cp otel/otel-agent/otel-agent-config.toml "forge-dpu_${vers}_arm64/etc/forge-dpu-otel-agent/config.toml"
+  cp otel/otel-agent-config.toml "forge-dpu_${vers}_arm64/etc/forge-dpu-otel-agent/config.toml"
   cp -r misc/DEBIAN "forge-dpu_${vers}_arm64/"
   sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}_arm64/DEBIAN/control
 '''
@@ -385,7 +385,7 @@ script = '''
     cp misc/otelcol-contrib.service "forge-dpu_${vers}_arm64/lib/systemd/system/"
     cp otel/otelcol-wrapper "forge-dpu_${vers}_arm64/etc/otelcol-contrib/" && chmod u+x "forge-dpu_${vers}_arm64/etc/otelcol-contrib/otelcol-wrapper"
     cp otel/otel_config.yaml "forge-dpu_${vers}_arm64/etc/otelcol-contrib/config.yaml"
-    cp otel/otel-agent/otel-agent-config.toml "forge-dpu_${vers}_arm64/etc/forge-dpu-otel-agent/config.toml"
+    cp otel/otel-agent-config.toml "forge-dpu_${vers}_arm64/etc/forge-dpu-otel-agent/config.toml"
     cp -r misc/DEBIAN "forge-dpu_${vers}_arm64/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}_arm64/DEBIAN/control
 '''
@@ -423,7 +423,7 @@ script = '''
     cp misc/otelcol-contrib.service "forge-dpu_${vers}_arm64/lib/systemd/system/"
     cp otel/otelcol-wrapper "forge-dpu_${vers}_arm64/etc/otelcol-contrib/" && chmod u+x "forge-dpu_${vers}_arm64/etc/otelcol-contrib/otelcol-wrapper"
     cp otel/otel_config.yaml "forge-dpu_${vers}_arm64/etc/otelcol-contrib/config.yaml"
-    cp otel/otel-agent/otel-agent-config.toml "forge-dpu_${vers}_arm64/etc/forge-dpu-otel-agent/config.toml"
+    cp otel/otel-agent-config.toml "forge-dpu_${vers}_arm64/etc/forge-dpu-otel-agent/config.toml"
     cp -r misc/DEBIAN "forge-dpu_${vers}_arm64/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}_arm64/DEBIAN/control
 '''

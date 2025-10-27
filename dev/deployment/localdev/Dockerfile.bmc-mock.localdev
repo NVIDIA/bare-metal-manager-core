@@ -13,6 +13,6 @@ FROM runtime-container-localdev:latest as carbide
 
 WORKDIR ./carbide
 COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/carbide/
-COPY dev/bmc-mock/tls.crt /opt/carbide/
-COPY dev/bmc-mock/tls.key /opt/carbide/
-COPY dev/bmc-mock/dell_poweredge_r750.tar.gz /opt/carbide/
+COPY crates/bmc-mock/tls.crt /opt/carbide/
+COPY crates/bmc-mock/tls.key /opt/carbide/
+COPY crates/bmc-mock/dell_poweredge_r750.tar.gz /opt/carbide/

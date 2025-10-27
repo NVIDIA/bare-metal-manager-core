@@ -11,6 +11,6 @@ FROM runtime-container-localdev:latest as carbide
 
 
 WORKDIR /
-COPY common/machine-validation/config /machine-validation/config
+COPY crates/machine-validation/config /machine-validation/config
 
 CMD exec /bin/sh -c "trap : TERM INT; sleep 9999999999d & wait"

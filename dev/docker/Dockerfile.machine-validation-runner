@@ -13,5 +13,5 @@ FROM $CONTAINER_RUNTIME_X86_64
 # TODO replace this base container with GPU based containers
 
 WORKDIR /
-COPY common/machine-validation/scripts /machine-validation/scripts
+COPY crates/machine-validation/scripts /machine-validation/scripts
 
