@@ -646,6 +646,7 @@ pub mod test_support {
 
     use chrono::Utc;
     use forge_secrets::credentials::TestCredentialProvider;
+    use libredfish::model::certificate::Certificate;
     use libredfish::model::oem::nvidia_dpu::NicMode;
     use libredfish::model::secure_boot::SecureBootMode;
     use libredfish::model::sensor::GPUSensors;
@@ -1362,7 +1363,11 @@ pub mod test_support {
             Ok(Vec::new())
         }
 
-        async fn add_secure_boot_certificate(&self, _: &str) -> Result<Task, RedfishError> {
+        async fn add_secure_boot_certificate(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<Task, RedfishError> {
             Ok(Task {
                 odata: ODataLinks {
                     odata_context: None,
@@ -1566,6 +1571,31 @@ pub mod test_support {
             _boot_interface_mac: &str,
         ) -> Result<bool, RedfishError> {
             Ok(true)
+        }
+
+        async fn is_bios_setup(&self, _: Option<&str>) -> Result<bool, RedfishError> {
+            Ok(true)
+        }
+
+        async fn get_secure_boot_certificate(
+            &self,
+            _database_id: &str,
+            _certificate_id: &str,
+        ) -> Result<Certificate, RedfishError> {
+            Ok(Certificate {
+                certificate_string: String::new(),
+                certificate_type: "PEM".to_string(),
+                issuer: HashMap::new(),
+                valid_not_before: String::new(),
+                valid_not_after: String::new(),
+            })
+        }
+
+        async fn get_secure_boot_certificates(
+            &self,
+            _database_id: &str,
+        ) -> Result<Vec<String>, RedfishError> {
+            Ok(Vec::new())
         }
     }
 
