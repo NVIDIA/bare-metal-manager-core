@@ -905,7 +905,7 @@ pub enum RedfishCommand {
     /// Setup host for Forge use
     ForgeSetup(ForgeSetupArgs),
     /// Is everything ForgeSetup does already done? What's missing?
-    ForgeSetupStatus,
+    ForgeSetupStatus(ForgeSetupStatusArgs),
     /// Set our password policy
     SetForgePasswordPolicy,
     /// List one or all BIOS boot options
@@ -1133,6 +1133,12 @@ pub struct ForgeSetupArgs {
     pub bios_profiles: Option<String>,
     #[clap(long, help = "BIOS profile to use")]
     pub selected_profile: Option<libredfish::BiosProfileType>,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct ForgeSetupStatusArgs {
+    #[clap(long, help = "boot_interface_mac")]
+    pub boot_interface_mac: Option<String>,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]

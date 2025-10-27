@@ -132,8 +132,13 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 )
                 .await?;
         }
-        ForgeSetupStatus => {
-            println!("{}", redfish.machine_setup_status(None).await?);
+        ForgeSetupStatus(forge_setup_status_args) => {
+            println!(
+                "{}",
+                redfish
+                    .machine_setup_status(forge_setup_status_args.boot_interface_mac.as_deref())
+                    .await?
+            );
         }
         SetForgePasswordPolicy => {
             redfish.set_machine_password_policy().await?;
