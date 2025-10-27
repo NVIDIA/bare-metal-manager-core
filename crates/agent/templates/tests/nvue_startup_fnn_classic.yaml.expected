@@ -16,6 +16,7 @@
         ip:
           address:
             169.254.169.253/30: {}
+          vrf: vpc_0
       p0_if:
         type: swp
       p1_if:
