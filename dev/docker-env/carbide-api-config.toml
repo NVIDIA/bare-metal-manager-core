@@ -26,7 +26,7 @@ root_cafile_path = "/app/code/dev/certs/forge_developer_local_only_root_cert_pem
 
 [auth]
 permissive_mode = true
-casbin_policy_file = "/app/code/api/casbin-policy.csv"
+casbin_policy_file = "/app/code/crates/api/casbin-policy.csv"
 
 [pools.lo-ip]
 type = "ipv4"
