@@ -43,7 +43,7 @@ services:
   carbide-dhcp:
     depends_on:
       - loki
-    build: dhcp
+    build: crates/dhcp
     networks:
       carbide:
         ipv4_address: 172.20.0.12
@@ -59,7 +59,7 @@ services:
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
       - FORGE_ROOT_CAFILE_PATH=/opt/forge/forge_root.pem
-    command: cargo watch -C dhcp -x "build --target-dir /tmp/carbide-dhcp" -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
+    command: cargo watch -C crates/dhcp -x "build --target-dir /tmp/carbide-dhcp" -s "/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4-carbide.conf"
     cap_add:
       - net_bind_service
     logging:
@@ -70,7 +70,7 @@ services:
   carbide-db-migrations:
     depends_on:
       - postgresql
-    build: api
+    build: crates/api
     networks:
       carbide:
         ipv4_address: 172.20.0.13
@@ -80,14 +80,14 @@ services:
       - ca-certificate:/identity
     environment:
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C api -x "run --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql'"
+    command: cargo watch -C crates/api -x "run --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql'"
 
   carbide-api:
     depends_on:
       - carbide-db-migrations
       - postgresql
       - loki
-    build: api
+    build: crates/api
     networks:
       carbide:
         ipv4_address: 172.20.0.14
@@ -99,7 +99,7 @@ services:
       - .:/app/code
       - ca-certificate:/identity
     # For trace/debug mode add '-dd':
-    #   command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
+    #   command: cargo watch -C crates/api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
     # Create BMC site wide credentials to avoid Vault warnings, in container:
     #   cargo build -p admin --target-dir /opt/forge-admin-cli/
     #   /opt/forge-admin-cli/debug/forge-admin-cli -c https://127.0.0.1:1079 --client-cert-path /opt/forge/server_identity.pem --client-key-path /opt/forge/server_identity.key credential add-bmc --kind=site-wide-root --password=password
@@ -125,7 +125,7 @@ services:
       - >
         cargo build -p admin --target-dir /opt/forge-admin-cli/
 
-        cargo watch -C api -x "run --target-dir /tmp/carbide-api --
+        cargo watch -C crates/api -x "run --target-dir /tmp/carbide-api --
         run --config-path=/app/code/dev/docker-env/carbide-api-config.toml"
     ports:
       - 1079:1079
@@ -175,7 +175,7 @@ services:
       - FORGE_CLIENT_KEY_PATH=/opt/forge/server_identity.key
       - ARTIFACT_AUTHORIZATION_USER=$ARTIFACT_AUTHORIZATION_USER
       - ARTIFACT_AUTHORIZATION_TOKEN=$ARTIFACT_AUTHORIZATION_TOKEN
-    command: cargo watch -C pxe -x "run --target-dir /tmp/carbide-pxe"
+    command: cargo watch -C crates/pxe -x "run --target-dir /tmp/carbide-pxe"
     logging:
       driver: loki
       options:
@@ -275,7 +275,7 @@ services:
       - postgresql
       - carbide-api
       - loki
-    build: dns
+    build: crates/dns
     networks:
       carbide:
         ipv4_address: 172.20.0.20
@@ -287,7 +287,7 @@ services:
       - RUST_LOG=debug
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C dns -x "run --target-dir /tmp/carbide-dns -- --config-path=/app/code/dev/docker-env/carbide-dns-config.toml run"
+    command: cargo watch -C crates/dns -x "run --target-dir /tmp/carbide-dns -- --config-path=/app/code/dev/docker-env/carbide-dns-config.toml run"
     logging:
       driver: loki
       options:
