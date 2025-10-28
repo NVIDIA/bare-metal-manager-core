@@ -112,6 +112,7 @@ tonic-reflection = { workspace = true }
 tower = { workspace = true }
 tower-http = { features = ["add-extension", "auth", "normalize-path", ] , workspace = true }
 tracing = { workspace = true }
+tracing-log = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
 tss-esapi = { optional = true , workspace = true }

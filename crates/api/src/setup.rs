@@ -34,6 +34,7 @@ use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, PgPool};
 use tokio::sync::oneshot::{Receiver, Sender};
 use tokio::sync::{Semaphore, oneshot};
+use tracing_log::AsLog as _;
 
 use crate::api::Api;
 use crate::cfg::file::{CarbideConfig, ListenMode};
@@ -49,6 +50,7 @@ use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
     ServiceHealthContext, start_export_service_health_metrics,
 };
+use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::preingestion_manager::PreingestionManager;
@@ -154,7 +156,7 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
     let mut database_connect_options = config
         .database_url
         .parse::<sqlx::postgres::PgConnectOptions>()?
-        .log_statements("INFO".parse()?);
+        .log_statements(SQLX_STATEMENTS_LOG_LEVEL.as_log().to_level_filter());
     if let Some(ref tls_config) = config.tls {
         let tls_disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok(); // the integration test doesn't like this
         if !tls_disabled {

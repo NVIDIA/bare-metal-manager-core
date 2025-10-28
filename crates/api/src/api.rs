@@ -2770,17 +2770,18 @@ impl Forge for Api {
 
         match requested_setting {
             rpc::ConfigSetting::LogFilter => {
-                let current_level = self.dynamic_settings.log_filter.load();
-                let next_level = current_level
-                    .with_base(&req.value, Some(expire_at))
-                    .map_err(|err| {
-                        Status::invalid_argument(format!(
-                            "Invalid log filter string '{}'. {err}",
-                            req.value
-                        ))
-                    })?;
-                self.dynamic_settings.log_filter.store(Arc::new(next_level));
-                tracing::info!("Log filter updated to '{}'", req.value);
+                let level = &self.dynamic_settings.log_filter;
+                level.update(&req.value, Some(expire_at)).map_err(|err| {
+                    Status::invalid_argument(format!(
+                        "Invalid log filter string '{}'. {err}",
+                        req.value
+                    ))
+                })?;
+                tracing::info!(
+                    "Log filter updated to '{}'; global log level: {}",
+                    req.value,
+                    tracing_subscriber::filter::LevelFilter::current()
+                );
             }
             rpc::ConfigSetting::CreateMachines => {
                 let is_enabled = req.value.parse::<bool>().map_err(|err| {
@@ -5390,7 +5391,7 @@ impl Api {
     }
 
     pub fn log_filter_string(&self) -> String {
-        self.dynamic_settings.log_filter.load().to_string()
+        self.dynamic_settings.log_filter.to_string()
     }
 
     async fn clear_bmc_credentials(&self, machine: &Machine) -> Result<(), CarbideError> {

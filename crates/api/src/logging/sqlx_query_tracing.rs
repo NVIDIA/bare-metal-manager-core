@@ -14,8 +14,9 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 
 use opentelemetry::metrics::{Counter, Histogram, Meter};
-use tracing::{Event, Id, Subscriber, field, span};
+use tracing::{Event, Id, Level, Subscriber, field, span};
 use tracing_subscriber::Layer;
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
@@ -31,19 +32,21 @@ pub fn block_sqlx_filter() -> tracing_subscriber::filter::Targets {
         .with_target("sqlx::extract_query_data", LevelFilter::WARN)
 }
 
+pub const SQLX_STATEMENTS_LOG_LEVEL: Level = Level::INFO;
+
 /// Creates a tracing `Layer` which intercepts `sqlx::query` calls only and aggregates their data
 pub fn create_sqlx_query_tracing_layer<S>() -> impl tracing_subscriber::Layer<S>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
-    SqlxQueryTracingLayer::default().with_filter(tracing_subscriber::filter::filter_fn(
-        |metadata| {
+    SqlxQueryTracingLayer::default()
+        .with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
             metadata.is_span()
                 || metadata.is_event()
                     && (metadata.target() == "sqlx::query"
                         || metadata.target() == "sqlx::extract_query_data")
-        },
-    ))
+        }))
+        .with_filter(LevelFilter::from_level(SQLX_STATEMENTS_LOG_LEVEL))
 }
 
 /// A tracing [Layer] that listens to `sqlx::query` events

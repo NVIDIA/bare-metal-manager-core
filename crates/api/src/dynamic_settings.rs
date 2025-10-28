@@ -21,7 +21,7 @@ use super::logging::level_filter::ActiveLevel;
 
 pub struct DynamicSettings {
     /// RUST_LOG level
-    pub log_filter: Arc<ArcSwap<ActiveLevel>>,
+    pub log_filter: Arc<ActiveLevel>,
 
     /// Should site-explorer create machines
     pub create_machines: Arc<AtomicBool>,
@@ -46,16 +46,8 @@ impl DynamicSettings {
                 loop {
                     tokio::time::sleep(period).await;
 
-                    let f = log_filter.load();
-                    if f.has_expired() {
-                        match f.reset_from() {
-                            Ok(next) => {
-                                log_filter.store(Arc::new(next));
-                            }
-                            Err(err) => {
-                                tracing::error!("Failed resetting log level: {err}");
-                            }
-                        }
+                    if let Err(err) = log_filter.reset_if_expired() {
+                        tracing::error!("Failed resetting log level: {err}");
                     }
                 }
             })
