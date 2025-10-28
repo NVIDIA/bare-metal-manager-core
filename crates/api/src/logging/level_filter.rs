@@ -12,68 +12,101 @@
 
 use std::fmt;
 
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{EnvFilter, reload};
+
+use crate::logging::setup::dep_log_filter;
+
+pub trait Reloadable: Send + Sync {
+    fn reload(&self, f: EnvFilter) -> Result<(), eyre::Error>;
+}
+
+#[derive(Debug)]
+pub struct ReloadableFilter<S> {
+    handle: ReloadHandle<S>,
+}
+
+impl<S> ReloadableFilter<S> {
+    pub fn new(handle: ReloadHandle<S>) -> Self {
+        Self { handle }
+    }
+}
+
+impl<S> Reloadable for ReloadableFilter<S> {
+    fn reload(&self, f: EnvFilter) -> Result<(), eyre::Error> {
+        Ok(self.handle.reload(f)?)
+    }
+}
+
+pub type ReloadHandle<S> = reload::Handle<EnvFilter, S>;
 
 /// The current RUST_LOG setting.
 /// Immutable. Owner holds it in an ArcSwap and replaces the whole object using one of `with_base` or
 /// `reset_from`.
-#[derive(Debug)]
 pub struct ActiveLevel {
-    /// The current filter that logging uses
-    pub current: EnvFilter,
+    /// Handle to reload the logging level.
+    pub reload_handle: Option<Box<dyn Reloadable>>,
+
+    /// The current RUST_LOG
+    pub current: ArcSwap<String>,
 
     /// The RUST_LOG we had on startup
     pub base: String,
 
     /// When to switch back to the RUST_LOG we had on startup
-    expiry: Option<DateTime<Utc>>,
+    expiry: ArcSwap<Option<DateTime<Utc>>>,
+}
+
+impl fmt::Debug for ActiveLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ActiveLevel{{ current: {:?}, base: {:?}, expiry: {:?} }}",
+            self.current, self.base, self.expiry
+        )
+    }
 }
 
 impl Default for ActiveLevel {
     fn default() -> Self {
         Self {
-            current: EnvFilter::from_default_env(),
+            reload_handle: None,
+            current: Default::default(),
             base: "".to_string(),
-            expiry: None,
+            expiry: Default::default(),
         }
     }
 }
 
 impl ActiveLevel {
-    pub fn new(f: EnvFilter) -> Self {
+    pub fn new(f: EnvFilter, reload_handle: Option<Box<dyn Reloadable>>) -> Self {
         Self {
+            current: ArcSwap::new(f.to_string().into()),
             base: f.to_string(),
-            expiry: None,
-            current: f,
+            expiry: Default::default(),
+            reload_handle,
         }
     }
 
     // Build a new ActiveLevel with the same 'base' as caller
-    pub fn with_base(&self, filter: &str, until: Option<DateTime<Utc>>) -> eyre::Result<Self> {
-        let current = EnvFilter::builder().parse(filter)?;
-        Ok(Self {
-            current,
-            expiry: until,
-            base: self.base.clone(),
-        })
+    pub fn update(&self, filter: &str, until: Option<DateTime<Utc>>) -> Result<(), eyre::Error> {
+        let current = dep_log_filter(EnvFilter::builder().parse(filter)?);
+        self.expiry.store(until.into());
+        if let Some(handle) = self.reload_handle.as_ref() {
+            handle.reload(current)?;
+        }
+        Ok(())
     }
 
     // Build a new ActiveLevel use 'base' as the RUST_LOG
-    pub fn reset_from(&self) -> eyre::Result<Self> {
-        let current = EnvFilter::builder().parse(&self.base)?;
-        Ok(Self {
-            current,
-            expiry: None,
-            base: self.base.clone(),
-        })
-    }
-
-    pub fn has_expired(&self) -> bool {
-        if let Some(expiry) = self.expiry.as_ref() {
-            *expiry < chrono::Utc::now()
+    pub fn reset_if_expired(&self) -> Result<(), eyre::Error> {
+        if let Some(expiry) = self.expiry.load().as_ref()
+            && *expiry < chrono::Utc::now()
+        {
+            self.update(&self.base, None)
         } else {
-            false
+            Ok(())
         }
     }
 }
@@ -81,7 +114,7 @@ impl ActiveLevel {
 impl fmt::Display for ActiveLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let current = self.current.to_string();
-        match self.expiry {
+        match self.expiry.load().as_ref() {
             None => write!(f, "{current}"),
             Some(exp) => write!(f, "{current} until {exp}"),
         }

@@ -18,7 +18,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use chrono::{DateTime, Duration, Utc};
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
@@ -1064,11 +1063,12 @@ pub async fn create_test_env_with_overrides(
             .expect("Creating pools should work");
 
     let dyn_settings = crate::dynamic_settings::DynamicSettings {
-        log_filter: Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
+        log_filter: Arc::new(ActiveLevel::new(
             EnvFilter::builder()
                 .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
                 .unwrap(),
-        )))),
+            None,
+        )),
         create_machines: config.site_explorer.create_machines.clone(),
         bmc_proxy: config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: Arc::new(false.into()),

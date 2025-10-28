@@ -13,7 +13,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use arc_swap::ArcSwap;
 use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry::trace::{Link, SamplingDecision, SamplingResult, SpanKind, TracerProvider};
@@ -25,17 +24,17 @@ use opentelemetry_sdk::trace::{Sampler, ShouldSample};
 use opentelemetry_semantic_conventions as semcov;
 use spancounter::SpanCountReader;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
-use tracing_subscriber::layer::Filter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{Layer, filter};
+use tracing_subscriber::{Layer, filter, reload};
 
 use super::level_filter::ActiveLevel;
+use crate::logging::level_filter::ReloadableFilter;
 use crate::logging::sqlx_query_tracing;
 
 #[derive(Debug, Clone, Default)]
 pub struct Logging {
-    pub filter: Arc<ArcSwap<ActiveLevel>>,
+    pub filter: Arc<ActiveLevel>,
     pub tracing_enabled: Arc<AtomicBool>,
     pub spancount_reader: Option<spancounter::SpanCountReader>,
 }
@@ -48,62 +47,55 @@ pub struct Metrics {
     pub _meter_provider: SdkMeterProvider,
 }
 
+pub fn dep_log_filter(env_filter: EnvFilter) -> EnvFilter {
+    [
+        "sqlxmq::runner=warn",
+        "sqlx::query=warn",
+        "sqlx::extract_query_data=warn",
+        "rustify=off",
+        "hyper=error",
+        "rustls=warn",
+        "tokio_util::codec=warn",
+        "vaultrs=error",
+        "h2=warn",
+    ]
+    .iter()
+    .fold(env_filter, |f, filter_str| {
+        f.add_directive(
+            filter_str
+                .parse()
+                .unwrap_or_else(|err| panic!("{filter_str} must be parsed; error: {err}")),
+        )
+    })
+}
+
 pub fn setup_logging(
     debug: u8,
     override_logging_subscriber: Option<impl SubscriberInitExt>,
 ) -> eyre::Result<Logging> {
     // This configures emission of logs in LogFmt syntax
     // and emission of metrics
-
-    let deps_log_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::TRACE.into())
-        .parse("")?
-        .add_directive("sqlxmq::runner=warn".parse()?)
-        .add_directive("sqlx::query=warn".parse()?)
-        .add_directive("sqlx::extract_query_data=warn".parse()?)
-        .add_directive("rustify=off".parse()?)
-        .add_directive("hyper=error".parse()?)
-        .add_directive("rustls=warn".parse()?)
-        .add_directive("tokio_util::codec=warn".parse()?)
-        .add_directive("vaultrs=error".parse()?)
-        .add_directive("h2=warn".parse()?);
+    let log_level = match debug {
+        0 => LevelFilter::INFO,
+        1 => {
+            // command line overrides config file
+            LevelFilter::DEBUG
+        }
+        _ => LevelFilter::TRACE,
+    };
 
     // We set up some global filtering using `tracing`s `EnvFilter` framework
     // The global filter will apply to all `Layer`s that are added to the
     // `logging_subscriber` later on. This means it applies for both logging to
     // stdout as well as for OpenTelemetry integration.
     // We ignore a lot of spans and events from 3rd party frameworks
-    let mut initial_log_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
+    let initial_log_filter = EnvFilter::builder()
+        .with_default_directive(log_level.into())
         .from_env()?;
-    if debug != 0 {
-        initial_log_filter = initial_log_filter.add_directive(
-            match debug {
-                1 => {
-                    // command line overrides config file
-                    LevelFilter::DEBUG
-                }
-                _ => LevelFilter::TRACE,
-            }
-            .into(),
-        );
-    }
+    let initial_log_filter = dep_log_filter(initial_log_filter);
 
-    // == Dynamic filter for logging level ==
-    // The outer Arc allows sharing/cloning the contents.
-    // The inner ArcSwap is a higher performance alternative to Arc<RwLock>.
-    let dyn_log_filter = Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
-        initial_log_filter,
-    ))));
-    let combined_log_filter = filter::dynamic_filter_fn({
-        let dyn_log_filter = dyn_log_filter.clone();
-        move |metadata, context| {
-            if !Filter::enabled(&deps_log_filter, metadata, context) {
-                return false;
-            }
-            Filter::enabled(&dyn_log_filter.load().current, metadata, context)
-        }
-    });
+    let (logfmt_stdout_filter, logfmt_stdout_reload_handle) =
+        reload::Layer::new(initial_log_filter.clone());
     let logfmt_stdout_formatter = logfmt::layer();
     let spancount_layer = spancounter::layer();
     let spancount_reader = spancount_layer.reader();
@@ -113,7 +105,8 @@ pub fn setup_logging(
     // typically want a high level of verbosity.) Enabled by default if debug is enabled.
     let tracing_enabled = Arc::new(AtomicBool::new(debug == 1));
     let trace_sampler = CarbideSpanSampler::new(tracing_enabled.clone());
-    let trace_filter = filter::filter_fn(should_accept_span_or_event);
+    let trace_filter =
+        filter::filter_fn(should_accept_span_or_event).with_max_level_hint(log_level);
 
     if let Some(logging_subscriber) = override_logging_subscriber {
         logging_subscriber
@@ -149,19 +142,31 @@ pub fn setup_logging(
             };
 
         tracing_subscriber::registry()
-            .with(spancount_layer)
+            .with(spancount_layer.with_filter(log_level))
             .with(maybe_otel_tracing_layer)
-            .with(logfmt_stdout_formatter.with_filter(combined_log_filter))
+            .with(logfmt_stdout_formatter.with_filter(logfmt_stdout_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()
             .wrap_err("new tracing subscriber try_init()")?;
     };
 
-    Ok(Logging {
-        filter: dyn_log_filter,
-        tracing_enabled,
-        spancount_reader: Some(spancount_reader),
-    })
+    if LevelFilter::current() != log_level {
+        Err(eyre::eyre!(
+            "not expected current log level {} when expected: {log_level}",
+            LevelFilter::current()
+        ))
+    } else {
+        tracing::info!("current log level: {}", LevelFilter::current());
+        Ok(Logging {
+            filter: ActiveLevel::new(
+                initial_log_filter,
+                Some(Box::new(ReloadableFilter::new(logfmt_stdout_reload_handle))),
+            )
+            .into(),
+            tracing_enabled,
+            spancount_reader: Some(spancount_reader),
+        })
+    }
 }
 
 pub fn create_metrics() -> Result<Metrics, opentelemetry_sdk::metrics::MetricError> {
