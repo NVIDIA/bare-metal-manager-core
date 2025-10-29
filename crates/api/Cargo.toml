@@ -70,7 +70,6 @@ hyper-timeout = { workspace = true }
 hyper-util = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
-jemalloc_pprof = { features = ["flamegraph"] , workspace = true }
 lazy_static = { workspace = true }
 libnvmesh = { workspace = true }
 libredfish = { workspace = true }
@@ -103,7 +102,6 @@ strum = { workspace = true }
 temp-dir = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
-tikv-jemallocator = { features = ["profiling", "unprefixed_malloc_on_supported_platforms"] , workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 toml = { workspace = true }

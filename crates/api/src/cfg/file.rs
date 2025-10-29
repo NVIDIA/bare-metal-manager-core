@@ -72,11 +72,6 @@ pub struct CarbideConfig {
     /// prometheus metrics under /metrics
     pub metrics_endpoint: Option<SocketAddr>,
 
-    /// The socket address that is used for the HTTP server which serves
-    /// heap profiles under /pprof
-    #[serde(default)]
-    pub profiler_endpoint: Option<SocketAddr>,
-
     /// A connection string for the utilized postgres database
     pub database_url: String,
 
