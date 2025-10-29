@@ -24,21 +24,17 @@ ctor = { workspace = true }
 lazy_static = { workspace = true }
 tokio = { workspace = true, features = ["tokio-macros", "rt-multi-thread", "sync", "macros"] }
 tracing = { workspace = true }
-tracing-subscriber = { features = ["env-filter"] , workspace = true }
-uuid = { features = ["v4"] , workspace = true }
+tracing-subscriber = { features = ["env-filter"], workspace = true }
+uuid = { features = ["v4"], workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
-clap = { features = ["color", "derive", "env"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
+clap = { features = ["color", "derive", "env"], workspace = true }
 russh = { workspace = true }
 http = { workspace = true }
 tonic = { workspace = true, features = ["default"] }
-tonic-prost = { workspace = true }
-tonic-prost-build = { workspace = true }
-prost = { workspace = true }
-prost-types = { workspace = true }
 ringbuf = { workspace = true }
-nix = { features = ["process", "term", "fs"] , workspace = true }
+nix = { features = ["process", "term", "fs"], workspace = true }
 libc = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
@@ -53,12 +49,11 @@ prometheus = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 http-body-util = { workspace = true }
-size = { features = ["serde"] , workspace = true }
+size = { features = ["serde"], workspace = true }
 
 [dev-dependencies]
 bmc-mock = { path = "../bmc-mock" }
 carbide-machine-a-tron = { path = "../machine-a-tron" }
-carbide-utils = { path = "../utils" }
 temp-dir = { workspace = true }
 futures = { workspace = true }
 carbide-api-test-helper = { path = "../api-test-helper" }

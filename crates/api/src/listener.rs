@@ -33,6 +33,8 @@ use tower_http::auth::AsyncRequireAuthorizationLayer;
 
 use crate::api::Api;
 use crate::auth;
+use crate::auth::forge_spiffe::ForgeSpiffeContext;
+use crate::auth::spiffe_id;
 use crate::cfg::file::AuthConfig;
 use crate::logging::api_logs::LogLayer;
 
@@ -204,7 +206,20 @@ pub async fn listen_and_serve(
         None
     };
 
-    let cert_description_layer = auth::middleware::CertDescriptionMiddleware::new(extra_cli_certs);
+    // Configure trust root for what we expect in a k8s cluster.
+    let spiffe_context = ForgeSpiffeContext {
+        trust_domain: spiffe_id::TrustDomain::new("forge.local").unwrap(),
+        service_base_paths: vec![
+            String::from("/test-system/sa/"),
+            String::from("/default/sa/"),
+            String::from("/elektra-site-agent/sa/"),
+        ],
+        machine_base_path: String::from("/forge-system/machine/"),
+        additional_issuer_cns: vec!["pki-k8s-usercert-ca.ngc.nvidia.com".to_string()],
+    };
+
+    let cert_description_layer =
+        auth::middleware::CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context);
     let casbin_layer = if let Some(auth_config) = auth_config {
         if let Some(casbin_policy_file) = &auth_config.casbin_policy_file {
             let casbin_authorizer = Arc::new(

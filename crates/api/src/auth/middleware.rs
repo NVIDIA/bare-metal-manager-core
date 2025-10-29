@@ -19,16 +19,19 @@ use crate::cfg::file::AllowedCertCriteria;
 // This middleware is not expected to enforce anything on its own, so anything
 // that an access control policy might need to do its work should be passed
 // along in the request extensions.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CertDescriptionMiddleware {
     pub spiffe_context: Arc<ForgeSpiffeContext>,
     pub extra_allowed_certs: Option<AllowedCertCriteria>,
 }
 
 impl CertDescriptionMiddleware {
-    pub fn new(extra_allowed_certs: Option<AllowedCertCriteria>) -> Self {
+    pub fn new(
+        extra_allowed_certs: Option<AllowedCertCriteria>,
+        spiffe_context: ForgeSpiffeContext,
+    ) -> Self {
         CertDescriptionMiddleware {
-            spiffe_context: Arc::new(ForgeSpiffeContext::default()),
+            spiffe_context: Arc::new(spiffe_context),
             extra_allowed_certs,
         }
     }
