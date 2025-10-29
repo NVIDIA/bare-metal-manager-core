@@ -39,6 +39,12 @@ build:
           - "carbide-api"
           - api/casbin-policy.csv
           - pxe/static/*
+    - image: forge-admin-cli
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.forge-admin-cli.localdev
+      sync:
+        infer:
+          - "forge-admin-cli"
     - image: carbide-dhcp-server
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.dhcpserver.localdev
