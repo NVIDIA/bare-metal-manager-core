@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use bmc_mock::HostnameQuerying;
 use eyre::Context;
-use rand_core::OsRng;
 use russh::keys::PublicKeyBase64;
+use russh::keys::signature::rand_core::OsRng;
 use russh::server::{Auth, Config, Msg, Server as _, Session, run_stream};
 use russh::{Channel, ChannelId, MethodKind, MethodSet, Pty, server};
 use tokio::net::TcpListener;
