@@ -227,7 +227,7 @@ pub fn run_combined_mock<T: AsRef<OsStr>>(
         let root_var =
             std::env::var("REPO_ROOT").expect("Could not find the crt file for bmc-mock.");
         let root_dir = Path::new(&root_var);
-        let cert_path = root_dir.join("dev/bmc-mock");
+        let cert_path = root_dir.join("crates/bmc-mock");
         cert_file = cert_path.join("tls.crt");
         key_file = cert_path.join("tls.key");
     }
