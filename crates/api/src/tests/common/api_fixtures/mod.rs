@@ -812,7 +812,6 @@ pub fn get_config() -> CarbideConfig {
     CarbideConfig {
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
         metrics_endpoint: None,
-        profiler_endpoint: None,
         database_url: "pgsql:://localhost".to_string(),
         max_database_connections: 1000,
         asn: 0,
