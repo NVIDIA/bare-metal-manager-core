@@ -48,7 +48,7 @@ impl From<MockHost> for forge::Machine {
 impl From<MockHost> for forge::Instance {
     fn from(value: MockHost) -> Self {
         Self {
-            id: Some(common::Uuid {
+            id: Some(common::InstanceId {
                 value: value.instance_id.to_string(),
             }),
             machine_id: Some(value.machine_id),
