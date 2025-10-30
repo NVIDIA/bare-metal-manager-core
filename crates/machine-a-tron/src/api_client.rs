@@ -335,7 +335,6 @@ impl ApiClient {
             }),
             network_security_group_id: None,
             infiniband: None,
-            storage: None,
         };
 
         let instance_request = rpc::InstanceAllocationRequest {

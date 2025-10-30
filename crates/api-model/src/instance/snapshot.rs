@@ -26,9 +26,7 @@ use sqlx::{FromRow, Row};
 use super::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
 use crate::instance::config::InstanceConfig;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
-use crate::instance::config::storage::InstanceStorageConfig;
 use crate::instance::config::tenant_config::TenantConfig;
-use crate::instance::status::storage::InstanceStorageStatusObservation;
 use crate::instance::status::{InstanceStatus, InstanceStatusObservations};
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::{ManagedHostState, ReprovisionRequest};
@@ -104,7 +102,6 @@ impl InstanceSnapshot {
             Versioned::new(&self.config, self.config_version),
             Versioned::new(&self.config.network, self.network_config_version),
             Versioned::new(&self.config.infiniband, self.ib_config_version),
-            Versioned::new(&self.config.storage, self.storage_config_version),
             &self.observations,
             managed_host_state,
             self.deleted.is_some(),
@@ -130,10 +127,8 @@ pub struct InstanceSnapshotPgJson {
     network_config_version: String,
     ib_config: InstanceInfinibandConfig,
     ib_config_version: String,
-    storage_config: InstanceStorageConfig,
     storage_config_version: String,
     config_version: String,
-    storage_status_observation: Option<InstanceStorageStatusObservation>,
     phone_home_last_contact: Option<DateTime<Utc>>,
     use_custom_pxe_on_boot: bool,
     tenant_org: Option<String>,
@@ -197,7 +192,6 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             os,
             network: value.network_config,
             infiniband: value.ib_config,
-            storage: value.storage_config,
             network_security_group_id: value.network_security_group_id,
         };
 
@@ -233,7 +227,6 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             })?,
             observations: InstanceStatusObservations {
                 network: HashMap::default(),
-                storage: value.storage_status_observation,
                 phone_home_last_contact: value.phone_home_last_contact,
             },
             use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,

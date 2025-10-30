@@ -1435,7 +1435,6 @@ impl ApiClient {
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
-            storage: None,
         };
 
         let mut labels = vec![
@@ -1582,57 +1581,6 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    pub async fn delete_storage_cluster(
-        &self,
-        id: ::rpc::common::Uuid,
-        name: String,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::DeleteStorageClusterRequest { name, id: Some(id) };
-        self.0.delete_storage_cluster(request).await?;
-        Ok(())
-    }
-
-    pub async fn update_storage_cluster(
-        &self,
-        id: ::rpc::common::Uuid,
-        host: Vec<String>,
-        port: Option<u32>,
-        username: Option<String>,
-        password: Option<String>,
-    ) -> CarbideCliResult<rpc::StorageCluster> {
-        if host.is_empty() && port.is_none() && username.is_none() && password.is_none() {
-            return Err(CarbideCliError::GenericError(
-                "Invalid arguments".to_string(),
-            ));
-        }
-        let cluster = self.0.get_storage_cluster(id.clone()).await?;
-        if cluster.attributes.is_none() {
-            return Err(CarbideCliError::Empty);
-        }
-        let mut new_attrs = cluster.attributes.clone().unwrap();
-        if !host.is_empty() {
-            new_attrs.host = host;
-        }
-        if let Some(x) = port {
-            new_attrs.port = x;
-        }
-        if username.is_some() {
-            new_attrs.username = username;
-        }
-        if password.is_some() {
-            new_attrs.password = password;
-        }
-        let request = rpc::UpdateStorageClusterRequest {
-            cluster_id: Some(id),
-            attributes: Some(new_attrs),
-        };
-
-        self.0
-            .update_storage_cluster(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
     pub async fn get_machine_validation_runs(
         &self,
         machine_id: Option<MachineId>,
@@ -1666,111 +1614,6 @@ impl ApiClient {
         };
         self.0
             .on_demand_machine_validation(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn list_storage_pool(
-        &self,
-        cluster_id: Option<::rpc::common::Uuid>,
-        tenant_organization_id: Option<String>,
-    ) -> CarbideCliResult<Vec<rpc::StoragePool>> {
-        let request = rpc::ListStoragePoolRequest {
-            cluster_id,
-            tenant_organization_id,
-        };
-        let response = self.0.list_storage_pool(request).await?;
-        Ok(response.pools)
-    }
-
-    pub async fn delete_storage_pool(
-        &self,
-        cluster_id: ::rpc::common::Uuid,
-        pool_id: ::rpc::common::Uuid,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::DeleteStoragePoolRequest {
-            cluster_id: Some(cluster_id),
-            pool_id: Some(pool_id),
-        };
-        self.0.delete_storage_pool(request).await?;
-        Ok(())
-    }
-
-    pub async fn update_storage_pool(
-        &self,
-        id: ::rpc::common::Uuid,
-        capacity: Option<u64>,
-        name: Option<String>,
-        description: Option<String>,
-    ) -> CarbideCliResult<rpc::StoragePool> {
-        if capacity.is_none() && name.is_none() && description.is_none() {
-            return Err(CarbideCliError::GenericError(
-                "Invalid arguments".to_string(),
-            ));
-        }
-        let pool = self.0.get_storage_pool(id).await?;
-        if pool.attributes.is_none() {
-            return Err(CarbideCliError::Empty);
-        }
-        let mut new_attrs = pool.attributes.clone().unwrap();
-        if let Some(x) = capacity {
-            new_attrs.capacity = x;
-        }
-        if name.is_some() {
-            new_attrs.name = name;
-        }
-        if description.is_some() {
-            new_attrs.description = description;
-        }
-        self.0
-            .update_storage_pool(new_attrs)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn delete_storage_volume(
-        &self,
-        cluster_id: ::rpc::common::Uuid,
-        pool_id: ::rpc::common::Uuid,
-        volume_id: ::rpc::common::Uuid,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::DeleteStorageVolumeRequest {
-            volume_id: Some(volume_id),
-            pool_id: Some(pool_id),
-            cluster_id: Some(cluster_id),
-        };
-        self.0.delete_storage_volume(request).await?;
-        Ok(())
-    }
-
-    pub async fn update_storage_volume(
-        &self,
-        id: ::rpc::common::Uuid,
-        capacity: Option<u64>,
-        name: Option<String>,
-        description: Option<String>,
-    ) -> CarbideCliResult<rpc::StorageVolume> {
-        if capacity.is_none() && name.is_none() && description.is_none() {
-            return Err(CarbideCliError::GenericError(
-                "Invalid arguments".to_string(),
-            ));
-        }
-        let volume = self.0.get_storage_volume(id).await?;
-        if volume.attributes.is_none() {
-            return Err(CarbideCliError::Empty);
-        }
-        let mut new_attrs = volume.attributes.clone().unwrap();
-        if let Some(x) = capacity {
-            new_attrs.capacity = x;
-        }
-        if name.is_some() {
-            new_attrs.name = name;
-        }
-        if description.is_some() {
-            new_attrs.description = description;
-        }
-        self.0
-            .update_storage_volume(new_attrs)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }

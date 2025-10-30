@@ -33,7 +33,6 @@ use crate::cfg::file::CarbideConfig;
 use crate::ib::IBFabricManager;
 use crate::ipmitool::IPMITool;
 use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
-use crate::storage::{NvmeshClientPool, StorageError};
 
 /// Services that are accessible to the `StateHandler`
 pub struct StateHandlerServices {
@@ -45,9 +44,6 @@ pub struct StateHandlerServices {
 
     /// API for interaction with Forge IBFabricManager
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
-
-    /// API for interaction with NVMesh storage cluster
-    pub nvmesh_client_pool: Arc<dyn NvmeshClientPool>,
 
     /// Resource pools for ib pkey allocation/release.
     pub ib_pools: IbPools,
@@ -210,9 +206,6 @@ pub enum StateHandlerError {
         error: eyre::Report,
     },
 
-    #[error("Storage error {0}")]
-    StorageError(#[from] StorageError),
-
     #[error("Failed to create redfish client: {0}")]
     RedfishClientCreationError(#[from] RedfishClientCreationError),
 
@@ -271,7 +264,6 @@ impl StateHandlerError {
             StateHandlerError::PoolReleaseError(_) => "pool_release_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
             StateHandlerError::IBFabricError { .. } => "ib_fabric_error",
-            StateHandlerError::StorageError(_) => "storage_error",
             StateHandlerError::InvalidState(_) => "invalid_state",
             StateHandlerError::RedfishClientCreationError(_) => "redfish_client_creation_error",
             StateHandlerError::RedfishError { operation, .. } => match *operation {

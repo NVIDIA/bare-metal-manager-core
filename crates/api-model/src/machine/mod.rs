@@ -64,7 +64,6 @@ pub mod json;
 pub mod machine_id;
 pub mod machine_search_config;
 pub mod network;
-pub mod storage;
 pub mod topology;
 pub mod upgrade_policy;
 
@@ -462,7 +461,6 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
             config_version: instance.config_version.version_string(),
             network_config_version: instance.network_config_version.version_string(),
             ib_config_version: instance.ib_config_version.version_string(),
-            storage_config_version: instance.storage_config_version.version_string(),
             instance_type_id: instance.instance_type_id.map(|i| i.to_string()),
             metadata: Some(instance.metadata.into()),
             tpm_ek_certificate: snapshot.host_snapshot.hardware_info.and_then(|hi| {

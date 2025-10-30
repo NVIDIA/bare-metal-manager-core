@@ -47,7 +47,6 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
                 os: Some(default_os_config()),
                 network: None,
                 infiniband: None,
-                storage: None,
                 network_security_group_id: None,
             },
             tenant: default_tenant_config(),
@@ -285,7 +284,6 @@ pub fn config_for_ib_config(
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(network_segment_id)),
         infiniband: Some(ib_config),
-        storage: None,
         network_security_group_id: None,
     }
 }
@@ -327,7 +325,7 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
     }
     assert_eq!(
         mh.host().rpc_machine().await.state,
-        "Assigned/WaitingForStorageConfig".to_string()
+        "Assigned/WaitingForRebootToReady".to_string()
     );
     // - simulate that the host's hardware is reported healthy
     super::simulate_hardware_health_report(

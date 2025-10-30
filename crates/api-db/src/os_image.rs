@@ -45,21 +45,14 @@ pub async fn get(txn: &mut PgConnection, os_image_id: Uuid) -> Result<OsImage, D
 pub async fn create(
     txn: &mut PgConnection,
     attrs: &OsImageAttributes,
-    volume_id: Option<Uuid>,
 ) -> Result<OsImage, DatabaseError> {
     let timestamp: DateTime<Utc> = Utc::now();
-    let status = if volume_id.is_some() {
-        OsImageStatus::Uninitialized
-    } else {
-        OsImageStatus::Ready
-    };
     let os_image = OsImage {
         attributes: attrs.clone(),
-        status,
+        status: OsImageStatus::Ready,
         status_message: None,
         created_at: Some(timestamp.to_string()),
         modified_at: None,
-        volume_id,
     };
 
     persist(os_image, txn, false).await
@@ -87,7 +80,6 @@ pub async fn update(
         status_message: value.status_message.clone(),
         created_at: value.created_at.clone(),
         modified_at: Some(timestamp.to_string()),
-        volume_id: value.volume_id,
     };
     persist(os_image, txn, true).await
 }
@@ -121,7 +113,7 @@ async fn persist(
             Some(x) => x as i64,
             None => 0,
         };
-        let query = "INSERT INTO os_images(id, name, description, source_url, digest, organization_id, auth_type, auth_token, rootfs_id, rootfs_label, boot_disk, bootfs_id, efifs_id, capacity, volume_id, status, status_message, created_at, modified_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *";
+        let query = "INSERT INTO os_images(id, name, description, source_url, digest, organization_id, auth_type, auth_token, rootfs_id, rootfs_label, boot_disk, bootfs_id, efifs_id, capacity, status, status_message, created_at, modified_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *";
         sqlx::query_as(query)
             .bind(value.attributes.id)
             .bind(&value.attributes.name)
@@ -137,7 +129,6 @@ async fn persist(
             .bind(&value.attributes.bootfs_id)
             .bind(&value.attributes.efifs_id)
             .bind(capacity)
-            .bind(value.volume_id)
             .bind(value.status.clone())
             .bind(&value.status_message)
             .bind(&value.created_at)

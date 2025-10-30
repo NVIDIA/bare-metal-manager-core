@@ -146,9 +146,6 @@ pub enum CarbideError {
     #[error("Error in libredfish: {0}")]
     RedfishError(#[from] libredfish::RedfishError),
 
-    #[error("Error in libnvmesh: {0}")]
-    NvmeshApiError(#[from] libnvmesh::NvmeshApiError),
-
     #[error("Resource pool error: {0}")]
     ResourcePoolError(#[from] resource_pool::ResourcePoolError),
 

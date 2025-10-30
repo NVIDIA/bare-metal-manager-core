@@ -148,7 +148,6 @@ pub async fn create_instance<'a, 'b>(
         os: Some(os),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
     mh.instance_builer(env).config(config).build().await

@@ -99,7 +99,6 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         os: Some(initial_os.clone()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -353,7 +352,6 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         os: Some(initial_os.clone()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -601,7 +599,6 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -729,7 +726,6 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -911,7 +907,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -1046,7 +1041,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -1208,7 +1202,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
