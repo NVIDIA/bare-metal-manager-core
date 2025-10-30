@@ -34,7 +34,6 @@ use tower_http::auth::AsyncRequireAuthorizationLayer;
 use crate::api::Api;
 use crate::auth;
 use crate::auth::forge_spiffe::ForgeSpiffeContext;
-use crate::auth::spiffe_id;
 use crate::cfg::file::AuthConfig;
 use crate::logging::api_logs::LogLayer;
 
@@ -206,17 +205,14 @@ pub async fn listen_and_serve(
         None
     };
 
-    // Configure trust root for what we expect in a k8s cluster.
-    let spiffe_context = ForgeSpiffeContext {
-        trust_domain: spiffe_id::TrustDomain::new("forge.local").unwrap(),
-        service_base_paths: vec![
-            String::from("/test-system/sa/"),
-            String::from("/default/sa/"),
-            String::from("/elektra-site-agent/sa/"),
-        ],
-        machine_base_path: String::from("/forge-system/machine/"),
-        additional_issuer_cns: vec!["pki-k8s-usercert-ca.ngc.nvidia.com".to_string()],
-    };
+    // Get cert trust config from the config file, falling back on production defaults in case it's not configured.
+    let spiffe_context = auth_config
+        .as_ref()
+        .and_then(|c| c.trust.as_ref())
+        .cloned()
+        .map(ForgeSpiffeContext::try_from)
+        .transpose()?
+        .unwrap_or_else(ForgeSpiffeContext::deprecated_production_defaults);
 
     let cert_description_layer =
         auth::middleware::CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context);

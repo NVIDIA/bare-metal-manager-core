@@ -525,7 +525,7 @@ impl<'a> ForgeTlsClient<'a> {
                     .expect("Time went backwards");
                 if current_time.as_secs() > cert_expiry.try_into().unwrap() {
                     tracing::error!(
-                        "Client certificate is expired, perhaps you need to run nvinit again?"
+                        "Client certificate is expired, perhaps you need to regenerate your cert?"
                     );
                     return Err(ConfigurationError::InvalidClientCert(
                         rustls::Error::InvalidCertificate(rustls::CertificateError::Expired),
