@@ -4703,7 +4703,7 @@ message SkuComponents {
 message Sku {
   string id = 1;
   optional string description = 2;
-  google.protobuf.Timestamp created = 3;
+  optional google.protobuf.Timestamp created = 3;
   SkuComponents components = 4;
   reserved 5;
   uint32 schema_version = 6;

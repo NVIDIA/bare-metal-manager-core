@@ -3233,15 +3233,6 @@ async fn test_expected_machine_device_type_metrics(
     db::sku::create(&mut txn, &test_sku_with_device_type).await?;
     db::sku::create(&mut txn, &test_sku_without_device_type).await?;
 
-    // Update the GPU SKU with device_type since create() doesn't set it
-    db::sku::update_metadata(
-        &mut txn,
-        test_sku_gpu_id.clone(),
-        None,
-        Some("gpu".to_string()),
-    )
-    .await?;
-
     // Create expected machines with different SKU configurations
     db::expected_machine::create(
         &mut txn,
