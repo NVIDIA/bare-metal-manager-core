@@ -2519,6 +2519,12 @@ message ManagedHostNetworkConfigResponse {
   // or to make it easier to handle GNI changes, such as a swap
   // in the default-route RT.
   repeated common.RouteTarget additional_route_target_imports = 110;
+
+
+  // Rules to be inserted before any other NSG rules.Action
+  // This should land in a separate policy on the DPU that is
+  // evaluated before any user-defined rules but after deny_prefixes.
+  repeated ResolvedNetworkSecurityGroupRule network_security_policy_overrides = 111;
 }
 
 message ManagedHostQuarantineState {

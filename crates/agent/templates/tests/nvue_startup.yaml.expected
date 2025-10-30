@@ -41,6 +41,8 @@
             inbound: {}
           drop_dhcp_flood_over_overlay:
             inbound: {}
+          p0004_security_policy_override_ipv4_host_ingress:
+            outbound: {}
           p0009_vpc_peer_egress_from_host:
             inbound: {}
           p0009_vpc_peer_ingress_to_host:
@@ -64,6 +66,8 @@
             inbound: {}
           drop_dhcp_flood_over_overlay:
             inbound: {}
+          p0004_security_policy_override_ipv4_host_ingress:
+            outbound: {}
           p0009_vpc_peer_egress_from_host:
             inbound: {}
           p0009_vpc_peer_ingress_to_host:
@@ -330,3 +334,54 @@
                 source-port:
                   '68': {}
         type: ipv4
+      p0004_security_policy_override_ipv4_host_ingress:
+        type: ipv4
+        rule:
+          '2000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 7.7.7.0/24
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 7.7.7.0/24
+                source-port:
+                  '80': {}
+          '2001':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 7.7.7.0/24
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 7.7.7.0/24
+                source-port:
+                  '80': {}
+          '2002':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 7.7.7.0/24
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 7.7.7.0/24
+                source-port:
+                  '81': {}
+          '2003':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 7.7.7.0/24
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 7.7.7.0/24
+                source-port:
+                  '81': {}

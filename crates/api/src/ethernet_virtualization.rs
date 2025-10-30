@@ -18,7 +18,9 @@ use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
-use model::network_security_group::{NetworkSecurityGroup, NetworkSecurityGroupRuleNet};
+use model::network_security_group::{
+    NetworkSecurityGroup, NetworkSecurityGroupRule, NetworkSecurityGroupRuleNet,
+};
 use model::network_segment::NetworkSegment;
 use model::resource_pool::common::CommonPools;
 use sqlx::PgConnection;
@@ -419,24 +421,7 @@ pub async fn tenant_network(
                             rules:
                                 nsg.rules
                                     .into_iter()
-                                    .map(|r| {
-                                        Ok(rpc::ResolvedNetworkSecurityGroupRule {
-                                            // When we decide to allow object references,
-                                            // they would be resolved to their actual prefix
-                                            // lists and stored here.
-                                            src_prefixes: match r.src_net {
-                                                NetworkSecurityGroupRuleNet::Prefix(ref p) => {
-                                                    vec![p.to_string()]
-                                                }
-                                            },
-                                            dst_prefixes: match r.dst_net {
-                                                NetworkSecurityGroupRuleNet::Prefix(ref p) => {
-                                                    vec![p.to_string()]
-                                                }
-                                            },
-                                            rule: Some(r.try_into()?),
-                                        })
-                                    })
+                                    .map(resolve_security_group_rule)
                                     .collect::<Result<
                                         Vec<rpc::ResolvedNetworkSecurityGroupRule>,
                                         CarbideError,
@@ -452,6 +437,27 @@ pub async fn tenant_network(
             })?,
         internal_uuid: Some(iface.internal_uuid.into()),
         mtu: u32::try_from(segment.mtu).ok(),
+    })
+}
+
+pub fn resolve_security_group_rule(
+    rule: NetworkSecurityGroupRule,
+) -> Result<rpc::ResolvedNetworkSecurityGroupRule, CarbideError> {
+    Ok(rpc::ResolvedNetworkSecurityGroupRule {
+        // When we decide to allow object references,
+        // they would be resolved to their actual prefix
+        // lists and stored here.
+        src_prefixes: match rule.src_net {
+            NetworkSecurityGroupRuleNet::Prefix(ref p) => {
+                vec![p.to_string()]
+            }
+        },
+        dst_prefixes: match rule.dst_net {
+            NetworkSecurityGroupRuleNet::Prefix(ref p) => {
+                vec![p.to_string()]
+            }
+        },
+        rule: Some(rule.try_into()?),
     })
 }
 

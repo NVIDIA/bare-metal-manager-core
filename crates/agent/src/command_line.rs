@@ -160,6 +160,12 @@ pub struct NvueOptions {
         default_value_t = true
     )]
     pub stateful_acls_enabled: bool,
+
+    #[clap(
+        long,
+        help = "Full JSON representation of a NetworkSecurityGroupRule (see nvue.rs) that will be evaluated before any tenant-defined rules. Repeats with multiple --network_security_policy_override_rule."
+    )]
+    pub network_security_policy_override_rule: Vec<String>,
 }
 
 #[derive(Parser, Debug)]

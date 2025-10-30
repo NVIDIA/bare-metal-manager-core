@@ -286,6 +286,16 @@ pub async fn update_nvue(
         (false, vec![])
     };
 
+    let network_security_policy_override_rules =
+        if is_quarantined || nc.network_security_policy_overrides.is_empty() {
+            vec![]
+        } else {
+            nc.network_security_policy_overrides
+                .iter()
+                .map(|r| r.try_into())
+                .collect::<Result<Vec<NetworkSecurityGroupRule>, eyre::Error>>()?
+        };
+
     let hostname = hostname().wrap_err("gethostname error")?;
     let conf = nvue::NvueConfig {
         is_fnn: false,
@@ -337,6 +347,7 @@ pub async fn update_nvue(
             rpc::VpcIsolationBehaviorType::VpcIsolationOpen => false,
         },
 
+        network_security_policy_override_rules,
         ct_l3_vni: nc.vpc_vni,
         ct_vrf_loopback: "FNN".to_string(),
         ct_external_access: vec![],
@@ -440,37 +451,7 @@ fn build_network_security_group_rules(
             has_network_security_group = true;
 
             for resolved_rule in &nsg.rules {
-                let Some(rule) = &resolved_rule.rule else {
-                    continue;
-                };
-
-                network_security_group_rules.push(nvue::NetworkSecurityGroupRule {
-                    id: rule.id.clone().unwrap_or_default(),
-                    ingress: rule.direction()
-                        == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
-                    can_match_any_protocol: rule.protocol()
-                        == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
-                    can_be_stateful: matches!(
-                        rule.protocol(),
-                        rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
-                            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
-                            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
-                    ),
-                    ipv6: rule.ipv6,
-                    priority: rule.priority,
-                    src_port_start: rule.src_port_start,
-                    src_port_end: rule.src_port_end,
-                    dst_port_start: rule.dst_port_start,
-                    dst_port_end: rule.dst_port_end,
-                    protocol: NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
-                        rule.protocol,
-                    )?
-                    .to_lowercase(),
-                    action: NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?
-                        .to_lowercase(),
-                    src_prefixes: resolved_rule.src_prefixes.clone(),
-                    dst_prefixes: resolved_rule.dst_prefixes.clone(),
-                });
+                network_security_group_rules.push(resolved_rule.try_into()?);
             }
         }
     }
@@ -2155,6 +2136,34 @@ mod tests {
                 vni: 22222,
             }],
 
+            network_security_policy_overrides: vec![rpc::ResolvedNetworkSecurityGroupRule {
+                src_prefixes: vec!["7.7.7.0/24".to_string()],
+                dst_prefixes: vec!["7.7.7.0/24".to_string()],
+                rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                    id: Some("anything".to_string()),
+                    direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                        .into(),
+                    ipv6: false,
+                    src_port_start: Some(80),
+                    src_port_end: Some(81),
+                    dst_port_start: Some(80),
+                    dst_port_end: Some(81),
+                    protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    priority: 0,
+                    source_net: Some(
+                        rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                            "0.0.0.0/0".to_string(),
+                        ),
+                    ),
+                    destination_net: Some(
+                        rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                            "0.0.0.0/0".to_string(),
+                        ),
+                    ),
+                }),
+            }],
+
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
             vni_device: "vxlan48".to_string(),
@@ -2320,6 +2329,23 @@ mod tests {
                 vlan_id: 123,
                 network: "10.217.4.70/32".to_string(),
                 ip: "10.217.4.70".to_string(),
+            }],
+
+            network_security_policy_override_rules: vec![nvue::NetworkSecurityGroupRule {
+                id: "6313f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
+                ingress: true,
+                ipv6: false,
+                priority: 1,
+                can_match_any_protocol: true,
+                can_be_stateful: true,
+                protocol: "ANY".to_string(),
+                src_prefixes: vec!["7.7.7.0/24".to_string()],
+                dst_prefixes: vec!["6.6.6.0/24".to_string()],
+                src_port_start: Some(5),
+                src_port_end: Some(50),
+                dst_port_start: Some(8),
+                dst_port_end: Some(80),
+                action: "DENY".to_string(),
             }],
 
             // FNN only, not used yet
@@ -2571,6 +2597,7 @@ mod tests {
             tenant_interfaces,
             instance_network_config_version: "V1-T1666644937952999".to_string(),
 
+            network_security_policy_overrides: vec![],
             instance_id: Some(
                 uuid::Uuid::try_from("60cef902-9779-4666-8362-c9bb4b37184f")
                     .wrap_err("Uuid::try_from")?
