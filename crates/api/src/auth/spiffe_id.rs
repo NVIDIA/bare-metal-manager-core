@@ -1,3 +1,14 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
 // Apache License 2.0 - https://github.com/maxlambrecht/rust-spiffe/blob/main/LICENSE
 //
 // This is a copy of https://github.com/maxlambrecht/rust-spiffe/blob/main/src/spiffe_id/mod.rs at commit 57604e9
