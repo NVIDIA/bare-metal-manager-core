@@ -39,7 +39,7 @@ use rpc::forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig};
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
-use crate::cfg::storage::{OsImageActions, StorageActions};
+use crate::cfg::storage::OsImageActions;
 use crate::cfg::{instance_type, measurement, network_security_group};
 use crate::vpc_prefix::VpcPrefixSelector;
 
@@ -232,12 +232,6 @@ pub enum CliCommand {
     #[clap(about = "Machine Validation", subcommand, visible_alias = "mv")]
     MachineValidation(MachineValidationCommand),
 
-    #[clap(
-        about = "Storage management commands",
-        visible_alias = "st",
-        subcommand
-    )]
-    Storage(StorageActions),
     #[clap(about = "OS catalog management", visible_alias = "os", subcommand)]
     OsImage(OsImageActions),
 

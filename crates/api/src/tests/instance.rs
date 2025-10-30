@@ -45,7 +45,6 @@ use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
 };
-use model::instance::config::storage::InstanceStorageConfig;
 use model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
@@ -1603,7 +1602,6 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             tenant: default_tenant_config().try_into().unwrap(),
             network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &Vec::default()),
             infiniband: InstanceInfinibandConfig::default(),
-            storage: InstanceStorageConfig::default(),
             network_security_group_id: None,
         },
         metadata: Metadata {
@@ -1892,7 +1890,6 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         os: Some(os),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -2027,7 +2024,6 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         }),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -2086,7 +2082,6 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         }),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -2242,7 +2237,6 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         }),
         network: Some(x),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -3161,7 +3155,6 @@ async fn test_network_details_migration(
                     }],
                 }),
                 infiniband: None,
-                storage: None,
                 network_security_group_id: None,
             }),
             instance_id: None,
@@ -3229,7 +3222,6 @@ async fn test_network_details_migration(
                     }],
                 }),
                 infiniband: None,
-                storage: None,
                 network_security_group_id: None,
             }),
             instance_id: None,
@@ -3381,7 +3373,6 @@ async fn test_allocate_and_update_network_config_instance(
                     os: Some(default_os_config()),
                     network: Some(new_network_config),
                     infiniband: None,
-                    storage: None,
                     network_security_group_id: None,
                 }),
                 instance_id: instance.rpc_id(),
@@ -3508,7 +3499,6 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                     os: Some(default_os_config()),
                     network: Some(new_network_config),
                     infiniband: None,
-                    storage: None,
                     network_security_group_id: None,
                 }),
                 instance_id: instance_id_rpc,
@@ -3654,7 +3644,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -3881,7 +3870,6 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
                     os: Some(default_os_config()),
                     network: Some(new_network_config),
                     infiniband: None,
-                    storage: None,
                     network_security_group_id: None,
                 }),
                 instance_id: instance.rpc_id(),
@@ -3996,7 +3984,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 
@@ -4214,7 +4201,6 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
         }),
         network: Some(network_config),
         infiniband: None,
-        storage: None,
         network_security_group_id: None,
     };
 

@@ -92,8 +92,6 @@ use crate::state_controller::network_segment::io::NetworkSegmentStateControllerI
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, StateHandlerServices,
 };
-use crate::storage::NvmeshClientPool;
-use crate::storage::test_support::NvmeshSimClient;
 use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
@@ -234,7 +232,6 @@ pub struct TestEnv {
     pub common_pools: Arc<CommonPools>,
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
-    pub nvmesh_sim: Arc<dyn NvmeshClientPool>,
     pub ib_fabric_monitor: Arc<IbFabricMonitor>,
     pub ib_fabric_manager: Arc<IBFabricManagerImpl>,
     pub ipmi_tool: Arc<IPMIToolTestImpl>,
@@ -259,7 +256,6 @@ impl TestEnv {
         StateHandlerServices {
             pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
-            nvmesh_client_pool: self.nvmesh_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             ib_pools: self.common_pools.infiniband.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
@@ -980,7 +976,6 @@ pub async fn create_test_env_with_overrides(
     populate_default_credentials(credential_provider.as_ref()).await;
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
-    let nvmesh_sim: Arc<dyn NvmeshClientPool> = Arc::new(NvmeshSimClient::default());
 
     let mut config = overrides.config.unwrap_or(get_config());
     if let Some(threshold) = overrides.dpu_agent_version_staleness_threshold {
@@ -1095,7 +1090,6 @@ pub async fn create_test_env_with_overrides(
         certificate_provider: certificate_provider.clone(),
         database_connection: db_pool.clone(),
         redfish_pool: redfish_sim.clone(),
-        nvmesh_pool: nvmesh_sim.clone(),
         eth_data: eth_virt_data.clone(),
         common_pools: common_pools.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
@@ -1133,7 +1127,6 @@ pub async fn create_test_env_with_overrides(
         .database(db_pool.clone())
         .meter("forge_machines", test_meter.meter())
         .redfish_client_pool(redfish_sim.clone())
-        .nvmesh_client_pool(nvmesh_sim.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .ib_pools(common_pools.infiniband.clone())
         .forge_api(api.clone())
@@ -1154,7 +1147,6 @@ pub async fn create_test_env_with_overrides(
         .database(db_pool.clone())
         .meter("forge_machines", test_meter.meter())
         .redfish_client_pool(redfish_sim.clone())
-        .nvmesh_client_pool(nvmesh_sim.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .ib_pools(common_pools.infiniband.clone())
         .forge_api(api.clone())
@@ -1176,7 +1168,6 @@ pub async fn create_test_env_with_overrides(
         .database(db_pool.clone())
         .meter("forge_machines", test_meter.meter())
         .redfish_client_pool(redfish_sim.clone())
-        .nvmesh_client_pool(nvmesh_sim.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api.clone())
         .ipmi_tool(ipmi_tool.clone())
@@ -1284,7 +1275,6 @@ pub async fn create_test_env_with_overrides(
         config,
         pool: db_pool,
         redfish_sim,
-        nvmesh_sim,
         ib_fabric_manager,
         ipmi_tool,
         machine_state_controller: Arc::new(Mutex::new(machine_controller)),

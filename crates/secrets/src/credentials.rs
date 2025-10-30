@@ -187,38 +187,14 @@ pub enum BmcCredentialType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialKey {
-    DpuSsh {
-        machine_id: String,
-    },
-    DpuHbn {
-        machine_id: String,
-    },
-    DpuRedfish {
-        credential_type: CredentialType,
-    },
-    HostRedfish {
-        credential_type: CredentialType,
-    },
-    UfmAuth {
-        fabric: String,
-    },
-    DpuUefi {
-        credential_type: CredentialType,
-    },
-    HostUefi {
-        credential_type: CredentialType,
-    },
-    BmcCredentials {
-        credential_type: BmcCredentialType,
-    },
-    NvmeshCluster {
-        cluster_id: String,
-    },
-    NvmeshVolume {
-        cluster_id: String,
-        pool_id: String,
-        volume_id: String,
-    },
+    DpuSsh { machine_id: String },
+    DpuHbn { machine_id: String },
+    DpuRedfish { credential_type: CredentialType },
+    HostRedfish { credential_type: CredentialType },
+    UfmAuth { fabric: String },
+    DpuUefi { credential_type: CredentialType },
+    HostUefi { credential_type: CredentialType },
+    BmcCredentials { credential_type: BmcCredentialType },
 }
 
 impl CredentialKey {
@@ -297,16 +273,6 @@ impl CredentialKey {
                         format!("{base}/{bmc_mac_address}/forge-admin-account")
                     }
                 }
-            }
-            CredentialKey::NvmeshCluster { cluster_id } => {
-                format!("nvmesh/clusters/{cluster_id}/auth")
-            }
-            CredentialKey::NvmeshVolume {
-                cluster_id,
-                pool_id,
-                volume_id,
-            } => {
-                format!("nvmesh/clusters/{cluster_id}/pools/{pool_id}/volumes/{volume_id}/key")
             }
         }
     }

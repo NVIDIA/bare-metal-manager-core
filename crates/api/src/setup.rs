@@ -65,7 +65,6 @@ use crate::state_controller::machine::handler::{MachineStateHandlerBuilder, Powe
 use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
-use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 use crate::{attestation, db_init, dpa, ethernet_virtualization, listener};
 
 pub fn parse_carbide_config(
@@ -183,10 +182,6 @@ pub async fn start_api(
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let ipmi_tool = create_ipmi_tool(vault_client.clone(), &carbide_config);
-
-    let nvmesh_client_pool = libnvmesh::NvmeshClientPool::builder().build()?;
-    let nvmesh_pool = NvmeshClientPoolImpl::new(vault_client.clone(), nvmesh_client_pool);
-    let shared_nvmesh_pool: Arc<dyn NvmeshClientPool> = Arc::new(nvmesh_pool);
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
@@ -315,7 +310,6 @@ pub async fn start_api(
         endpoint_explorer: bmc_explorer,
         eth_data,
         ib_fabric_manager,
-        nvmesh_pool: shared_nvmesh_pool,
         redfish_pool: shared_redfish_pool,
         runtime_config: carbide_config.clone(),
     });
@@ -360,7 +354,6 @@ pub async fn initialize_and_start_controllers(
         common_pools,
         database_connection: db_pool,
         ib_fabric_manager,
-        nvmesh_pool: shared_nvmesh_pool,
         redfish_pool: shared_redfish_pool,
         ..
     } = api_service.as_ref();
@@ -490,7 +483,6 @@ pub async fn initialize_and_start_controllers(
         .database(db_pool.clone())
         .meter("forge_machines", meter.clone())
         .redfish_client_pool(shared_redfish_pool.clone())
-        .nvmesh_client_pool(shared_nvmesh_pool.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone())
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
@@ -564,7 +556,6 @@ pub async fn initialize_and_start_controllers(
         .database(db_pool.clone())
         .meter("forge_network_segments", meter.clone())
         .redfish_client_pool(shared_redfish_pool.clone())
-        .nvmesh_client_pool(shared_nvmesh_pool.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone());
     let _network_segment_controller_handle = ns_builder
@@ -595,7 +586,6 @@ pub async fn initialize_and_start_controllers(
                 .database(db_pool.clone())
                 .meter("forge_dpa_interfaces", meter.clone())
                 .redfish_client_pool(shared_redfish_pool.clone())
-                .nvmesh_client_pool(shared_nvmesh_pool.clone())
                 .ib_fabric_manager(ib_fabric_manager.clone())
                 .forge_api(api_service.clone())
                 .mqtt_client(mqtt_client)
@@ -615,7 +605,6 @@ pub async fn initialize_and_start_controllers(
             .database(db_pool.clone())
             .meter("forge_ib_partitions", meter.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
-            .nvmesh_client_pool(shared_nvmesh_pool.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
             .ib_pools(common_pools.infiniband.clone())
             .forge_api(api_service.clone())

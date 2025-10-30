@@ -28,7 +28,6 @@ use crate::state_controller::metrics::MetricHolder;
 use crate::state_controller::state_handler::{
     NoopStateHandler, StateHandler, StateHandlerServices,
 };
-use crate::storage::NvmeshClientPool;
 
 /// The return value of `[Builder::build_internal]`
 struct BuildOrSpawn<IO: StateControllerIO> {
@@ -52,7 +51,6 @@ pub enum StateControllerBuildError {
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
     redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
-    nvmesh_client_pool: Option<Arc<dyn NvmeshClientPool>>,
     ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
     iteration_config: IterationConfig,
     object_type_for_metrics: Option<String>,
@@ -79,7 +77,6 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
         Self {
             database: None,
             redfish_client_pool: None,
-            nvmesh_client_pool: None,
             ib_fabric_manager: None,
             iteration_config: IterationConfig::default(),
             io: None,
@@ -147,12 +144,6 @@ impl<IO: StateControllerIO> Builder<IO> {
                 .ok_or(StateControllerBuildError::MissingArgument(
                     "redfish_client_pool",
                 ))?;
-        let nvmesh_client_pool =
-            self.nvmesh_client_pool
-                .take()
-                .ok_or(StateControllerBuildError::MissingArgument(
-                    "nvmesh_client_pool",
-                ))?;
 
         let ib_fabric_manager =
             self.ib_fabric_manager
@@ -186,7 +177,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             pool: database,
             ib_fabric_manager,
             redfish_client_pool,
-            nvmesh_client_pool,
             ib_pools: self.ib_pools.unwrap_or_default(),
             ipmi_tool,
             site_config,
@@ -236,12 +226,6 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures the utilized Redfish client pool
     pub fn redfish_client_pool(mut self, redfish_client_pool: Arc<dyn RedfishClientPool>) -> Self {
         self.redfish_client_pool = Some(redfish_client_pool);
-        self
-    }
-
-    /// Configures the nvmesh client pool
-    pub fn nvmesh_client_pool(mut self, nvmesh_client_pool: Arc<dyn NvmeshClientPool>) -> Self {
-        self.nvmesh_client_pool = Some(nvmesh_client_pool);
         self
     }
 

@@ -73,7 +73,6 @@ pub struct InstanceConfig {
     pub os: ::core::option::Option<::rpc::forge::OperatingSystem>,
     pub network: ::core::option::Option<rpc::forge::InstanceNetworkConfig>,
     pub infiniband: ::core::option::Option<::rpc::forge::InstanceInfinibandConfig>,
-    pub storage: ::core::option::Option<::rpc::forge::InstanceStorageConfig>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
 }
 

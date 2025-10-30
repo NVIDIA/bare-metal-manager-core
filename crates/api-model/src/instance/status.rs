@@ -20,13 +20,11 @@ use serde::{Deserialize, Serialize};
 use crate::instance::config::InstanceConfig;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::network::InstanceNetworkConfig;
-use crate::instance::config::storage::InstanceStorageConfig;
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::{InstanceState, ManagedHostState, ReprovisionRequest};
 
 pub mod infiniband;
 pub mod network;
-pub mod storage;
 pub mod tenant;
 
 /// Instance status
@@ -43,8 +41,6 @@ pub struct InstanceStatus {
 
     /// Status of the infiniband subsystem of an instance
     pub infiniband: infiniband::InstanceInfinibandStatus,
-
-    pub storage: storage::InstanceStorageStatus,
 
     /// Whether all configurations related to an instance are in-sync.
     /// This is a logical AND for the settings of all sub-configurations.
@@ -66,7 +62,6 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
             tenant: status.tenant.map(|status| status.try_into()).transpose()?,
             network: Some(status.network.try_into()?),
             infiniband: Some(status.infiniband.try_into()?),
-            storage: Some(status.storage.try_into()?),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
             update: status.reprovision_request.map(|request| request.into()),
         })
@@ -160,7 +155,6 @@ impl InstanceStatus {
         instance_config: Versioned<&InstanceConfig>,
         network_config: Versioned<&InstanceNetworkConfig>,
         ib_config: Versioned<&InstanceInfinibandConfig>,
-        storage_config: Versioned<&InstanceStorageConfig>,
         observations: &InstanceStatusObservations,
         machine_state: ManagedHostState,
         delete_requested: bool,
@@ -192,10 +186,6 @@ impl InstanceStatus {
 
         let infiniband =
             infiniband::InstanceInfinibandStatus::from_config_and_observation(ib_config, ib_status);
-        let storage = storage::InstanceStorageStatus::from_config_and_observation(
-            storage_config,
-            observations.storage.as_ref(),
-        );
 
         let phone_home_last_contact = observations.phone_home_last_contact;
 
@@ -233,7 +223,6 @@ impl InstanceStatus {
             tenant: Some(tenant),
             network,
             infiniband,
-            storage,
             configs_synced,
             reprovision_request,
         })
@@ -268,8 +257,6 @@ impl TryFrom<SyncState> for rpc::SyncState {
 pub struct InstanceStatusObservations {
     /// Observed status of the networking subsystem
     pub network: HashMap<MachineId, network::InstanceNetworkStatusObservation>,
-
-    pub storage: Option<storage::InstanceStorageStatusObservation>,
 
     /// Has the instance phoned home?
     pub phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,

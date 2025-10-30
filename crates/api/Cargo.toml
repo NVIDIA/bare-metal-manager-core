@@ -72,7 +72,6 @@ ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 jemalloc_pprof = { features = ["flamegraph"] , workspace = true }
 lazy_static = { workspace = true }
-libnvmesh = { workspace = true }
 libredfish = { workspace = true }
 mac_address = { workspace = true }
 md5 = { workspace = true }

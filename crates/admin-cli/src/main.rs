@@ -60,9 +60,7 @@ use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
 use crate::cfg::cli_options::{AdminPowerControlAction, QuarantineAction};
-use crate::cfg::storage::{
-    OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions, StorageVolumeActions,
-};
+use crate::cfg::storage::OsImageActions;
 use crate::rpc::ApiClient;
 
 mod async_write;
@@ -1852,68 +1850,6 @@ async fn main() -> color_eyre::Result<()> {
                     }
                 }
             }
-        },
-        CliCommand::Storage(storage_cmd) => match storage_cmd {
-            StorageActions::Cluster(storage_cluster) => match storage_cluster {
-                StorageClusterActions::Show(storage_cluster) => {
-                    storage::cluster_show(
-                        storage_cluster,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                    )
-                    .await?
-                }
-                StorageClusterActions::Import(storage_cluster) => {
-                    storage::cluster_import(storage_cluster, &api_client).await?
-                }
-                StorageClusterActions::Delete(storage_cluster) => {
-                    storage::cluster_delete(storage_cluster, &api_client).await?
-                }
-                StorageClusterActions::Update(storage_cluster) => {
-                    storage::cluster_update(storage_cluster, &api_client).await?
-                }
-            },
-            StorageActions::Pool(storage_pool) => match storage_pool {
-                StoragePoolActions::Show(storage_pool) => {
-                    storage::pool_show(
-                        storage_pool,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                    )
-                    .await?
-                }
-                StoragePoolActions::Create(storage_pool) => {
-                    storage::pool_create(storage_pool, &api_client).await?
-                }
-                StoragePoolActions::Delete(storage_pool) => {
-                    storage::pool_delete(storage_pool, &api_client).await?
-                }
-                StoragePoolActions::Update(storage_pool) => {
-                    storage::pool_update(storage_pool, &api_client).await?
-                }
-            },
-            StorageActions::Volume(storage_volume) => match storage_volume {
-                StorageVolumeActions::Show(storage_volume) => {
-                    storage::volume_show(
-                        storage_volume,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                    )
-                    .await?
-                }
-                StorageVolumeActions::Create(storage_volume) => {
-                    storage::volume_create(storage_volume, &api_client).await?
-                }
-                StorageVolumeActions::Delete(storage_volume) => {
-                    storage::volume_delete(storage_volume, &api_client).await?
-                }
-                StorageVolumeActions::Update(storage_volume) => {
-                    storage::volume_update(storage_volume, &api_client).await?
-                }
-            },
         },
         CliCommand::OsImage(os_image) => match os_image {
             OsImageActions::Show(os_image) => {

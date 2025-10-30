@@ -83,7 +83,6 @@ use crate::state_controller::state_handler::{
 mod machine_validation;
 mod power;
 mod sku;
-mod storage;
 
 // We can't use http::StatusCode because libredfish has a newer version
 const NOT_FOUND: u16 = 404;
@@ -4672,7 +4671,7 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::WaitingForStorageConfig,
+                        instance_state: InstanceState::WaitingForRebootToReady,
                     };
 
                     // Check instance network config has been applied
@@ -4715,27 +4714,9 @@ impl StateHandler for InstanceStateHandler {
                     Ok(StateHandlerOutcome::transition(next_state))
                 }
                 InstanceState::WaitingForStorageConfig => {
-                    if let Some(dpu_snapshot) = &mh_snapshot.dpu_snapshots.first() {
-                        let dpu_machine_id = &dpu_snapshot.id;
-                        // attach volumes to instance
-                        storage::attach_storage_volumes(
-                            ctx.services,
-                            txn,
-                            instance.id,
-                            dpu_machine_id,
-                            instance.config.storage.clone(),
-                            false,
-                        )
-                        .await?;
-
-                        storage::record_storage_status_observation(
-                            ctx.services,
-                            txn,
-                            instance,
-                            instance.config.storage.clone(),
-                        )
-                        .await?;
-                    }
+                    // This state used to do something but doesn't any more, we can delete
+                    // InstanceState::WaitingForStorageConfig once we're sure no places have the
+                    // state persisted.
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForRebootToReady,
                     };

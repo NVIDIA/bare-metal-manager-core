@@ -633,7 +633,6 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 }],
             }),
             infiniband: None,
-            storage: None,
             network_security_group_id: None,
         }),
         status: Some(rpc::InstanceStatus {
@@ -657,17 +656,12 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 ib_interfaces: vec![],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),
-            storage: Some(rpc::forge::InstanceStorageStatus {
-                volumes: vec![],
-                configs_synced: rpc::SyncState::Synced.into(),
-            }),
             configs_synced: rpc::SyncState::Synced.into(),
             update: None,
         }),
         network_config_version: "V1-T1748645613333257".to_string(),
         ib_config_version: "V1-T1748645613333260".to_string(),
         config_version: "V1-T1748645613333260".to_string(),
-        storage_config_version: "V1-T1748645613333260".to_string(),
         tpm_ek_certificate: None,
     };
 

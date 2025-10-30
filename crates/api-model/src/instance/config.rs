@@ -12,7 +12,6 @@
 
 pub mod infiniband;
 pub mod network;
-pub mod storage;
 pub mod tenant_config;
 
 use ::rpc::errors::RpcDataConversionError;
@@ -24,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use crate::ConfigValidationError;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::network::InstanceNetworkConfig;
-use crate::instance::config::storage::InstanceStorageConfig;
 use crate::instance::config::tenant_config::TenantConfig;
 use crate::os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant};
 
@@ -47,9 +45,6 @@ pub struct InstanceConfig {
 
     /// Configures instance infiniband
     pub infiniband: InstanceInfinibandConfig,
-
-    /// Configures instance storage
-    pub storage: InstanceStorageConfig,
 
     /// Configures the security group
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
@@ -101,19 +96,11 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             .transpose()?
             .unwrap_or(InstanceInfinibandConfig::default());
 
-        // Storage config is optional
-        let storage = config
-            .storage
-            .map(InstanceStorageConfig::try_from)
-            .transpose()?
-            .unwrap_or(InstanceStorageConfig::default());
-
         Ok(InstanceConfig {
             tenant,
             os,
             network,
             infiniband,
-            storage,
             network_security_group_id: config
                 .network_security_group_id
                 .map(|nsg| nsg.parse())
@@ -151,18 +138,12 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             true => None,
             false => Some(infiniband),
         };
-        let storage = rpc::forge::InstanceStorageConfig::try_from(config.storage)?;
-        let storage = match storage.volumes.is_empty() {
-            true => None,
-            false => Some(storage),
-        };
 
         Ok(rpc::InstanceConfig {
             tenant: Some(tenant),
             os: Some(os),
             network: Some(network),
             infiniband,
-            storage,
             network_security_group_id: config.network_security_group_id.map(|i| i.to_string()),
         })
     }
@@ -184,8 +165,6 @@ impl InstanceConfig {
         }
 
         self.infiniband.validate()?;
-
-        self.storage.validate()?;
 
         Ok(())
     }

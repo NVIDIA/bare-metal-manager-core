@@ -23,9 +23,7 @@ use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
-use model::instance::config::storage::InstanceStorageConfig;
 use model::instance::snapshot::InstanceSnapshot;
-use model::instance::status::storage::InstanceStorageStatusObservation;
 use model::metadata::Metadata;
 use model::os::{OperatingSystem, OperatingSystemVariant};
 use sqlx::PgConnection;
@@ -390,94 +388,6 @@ pub async fn update_ib_config(
     }
 }
 
-/// Updates the storage configuration for an instance
-pub async fn update_storage_config(
-    txn: &mut PgConnection,
-    instance_id: uuid::Uuid,
-    expected_version: ConfigVersion,
-    new_state: &InstanceStorageConfig,
-    increment_version: bool,
-) -> Result<(), DatabaseError> {
-    let next_version = if increment_version {
-        expected_version.increment()
-    } else {
-        expected_version
-    };
-
-    // check if volumes need to be allocated, currently only supporting pre-created volumes
-    // todo: handle volume creation as part of instance allocation
-    for attrs in new_state.volumes.iter() {
-        // let mut volume =
-        match attrs.use_existing_volume {
-            Some(x) => {
-                if x {
-                    crate::storage_volume::get(txn, attrs.id).await?
-                } else {
-                    return Err(DatabaseError::new(
-                        "instance update_storage_config",
-                        sqlx::Error::ColumnNotFound("volume must exist".to_string()),
-                    ));
-                }
-            }
-            None => {
-                return Err(DatabaseError::new(
-                    "instance update_storage_config",
-                    sqlx::Error::ColumnNotFound("volume must exist".to_string()),
-                ));
-            }
-        };
-        // update the volume in the db, associate this instance and dpu to it
-        // for now we will do the backend nvmesh client attach and then update the db
-        // in the machine state handler attach_storage_volumes()
-        // volume.attach(txn, &instance_id, dpu_id).await?;
-    }
-
-    // update the db. for now storing the attrs as is, could optimize and only store volume ids
-    // instance volumes config is an ordered list of volumes to attach to the instance
-    // the actual volume details are stored in storage_volumes like other storage objects
-    let query = "UPDATE instances SET storage_config_version=$1, storage_config=$2::json
-            WHERE id=$3 AND storage_config_version=$4
-            RETURNING id";
-    let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
-        .bind(next_version)
-        .bind(sqlx::types::Json(new_state))
-        .bind(instance_id)
-        .bind(expected_version)
-        .fetch_one(txn)
-        .await;
-
-    match query_result {
-        Ok((_instance_id,)) => Ok(()),
-        Err(e) => Err(DatabaseError::query(query, e)),
-    }
-}
-
-pub async fn update_storage_status_observation(
-    txn: &mut PgConnection,
-    instance_id: InstanceId,
-    status: &InstanceStorageStatusObservation,
-) -> Result<(), DatabaseError> {
-    // TODO: This might rather belong into the API layer
-    // We will move move it there once that code is in place
-    status.validate().map_err(|e| {
-        DatabaseError::new(
-            "ioerror",
-            sqlx::Error::Io(std::io::Error::other(e.to_string())),
-        )
-    })?;
-
-    let query =
-        "UPDATE instances SET storage_status_observation=$1::json where id = $2::uuid returning id";
-    let (_,): (uuid::Uuid,) = sqlx::query_as(query)
-        .bind(sqlx::types::Json(status))
-        .bind(instance_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    Ok(())
-}
-
 pub async fn trigger_update_network_config_request(
     instance_id: &InstanceId,
     current: &InstanceNetworkConfig,
@@ -541,8 +451,6 @@ pub async fn persist(
         OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
     }
 
-    let storage_status_observation = Option::<InstanceStorageStatusObservation>::None;
-
     let query = "INSERT INTO instances (
                         id,
                         machine_id,
@@ -551,7 +459,6 @@ pub async fn persist(
                         os_image_id,
                         os_always_boot_with_ipxe,
                         tenant_org,
-                        use_custom_pxe_on_boot,
                         network_config,
                         network_config_version,
                         ib_config,
@@ -563,17 +470,15 @@ pub async fn persist(
                         labels,
                         config_version,
                         hostname,
-                        storage_config,
-                        storage_config_version,
-                        storage_status_observation,
-                        instance_type_id,
-                        network_security_group_id
+                        network_security_group_id,
+                        use_custom_pxe_on_boot,
+                        instance_type_id
                     )
                     SELECT 
-                            $1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, 
-                            $11, $12, $13, $14, $15, $16::json, $17, $18, $19::json, $20, $21::json,
-                            m.instance_type_id, $24
-                    FROM machines m WHERE m.id=$22 AND ($23 IS NULL OR m.instance_type_id=$23) FOR UPDATE
+                            $1, $2, $3, $4, $5, $6, $7, $8::json, $9, $10::json,
+                            $11, $12, $13, $14, $15, $16::json, $17, $18,
+                            $19, true, m.instance_type_id
+                    FROM machines m WHERE m.id=$20 AND ($21 IS NULL OR m.instance_type_id=$21) FOR UPDATE
                     RETURNING row_to_json(instances.*)";
     match sqlx::query_as(query)
         .bind(value.instance_id)
@@ -594,12 +499,9 @@ pub async fn persist(
         .bind(sqlx::types::Json(&value.metadata.labels))
         .bind(value.config_version)
         .bind(&value.config.tenant.hostname)
-        .bind(sqlx::types::Json(&value.config.storage))
-        .bind(value.storage_config_version)
-        .bind(sqlx::types::Json(storage_status_observation))
+        .bind(&value.config.network_security_group_id)
         .bind(value.machine_id.to_string())
         .bind(&value.instance_type_id)
-        .bind(&value.config.network_security_group_id)
         .fetch_one(txn)
         .await
     {
