@@ -337,6 +337,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     )
                 };
 
+                let network_security_policy_override_rules = opts
+                    .network_security_policy_override_rule
+                    .into_iter()
+                    .map(|r| serde_json::from_str::<nvue::NetworkSecurityGroupRule>(&r))
+                    .collect::<Result<Vec<nvue::NetworkSecurityGroupRule>, _>>()?;
+
                 let additional_route_target_imports = opts
                     .additional_fnn_route_target_import
                     .into_iter()
@@ -378,6 +384,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     deny_prefixes: vec![],
                     site_fabric_prefixes: vec![],
                     use_vpc_isolation: true,
+                    network_security_policy_override_rules,
                     stateful_acls_enabled: opts.stateful_acls_enabled,
                     route_servers: opts.route_servers,
                     l3_domains: vec![],

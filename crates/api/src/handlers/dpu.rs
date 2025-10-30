@@ -492,6 +492,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
         use_admin_network,
         admin_interface: Some(admin_interface_rpc),
         tenant_interfaces,
+        network_security_policy_overrides: api
+            .runtime_config
+            .network_security_group
+            .policy_overrides
+            .iter()
+            .map(|r| ethernet_virtualization::resolve_security_group_rule(r.clone()))
+            .collect::<Result<Vec<rpc::ResolvedNetworkSecurityGroupRule>, CarbideError>>()?,
         stateful_acls_enabled: api
             .runtime_config
             .network_security_group

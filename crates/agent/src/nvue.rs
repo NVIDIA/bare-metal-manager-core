@@ -13,6 +13,7 @@
 use std::fs;
 use std::path::Path;
 
+use ::rpc::forge as rpc;
 use eyre::WrapErr;
 use forge_network::sanitized_mac;
 use forge_network::virtualization::VpcVirtualizationType;
@@ -130,84 +131,19 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let vrf_loopback = port_configs[0].VrfLoopback.clone();
     let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
 
+    let (ingress_ipv4_rules, egress_ipv4_rules, ingress_ipv6_rules, egress_ipv6_rules) =
+        if let Some(rules) = conf.ct_network_security_group_rules {
+            prepare_network_security_group_rules(rules)?
+        } else {
+            (vec![], vec![], vec![], vec![])
+        };
+
     let (
-        has_network_security_group,
-        ingress_ipv4_rules,
-        egress_ipv4_rules,
-        ingress_ipv6_rules,
-        egress_ipv6_rules,
-    ) = if let Some(rules) = conf.ct_network_security_group_rules {
-        let mut ingress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
-        let mut egress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
-        let mut ingress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
-        let mut egress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
-
-        let mut total_rule_count: usize = 0;
-
-        for rule in rules.iter() {
-            // Calculate and accumulate what the number of rules
-            // would be after expansion so we can cut things off
-            // and err if we got a bad payload that could risk
-            // the DPU itself.
-            total_rule_count = match total_rule_count.overflowing_add(
-                rule.src_prefixes
-                    .len()
-                    .saturating_mul(rule.dst_prefixes.len())
-                    .saturating_mul(
-                        (rule
-                            .src_port_end
-                            .unwrap_or_default()
-                            .saturating_sub(rule.src_port_start.unwrap_or_default())
-                            + 1) as usize,
-                    )
-                    .saturating_mul(
-                        (rule
-                            .dst_port_end
-                            .unwrap_or_default()
-                            .saturating_sub(rule.dst_port_start.unwrap_or_default())
-                            + 1) as usize,
-                    ),
-            ) {
-                (_, true) => {
-                    return Err(eyre::eyre!(
-                        "supplied network security group rule count exceeds limit of {}",
-                        NETWORK_SECURITY_GROUP_RULE_COUNT_MAX
-                    ));
-                }
-                (v, false) => v,
-            };
-
-            if total_rule_count > NETWORK_SECURITY_GROUP_RULE_COUNT_MAX {
-                return Err(eyre::eyre!(
-                    "supplied network security group rule count exceeds limit of {}",
-                    NETWORK_SECURITY_GROUP_RULE_COUNT_MAX
-                ));
-            }
-
-            match (rule.ingress, rule.ipv6) {
-                (true, false) => ingress_ipv4_rules.push(rule),
-                (false, false) => egress_ipv4_rules.push(rule),
-                (true, true) => ingress_ipv6_rules.push(rule),
-                (false, true) => egress_ipv6_rules.push(rule),
-            }
-        }
-
-        // Order the rules by priority
-        ingress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
-        egress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
-        ingress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
-        egress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
-
-        (
-            true,
-            expand_network_security_group_rules(ingress_ipv4_rules),
-            expand_network_security_group_rules(egress_ipv4_rules),
-            expand_network_security_group_rules(ingress_ipv6_rules),
-            expand_network_security_group_rules(egress_ipv6_rules),
-        )
-    } else {
-        (false, vec![], vec![], vec![], vec![])
-    };
+        ingress_ipv4_override_rules,
+        egress_ipv4_override_rules,
+        ingress_ipv6_override_rules,
+        egress_ipv6_override_rules,
+    ) = prepare_network_security_group_rules(conf.network_security_policy_override_rules)?;
 
     tracing::info!(
         "nvue::build incoming network security group expanded rule counts are ingress_ipv4_rules={}, egress_ipv4_rules={}, ingress_ipv6_rules={}, egress_ipv6_rules={}",
@@ -268,6 +204,14 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             .collect(),
         StatefulAclsEnabled: conf.stateful_acls_enabled,
         UseVpcIsolation: conf.use_vpc_isolation,
+        HasIpv4IngressSecurityPolicyOverrideRules: !ingress_ipv4_override_rules.is_empty(),
+        HasIpv4EgressSecurityPolicyOverrideRules: !egress_ipv4_override_rules.is_empty(),
+        HasIpv6IngressSecurityPolicyOverrideRules: !ingress_ipv6_override_rules.is_empty(),
+        HasIpv6EgressSecurityPolicyOverrideRules: !egress_ipv6_override_rules.is_empty(),
+        Ipv4IngressNetworkSecurityPolicyOverrideRules: ingress_ipv4_override_rules,
+        Ipv4EgressNetworkSecurityPolicyOverrideRules: egress_ipv4_override_rules,
+        Ipv6IngressNetworkSecurityPolicyOverrideRules: ingress_ipv6_override_rules,
+        Ipv6EgressNetworkSecurityPolicyOverrideRules: egress_ipv6_override_rules,
         Infrastructure: infra,
         HbnVersion: conf.hbn_version,
         Tenant: TmplComputeTenant {
@@ -286,7 +230,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     HostRoute: vl.network,
                 })
                 .collect(),
-            HasNetworkSecurityGroup: has_network_security_group,
+            HasNetworkSecurityGroup: !ingress_ipv4_rules.is_empty()
+                || !egress_ipv4_rules.is_empty()
+                || !ingress_ipv6_rules.is_empty()
+                || !egress_ipv6_rules.is_empty(),
             HasIpv4IngressSecurityGroupRules: !ingress_ipv4_rules.is_empty(),
             HasIpv4EgressSecurityGroupRules: !egress_ipv4_rules.is_empty(),
             HasIpv6IngressSecurityGroupRules: !ingress_ipv6_rules.is_empty(),
@@ -333,6 +280,93 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             conf.vpc_virtualization_type
         ))
     }
+}
+
+/// Prepares a set of network security groups rules for template use.
+/// In the process, it expands the rules and evaluates whether they
+/// exceed predefined limits.
+///
+/// * `rules` - A list of network security group rules
+///
+#[allow(clippy::type_complexity)]
+fn prepare_network_security_group_rules(
+    rules: Vec<NetworkSecurityGroupRule>,
+) -> Result<
+    (
+        Vec<TmplNetworkSecurityGroupRule>,
+        Vec<TmplNetworkSecurityGroupRule>,
+        Vec<TmplNetworkSecurityGroupRule>,
+        Vec<TmplNetworkSecurityGroupRule>,
+    ),
+    eyre::Error,
+> {
+    let mut ingress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+    let mut egress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+    let mut ingress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+    let mut egress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+
+    let mut total_rule_count: usize = 0;
+
+    for rule in rules.iter() {
+        // Calculate and accumulate what the number of rules
+        // would be after expansion so we can cut things off
+        // and err if we got a bad payload that could risk
+        // the DPU itself.
+        total_rule_count = match total_rule_count.overflowing_add(
+            rule.src_prefixes
+                .len()
+                .saturating_mul(rule.dst_prefixes.len())
+                .saturating_mul(
+                    (rule
+                        .src_port_end
+                        .unwrap_or_default()
+                        .saturating_sub(rule.src_port_start.unwrap_or_default())
+                        + 1) as usize,
+                )
+                .saturating_mul(
+                    (rule
+                        .dst_port_end
+                        .unwrap_or_default()
+                        .saturating_sub(rule.dst_port_start.unwrap_or_default())
+                        + 1) as usize,
+                ),
+        ) {
+            (_, true) => {
+                return Err(eyre::eyre!(
+                    "supplied network security group rule count exceeds limit of {}",
+                    NETWORK_SECURITY_GROUP_RULE_COUNT_MAX
+                ));
+            }
+            (v, false) => v,
+        };
+
+        if total_rule_count > NETWORK_SECURITY_GROUP_RULE_COUNT_MAX {
+            return Err(eyre::eyre!(
+                "supplied network security group rule count exceeds limit of {}",
+                NETWORK_SECURITY_GROUP_RULE_COUNT_MAX
+            ));
+        }
+
+        match (rule.ingress, rule.ipv6) {
+            (true, false) => ingress_ipv4_rules.push(rule),
+            (false, false) => egress_ipv4_rules.push(rule),
+            (true, true) => ingress_ipv6_rules.push(rule),
+            (false, true) => egress_ipv6_rules.push(rule),
+        }
+    }
+
+    // Order the rules by priority
+    ingress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
+    egress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
+    ingress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
+    egress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
+
+    Ok((
+        expand_network_security_group_rules(ingress_ipv4_rules),
+        expand_network_security_group_rules(egress_ipv4_rules),
+        expand_network_security_group_rules(ingress_ipv6_rules),
+        expand_network_security_group_rules(egress_ipv6_rules),
+    ))
 }
 
 /// Expands a set of network security group rules.
@@ -613,6 +647,8 @@ pub struct NvueConfig {
     pub use_vpc_isolation: bool,
     pub stateful_acls_enabled: bool,
 
+    pub network_security_policy_override_rules: Vec<NetworkSecurityGroupRule>,
+
     // Currently we have a single tenant, hence the single ct_ prefix.
     // Later this will be Vec<ComputeTenant>.
 
@@ -648,6 +684,46 @@ pub struct NetworkSecurityGroupRule {
     pub action: String,
     pub src_prefixes: Vec<String>,
     pub dst_prefixes: Vec<String>,
+}
+
+impl TryFrom<&rpc::ResolvedNetworkSecurityGroupRule> for NetworkSecurityGroupRule {
+    type Error = eyre::Error;
+
+    fn try_from(
+        resolved_rule: &rpc::ResolvedNetworkSecurityGroupRule,
+    ) -> Result<Self, Self::Error> {
+        let Some(ref rule) = resolved_rule.rule else {
+            return Err(eyre::eyre!("BUG: attempting to convert empty NSG rule"));
+        };
+
+        Ok(NetworkSecurityGroupRule {
+            id: rule.id.clone().unwrap_or_default(),
+            ingress: rule.direction()
+                == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+            can_match_any_protocol: rule.protocol()
+                == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
+            can_be_stateful: matches!(
+                rule.protocol(),
+                rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
+                    | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
+                    | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
+            ),
+            ipv6: rule.ipv6,
+            priority: rule.priority,
+            src_port_start: rule.src_port_start,
+            src_port_end: rule.src_port_end,
+            dst_port_start: rule.dst_port_start,
+            dst_port_end: rule.dst_port_end,
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
+                rule.protocol,
+            )?
+            .to_lowercase(),
+            action: rpc::NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?
+                .to_lowercase(),
+            src_prefixes: resolved_rule.src_prefixes.clone(),
+            dst_prefixes: resolved_rule.dst_prefixes.clone(),
+        })
+    }
 }
 
 pub struct VlanConfig {
@@ -725,6 +801,17 @@ struct TmplNvue {
     /// should perform any extra config to prepare
     /// for them.
     StatefulAclsEnabled: bool,
+
+    /// Whether there are global policies that should be evaluated
+    /// after deny prefixes but before any tenant-defined rules.
+    HasIpv4IngressSecurityPolicyOverrideRules: bool,
+    HasIpv4EgressSecurityPolicyOverrideRules: bool,
+    HasIpv6IngressSecurityPolicyOverrideRules: bool,
+    HasIpv6EgressSecurityPolicyOverrideRules: bool,
+    Ipv4IngressNetworkSecurityPolicyOverrideRules: Vec<TmplNetworkSecurityGroupRule>,
+    Ipv4EgressNetworkSecurityPolicyOverrideRules: Vec<TmplNetworkSecurityGroupRule>,
+    Ipv6IngressNetworkSecurityPolicyOverrideRules: Vec<TmplNetworkSecurityGroupRule>,
+    Ipv6EgressNetworkSecurityPolicyOverrideRules: Vec<TmplNetworkSecurityGroupRule>,
 
     /// For when we have more than one tenant
     Tenant: TmplComputeTenant,

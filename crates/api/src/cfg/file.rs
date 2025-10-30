@@ -37,6 +37,7 @@ use model::firmware::{
 };
 use model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 use model::machine::HostHealthConfig;
+use model::network_security_group::NetworkSecurityGroupRule;
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
 use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
@@ -1251,6 +1252,10 @@ pub struct NetworkSecurityGroupConfig {
     /// in nvue config.
     #[serde(default = "default_to_true")]
     pub stateful_acls_enabled: bool,
+
+    /// A set of NSG rules that will be inserted before any user-defined rules.
+    #[serde(default)]
+    pub policy_overrides: Vec<NetworkSecurityGroupRule>,
 }
 
 impl Default for NetworkSecurityGroupConfig {
@@ -1258,6 +1263,7 @@ impl Default for NetworkSecurityGroupConfig {
         NetworkSecurityGroupConfig {
             max_network_security_group_size: default_max_network_security_group_size(),
             stateful_acls_enabled: default_to_true(),
+            policy_overrides: vec![],
         }
     }
 }
