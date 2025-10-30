@@ -24,9 +24,8 @@ use crate::cfg::file::{AllowedCertCriteria, CertComponent};
 mod casbin_engine;
 pub mod internal_rbac_rules;
 pub mod middleware;
-pub mod spiffe_id;
+pub mod spiffe_id; // public for doctests
 mod test_certs;
-// public for doctests
 
 // Various properties of a user gleaned from the presented certificate
 #[derive(Clone, Debug, PartialEq)]
@@ -152,10 +151,6 @@ fn try_external_cert(
         // Looks through the issuer relative distinguished names for a CN matching what we expect for external certs.
         // Other options may be available in the future, but just this for now.
         for rdn in x509_cert.issuer().iter() {
-            println!(
-                "rdn={:?}",
-                rdn.iter().next().unwrap().attr_value().as_printablestring()
-            );
             if rdn
                 .iter()
                 .filter(|attribute| attribute.attr_type() == &oid_registry::OID_X509_COMMON_NAME) // CN=  see https://www.rfc-editor.org/rfc/rfc4519.html
@@ -164,8 +159,7 @@ fn try_external_cert(
                     auth_context
                         .spiffe_context
                         .additional_issuer_cns
-                        .iter()
-                        .any(|issuer_cn| issuer_cn.eq(value.as_ref()))
+                        .contains(value.as_ref())
                 })
             {
                 // This CN is what we expect from external certs
@@ -610,7 +604,7 @@ mod tests {
                 cert: CLIENT_CERT_MACHINEATRON.into(),
                 desired: Principal::SpiffeServiceIdentifier("machine-a-tron".to_string()),
             },
-            // Other agent cert (signed by intermediate CA)
+            // Other app cert (signed by intermediate CA)
             ClientCertTable {
                 cert: CLIENT_CERT_OTHER_APP.into(),
                 desired: Principal::SpiffeServiceIdentifier("other-app".to_string()),
@@ -650,8 +644,8 @@ mod tests {
                     String::from("/default/sa/"),
                     String::from("/other-namespace/sa/"),
                 ],
-                machine_base_path: "".to_string(),
-                additional_issuer_cns: vec!["usercert-ca.example.com".to_string()],
+                machine_base_path: String::from("/carbide-system/machine/"),
+                additional_issuer_cns: ["usercert-ca.example.com".to_string()].into(),
             },
         );
 
@@ -692,9 +686,14 @@ mod tests {
 }
 
 pub mod forge_spiffe {
+    use std::collections::HashSet;
+
     use x509_parser::prelude::{FromDer, GeneralName, X509Certificate};
 
     use super::spiffe_id;
+    use crate::auth::spiffe_id::{SpiffeIdError, TrustDomain};
+    use crate::cfg;
+    use crate::cfg::file::TrustConfig;
 
     // Validate an X.509 DER certificate against the SPIFFE requirements, and
     // return a SPIFFE ID.
@@ -801,7 +800,7 @@ pub mod forge_spiffe {
         pub trust_domain: spiffe_id::TrustDomain,
         pub service_base_paths: Vec<String>,
         pub machine_base_path: String,
-        pub additional_issuer_cns: Vec<String>,
+        pub additional_issuer_cns: HashSet<String>,
     }
 
     impl ForgeSpiffeContext {
@@ -845,25 +844,35 @@ pub mod forge_spiffe {
                 ))),
             }
         }
+
+        /// TODO(OSS): drop this once we enforce this via the config file
+        pub fn deprecated_production_defaults() -> ForgeSpiffeContext {
+            ForgeSpiffeContext {
+                trust_domain: spiffe_id::TrustDomain::new("forge.local").unwrap(),
+                service_base_paths: vec![
+                    String::from("/test-system/sa/"),
+                    String::from("/default/sa/"),
+                    String::from("/elektra-site-agent/sa/"),
+                ],
+                machine_base_path: String::from("/forge-system/machine/"),
+                additional_issuer_cns: ["pki-k8s-usercert-ca.ngc.nvidia.com".to_string()].into(),
+            }
+        }
     }
 
-    // impl Default for ForgeSpiffeContext {
-    //     fn default() -> Self {
-    //         let trust_domain = spiffe_id::TrustDomain::new("forge.local").unwrap();
-    //         let service_base_paths = vec![
-    //             String::from("/test-system/sa/"),
-    //             String::from("/default/sa/"),
-    //             String::from("/elektra-site-agent/sa/"),
-    //         ];
-    //         let machine_base_path = String::from("/forge-system/machine/");
-    //         ForgeSpiffeContext {
-    //             trust_domain,
-    //             service_base_paths,
-    //             machine_base_path,
-    //         }
-    //     }
-    // }
-    //
+    impl TryFrom<cfg::file::TrustConfig> for ForgeSpiffeContext {
+        type Error = SpiffeIdError;
+
+        fn try_from(value: TrustConfig) -> Result<Self, Self::Error> {
+            Ok(ForgeSpiffeContext {
+                trust_domain: TrustDomain::new(&value.spiffe_trust_domain)?,
+                service_base_paths: value.spiffe_service_base_paths,
+                machine_base_path: value.spiffe_machine_base_path,
+                additional_issuer_cns: value.additional_issuer_cns.into_iter().collect(),
+            })
+        }
+    }
+
     #[derive(thiserror::Error, Debug, Clone)]
     pub enum ForgeSpiffeContextError {
         #[error("{0}")]

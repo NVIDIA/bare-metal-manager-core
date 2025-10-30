@@ -1022,6 +1022,21 @@ pub struct AuthConfig {
 
     /// Additional forge-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
     pub cli_certs: Option<AllowedCertCriteria>,
+
+    /// Configuration for the root of trust for client cert auth
+    pub trust: Option<TrustConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TrustConfig {
+    /// The SPIFFE trust domain which client certs must adhere to
+    pub spiffe_trust_domain: String,
+    /// Allowed base paths for valid client cert spiffe:// URIs for services
+    pub spiffe_service_base_paths: Vec<String>,
+    /// Allowed base path for client cert spiffe:// URIs for machines
+    pub spiffe_machine_base_path: String,
+    /// Additional issuer CN's to trust other than the SPIFFE issuer, useful for external user certs.
+    pub additional_issuer_cns: Vec<String>,
 }
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug, Deserialize, Serialize)]
