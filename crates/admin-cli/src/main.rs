@@ -1348,21 +1348,57 @@ async fn main() -> color_eyre::Result<()> {
                     })
                     .await?;
             }
-            cfg::cli_options::ExpectedMachineAction::Update(expected_machine_data) => {
+            cfg::cli_options::ExpectedMachineAction::Patch(expected_machine_data) => {
                 if let Err(e) = expected_machine_data.validate() {
                     eprintln!("{e}");
                     return Ok(());
                 }
-                let metadata = expected_machine_data.metadata()?;
                 api_client
-                    .update_expected_machine(
+                    .patch_expected_machine(
                         expected_machine_data.bmc_mac_address,
                         expected_machine_data.bmc_username,
                         expected_machine_data.bmc_password,
                         expected_machine_data.chassis_serial_number,
                         expected_machine_data.fallback_dpu_serial_numbers,
-                        metadata,
+                        expected_machine_data.meta_name,
+                        expected_machine_data.meta_description,
+                        expected_machine_data.labels,
                         expected_machine_data.sku_id,
+                    )
+                    .await?;
+            }
+            cfg::cli_options::ExpectedMachineAction::Update(request) => {
+                let json_file_path = Path::new(&request.filename);
+                let file_content = std::fs::read_to_string(json_file_path)?;
+                let expected_machine: cfg::cli_options::ExpectedMachineJson =
+                    serde_json::from_str(&file_content)?;
+
+                let metadata = expected_machine.metadata.unwrap_or_default();
+
+                // Use patch API but provide all fields from JSON for full replacement
+                api_client
+                    .patch_expected_machine(
+                        expected_machine.bmc_mac_address,
+                        Some(expected_machine.bmc_username),
+                        Some(expected_machine.bmc_password),
+                        Some(expected_machine.chassis_serial_number),
+                        expected_machine.fallback_dpu_serial_numbers,
+                        Some(metadata.name),
+                        Some(metadata.description),
+                        Some(
+                            metadata
+                                .labels
+                                .into_iter()
+                                .map(|label| {
+                                    if let Some(value) = label.value {
+                                        format!("{}:{}", label.key, value)
+                                    } else {
+                                        label.key
+                                    }
+                                })
+                                .collect(),
+                        ),
+                        expected_machine.sku_id,
                     )
                     .await?;
             }
