@@ -1321,6 +1321,8 @@ pub enum ManagedHost {
     StartUpdates(StartUpdates),
     #[clap(about = "Set the primary DPU for the managed host")]
     SetPrimaryDpu(SetPrimaryDpu),
+    #[clap(about = "Download debug bundle with logs for a specific host")]
+    DebugBundle(DebugBundle),
 }
 
 #[derive(Parser, Debug)]
@@ -3376,6 +3378,37 @@ pub struct ListAppliedRemediations {
         long
     )]
     pub machine_id: Option<MachineId>,
+}
+
+#[derive(Parser, Debug)]
+pub struct DebugBundle {
+    #[clap(help = "The host machine ID to collect logs for")]
+    pub host_id: String,
+
+    #[clap(
+        long,
+        help = "Start time: 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS' (uses today's date)"
+    )]
+    pub start_time: String,
+
+    #[clap(
+        long,
+        help = "End time: 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS' (uses today's date)"
+    )]
+    pub end_time: String,
+
+    #[clap(long, help = "Output directory path for the debug bundle")]
+    pub output_path: String,
+
+    #[clap(long, help = "Site name (e.g., dev3, prod, staging)")]
+    pub site: String,
+
+    #[clap(
+        long,
+        default_value = "5000",
+        help = "Batch size for log collection (default: 5000, max: 5000)"
+    )]
+    pub batch_size: u32,
 }
 
 #[cfg(test)]
