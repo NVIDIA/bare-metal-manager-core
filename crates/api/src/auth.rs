@@ -850,7 +850,7 @@ pub mod forge_spiffe {
             ForgeSpiffeContext {
                 trust_domain: spiffe_id::TrustDomain::new("forge.local").unwrap(),
                 service_base_paths: vec![
-                    String::from("/test-system/sa/"),
+                    String::from("/forge-system/sa/"),
                     String::from("/default/sa/"),
                     String::from("/elektra-site-agent/sa/"),
                 ],
