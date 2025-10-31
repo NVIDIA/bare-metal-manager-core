@@ -66,6 +66,7 @@ use crate::rpc::ApiClient;
 mod async_write;
 
 mod cfg;
+mod debug_bundle;
 mod devenv;
 mod domain;
 mod dpa;
@@ -728,6 +729,9 @@ async fn main() -> color_eyre::Result<()> {
             },
             ManagedHost::StartUpdates(options) => {
                 crate::firmware::start_updates(&api_client, options).await?
+            }
+            ManagedHost::DebugBundle(debug_bundle) => {
+                debug_bundle::handle_debug_bundle(debug_bundle).await?;
             }
             ManagedHost::SetPrimaryDpu(set_primary_args) => {
                 api_client

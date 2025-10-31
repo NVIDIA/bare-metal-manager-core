@@ -37,6 +37,7 @@ ipnet = { workspace = true }
 libredfish = { workspace = true }
 mac_address = { workspace = true }
 prettytable-rs = { workspace = true }
+reqwest = { workspace = true }
 serde = { features = ["derive"] , workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -45,8 +46,10 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+urlencoding = "2.1"
 uuid = { workspace = true }
 x509-parser = { features = ["validate"] , workspace = true }
+zip = "0.6"
 
 [build-dependencies]
 clap = { workspace = true }
