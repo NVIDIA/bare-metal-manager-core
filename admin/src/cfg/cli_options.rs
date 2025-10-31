@@ -473,7 +473,42 @@ pub enum ExpectedMachineAction {
     Add(ExpectedMachine),
     #[clap(about = "Delete expected machine")]
     Delete(DeleteExpectedMachine),
-    #[clap(about = "Update expected machine")]
+    /// Patch expected machine (partial update, preserves unprovided fields).
+    ///
+    /// Only the fields provided in the command will be updated. All other fields remain unchanged.
+    ///
+    /// Examples:
+    ///   # Update only SKU, preserve all other fields including metadata
+    ///   forge-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f --sku-id new_sku
+    ///
+    ///   # Update only labels, preserve name and description
+    ///   forge-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f \
+    ///     --sku-id sku123 --label env:prod --label team:platform
+    #[clap(verbatim_doc_comment)]
+    Patch(PatchExpectedMachine),
+    /// Update expected machine from JSON file (full replacement, consistent with API).
+    ///
+    /// All fields from the JSON file will completely replace the existing record.
+    /// This allows clearing metadata fields by providing empty values.
+    ///
+    /// Example json file:
+    ///    {
+    ///        "bmc_mac_address": "1a:1b:1c:1d:1e:1f",
+    ///        "bmc_username": "user",
+    ///        "bmc_password": "pass",
+    ///        "chassis_serial_number": "sample_serial-1",
+    ///        "fallback_dpu_serial_numbers": ["MT020100000003"],
+    ///        "metadata": {
+    ///            "name": "MyMachine",
+    ///            "description": "My Machine",
+    ///            "labels": [{"key": "ABC", "value": "DEF"}]
+    ///        },
+    ///        "sku_id": "sku_id_123"
+    ///    }
+    ///
+    /// Usage:
+    ///   forge-admin-cli expected-machine update --filename machine.json
+    #[clap(verbatim_doc_comment)]
     Update(UpdateExpectedMachine),
     /// Replace all entries in the expected machines table with the entries from an inputted json file.
     ///
@@ -496,7 +531,7 @@ pub enum ExpectedMachineAction {
     ///                "metadata": {
     ///                    "name": "MyMachine",
     ///                    "description": "My Machine",
-    ///                    "labels": [{"key": "ABC", "value: "DEF"}]
+    ///                    "labels": [{"key": "ABC", "value": "DEF"}]
     ///                }
     ///            }
     ///        ]
@@ -631,7 +666,7 @@ impl ExpectedMachine {
 "fallback_dpu_serial_numbers",
 "sku_id",
 ])))]
-pub struct UpdateExpectedMachine {
+pub struct PatchExpectedMachine {
     #[clap(
         short = 'a',
         required = true,
@@ -703,7 +738,7 @@ pub struct UpdateExpectedMachine {
     pub sku_id: Option<String>,
 }
 
-impl UpdateExpectedMachine {
+impl PatchExpectedMachine {
     pub fn validate(&self) -> Result<(), String> {
         // TODO: It is possible to do these checks by clap itself, via arg groups
         if self.bmc_username.is_none()
@@ -721,37 +756,22 @@ impl UpdateExpectedMachine {
         }
         Ok(())
     }
-
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
-    }
 }
 
 #[derive(Parser, Debug)]
 pub struct DeleteExpectedMachine {
     #[clap(help = "BMC MAC address of the expected machine to delete.")]
     pub bmc_mac_address: MacAddress,
+}
+
+#[derive(Parser, Debug)]
+pub struct UpdateExpectedMachine {
+    #[clap(
+        short,
+        long,
+        help = "Path to JSON file containing the expected machine data"
+    )]
+    pub filename: String,
 }
 
 #[derive(Parser, Debug)]
@@ -3380,7 +3400,7 @@ pub struct ListAppliedRemediations {
 
 #[cfg(test)]
 mod tests {
-    use ExpectedMachineAction::Update;
+    use ExpectedMachineAction::Patch;
     use clap::Parser;
 
     use super::*;
@@ -3495,22 +3515,22 @@ mod tests {
             .is_err()
         );
 
-        fn test_update_expected_machine<F: Fn(UpdateExpectedMachine) -> bool>(
+        fn test_patch_expected_machine<F: Fn(PatchExpectedMachine) -> bool>(
             options: CliOptions,
             pred: F,
         ) -> bool {
-            let mut update_args = None;
-            if let Some(CliCommand::ExpectedMachine(Update(args))) = options.commands {
-                update_args = Some(args);
+            let mut patch_args = None;
+            if let Some(CliCommand::ExpectedMachine(Patch(args))) = options.commands {
+                patch_args = Some(args);
             }
-            update_args.is_some() && pred(update_args.unwrap())
+            patch_args.is_some() && pred(patch_args.unwrap())
         }
-        // update 1 dpu serial
-        assert!(test_update_expected_machine(
+        // Test patch command: 1 dpu serial
+        assert!(test_patch_expected_machine(
             CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
-                "update",
+                "patch",
                 "--bmc-mac-address",
                 "00:00:00:00:00:00",
                 "--fallback-dpu-serial-number",
@@ -3520,12 +3540,12 @@ mod tests {
             .unwrap(),
             |args| { args.validate().is_ok() }
         ));
-        // update 2 dpu serials
-        assert!(test_update_expected_machine(
+        // Test patch command: 2 dpu serials
+        assert!(test_patch_expected_machine(
             CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
-                "update",
+                "patch",
                 "--bmc-mac-address",
                 "00:00:00:00:00:00",
                 "--fallback-dpu-serial-number",
@@ -3541,7 +3561,7 @@ mod tests {
             CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
-                "update",
+                "patch",
                 "--bmc-mac-address",
                 "00:00:00:00:00:00",
                 "--fallback-dpu-serial-number",
@@ -3551,11 +3571,11 @@ mod tests {
 
         // Fail if duplicate dpu serials are given
         // duplicate dpu serials -
-        assert!(test_update_expected_machine(
+        assert!(test_patch_expected_machine(
             CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
-                "update",
+                "patch",
                 "--bmc-mac-address",
                 "00:00:00:00:00:00",
                 "--fallback-dpu-serial-number",
@@ -3574,12 +3594,12 @@ mod tests {
             |args| { args.validate().is_err() }
         ));
 
-        // Update credential
+        // Test patch command: update credential
         assert!(
             CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
-                "update",
+                "patch",
                 "--bmc-mac-address",
                 "00:00:00:00:00:00",
                 "--bmc-username",
@@ -3589,12 +3609,12 @@ mod tests {
             ])
             .is_ok()
         );
-        // update all
-        assert!(test_update_expected_machine(
+        // Test patch command: update all fields
+        assert!(test_patch_expected_machine(
             CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
-                "update",
+                "patch",
                 "--bmc-mac-address",
                 "00:00:00:00:00:00",
                 "--bmc-username",
@@ -3610,12 +3630,12 @@ mod tests {
             .unwrap(),
             |args| { args.validate().is_ok() }
         ));
-        // update - user name only - error
+        // Test patch command: username only - should error (requires password)
         assert!(
             CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
-                "update",
+                "patch",
                 "--bmc-mac-address",
                 "00:00:00:00:00:00",
                 "--bmc-username",
@@ -3623,7 +3643,51 @@ mod tests {
             ])
             .is_err()
         );
-        // update - password  only - error
+        // Test patch command: password only - should error (requires username)
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "patch",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--bmc-password",
+                "ssss",
+            ])
+            .is_err()
+        );
+
+        // Test update command (full replacement from JSON file)
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--filename",
+                "/path/to/machine.json",
+            ])
+            .is_ok()
+        );
+
+        // Test update command with short flag
+        assert!(
+            CliOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "-f",
+                "/path/to/machine.json",
+            ])
+            .is_ok()
+        );
+
+        // Test update command without filename - should fail
+        assert!(
+            CliOptions::try_parse_from(["forge-admin-cli", "expected-machine", "update",]).is_err()
+        );
+
+        // Test update command with CLI args (not JSON) - should fail
+        // update only accepts --filename, not individual fields
         assert!(
             CliOptions::try_parse_from([
                 "forge-admin-cli",
@@ -3631,8 +3695,8 @@ mod tests {
                 "update",
                 "--bmc-mac-address",
                 "00:00:00:00:00:00",
-                "--bmc-password",
-                "ssss",
+                "--sku-id",
+                "sku123",
             ])
             .is_err()
         );

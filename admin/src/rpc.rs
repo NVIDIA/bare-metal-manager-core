@@ -757,14 +757,16 @@ impl ApiClient {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn update_expected_machine(
+    pub async fn patch_expected_machine(
         &self,
         bmc_mac_address: MacAddress,
         bmc_username: Option<String>,
         bmc_password: Option<String>,
         chassis_serial_number: Option<String>,
         fallback_dpu_serial_numbers: Option<Vec<String>>,
-        metadata: ::rpc::forge::Metadata,
+        meta_name: Option<String>,
+        meta_description: Option<String>,
+        labels: Option<Vec<String>>,
         sku_id: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let expected_machine = self
@@ -774,6 +776,42 @@ impl ApiClient {
                 id: None,
             })
             .await?;
+
+        // Merge metadata fields individually
+        let merged_metadata =
+            if meta_name.is_some() || meta_description.is_some() || labels.is_some() {
+                let existing = expected_machine.metadata.unwrap_or_default();
+
+                // Convert labels to the proto format
+                let merged_labels = if let Some(label_list) = labels {
+                    let mut proto_labels = Vec::new();
+                    for label in label_list {
+                        let proto_label = match label.split_once(':') {
+                            Some((k, v)) => ::rpc::forge::Label {
+                                key: k.trim().to_string(),
+                                value: Some(v.trim().to_string()),
+                            },
+                            None => ::rpc::forge::Label {
+                                key: label.trim().to_string(),
+                                value: None,
+                            },
+                        };
+                        proto_labels.push(proto_label);
+                    }
+                    proto_labels
+                } else {
+                    existing.labels
+                };
+
+                Some(::rpc::forge::Metadata {
+                    name: meta_name.unwrap_or(existing.name),
+                    description: meta_description.unwrap_or(existing.description),
+                    labels: merged_labels,
+                })
+            } else {
+                expected_machine.metadata
+            };
+
         let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: bmc_username.unwrap_or(expected_machine.bmc_username),
@@ -782,7 +820,7 @@ impl ApiClient {
                 .unwrap_or(expected_machine.chassis_serial_number),
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
                 .unwrap_or(expected_machine.fallback_dpu_serial_numbers),
-            metadata: Some(metadata),
+            metadata: merged_metadata,
             sku_id,
             id: expected_machine.id,
         };
