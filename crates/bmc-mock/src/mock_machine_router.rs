@@ -682,7 +682,13 @@ async fn get_system(
     request: Request<Body>,
 ) -> MockWrapperResult {
     let inner_response = state.call_inner_router(request).await?;
-    let mut system = serde_json::from_slice::<ComputerSystem>(&inner_response)?;
+    let inner_json = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
+    // Name from inner json.
+    let name = inner_json
+        .as_object()
+        .and_then(|obj| obj.get("Name").cloned())
+        .clone();
+    let mut system = serde_json::from_value::<ComputerSystem>(inner_json)?;
     system.serial_number = state.machine_info.product_serial();
     system.power_state = state.mock_power_state.get_power_state().into();
 
@@ -728,7 +734,23 @@ async fn get_system(
     }
 
     system.pcie_devices = pcie_devices;
-    Ok(Bytes::from(serde_json::to_string(&system)?))
+
+    // Append required 'Name' field to the json. It is not part of the
+    // libredfish model but must present in all Redfish resources.
+    let json = serde_json::to_value(&system)?;
+    let json = if let Some(name) = name {
+        match json {
+            serde_json::Value::Object(mut map) => {
+                map.insert("Name".into(), name);
+                serde_json::Value::Object(map)
+            }
+            other => other,
+        }
+    } else {
+        json
+    };
+
+    Ok(Bytes::from(json.to_string()))
 }
 
 async fn get_dpu_boot_options(
