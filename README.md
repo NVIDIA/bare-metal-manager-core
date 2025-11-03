@@ -1,5 +1,4 @@
 # Carbide - Bare Metal Provisioning
-![pipeline status](https://gitlab-master.nvidia.com/aforgue/carbide/badges/trunk/pipeline.svg)
 ## Introduction
 
 Carbide is a bare metal provisioning system used to manage the lifecycle of

@@ -77,8 +77,11 @@ fi
     find "${DEST}" -mindepth 1 -maxdepth 1 -not -path "${DEST}/.git" -a -not -name . -print0 | xargs -r0 rm -rf
 )
 
+# Deinit submodules so we don't copy the working tree
+git submodule deinit --all
+
 # Copy from what's in git, excluding from the deny-list
-rsync -a \
+rsync -av --progress \
     --exclude-from=dev/sanitize-denylist.txt \
     --files-from=<(git -c core.quotepath=off ls-files --recurse-submodules) \
     . \
