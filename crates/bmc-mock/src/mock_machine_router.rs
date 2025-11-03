@@ -684,16 +684,17 @@ async fn get_system(
     let inner_response = state.call_inner_router(request).await?;
     let inner_json = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
     // Name from inner json.
-    let name = inner_json
-        .as_object()
-        .and_then(|obj| obj.get("Name").cloned())
-        .clone();
+    let name = ResourceName::new(&inner_json);
     let mut system = serde_json::from_value::<ComputerSystem>(inner_json)?;
     system.serial_number = state.machine_info.product_serial();
     system.power_state = state.mock_power_state.get_power_state().into();
 
     let MachineInfo::Host(host) = state.machine_info.clone() else {
-        return Ok(Bytes::from(serde_json::to_string(&system)?));
+        // Append required 'Name' field to the json. It is not part of the
+        // libredfish model but must present in all Redfish resources.
+        let json = serde_json::to_value(&system)?;
+        let json = name.add_to_json(json);
+        return Ok(Bytes::from(json.to_string()));
     };
 
     // Modify the Pcie Device List
@@ -735,21 +736,8 @@ async fn get_system(
 
     system.pcie_devices = pcie_devices;
 
-    // Append required 'Name' field to the json. It is not part of the
-    // libredfish model but must present in all Redfish resources.
     let json = serde_json::to_value(&system)?;
-    let json = if let Some(name) = name {
-        match json {
-            serde_json::Value::Object(mut map) => {
-                map.insert("Name".into(), name);
-                serde_json::Value::Object(map)
-            }
-            other => other,
-        }
-    } else {
-        json
-    };
-
+    let json = name.add_to_json(json);
     Ok(Bytes::from(json.to_string()))
 }
 
@@ -796,7 +784,9 @@ async fn get_dpu_sys_image(
         return Ok(inner_response);
     };
 
-    let mut inventory = serde_json::from_slice::<SoftwareInventory>(&inner_response)?;
+    let inner_json = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
+    let name = ResourceName::new(&inner_json);
+    let mut inventory = serde_json::from_value::<SoftwareInventory>(inner_json)?;
     // Version string is the mac address with extra padding in the middle to reach 64 bits, and
     // colons after every 16 bits instead of 8. Carbide will reverse this, removing the middle
     // padding and rearranging the colons to form a mac address.
@@ -810,7 +800,9 @@ async fn get_dpu_sys_image(
         &base_mac[8..12]
     ));
 
-    Ok(Bytes::from(serde_json::to_string(&inventory)?))
+    let json = serde_json::to_value(&inventory)?;
+    let json = name.add_to_json(json);
+    Ok(Bytes::from(json.to_string()))
 }
 
 async fn get_dpu_bios(
@@ -1033,89 +1025,62 @@ async fn get_dell_job(
       ))?))
 }
 
-async fn get_dpu_bmc_firmware(
+async fn get_dpu_firmware(
     State(mut state): State<MockWrapperState>,
     request: Request<Body>,
+    fw_name: &str,
+    version: impl FnOnce(&DpuMachineInfo) -> Option<&String>,
 ) -> MockWrapperResult {
     let inner_response = state.call_inner_router(request).await?;
     let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
         return Ok(inner_response);
     };
-
-    let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
-    let Some(desired_bmc_version) = dpu_machine.firmware_versions.bmc else {
+    let inner_json = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
+    let name = ResourceName::new(&inner_json);
+    let mut inventory: SoftwareInventory = serde_json::from_value(inner_json)?;
+    let Some(desired_version) = version(&dpu_machine) else {
         tracing::debug!(
-            "Unknown desired BMC firmware version for {}, not rewriting response",
+            "Unknown desired {fw_name} firmware version for {}, not rewriting response",
             dpu_machine.serial
         );
         return Ok(inner_response);
     };
-    inventory.version = Some(desired_bmc_version);
-    Ok(Bytes::from(serde_json::to_string(&inventory)?))
+    inventory.version = Some(desired_version.to_string());
+
+    let json = serde_json::to_value(&inventory)?;
+    let json = name.add_to_json(json);
+    Ok(Bytes::from(json.to_string()))
+}
+
+async fn get_dpu_bmc_firmware(
+    state: State<MockWrapperState>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    get_dpu_firmware(state, request, "BMC", |m| m.firmware_versions.bmc.as_ref()).await
 }
 
 async fn get_dpu_erot_firmware(
-    State(mut state): State<MockWrapperState>,
+    state: State<MockWrapperState>,
     request: Request<Body>,
 ) -> MockWrapperResult {
-    let inner_response = state.call_inner_router(request).await?;
-    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
-        return Ok(inner_response);
-    };
-
-    let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
-    // We expect to see the cec firmware version in .../FirmwareInventory/Bluefield_FW_ERoT
-    let Some(desired_bmc_version) = dpu_machine.firmware_versions.cec else {
-        tracing::debug!(
-            "Unknown desired CEC firmware version for {}, not rewriting response",
-            dpu_machine.serial
-        );
-        return Ok(inner_response);
-    };
-    inventory.version = Some(desired_bmc_version);
-    Ok(Bytes::from(serde_json::to_string(&inventory)?))
+    get_dpu_firmware(state, request, "CEC", |m| m.firmware_versions.cec.as_ref()).await
 }
 
 async fn get_dpu_uefi_firmware(
-    State(mut state): State<MockWrapperState>,
+    state: State<MockWrapperState>,
     request: Request<Body>,
 ) -> MockWrapperResult {
-    let inner_response = state.call_inner_router(request).await?;
-    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
-        return Ok(inner_response);
-    };
-
-    let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
-    let Some(desired_bmc_version) = dpu_machine.firmware_versions.uefi else {
-        tracing::debug!(
-            "Unknown desired UEFI firmware version for {}, not rewriting response",
-            dpu_machine.serial
-        );
-        return Ok(inner_response);
-    };
-    inventory.version = Some(desired_bmc_version);
-    Ok(Bytes::from(serde_json::to_string(&inventory)?))
+    get_dpu_firmware(state, request, "UEFI", |m| {
+        m.firmware_versions.uefi.as_ref()
+    })
+    .await
 }
 
 async fn get_dpu_nic_firmware(
-    State(mut state): State<MockWrapperState>,
+    state: State<MockWrapperState>,
     request: Request<Body>,
 ) -> MockWrapperResult {
-    let inner_response = state.call_inner_router(request).await?;
-    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
-        return Ok(inner_response);
-    };
-
-    let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
-    let Some(desired_nic_version) = dpu_machine.firmware_versions.nic else {
-        tracing::debug!(
-            "Unknown desired NIC firmware version for {}, not rewriting response",
-            dpu_machine.serial
-        );
-        return Ok(inner_response);
-    };
-    inventory.version = Some(desired_nic_version);
-    Ok(Bytes::from(serde_json::to_string(&inventory)?))
+    get_dpu_firmware(state, request, "NIC", |m| m.firmware_versions.nic.as_ref()).await
 }
 
 async fn get_oem_nvidia(
@@ -1229,5 +1194,32 @@ async fn post_reset_system(
     } else {
         state.call_inner_router(request).await?;
         Ok("".into())
+    }
+}
+
+struct ResourceName {
+    name: Option<serde_json::Value>,
+}
+
+impl ResourceName {
+    pub fn new(v: &serde_json::Value) -> Self {
+        Self {
+            name: v.as_object().and_then(|obj| obj.get("Name").cloned()),
+        }
+    }
+    pub fn add_to_json(self, v: serde_json::Value) -> serde_json::Value {
+        // Append required 'Name' field to the json. It is not part of the
+        // libredfish model but must present in all Redfish resources.
+        if let Some(name) = self.name {
+            match v {
+                serde_json::Value::Object(mut map) => {
+                    map.insert("Name".into(), name);
+                    serde_json::Value::Object(map)
+                }
+                other => other,
+            }
+        } else {
+            v
+        }
     }
 }
