@@ -13,7 +13,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use ::rpc::protos::dpa_rpc::{Metadata, Pfvni, SetVni};
+use ::rpc::protos::dpa_rpc::{DpaMetadata, Pfvni, SetVni};
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use model::dpa_interface::DpaInterfaceNetworkStatusObservation;
@@ -134,7 +134,7 @@ pub async fn send_dpa_command(
         host_ip: String::new(),
     };
 
-    let mdata = Metadata {
+    let mdata = DpaMetadata {
         dpa_id: macaddr.clone(),
         host_id: String::new(),
         revision: revision.clone(),
