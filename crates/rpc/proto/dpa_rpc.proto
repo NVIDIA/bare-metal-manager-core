@@ -6,11 +6,11 @@ package dpa_rpc;
 // Example for topic: dpa/command/001122334455/SetVni
 
 message SetVNI {
-  Metadata metadata = 1;
+  DpaMetadata metadata = 1;
   PFVNI pf_info = 2;
 }
 
-message Metadata {
+message DpaMetadata {
   string dpa_id = 1;
   string host_id = 2;
   string revision = 3;
