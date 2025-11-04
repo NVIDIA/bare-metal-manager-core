@@ -198,8 +198,10 @@ fn expansion_level<T>(request: &Request<T>) -> Option<u8> {
         params
             .get("$expand")
             .and_then(|val| {
-                if val.starts_with(".($levels=") {
+                if val.starts_with(".($levels=") || val.starts_with("*($levels=") {
                     val.split("=").last().map(|s| s.replace(")", ""))
+                } else if val == "*" || val == "." {
+                    Some("1".into())
                 } else {
                     None
                 }
