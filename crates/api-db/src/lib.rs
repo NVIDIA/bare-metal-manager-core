@@ -87,8 +87,9 @@ use tonic::Status;
 use crate::ip_allocator::DhcpError;
 use crate::resource_pool::ResourcePoolDatabaseError;
 
-// Max values we can bind to a Postgres SQL statement;
-pub const BIND_LIMIT: usize = 65535;
+// Max values we can bind to a Postgres SQL statement... half the stated value of 65536, since in
+// practice, 65535 query parameters seems to freeze up my postgres server in testing.
+pub const BIND_LIMIT: usize = 32768;
 
 /// A parameter to find() to filter resources based on an implied ID column
 pub enum ObjectFilter<'a, ID> {
