@@ -1533,6 +1533,11 @@ impl FirmwareConfig {
             cur_model.ordering = cfg.ordering
         }
 
+        // if explicit_start_needed is true, it should take precendence. We shouldn't be doing automatic upgrades.
+        if cfg.explicit_start_needed {
+            cur_model.explicit_start_needed = true;
+        }
+
         for (new_type, new_component) in cfg.components {
             if let Some(cur_component) = cur_model.components.get_mut(&new_type) {
                 // The simple fields from the newer version should be used if specified

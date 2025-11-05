@@ -29,6 +29,7 @@ pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> 
     let src_cfg_str = r#"
     model = "PowerEdge R750"
     vendor = "Dell"
+    explicit_start_needed = false
 
     [components.uefi]
     current_version_reported_as = "^Installed-.*__BIOS.Setup."
@@ -46,17 +47,23 @@ pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> 
     version = "7.10.30.00"
     url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
     default = true
+        "#;
+    config.add_test_override(src_cfg_str.to_string());
 
+    let src_cfg_str_part2 = r#"
+    model = "PowerEdge R750"
+    vendor = "Dell"
+    explicit_start_needed = true
 
     [components.cec]
-    current_version_reported_as = "^Installed-.*__iDRAC."
+    current_version_reported_as = "^Installed-.*__CEC."
 
     [[components.cec.known_firmware]]
     version = "8.10.30.00"
     url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
     default = true
         "#;
-    config.add_test_override(src_cfg_str.to_string());
+    config.add_test_override(src_cfg_str_part2.to_string());
 
     // And empty ones to test that we don't add these to desired firmware
     let src_cfg_str = r#"
@@ -78,7 +85,6 @@ current_version_reported_as = "^2$"
 "#;
     config.add_test_override(src_cfg_str.to_string());
 
-    println!("{config:?}");
     let mut txn = pool.begin().await?;
     desired_firmware::snapshot_desired_firmware(
         &mut txn,
@@ -101,6 +107,10 @@ current_version_reported_as = "^2$"
     let query = r#"SELECT COUNT(1) FROM desired_firmware;"#;
     let count: (i64,) = sqlx::query_as(query).fetch_one(txn.deref_mut()).await?;
     assert_eq!(count, (1,));
+
+    let query = r#"SELECT explicit_update_start_needed FROM desired_firmware;"#;
+    let explicit_update_needed: (bool,) = sqlx::query_as(query).fetch_one(txn.deref_mut()).await?;
+    assert_eq!(explicit_update_needed, (true,));
 
     Ok(())
 }
