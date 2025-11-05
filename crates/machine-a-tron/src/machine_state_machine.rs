@@ -483,9 +483,24 @@ impl MachineStateMachine {
         let Some(machine_discovery_result) = machine_up_state.machine_discovery_result.as_ref()
         else {
             // No machine_discovery_result means we just booted. Run discovery now.
-            let machine_discovery_result = self
+            let machine_discovery_result = match self
                 .run_machine_discovery(&machine_up_state.machine_dhcp_info)
-                .await?;
+                .await
+            {
+                Ok(result) => result,
+                Err(MachineStateError::ClientApi(ClientApiError::InvocationError(status))) => {
+                    return match status.code() {
+                        tonic::Code::InvalidArgument => {
+                            tracing::error!(error=%status, "Invalid argument running dpu agent iteration, likely not ingested yet. Will sleep until we are rebooted");
+                            Ok(NextState::SleepFor(Duration::MAX))
+                        }
+                        _ => Err(MachineStateError::ClientApi(
+                            ClientApiError::InvocationError(status),
+                        )),
+                    };
+                }
+                Err(e) => return Err(e),
+            };
             // Put the DpuAgent image as the installed_os so that we can boot to it when PXE tells us to local.
             return Ok(NextState::Advance(
                 machine_up_state
