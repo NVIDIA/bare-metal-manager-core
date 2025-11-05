@@ -23,7 +23,7 @@ use model::machine::{
 };
 use sqlx::PgConnection;
 
-use super::state_handler::{MeasuringProblem, StateHandlerError};
+use super::state_handler::StateHandlerError;
 
 pub mod context;
 pub mod handler;
@@ -111,12 +111,9 @@ async fn get_measuring_prerequisites(
                     e
                 ))
             })?
-            .ok_or_else(|| {
-                StateHandlerError::MeasuringError(
-                    MeasuringProblem::NoEkCertVerificationStatusFound(format!(
-                        "MachineId - {machine_id}"
-                    )),
-                )
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: machine_id.to_string(),
+                missing: "ek_cert_verification_status",
             })?;
 
     Ok((machine_state, ek_cert_verification_status))
