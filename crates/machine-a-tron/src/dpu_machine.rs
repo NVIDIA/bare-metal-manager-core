@@ -16,7 +16,6 @@ use std::time::{Duration, Instant};
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
 use eyre::Context;
 use forge_uuid::machine::MachineId;
-use rpc::forge::IdentifySerialRequest;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Interval;
@@ -288,26 +287,6 @@ impl DpuMachine {
         tracing::trace!("state_machine.advance start");
         let result = self.state_machine.advance().await;
         tracing::trace!("state_machine.advance end");
-
-        if self
-            .live_state
-            .read()
-            .unwrap()
-            .observed_machine_id
-            .is_none()
-            && let Ok(Some(machine_id)) = self
-                .app_context
-                .forge_api_client
-                .identify_serial(IdentifySerialRequest {
-                    serial_number: self.dpu_info.serial.clone(),
-                    exact: true,
-                })
-                .await
-                .map(|r| r.machine_id)
-        {
-            tracing::trace!("dpu's machine id: {}", machine_id);
-            self.live_state.write().unwrap().observed_machine_id = Some(machine_id);
-        }
 
         result
     }
