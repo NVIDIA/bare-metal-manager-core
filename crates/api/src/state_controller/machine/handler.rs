@@ -75,14 +75,17 @@ use crate::state_controller::machine::{
     MeasuringOutcome, get_measuring_prerequisites, handle_measuring_state,
 };
 use crate::state_controller::state_handler::{
-    DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, MeasuringProblem,
-    NextState, ReprovisionStateHelper, StateHandler, StateHandlerContext, StateHandlerError,
-    StateHandlerOutcome, StateHandlerServices, all_equal,
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, StateHandlerServices,
 };
 
+mod helpers;
 mod machine_validation;
 mod power;
 mod sku;
+use helpers::{
+    DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, NextState,
+    ReprovisionStateHelper, all_equal,
+};
 
 // We can't use http::StatusCode because libredfish has a newer version
 const NOT_FOUND: u16 = 404;
@@ -2351,7 +2354,10 @@ async fn handle_dpu_reprovision(
     let reprovision_state = state
         .managed_state
         .as_reprovision_state(dpu_machine_id)
-        .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_machine_id))?;
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: dpu_machine_id.to_string(),
+            missing: "dpu_state",
+        })?;
 
     match reprovision_state {
         ReprovisionState::InstallDpuOs { substate } => {
@@ -2979,7 +2985,10 @@ impl DpuMachineStateHandler {
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
                 .get(dpu_machine_id)
-                .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_machine_id))?,
+                .ok_or_else(|| StateHandlerError::MissingData {
+                    object_id: dpu_machine_id.to_string(),
+                    missing: "dpu_state",
+                })?,
             _ => {
                 return Err(StateHandlerError::InvalidState(
                     "Unexpected state.".to_string(),
@@ -3126,7 +3135,10 @@ impl DpuMachineStateHandler {
             ManagedHostState::DPUInit { dpu_states } => dpu_states
                 .states
                 .get(dpu_machine_id)
-                .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_machine_id))?,
+                .ok_or_else(|| StateHandlerError::MissingData {
+                    object_id: dpu_machine_id.to_string(),
+                    missing: "dpu_state",
+                })?,
             _ => {
                 return Err(StateHandlerError::InvalidState(
                     "Unexpected state.".to_string(),
@@ -4384,14 +4396,13 @@ impl StateHandler for HostMachineStateHandler {
                                 measuring_state,
                             );
                         }
-                        Err(StateHandlerError::MeasuringError(measuring_problem)) => {
-                            match measuring_problem {
-                                MeasuringProblem::NoEkCertVerificationStatusFound(info) => {
-                                    return Ok(StateHandlerOutcome::wait(format!(
-                                        "Waiting for Scout to start and send registration info (in discover_machine): {info}"
-                                    )));
-                                }
-                            }
+                        Err(StateHandlerError::MissingData {
+                            object_id: _,
+                            missing: "ek_cert_verification_status",
+                        }) => {
+                            return Ok(StateHandlerOutcome::wait(
+                                "Waiting for Scout to start and send registration info (in discover_machine)".to_string()
+                            ));
                         }
                         Err(e) => return Err(e),
                     }
