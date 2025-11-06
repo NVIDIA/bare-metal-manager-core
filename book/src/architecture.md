@@ -1,14 +1,55 @@
 # Architecture
 
-This page discusses the high level architecture of a Forge managed site.
+This page discusses the high level architecture of a Carbide managed site.
 
-Each site managed by the [Forge Cloud](https://gitlab-master.nvidia.com/nvmetal/cloud-api) must have an established
-control plane through which command and control traffic can flow in order to deploy and operate tenant resources. The
-control plane is deployed via [Fleet Command](https://docs.nvidia.com/fleet-command/user-guide/0.1.0/overview.html)
-and consists of a three node Kubernetes cluster on which we run all the required services.
+Carbide orchestrates the lifecycle of ["Managed Hosts"](#managed-hosts) and other resources via set of cooperating control plane services.
+These control plane services have to be deployed to a Kubernetes cluster with a size of at least 3 nodes (for high availability). 
+
+The Kubernetes cluster needs to have variety of services deployed:
+1. [The Carbide control plane services](#carbide-control-plane-services). These services are specific to Carbide, and must be deployed together in order to allow Carbide to manage the lifecyle of hosts.
+2. [Dependency services](#dependency-servies). Carbide requires "off-the-shelf" dependencies like Postgres, Vault and telemetry services deployed and accessible.
+3. [Optional services](#optional-services). A variety of services in tools within the deployment that interfact with the Carbide deployment, but are not required continuously for the control plane to operate.
+
+The following chapters look at each of these in more detail.
 
 <!-- Source drawio file at static/site-controller.drawio -->
-![Forge site controller](static/site-controller-overview.png)
+![Carbide site controller](static/site-controller-overview.png)
+
+## Managed Hosts
+
+A "Managed Host" is a host whose lifecycle is managed by Carbide.
+
+The managed host consists of various internal components that are all part of the same chassis or tray:
+- The actual x86 or ARM host, with an arbitrary amount of GPUs
+- One or more DPUs (of type Bluefield 2 or Bluefield 3) plugged into the host
+- The BMC that is used to manage the host
+- The BMC that is used to manage the DPU
+
+Carbide deploys a set of binaries on these hosts during various points of their lifecycle:
+
+### Scout
+
+[scout](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/scout) is an agent that Carbide runs on the host and DPU of managed hosts for a variety of tasks:
+- "Inventory" collection: Scout collects and transmits hardware properties of the host to [carbide-core](#carbide-core) which can not be determined through out-of-band tooling.
+- Execution of cleanup tasks whenever the bare metal instance using the host is released by a user
+- Execution of machine validation tests
+- Periodic Health checks
+
+### DPU Agent
+
+[dpu-agent](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/agent) is an agent that Carbide runs exclusively on DPUS managed by Carbide as a daemon.
+
+DPU agent performs the following tasks:
+- Configuring the DPU as required at any state during the hosts lifecycle. This process is described more in depth in [DPU configuration](architecture/dpu_configuration.md).
+- Executing periodic health-checks on the DPU
+- Running the Forge metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance. Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.
+- Enabling auto-updates of the dpu-agent itself
+- Deploying hotfixes for the DPU OS. These hotfixes reduce the need to perform a full DPU OS reinstallation, and thereby avoid bare metal instances becoming unavailable for their users due to OS updates.
+
+### DHCP Server
+
+Carbide runs a custom DHCP server on the DPU, which handles all DHCP requests of the actual host. This means DHCP requests on the hosts primary networking interfaces will never leave the DPU and show up on the underlay network - which provides enhanced security and reliability.
+The DHCP server is configured by dpu-agent.
 
 ## Carbide Control plane services
 
@@ -38,9 +79,11 @@ The carbide control plane consists of a number of services which work together t
 ## <a name="carbide_core_architecture"></a> Carbide Core
 
 Carbide core is the binary which provides the most essential services within the Carbide control plane.
-It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all Carbide managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances). 
+It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all Carbide managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances).
 
 Carbide core can be considered as a "collection of independent components that are deployed within the same binary". These components are shown the following diagram, and are described further below:
+
+Carbide core is the only component within carbide which interacts with the postgres database. This simplifies the rollout of database migrations throughout the product lifecycle.
 
 <!-- Source drawio file at static/carbide-core.drawio -->
 ![Forge site controller](static/carbide-core.png)
@@ -53,6 +96,16 @@ The API handlers accept gRPC requests from Carbide users and internal system com
   API handlers are all implemented within the trait/interface `rpc::forge::forge_server::Forge`. Various implementations delegate to the `handlers` subdirectory. For resources managed by Carbide, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead of it, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The carbide-core gRPC API supports
 [gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine readable API
 description so clients can auto-generate code and RPC functions in the client.
+
+### Debug Web UI
+
+Carbide core provides a debug UI under the `/admin` endpoint. The debug UI allows to inspect the state of all resources managed by Carbide via a variety of HTML pages. It e.g. allows to list details about all managed hosts and DPUs, or about the internal state of other components that are described within the Carbide Core section.
+
+The Debug UI also provides access to various admin level tools. E.g. it
+- allows to change the power state of hosts, reset the BMC, and change boot orders
+- inspect the redfish tree of any BMC managed by Carbide
+- allows admins to perform changes to a BMC (via HTTP POST) in a peer-reviewed and auditable fashion
+- inspect UFM responses
 
 ### State Machines
 
@@ -126,19 +179,10 @@ IB Fabric Monitor emits metrics with prefix `forge_ib_monitor_`.
 
 In development. The NVLink monitor will have similar responsibilities as IBFabricMonitor, but is used for monitoring and configuring NVLink. It will therefore interact with NMX APIs.
 
-## Additional Site Controller Components and Services
+## Dependency services
 
 In addition to the Carbide API server components there are other supporting services run within the K8s site
 controller nodes.
-
-### Forge Management
-
-- The entry point for the Forge Cloud components into a Forge managed site is through the
-  [Elektra site agent](https://gitlab-master.nvidia.com/nvmetal/elektra-site-agent). The site agent maintains a
-  northbound [Temporal](https://gitlab-master.nvidia.com/nvmetal/cloud-temporal) connection to the cloud control plane
-  for command and control.
-- The [carbide admin CLI](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/admin) provides a command
-  line interface into Carbide.
 
 ### K8s Persistent Storage Objects
 
@@ -154,16 +198,10 @@ pods. There are three different K8s statefulsets that run in the controller node
   require it including the main "forgedb". There are three 10GB `pgdata` PVs deployed to protect and distribute
   the data in the absence of a shared storage solution. The `forgedb` database is stored here.
 
-## Managed Hosts
+## Optional services
 
-The point of having a site controller is to administer a site that has been populated with tenant managed hosts.
-Each managed host is a pairing of a one (and only one as of March 2024) Bluefield (BF) 2/3 DPU and a host server.
-During initial deployment [scout](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/scout) runs and
-informs carbide-api of any discovered DPUs. Carbide completes the installation of services on the DPU and boots
-into regular operation mode. Thereafter the forge-dpu-agent starts as a daemon.
-
-Each DPU runs the forge-dpu-agent which connects via gRPC to the API service in Carbide to get configuration
-instructions.
-
-The forge-dpu-agent also runs the Forge metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance.
-Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.
+- A multi-site deployment of Carbide uses the [Elektra site agent](https://gitlab-master.nvidia.com/nvmetal/elektra-site-agent) to establish communication between the local site control plane and the multi-site aggregation layer. The site agent maintains a
+  northbound [Temporal](https://gitlab-master.nvidia.com/nvmetal/cloud-temporal) connection to the multi-site control plane
+  for command and control.
+- The [carbide admin CLI](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/admin) provides a command
+  line interface into Carbide.
