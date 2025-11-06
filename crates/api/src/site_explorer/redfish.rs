@@ -240,7 +240,7 @@ impl RedfishClient {
         let service = fetch_service(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-        let forge_setup_status = fetch_forge_setup_status(client.as_ref())
+        let forge_setup_status = fetch_forge_setup_status(client.as_ref(), None)
             .await
             .inspect_err(|error| tracing::warn!(%error, "Failed to fetch forge setup status."))
             .ok();
@@ -933,8 +933,11 @@ async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishErro
     Ok(service)
 }
 
-async fn fetch_forge_setup_status(client: &dyn Redfish) -> Result<ForgeSetupStatus, RedfishError> {
-    let status = client.machine_setup_status(None).await?;
+async fn fetch_forge_setup_status(
+    client: &dyn Redfish,
+    boot_interface_mac: Option<&str>,
+) -> Result<ForgeSetupStatus, RedfishError> {
+    let status = client.machine_setup_status(boot_interface_mac).await?;
     let mut diffs: Vec<ForgeSetupDiff> = Vec::new();
 
     for diff in status.diffs {

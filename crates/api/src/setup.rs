@@ -531,6 +531,7 @@ pub async fn initialize_and_start_controllers(
                         .power_manager_options
                         .wait_duration_until_host_reboot,
                 })
+                .skip_polling_checks(carbide_config.machine_state_controller.skip_polling_checks)
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {

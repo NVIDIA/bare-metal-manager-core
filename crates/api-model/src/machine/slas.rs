@@ -20,7 +20,7 @@ pub const DPUDISCOVERING: u64 = 30 * 60;
 pub const DPUINIT_NOTINIT: u64 = 30 * 60;
 
 // HostInit state, any substate other than Init and  WaitingForDiscovery
-// EnableIpmiOverLan WaitingForPlatformConfiguration UefiSetup Discovered WaitingForLockdown MachineValidating
+// EnableIpmiOverLan WaitingForPlatformConfiguration PollingBiosSetup UefiSetup Discovered Lockdown PollingLockdownStatus MachineValidating
 pub const HOST_INIT: u64 = 30 * 60;
 
 pub const WAITING_FOR_CLEANUP: u64 = 30 * 60;
