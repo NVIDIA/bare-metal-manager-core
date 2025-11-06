@@ -46,6 +46,7 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+version-compare = { version = "0.2.0" }
 urlencoding = "2.1"
 uuid = { workspace = true }
 x509-parser = { features = ["validate"] , workspace = true }

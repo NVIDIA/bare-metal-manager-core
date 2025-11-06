@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::pin::Pin;
 
 use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use forge_uuid::machine::MachineId;
+use health_report::HealthProbeAlert;
 use prettytable::{Cell, Row, Table};
 use rpc::forge::PowerOptions;
 use serde::Serialize;
@@ -336,20 +337,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         ("  Health", Some("".to_string())),
         (
             "    Probe Alerts",
-            Some(
-                m.health
-                    .alerts
-                    .iter()
-                    .map(|alert| {
-                        if let Some(target) = &alert.target {
-                            format!("{} [Target: {}]: {}", alert.id, target, alert.message)
-                        } else {
-                            format!("{}: {}", alert.id, alert.message)
-                        }
-                    })
-                    .collect::<Vec<String>>()
-                    .join(&format!("\n{:<width$}: ", " ")),
-            ),
+            Some(format_health_alerts(&m.health.alerts, width)),
         ),
         ("    Overrides", Some(m.health_overrides.clone().join(","))),
     ];
@@ -405,20 +393,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
             ("  Health", Some("".to_string())),
             (
                 "    Probe Alerts",
-                Some(
-                    dpu.health
-                        .alerts
-                        .iter()
-                        .map(|alert| {
-                            if let Some(target) = &alert.target {
-                                format!("{} [Target: {}]: {}", alert.id, target, alert.message)
-                            } else {
-                                format!("{}: {}", alert.id, alert.message)
-                            }
-                        })
-                        .collect::<Vec<String>>()
-                        .join(","),
-                ),
+                Some(format_health_alerts(&dpu.health.alerts, width)),
             ),
         ];
 
@@ -439,6 +414,37 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
     println!("{lines}");
 
     Ok(())
+}
+
+fn format_health_alerts(alerts: &[HealthProbeAlert], width: usize) -> String {
+    alerts
+        .iter()
+        .flat_map(|alert| {
+            let mut dup_map: HashMap<&str, i32> = HashMap::default();
+            let alert_messages = alert.message.split('\n');
+            for a in alert_messages {
+                dup_map
+                    .entry(a)
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+            }
+            let mut out_vec = Vec::default();
+            for (msg, count) in dup_map {
+                let alert_message = if count > 1 {
+                    format!("{msg} (x{count})")
+                } else {
+                    msg.to_string()
+                };
+                out_vec.push(if let Some(target) = &alert.target {
+                    format!("{} [Target: {}]: {}", alert.id, target, alert_message)
+                } else {
+                    format!("{}: {}", alert.id, alert_message)
+                });
+            }
+            out_vec
+        })
+        .collect::<Vec<String>>()
+        .join(&format!("\n{:<width$}: ", " "))
 }
 
 pub async fn handle_show(

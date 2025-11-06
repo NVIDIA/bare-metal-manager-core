@@ -1144,6 +1144,7 @@ dependencies = [
  "tracing-subscriber",
  "urlencoding",
  "uuid",
+ "version-compare 0.2.0",
  "x509-parser",
  "zip",
 ]
@@ -1383,6 +1384,7 @@ dependencies = [
  "tracing",
  "tss-esapi",
  "uuid",
+ "version-compare 0.2.0",
 ]
 
 [[package]]
