@@ -378,7 +378,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                20,
+                35,
                 ManagedHostState::DPUInit {
                     dpu_states: model::machine::DpuInitStates {
                         states: self
@@ -434,7 +434,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                20,
+                25,
                 ManagedHostState::DPUInit {
                     dpu_states: model::machine::DpuInitStates {
                         states: self
@@ -477,7 +477,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                20,
+                35,
                 ManagedHostState::DPUInit {
                     dpu_states: model::machine::DpuInitStates {
                         states: self
@@ -511,7 +511,7 @@ impl<'a> MockExploredHost<'a> {
                 .test_env
                 .run_machine_state_controller_iteration_until_state_condition(
                     &host_machine_id,
-                    6,
+                    10,
                     |machine| {
                         machine.current_state() == &expected_state
                             || matches!(
@@ -537,7 +537,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                6,
+                10,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 },
@@ -561,7 +561,7 @@ impl<'a> MockExploredHost<'a> {
             .test_env
             .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
-                2,
+                10,
                 |machine| {
                     machine.current_state() == &expected_state
                         || matches!(
@@ -679,7 +679,7 @@ impl<'a> MockExploredHost<'a> {
             .test_env
             .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
-                3,
+                10,
                 |machine| {
                     machine.current_state() == &expected_state
                         || matches!(
@@ -748,7 +748,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                7,
+                10,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 },
@@ -771,7 +771,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                2,
+                5,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForLockdown {
                         lockdown_info: LockdownInfo {
@@ -794,7 +794,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                3,
+                10,
                 ManagedHostState::Validation {
                     validation_state: ValidationState::MachineValidation {
                         machine_validation: MachineValidatingState::MachineValidating {
@@ -887,7 +887,7 @@ impl<'a> MockExploredHost<'a> {
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
                         &host_machine_id,
-                        3,
+                        10,
                         ManagedHostState::HostInit {
                             machine_state: MachineState::Discovered {
                                 skip_reboot_wait: false,
@@ -928,7 +928,7 @@ impl<'a> MockExploredHost<'a> {
             self.test_env
                 .run_machine_state_controller_iteration_until_state_matches(
                     &host_machine_id,
-                    3,
+                    10,
                     ManagedHostState::HostInit {
                         machine_state: MachineState::Discovered {
                             skip_reboot_wait: true,

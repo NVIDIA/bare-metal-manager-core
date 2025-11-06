@@ -97,8 +97,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
     // DPU restart on Ready -> Reprovision state
     assert_eq!(
-        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
-        &[RedfishSimAction::Power(SystemPowerControl::ForceRestart)]
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts(),
+        vec![RedfishSimAction::Power(SystemPowerControl::ForceRestart)]
     );
     let redfish_timepoint = env.redfish_sim.timepoint();
     let dpu = mh.dpu().db_machine(&mut txn).await;
@@ -126,8 +128,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     // No reboots before PowerOff
     assert_eq!(
-        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
-        &[]
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts(),
+        vec![]
     );
     let redfish_timepoint = env.redfish_sim.timepoint();
 
@@ -151,8 +155,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         &mh.new_dpu_reprovision_state(ReprovisionState::PowerDown)
     );
     assert_eq!(
-        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
-        &[RedfishSimAction::Power(SystemPowerControl::ForceOff)]
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts(),
+        vec![RedfishSimAction::Power(SystemPowerControl::ForceOff)]
     );
     let redfish_timepoint = env.redfish_sim.timepoint();
 
@@ -164,8 +170,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         assert_eq!(dpu.current_state(), &mh.new_dpu_reprovision_state(state));
     }
     assert_eq!(
-        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
-        &[RedfishSimAction::Power(SystemPowerControl::On)]
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts(),
+        vec![RedfishSimAction::Power(SystemPowerControl::On)]
     );
     let redfish_timepoint = env.redfish_sim.timepoint();
 
@@ -204,8 +212,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     // HostInit::Discovered -> Ready goes through restart
     assert_eq!(
-        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
-        &[RedfishSimAction::Power(SystemPowerControl::ForceRestart)]
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts(),
+        vec![RedfishSimAction::Power(SystemPowerControl::ForceRestart)]
     );
 }
 

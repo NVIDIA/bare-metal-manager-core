@@ -107,8 +107,8 @@ pub async fn host_discover_machine(
 
 pub async fn host_uefi_setup(env: &TestEnv, host_machine_id: &MachineId) {
     for state in UefiSetupState::iter() {
-        if state == UefiSetupState::UnlockHost {
-            // This state is reserved for legacy hosts--newly ingested hosts will never get here
+        // These states are reserved for legacy hosts--newly ingested hosts will never get here
+        if state == UefiSetupState::UnlockHost || state == UefiSetupState::LockdownHost {
             continue;
         }
 

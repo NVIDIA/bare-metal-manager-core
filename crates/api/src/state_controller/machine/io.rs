@@ -128,6 +128,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuInitState::WaitingForNetworkInstall => "waitingfornetworkinstall",
                 DpuInitState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 DpuInitState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
+                DpuInitState::PollingBiosSetup => "pollingbiossetup",
                 DpuInitState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
             }
         }
@@ -136,6 +137,7 @@ impl StateControllerIO for MachineStateControllerIO {
             match machine_state {
                 MachineState::Init => "init",
                 MachineState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
+                MachineState::PollingBiosSetup => "pollingbiossetup",
                 MachineState::SetBootOrder { .. } => "setbootorder",
                 MachineState::UefiSetup { .. } => "uefisetup",
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",

@@ -1527,6 +1527,7 @@ pub enum DpuInitState {
     Init,
     WaitingForPlatformPowercycle { substate: PerformPowerOperation },
     WaitingForPlatformConfiguration,
+    PollingBiosSetup,
     WaitingForNetworkConfig,
     WaitingForNetworkInstall, // Deprecated now, not used
 }
@@ -1544,6 +1545,7 @@ pub enum MachineState {
     Init,
     EnableIpmiOverLan,
     WaitingForPlatformConfiguration,
+    PollingBiosSetup,
     SetBootOrder {
         set_boot_order_info: Option<SetBootOrderInfo>,
     },
@@ -1580,6 +1582,7 @@ pub struct UefiSetupInfo {
     pub uefi_setup_state: UefiSetupState,
 }
 
+/// Substates of enabling/disabling lockdown
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum UefiSetupState {
@@ -1588,6 +1591,8 @@ pub enum UefiSetupState {
     WaitForPasswordJobScheduled,
     PowercycleHost,
     WaitForPasswordJobCompletion,
+    // Deprecated: no-op state, transitions directly to WaitingForLockdown::SetLockdown
+    // Kept for backwards compatibility with hosts that may be in this state
     LockdownHost,
 }
 
@@ -1675,16 +1680,13 @@ pub enum CleanupState {
     // Unused
     DisableBIOSBMCLockdown,
 }
-
-/// Substates of enabling/disabling lockdown
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")] // No tag requried - this is not nested
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[serde(rename_all = "lowercase")]
 pub enum LockdownState {
-    /// We simply wait in this state for a certain amount of time to allow the
-    /// DPU to go down. Besides waiting to other checks are performed.
+    SetLockdown,
     TimeWaitForDPUDown,
-    /// In this state we check whether the DPU restarted and is reachable again
     WaitForDPUUp,
+    PollingLockdownStatus,
 }
 
 /// Whether lockdown should be enabled or disabled in an operation
@@ -1695,7 +1697,6 @@ pub enum LockdownMode {
     Disable,
 }
 
-/// Whether lockdown should be enabled or disabled in an operation
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")] // No tag required - this will never be nested
 pub struct RetryInfo {
@@ -1747,6 +1748,7 @@ pub enum HostPlatformConfigurationState {
     },
     UnlockHost,
     ConfigureBios,
+    PollingBiosSetup,
     SetBootOrder {
         set_boot_order_info: SetBootOrderInfo,
     },
@@ -2564,6 +2566,39 @@ mod tests {
             deserialized.mode,
             MachineLastRebootRequestedMode::Reboot,
         ));
+    }
+
+    #[test]
+    fn test_json_deserialize_platformconfig_machine_handler() {
+        // Test polling BIOS setup state
+        let serialized = r#"{"state":"hostinit","machine_state":{"state":"pollingbiossetup"}}"#;
+        let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            deserialized,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::PollingBiosSetup,
+            }
+        );
+    }
+
+    #[test]
+    fn test_json_deserialize_lockdown_states() {
+        // Test Lockdown state
+        let serialized = r#"{"state":"hostinit","machine_state":{"state":"waitingforlockdown","lockdown_info":{"state":"setlockdown","mode":"enable"}}}"#;
+        let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            deserialized,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForLockdown {
+                    lockdown_info: LockdownInfo {
+                        state: LockdownState::SetLockdown,
+                        mode: LockdownMode::Enable,
+                    },
+                },
+            }
+        );
     }
 }
 

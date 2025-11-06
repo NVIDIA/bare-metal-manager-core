@@ -112,6 +112,7 @@ pub struct HostHandlerParams {
     pub reachability_params: ReachabilityParams,
     pub machine_validation_config: MachineValidationConfig,
     pub bom_validation: BomValidationConfig,
+    pub skip_polling_checks: bool,
 }
 
 /// Parameters used by the Power config.
@@ -156,6 +157,7 @@ pub struct MachineStateHandlerBuilder {
     power_options_config: PowerOptionConfig,
     enable_secure_boot: bool,
     hgx_bmc_gpu_reboot_delay: chrono::Duration,
+    skip_polling_checks: bool,
 }
 
 impl MachineStateHandlerBuilder {
@@ -191,6 +193,7 @@ impl MachineStateHandlerBuilder {
             },
             enable_secure_boot: false,
             hgx_bmc_gpu_reboot_delay: chrono::Duration::seconds(30),
+            skip_polling_checks: false,
         }
     }
 
@@ -308,6 +311,11 @@ impl MachineStateHandlerBuilder {
         self
     }
 
+    pub fn skip_polling_checks(mut self, skip_polling_checks: bool) -> Self {
+        self.skip_polling_checks = skip_polling_checks;
+        self
+    }
+
     pub fn build(self) -> MachineStateHandler {
         MachineStateHandler::new(self)
     }
@@ -338,12 +346,14 @@ impl MachineStateHandler {
                 reachability_params: builder.reachability_params,
                 machine_validation_config: builder.machine_validation_config,
                 bom_validation: builder.bom_validation,
+                skip_polling_checks: builder.skip_polling_checks,
             }),
             dpu_handler: DpuMachineStateHandler::new(
                 builder.dpu_nic_firmware_initial_update_enabled,
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.reachability_params,
                 builder.enable_secure_boot,
+                builder.skip_polling_checks,
             ),
             instance_handler: InstanceStateHandler::new(
                 builder.attestation_enabled,
@@ -352,6 +362,7 @@ impl MachineStateHandler {
                 host_upgrade.clone(),
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.enable_secure_boot,
+                builder.skip_polling_checks,
             ),
             reachability_params: builder.reachability_params,
             host_upgrade,
@@ -1235,9 +1246,14 @@ impl MachineStateHandler {
                                 Some(*retry_count as u64);
                             // Anytime host discovery is successful, move to next state.
                             db::machine::clear_failure_details(machine_id, txn).await?;
-                            let next_state =
-                                handler_host_lockdown(txn, ctx, mh_snapshot, LockdownMode::Enable)
-                                    .await?;
+                            let next_state = ManagedHostState::HostInit {
+                                machine_state: MachineState::WaitingForLockdown {
+                                    lockdown_info: LockdownInfo {
+                                        state: LockdownState::SetLockdown,
+                                        mode: LockdownMode::Enable,
+                                    },
+                                },
+                            };
                             return Ok(StateHandlerOutcome::transition(next_state));
                         }
 
@@ -2921,6 +2937,7 @@ pub struct DpuMachineStateHandler {
     hardware_models: FirmwareConfig,
     reachability_params: ReachabilityParams,
     enable_secure_boot: bool,
+    skip_polling_checks: bool,
 }
 
 impl DpuMachineStateHandler {
@@ -2929,12 +2946,14 @@ impl DpuMachineStateHandler {
         hardware_models: FirmwareConfig,
         reachability_params: ReachabilityParams,
         enable_secure_boot: bool,
+        skip_polling_checks: bool,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
             hardware_models,
             reachability_params,
             enable_secure_boot,
+            skip_polling_checks,
         }
     }
 
@@ -3351,10 +3370,66 @@ impl DpuMachineStateHandler {
                 // so that they are applied
                 handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
 
-                let next_state = DpuInitState::WaitingForNetworkConfig
+                let next_state = DpuInitState::PollingBiosSetup
                     .next_state(&state.managed_state, dpu_machine_id)?;
 
                 Ok(StateHandlerOutcome::transition(next_state))
+            }
+
+            DpuInitState::PollingBiosSetup => {
+                let next_state = DpuInitState::WaitingForNetworkConfig
+                    .next_state(&state.managed_state, dpu_machine_id)?;
+
+                // Skip polling check if the flag is set (for integration tests)
+                if self.skip_polling_checks {
+                    tracing::info!(
+                        dpu_id = %dpu_snapshot.id,
+                        "Skipping BIOS setup polling check for integration test"
+                    );
+                    return Ok(StateHandlerOutcome::transition(next_state));
+                }
+
+                let dpu_redfish_client = match ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client_from_machine(dpu_snapshot, txn)
+                    .await
+                {
+                    Ok(client) => client,
+                    Err(e) => {
+                        return Err(StateHandlerError::RedfishError {
+                            operation: "create_client_from_machine",
+                            error: RedfishError::GenericError {
+                                error: e.to_string(),
+                            },
+                        });
+                    }
+                };
+
+                match dpu_redfish_client.is_bios_setup(None).await {
+                    Ok(true) => {
+                        tracing::info!(
+                            dpu_id = %dpu_snapshot.id,
+                            "BIOS setup verified successfully for DPU"
+                        );
+                        Ok(StateHandlerOutcome::transition(next_state))
+                    }
+                    Ok(false) => Ok(StateHandlerOutcome::wait(format!(
+                        "Polling BIOS setup status, waiting for settings to be applied on DPU {}",
+                        dpu_snapshot.id
+                    ))),
+                    Err(e) => {
+                        tracing::warn!(
+                            dpu_id = %dpu_snapshot.id,
+                            error = %e,
+                            "Failed to check DPU BIOS setup status, will retry"
+                        );
+                        Ok(StateHandlerOutcome::wait(format!(
+                            "Failed to check BIOS setup status for DPU {}: {}. Will retry.",
+                            dpu_snapshot.id, e
+                        )))
+                    }
+                }
             }
 
             DpuInitState::WaitingForNetworkConfig => {
@@ -3984,25 +4059,6 @@ fn check_host_health_for_alerts(state: &ManagedHostStateSnapshot) -> Result<(), 
     }
 }
 
-async fn handler_host_lockdown(
-    txn: &mut PgConnection,
-    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    state: &mut ManagedHostStateSnapshot,
-    mode: LockdownMode,
-) -> Result<ManagedHostState, StateHandlerError> {
-    // Enable or Disable Bios/BMC lockdown now.
-    lockdown_host(txn, state, ctx.services, mode.clone()).await?;
-
-    Ok(ManagedHostState::HostInit {
-        machine_state: MachineState::WaitingForLockdown {
-            lockdown_info: LockdownInfo {
-                state: LockdownState::TimeWaitForDPUDown,
-                mode,
-            },
-        },
-    })
-}
-
 async fn handle_host_boot_order_setup(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -4023,16 +4079,7 @@ async fn handle_host_boot_order_setup(
 
     let next_state = match set_boot_order_info {
         Some(info) => {
-            match set_host_boot_order(
-                txn,
-                ctx,
-                &host_handler_params.reachability_params,
-                redfish_client.as_ref(),
-                mh_snapshot,
-                info,
-            )
-            .await?
-            {
+            match set_host_boot_order(txn, ctx, redfish_client.as_ref(), mh_snapshot, info).await? {
                 Some(boot_order_info) => ManagedHostState::HostInit {
                     machine_state: MachineState::SetBootOrder {
                         set_boot_order_info: Some(boot_order_info),
@@ -4140,10 +4187,10 @@ async fn handle_host_uefi_setup(
 
                     Ok(StateHandlerOutcome::transition(
                         ManagedHostState::HostInit {
-                            machine_state: MachineState::UefiSetup {
-                                uefi_setup_info: UefiSetupInfo {
-                                    uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
-                                    uefi_setup_state: UefiSetupState::LockdownHost,
+                            machine_state: MachineState::WaitingForLockdown {
+                                lockdown_info: LockdownInfo {
+                                    state: LockdownState::SetLockdown,
+                                    mode: LockdownMode::Enable,
                                 },
                             },
                         },
@@ -4237,21 +4284,25 @@ async fn handle_host_uefi_setup(
 
             Ok(StateHandlerOutcome::transition(
                 ManagedHostState::HostInit {
-                    machine_state: MachineState::UefiSetup {
-                        uefi_setup_info: UefiSetupInfo {
-                            uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
-                            uefi_setup_state: UefiSetupState::LockdownHost,
+                    machine_state: MachineState::WaitingForLockdown {
+                        lockdown_info: LockdownInfo {
+                            state: LockdownState::SetLockdown,
+                            mode: LockdownMode::Enable,
                         },
                     },
                 },
             ))
         }
+        // Deprecated: Kept for backwards compatibility with hosts that may be in this state.
         UefiSetupState::LockdownHost => Ok(StateHandlerOutcome::transition(
-            handler_host_lockdown(txn, ctx, state, LockdownMode::Enable)
-                .await
-                .map_err(|e| {
-                    StateHandlerError::GenericError(eyre!("handle_host_lockdown failed: {}", e))
-                })?,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForLockdown {
+                    lockdown_info: LockdownInfo {
+                        state: LockdownState::SetLockdown,
+                        mode: LockdownMode::Enable,
+                    },
+                },
+            },
         )),
     }
 }
@@ -4341,13 +4392,18 @@ impl StateHandler for HostMachineStateHandler {
                             tracing::info!(
                                 "Lockdown is enabled for {host_machine_id} during machine_setup, disabling now."
                             );
-                            let next_state =
-                                handler_host_lockdown(txn, ctx, mh_snapshot, LockdownMode::Disable)
-                                    .await?;
+                            let next_state = ManagedHostState::HostInit {
+                                machine_state: MachineState::WaitingForLockdown {
+                                    lockdown_info: LockdownInfo {
+                                        state: LockdownState::SetLockdown,
+                                        mode: LockdownMode::Disable,
+                                    },
+                                },
+                            };
                             return Ok(StateHandlerOutcome::transition(next_state));
                         }
                         Ok(_) => {
-                            // Lockdown is disabled, so we can proceed with forge_setup
+                            // Lockdown is disabled, proceed with forge_setup
                         }
                     }
 
@@ -4360,16 +4416,82 @@ impl StateHandler for HostMachineStateHandler {
                     )
                     .await?;
 
+                    // BIOS configuration done, move to polling
                     Ok(StateHandlerOutcome::transition(
                         ManagedHostState::HostInit {
-                            machine_state: MachineState::SetBootOrder {
-                                set_boot_order_info: Some(SetBootOrderInfo {
-                                    set_boot_order_jid: None,
-                                    set_boot_order_state: SetBootOrderState::SetBootOrder,
-                                }),
-                            },
+                            machine_state: MachineState::PollingBiosSetup,
                         },
                     ))
+                }
+                MachineState::PollingBiosSetup => {
+                    let next_state = ManagedHostState::HostInit {
+                        machine_state: MachineState::SetBootOrder {
+                            set_boot_order_info: Some(SetBootOrderInfo {
+                                set_boot_order_jid: None,
+                                set_boot_order_state: SetBootOrderState::SetBootOrder,
+                            }),
+                        },
+                    };
+
+                    // Skip polling check if the flag is set (for integration tests)
+                    if self.host_handler_params.skip_polling_checks {
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            "Skipping BIOS setup polling check for integration test"
+                        );
+                        return Ok(StateHandlerOutcome::transition(next_state));
+                    }
+
+                    let redfish_client = ctx
+                        .services
+                        .redfish_client_pool
+                        .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                        .await?;
+
+                    let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
+                        let primary_interface = mh_snapshot
+                            .host_snapshot
+                            .interfaces
+                            .iter()
+                            .find(|x| x.primary_interface)
+                            .ok_or_else(|| {
+                                StateHandlerError::GenericError(eyre::eyre!(
+                                    "Missing primary interface from host: {}",
+                                    mh_snapshot.host_snapshot.id
+                                ))
+                            })?;
+                        Some(primary_interface.mac_address.to_string())
+                    } else {
+                        None
+                    };
+
+                    match redfish_client
+                        .is_bios_setup(boot_interface_mac.as_deref())
+                        .await
+                    {
+                        Ok(true) => {
+                            tracing::info!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                "BIOS setup verified successfully"
+                            );
+                            Ok(StateHandlerOutcome::transition(next_state))
+                        }
+                        Ok(false) => Ok(StateHandlerOutcome::wait(
+                            "Polling BIOS setup status, waiting for settings to be applied"
+                                .to_string(),
+                        )),
+                        Err(e) => {
+                            tracing::warn!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                error = %e,
+                                "Failed to check BIOS setup status, will retry"
+                            );
+                            Ok(StateHandlerOutcome::wait(format!(
+                                "Failed to check BIOS setup status: {}. Will retry.",
+                                e
+                            )))
+                        }
+                    }
                 }
                 MachineState::SetBootOrder {
                     set_boot_order_info,
@@ -4449,7 +4571,51 @@ impl StateHandler for HostMachineStateHandler {
                     )
                 }
                 MachineState::WaitingForLockdown { lockdown_info } => {
-                    match lockdown_info.state {
+                    match &lockdown_info.state {
+                        LockdownState::SetLockdown => {
+                            tracing::info!(
+                                machine_id = %host_machine_id,
+                                mode = ?lockdown_info.mode,
+                                "Setting lockdown and issuing reboot"
+                            );
+
+                            let redfish_client = ctx
+                                .services
+                                .redfish_client_pool
+                                .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                                .await?;
+
+                            let action = match lockdown_info.mode {
+                                LockdownMode::Enable => libredfish::EnabledDisabled::Enabled,
+                                LockdownMode::Disable => libredfish::EnabledDisabled::Disabled,
+                            };
+
+                            redfish_client.lockdown(action).await.map_err(|e| {
+                                StateHandlerError::RedfishError {
+                                    operation: "lockdown",
+                                    error: e,
+                                }
+                            })?;
+
+                            handler_host_power_control(
+                                mh_snapshot,
+                                ctx.services,
+                                SystemPowerControl::ForceRestart,
+                                txn,
+                            )
+                            .await?;
+
+                            Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::HostInit {
+                                    machine_state: MachineState::WaitingForLockdown {
+                                        lockdown_info: LockdownInfo {
+                                            state: LockdownState::TimeWaitForDPUDown,
+                                            mode: lockdown_info.mode.clone(),
+                                        },
+                                    },
+                                },
+                            ))
+                        }
                         LockdownState::TimeWaitForDPUDown => {
                             // Lets wait for some time before checking if DPU is up or not.
                             // Waiting is needed because DPU takes some time to go down. If we check DPU
@@ -4497,27 +4663,93 @@ impl StateHandler for HostMachineStateHandler {
                                     txn,
                                 )
                                 .await?;
-                                if LockdownMode::Enable == lockdown_info.mode {
-                                    let next_state = ManagedHostState::BomValidating {
-                                        bom_validating_state: BomValidating::MatchingSku(
-                                            BomValidatingContext {
-                                                machine_validation_context: Some(
-                                                    "Discovery".to_string(),
-                                                ),
-                                                ..BomValidatingContext::default()
-                                            },
-                                        ),
-                                    };
-                                    Ok(StateHandlerOutcome::transition(next_state))
-                                } else {
-                                    let next_state = ManagedHostState::HostInit {
-                                        machine_state:
-                                            MachineState::WaitingForPlatformConfiguration,
-                                    };
-                                    Ok(StateHandlerOutcome::transition(next_state))
-                                }
+
+                                let next_state = ManagedHostState::HostInit {
+                                    machine_state: MachineState::WaitingForLockdown {
+                                        lockdown_info: LockdownInfo {
+                                            state: LockdownState::PollingLockdownStatus,
+                                            mode: lockdown_info.mode.clone(),
+                                        },
+                                    },
+                                };
+                                Ok(StateHandlerOutcome::transition(next_state))
                             } else {
                                 Ok(StateHandlerOutcome::wait("Waiting for DPU to report UP. This requires forge-dpu-agent to call the RecordDpuNetworkStatus API".to_string()))
+                            }
+                        }
+                        LockdownState::PollingLockdownStatus => {
+                            let next_state = if LockdownMode::Enable == lockdown_info.mode {
+                                ManagedHostState::BomValidating {
+                                    bom_validating_state: BomValidating::MatchingSku(
+                                        BomValidatingContext {
+                                            machine_validation_context: Some(
+                                                "Discovery".to_string(),
+                                            ),
+                                            ..BomValidatingContext::default()
+                                        },
+                                    ),
+                                }
+                            } else {
+                                ManagedHostState::HostInit {
+                                    machine_state: MachineState::WaitingForPlatformConfiguration,
+                                }
+                            };
+
+                            // Skip polling check if the flag is set (for integration tests)
+                            if self.host_handler_params.skip_polling_checks {
+                                tracing::info!(
+                                    machine_id = %mh_snapshot.host_snapshot.id,
+                                    "Skipping lockdown status polling check for integration test"
+                                );
+                                return Ok(StateHandlerOutcome::transition(next_state));
+                            }
+
+                            let redfish_client = ctx
+                                .services
+                                .redfish_client_pool
+                                .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                                .await?;
+
+                            match redfish_client.lockdown_status().await {
+                                Ok(lockdown_status) => {
+                                    let expected_state = match lockdown_info.mode {
+                                        LockdownMode::Enable => lockdown_status.is_fully_enabled(),
+                                        LockdownMode::Disable => {
+                                            lockdown_status.is_fully_disabled()
+                                        }
+                                    };
+
+                                    if expected_state {
+                                        tracing::info!(
+                                            machine_id = %mh_snapshot.host_snapshot.id,
+                                            mode = ?lockdown_info.mode,
+                                            "Lockdown status verified successfully"
+                                        );
+                                        Ok(StateHandlerOutcome::transition(next_state))
+                                    } else {
+                                        Ok(StateHandlerOutcome::wait(format!(
+                                            "Polling lockdown status, waiting for {:?} to be applied. Current status: {:?}",
+                                            lockdown_info.mode, lockdown_status
+                                        )))
+                                    }
+                                }
+                                Err(libredfish::RedfishError::NotSupported(_)) => {
+                                    tracing::info!(
+                                        "BMC vendor does not support checking lockdown status for {host_machine_id}."
+                                    );
+                                    Ok(StateHandlerOutcome::transition(next_state))
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        machine_id = %mh_snapshot.host_snapshot.id,
+                                        error = %e,
+                                        "Failed to check lockdown status, will retry"
+                                    );
+                                    Ok(StateHandlerOutcome::wait(format!(
+                                        "Failed to check lockdown status: {}. Will retry.",
+                                        e
+                                    )))
+                                }
                             }
                         }
                     }
@@ -4565,6 +4797,7 @@ pub struct InstanceStateHandler {
     host_upgrade: Arc<HostUpgradeState>,
     hardware_models: FirmwareConfig,
     enable_secure_boot: bool,
+    skip_polling_checks: bool,
 }
 
 impl InstanceStateHandler {
@@ -4575,6 +4808,7 @@ impl InstanceStateHandler {
         host_upgrade: Arc<HostUpgradeState>,
         hardware_models: FirmwareConfig,
         enable_secure_boot: bool,
+        skip_polling_checks: bool,
     ) -> Self {
         InstanceStateHandler {
             attestation_enabled,
@@ -4583,6 +4817,7 @@ impl InstanceStateHandler {
             host_upgrade,
             hardware_models,
             enable_secure_boot,
+            skip_polling_checks,
         }
     }
 }
@@ -4958,6 +5193,7 @@ impl StateHandler for InstanceStateHandler {
                         mh_snapshot,
                         &self.reachability_params,
                         platform_config_state.clone(),
+                        self.skip_polling_checks,
                     )
                     .await
                 }
@@ -5923,12 +6159,12 @@ impl HostUpgradeState {
                 tracing::error!("Could not set lockdown for {machine_id}: {e}");
                 return Ok(None);
             }
-            // Reenabling lockdown can require us to wait for the DPU to become available again due to resets, we cannot go directly to Ready.
+            // Reenabling lockdown will poll lockdown status to verify settings are applied.
             match scenario {
                 HostFirmwareScenario::Ready => Ok(Some(ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForLockdown {
                         lockdown_info: LockdownInfo {
-                            state: LockdownState::TimeWaitForDPUDown,
+                            state: LockdownState::PollingLockdownStatus,
                             mode: Enable,
                         },
                     },
@@ -7601,38 +7837,6 @@ async fn restart_dpu(
     Ok(())
 }
 
-/// Issues a lockdown and reboot request command to a host.
-async fn lockdown_host(
-    txn: &mut PgConnection,
-    state: &ManagedHostStateSnapshot,
-    services: &StateHandlerServices,
-    mode: LockdownMode,
-) -> Result<(), StateHandlerError> {
-    let host_snapshot = &state.host_snapshot;
-    let redfish_client = services
-        .redfish_client_pool
-        .create_client_from_machine(host_snapshot, txn)
-        .await?;
-    let action = match mode {
-        LockdownMode::Enable => libredfish::EnabledDisabled::Enabled,
-        LockdownMode::Disable => libredfish::EnabledDisabled::Disabled,
-    };
-
-    redfish_client
-        .lockdown(action)
-        .await
-        .map_err(|e| StateHandlerError::RedfishError {
-            operation: "lockdown",
-            error: e,
-        })?;
-
-    tracing::info!("Forcing restart");
-
-    handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn).await?;
-
-    Ok(())
-}
-
 /// find_explored_refreshed_endpoint will locate the explored endpoint for the given state.
 /// It will return an error for not finding any endpoint, and Ok(None) when we're still waiting
 /// on explorer to have a chance to run again.
@@ -7778,6 +7982,7 @@ async fn handle_instance_host_platform_config(
     mh_snapshot: &mut ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     platform_config_state: HostPlatformConfigurationState,
+    skip_polling_checks: bool,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let redfish_client = ctx
         .services
@@ -7884,13 +8089,82 @@ async fn handle_instance_host_platform_config(
             )
             .await?;
 
-            InstanceState::HostPlatformConfiguration {
+            // BIOS configuration done, move to polling
+            return Ok(StateHandlerOutcome::transition(
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::PollingBiosSetup,
+                    },
+                },
+            ));
+        }
+        HostPlatformConfigurationState::PollingBiosSetup => {
+            let next_instance_state = InstanceState::HostPlatformConfiguration {
                 platform_config_state: HostPlatformConfigurationState::SetBootOrder {
                     set_boot_order_info: SetBootOrderInfo {
                         set_boot_order_jid: None,
                         set_boot_order_state: SetBootOrderState::SetBootOrder,
                     },
                 },
+            };
+
+            // Skip polling check if the flag is set (only for integration tests!)
+            if skip_polling_checks {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Skipping BIOS setup polling check for integration test"
+                );
+                return Ok(StateHandlerOutcome::transition(
+                    ManagedHostState::Assigned {
+                        instance_state: next_instance_state,
+                    },
+                ));
+            }
+
+            let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
+                let primary_interface = mh_snapshot
+                    .host_snapshot
+                    .interfaces
+                    .iter()
+                    .find(|x| x.primary_interface)
+                    .ok_or_else(|| {
+                        StateHandlerError::GenericError(eyre::eyre!(
+                            "Missing primary interface from host: {}",
+                            mh_snapshot.host_snapshot.id
+                        ))
+                    })?;
+                Some(primary_interface.mac_address.to_string())
+            } else {
+                None
+            };
+
+            match redfish_client
+                .is_bios_setup(boot_interface_mac.as_deref())
+                .await
+            {
+                Ok(true) => {
+                    tracing::info!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "BIOS setup verified successfully"
+                    );
+                    next_instance_state
+                }
+                Ok(false) => {
+                    return Ok(StateHandlerOutcome::wait(
+                        "Polling BIOS setup status, waiting for settings to be applied".to_string(),
+                    ));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        error = %e,
+                        "Failed to check BIOS setup status, will retry"
+                    );
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "Failed to check BIOS setup status: {}. Will retry.",
+                        e
+                    )));
+                }
             }
         }
         HostPlatformConfigurationState::SetBootOrder {
@@ -7899,7 +8173,6 @@ async fn handle_instance_host_platform_config(
             match set_host_boot_order(
                 txn,
                 ctx,
-                reachability_params,
                 redfish_client.as_ref(),
                 mh_snapshot,
                 set_boot_order_info,
@@ -8019,7 +8292,6 @@ async fn configure_host_bios(
 async fn set_host_boot_order(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    reachability_params: &ReachabilityParams,
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
     set_boot_order_info: SetBootOrderInfo,
@@ -8030,16 +8302,6 @@ async fn set_host_boot_order(
                 // MachineState::SetBootOrder is a NO-OP for the Zero-DPU case
                 Ok(None)
             } else {
-                if wait(
-                    &mh_snapshot.host_snapshot.state.version.timestamp(),
-                    reachability_params.dpu_wait_time,
-                ) {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Forced wait of {} for Host BIOS changes to take effect",
-                        reachability_params.dpu_wait_time,
-                    )));
-                }
-
                 let primary_interface = mh_snapshot
                     .host_snapshot
                     .interfaces

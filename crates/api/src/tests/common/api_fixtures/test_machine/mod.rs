@@ -130,4 +130,12 @@ impl TestMachine {
             .await
             .unwrap();
     }
+
+    pub async fn bmc_ip(&self, txn: &mut Txn<'_>) -> String {
+        let machine = self.db_machine(txn).await;
+        machine
+            .bmc_addr()
+            .map(|addr| addr.ip().to_string())
+            .unwrap_or_else(|| "".to_string())
+    }
 }

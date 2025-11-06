@@ -671,10 +671,21 @@ pub mod test_support {
         secure_boot: AtomicBool,
     }
 
-    #[derive(Debug, Default)]
+    #[derive(Debug)]
     struct RedfishSimHostState {
         power: PowerState,
+        lockdown: libredfish::EnabledDisabled,
         actions: Vec<RedfishSimAction>,
+    }
+
+    impl Default for RedfishSimHostState {
+        fn default() -> Self {
+            Self {
+                power: PowerState::default(),
+                lockdown: libredfish::EnabledDisabled::Disabled,
+                actions: Vec::default(),
+            }
+        }
     }
 
     #[derive(Default)]
@@ -732,9 +743,11 @@ pub mod test_support {
     }
 
     impl RedfishSimActions {
-        pub fn one_host(&self) -> &[RedfishSimAction] {
-            assert_eq!(self.host_actions.len(), 1);
-            self.host_actions.values().next().unwrap()
+        pub fn all_hosts(&self) -> Vec<RedfishSimAction> {
+            self.host_actions
+                .values()
+                .flat_map(|actions| actions.iter().cloned())
+                .collect()
         }
     }
 
@@ -809,13 +822,17 @@ pub mod test_support {
             })
         }
 
-        async fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
+        async fn lockdown(&self, target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
+            let mut state = self.state.lock().unwrap();
+            let host_state = state.hosts.get_mut(&self._host).unwrap();
+            host_state.lockdown = target;
             Ok(())
         }
 
         async fn lockdown_status(&self) -> Result<libredfish::Status, RedfishError> {
+            let state = self.state.lock().unwrap();
             Ok(libredfish::Status::build_fake(
-                libredfish::EnabledDisabled::Disabled,
+                state.hosts[&self._host].lockdown,
             ))
         }
 
@@ -1617,6 +1634,7 @@ pub mod test_support {
                     .entry(host.to_string())
                     .or_insert(RedfishSimHostState {
                         power: PowerState::On,
+                        lockdown: EnabledDisabled::Disabled,
                         actions: Default::default(),
                     });
                 if self.state.clone().lock().unwrap().fw_version.is_empty() {
@@ -1637,13 +1655,13 @@ pub mod test_support {
 
         async fn create_client_for_ingested_host(
             &self,
-            _ip: IpAddr,
-            _port: Option<u16>,
+            ip: IpAddr,
+            port: Option<u16>,
             _txn: &mut PgConnection,
         ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
             self.create_client(
-                "fake",
-                Some(443),
+                &ip.to_string(),
+                port,
                 RedfishAuth::Key(CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::BmcRoot {
                         bmc_mac_address: MacAddress::default(),

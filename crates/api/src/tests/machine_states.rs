@@ -29,9 +29,8 @@ use measured_boot::report::MeasurementReport;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::{
-    DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownInfo, LockdownMode,
-    LockdownState, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
-    ValidationState,
+    DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownMode, MachineState,
+    MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
@@ -81,7 +80,12 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
             r#"{state="hostnotready",substate="waitingfordiscovery"}"#,
             1,
         ),
-        (r#"{state="hostnotready",substate="waitingforlockdown"}"#, 2),
+        (r#"{state="hostnotready",substate="pollingbiossetup"}"#, 1),
+        (
+            r#"{state="hostnotready",substate="waitingforplatformconfiguration"}"#,
+            1,
+        ),
+        (r#"{state="hostnotready",substate="waitingforlockdown"}"#, 4),
         (r#"{state="ready",substate=""}"#, 3),
     ];
 
@@ -118,9 +122,14 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
             "{state=\"hostnotready\",substate=\"waitingfordiscovery\"}",
             1,
         ),
+        ("{state=\"hostnotready\",substate=\"pollingbiossetup\"}", 1),
+        (
+            "{state=\"hostnotready\",substate=\"waitingforplatformconfiguration\"}",
+            1,
+        ),
         (
             "{state=\"hostnotready\",substate=\"waitingforlockdown\"}",
-            2,
+            4,
         ),
     ];
 
@@ -296,6 +305,10 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool).await;
     let mh = create_managed_host(&env).await;
+
+    // Ensure DPU network status is recorded
+    mh.network_configured(&env).await;
+
     let mut txn = env.db_txn().await;
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
@@ -510,12 +523,29 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
+    // First wait for the lockdown state machine to reach WaitForDPUUp
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.id,
+        5,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForLockdown {
+                lockdown_info: model::machine::LockdownInfo {
+                    state: model::machine::LockdownState::WaitForDPUUp,
+                    mode: model::machine::LockdownMode::Enable,
+                },
+            },
+        },
+    )
+    .await;
+
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
     mh.network_configured(&env).await;
+
+    // Now wait for validation state after DPU is up
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.id,
-        3,
+        10,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -534,7 +564,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.id,
-        3,
+        4,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
@@ -1065,7 +1095,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     // ---------------
     // now, since the CA has not been added, we should be stuck in the failed state
-    for _ in 0..7 {
+    for _ in 0..11 {
         env.run_machine_state_controller_iteration().await;
     }
 
@@ -1175,7 +1205,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     // after the measurements are in, we should proceed to ready state
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        4,
+        5,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
         },
@@ -1199,11 +1229,11 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        2,
+        10,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForLockdown {
-                lockdown_info: LockdownInfo {
-                    state: LockdownState::WaitForDPUUp,
+                lockdown_info: model::machine::LockdownInfo {
+                    state: model::machine::LockdownState::WaitForDPUUp,
                     mode: LockdownMode::Enable,
                 },
             },
@@ -1217,7 +1247,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        3,
+        10,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -1236,7 +1266,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        3,
+        4,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
