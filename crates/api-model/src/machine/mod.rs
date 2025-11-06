@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -376,8 +377,54 @@ impl ManagedHostStateSnapshot {
         true
     }
 
-    /// Sort the dpu snapshots in a way that primary DPU remains at first position.
+    /// Sort the DPUs by pci address and then make sure the primary DPU is the first.
     pub fn sort_dpu_snapshots(&mut self) -> Result<(), ManagedHostStateSnapshotError> {
+        let mac_pci_map: HashMap<MacAddress, Option<&str>> = self
+            .host_snapshot
+            .hardware_info
+            .iter()
+            .flat_map(|hi| &hi.network_interfaces)
+            .map(|interface| {
+                (
+                    interface.mac_address,
+                    interface
+                        .pci_properties
+                        .as_ref()
+                        .and_then(|pci| pci.slot.as_deref()),
+                )
+            })
+            .collect();
+
+        self.dpu_snapshots.sort_by(|lhs, rhs| {
+            let Some(lhs_dpu_mac) = lhs
+                .hardware_info
+                .as_ref()
+                .and_then(|hi| hi.dpu_info.as_ref())
+                .and_then(|di| di.factory_mac_address.parse().ok())
+            else {
+                return Ordering::Greater;
+            };
+
+            let Some(rhs_dpu_mac) = rhs
+                .hardware_info
+                .as_ref()
+                .and_then(|hi| hi.dpu_info.as_ref())
+                .and_then(|di| di.factory_mac_address.parse().ok())
+            else {
+                return Ordering::Less;
+            };
+
+            let lhs_pci_slot = mac_pci_map.get(&lhs_dpu_mac).unwrap_or(&None);
+            let rhs_pci_slot = mac_pci_map.get(&rhs_dpu_mac).unwrap_or(&None);
+
+            match (lhs_pci_slot, rhs_pci_slot) {
+                (Some(lhs_pci_slot), Some(rhs_pci_slot)) => lhs_pci_slot.cmp(rhs_pci_slot),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            }
+        });
+
         let primary_dpu_id = self
             .host_snapshot
             .interfaces
