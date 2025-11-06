@@ -2639,32 +2639,37 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
     // First, try to grab a MAC from explored Redfish data,
     // which lives under ComputerSystem. Otherwise, just fall
     // back to the legacy method via get_sys_image_version.
-    //
-    // This returns the source MAC for the given source type,
-    // as well as String for the "source type", making it a
-    // little easier to debug in the event something fails.
-    let (source_mac, source_type) = if let Some(system_mac) = dpu_ep
+
+    // Try the explored computer-system base_mac first
+    if let Some(system_mac) = dpu_ep
         .report
         .systems
         .first()
         .and_then(|s| s.base_mac.clone())
     {
-        (system_mac, "explored/computer-system".to_string())
-    } else {
-        (
-            get_base_mac_from_sys_image_version(get_sys_image_version(
-                dpu_ep.report.service.as_ref(),
-            )?)?,
-            "legacy/service".to_string(),
-        )
-    };
+        // Once we've got some unsanitized MAC value,
+        // sanitize it (stripping out garbage like spaces, double quotes, etc),
+        // and return a sanitized MA:CA:DD:RE:SS as a MacAddress.
+        match sanitized_mac(&system_mac) {
+            Ok(mac) => return Ok(mac),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to sanitize ComputerSystem base_mac, falling back to legacy method: {} (source_mac: {})",
+                    e,
+                    system_mac
+                );
+            }
+        }
+    }
 
-    // Once we've got a some unsanitized MAC value, from whatever source,
-    // sanitize it (stripping out garbage like spaces, double quotes, etc),
-    // and return a sanitized MA:CA:DD:RE:SS as a MacAddress.
-    sanitized_mac(&source_mac).map_err(|e| {
+    let legacy_mac = get_base_mac_from_sys_image_version(get_sys_image_version(
+        dpu_ep.report.service.as_ref(),
+    )?)?;
+
+    // Sanitize the legacy MAC and return it
+    sanitized_mac(&legacy_mac).map_err(|e| {
         format!(
-            "Failed to build sanitized MAC from {source_type} MAC: {e} (source_mac: {source_mac})"
+            "Failed to build sanitized MAC from legacy/service MAC: {e} (source_mac: {legacy_mac})"
         )
     })
 }
