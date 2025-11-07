@@ -12,6 +12,8 @@ The Release Instance API now supports **issue reporting** and **automated repair
 
 ## Quick Start
 
+REST API:
+
 ### Basic Release (No Issues)
 ```bash
 curl -X POST /api/v1/instances/release \
@@ -62,9 +64,8 @@ The system uses two complementary health overrides to manage the repair workflow
 - **Enabled**: Machine gets both overrides (`tenant-reported-issue` + `repair-request`) - repair plugins can act on the machine
 - **Disabled**: Machine gets only `tenant-reported-issue` override (manual intervention needed)
 
-### Forge - Breakfix Integration Workflow 
+### Carbide - Breakfix Integration Workflow
 
-![Forge Lazarus Breakfix Workflow](Forge-Lazarus-Breakfix-Workflow.png)
 #### Workflow Overview
 
 The breakfix integration follows this automated repair cycle:
@@ -81,7 +82,7 @@ The breakfix integration follows this automated repair cycle:
 1. **Normal Operation**: Machine serves tenant workloads without issues
 2. **Issue Reported**: Tenant releases instance with problem details via API
 3. **Quarantined**: Machine marked with health overrides, preventing new allocations
-4. **Repair Process**: 
+4. **Repair Process**:
    - If auto-repair enabled: Repair plugins automatically attempt fixes
    - If auto-repair disabled: Manual intervention required by operations team
 5. **Resolution**: Machine either gets repaired successfully or escalated for further action

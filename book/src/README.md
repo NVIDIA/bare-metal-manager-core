@@ -1,4 +1,4 @@
-# NVIDIA Forge
+# NVIDIA Carbide
 
 NVIDIA Forge exists to manage the end-to-end lifecycle of bare-metal machines consisting of NVIDIA certified hardware and software, as well as managing allocation of this bare metal to external organizations and customers.  It is designed to support network virtualization, and enable fungible capacity in a purely automatic way.   NVIDIA Forge is intended to be multi-datacenter, multi-tenant, with a single cloud-control plane for management of sites and hardware within those sites.  NVIDIA Forge is a "Bare Metal as-a-service" offering built on NVIDIA Hardware and Software.
 

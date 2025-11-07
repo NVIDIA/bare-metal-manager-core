@@ -237,7 +237,7 @@ DI_Init --> DI_W4PP_OFF : Restart all DPUs
 DI_W4PP_OFF --> DI_W4PP_OFF : DPUs not synchronized (wait more)
 DI_W4PP_OFF --> DI_W4PP_ON : All DPUs synchronized, power OFF host
 DI_W4PP_ON --> DI_WaitingForPlatformConfiguration : Power ON host
-DI_WaitingForPlatformConfiguration --> DI_WaitingForNetworkConfig : Call forge-setup/uefi-setup and restart DPU\nRestart DPU to apply BIOS settings
+DI_WaitingForPlatformConfiguration --> DI_WaitingForNetworkConfig : Call machine-setup/uefi-setup and restart DPU\nRestart DPU to apply BIOS settings
 DI_WaitingForNetworkConfig --> DI_WaitingForNetworkConfig : DPU network not ready (wait more, potentially reboot DPU)
 DI_WaitingForNetworkConfig --> HostInit_HI_EnableIpmiOverLan
 @enduml
@@ -319,7 +319,7 @@ Failed --> HI_WFL_TimeWaitForDPUDown
 Failed --> HI_M_WaitingForMeasurements
 
 HI_EnableIpmiOverLan --> HI_WaitingForPlatformConfiguration : Enable IPMI over LAN access
-HI_WaitingForPlatformConfiguration --> HI_SBO_SetBootOrder : Call forge setup/Restart Host
+HI_WaitingForPlatformConfiguration --> HI_SBO_SetBootOrder : Call machine setup/Restart Host
 
 HI_SBO_SetBootOrder --> hi_sbo_if_zero_dpu
 hi_sbo_if_zero_dpu --> HI_SBO_WaitForSetBootOrderJobCompletion : No DPU
@@ -467,7 +467,7 @@ state "BomValidating/bv_validation_enabled" as BomValidating_bv_validation_enabl
 state Ready
 
 '' Own states
-state "RebootHost" as V_RebootHost 
+state "RebootHost" as V_RebootHost
 state "MachineValidating" as V_MachineValidating
 
 '' Outgoing states
@@ -743,10 +743,10 @@ state dr_bfb_check_support <<choice>>
 state BmcFirmwareUpgrade
 state "BmcFirmwareUpgrade" as DR_BmcFirmwareUpgrade
 state "InstallDpuOs" as DR_InstallDpuOs {
-  state "InstallingBFB" as DR_IDO_InstallingBFB 
-  state "WaitForInstallComplete" as DR_IDO_WaitForInstallComplete 
-  state "Completed" as DR_IDO_Completed 
-  state "InstallationError" as DR_IDO_InstallationError 
+  state "InstallingBFB" as DR_IDO_InstallingBFB
+  state "WaitForInstallComplete" as DR_IDO_WaitForInstallComplete
+  state "Completed" as DR_IDO_Completed
+  state "InstallationError" as DR_IDO_InstallationError
 }
 state "FirmwareUpgrade" as DR_FirmwareUpgrade
 state "WaitingForNetworkInstall" as DR_WaitingForNetworkInstall

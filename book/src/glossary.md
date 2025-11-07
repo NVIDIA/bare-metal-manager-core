@@ -16,12 +16,10 @@ https://cloudinit.readthedocs.io/en/latest/
 
 Cloud-init is the industry standard multi-distribution method for cross-platform cloud instance initialization. During boot, cloud-init identifies the cloud it is running on and initializes the system accordingly. Cloud instances will automatically be provisioned during first boot with networking, storage, ssh keys, packages and various other system aspects already configured.
 
-Cloud-init is used by Forge to install components that are required on top of the base OS image:
-- DPUs use a Forge provided cloud-init file to install Forge related components
+Cloud-init is used by Carbide to install components that are required on top of the base OS image:
+- DPUs use a Carbide provided cloud-init file to install Carbide related components
   on top of the base DPU image that is provided by the NVIDIA networking group.
 - Customers/tenants can provide a custom cloud-init will do the work of automating installation for customer OS's
-
-### CRD (Kubernetes Custom Resources)
 
 ### DHCP (Dynamic Host Configuration Protocol)
 
@@ -29,7 +27,7 @@ https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol
 
 The Dynamic Host Configuration Protocol (DHCP) is a network management protocol used on Internet Protocol (IP) networks for automatically assigning IP addresses and other communication parameters to devices connected to the network using a client–server architecture.
 
-Within Forge, both DPUs and Hosts are using DHCP request to resolve their IP. The Forge infrastructure responds to those DHCP requests, an provides a response based on known information about the host.
+Within Carbide, both DPUs and Hosts are using DHCP request to resolve their IP. The Carbide infrastructure responds to those DHCP requests, an provides a response based on known information about the host.
 
 ### DNS (Domain Name System)
 
@@ -41,12 +39,6 @@ of services based on a domain name.
 ### DPU
 
 DPU - A [Mellanox BlueField 2 (or 3)](https://www.nvidia.com/en-us/networking/products/data-processing-unit/) network interface card. It has an ARM processor and runs a modified Ubuntu. It has its own **BMC**. It can act as a network card and as a disk controller.
-
-An list with available SKUs for the card can be found [here](https://nvidia-my.sharepoint.com/:x:/r/personal/tal_nvidia_com/_layouts/15/doc2.aspx?sourcedoc=%7B456F2AFC-D58F-4FF9-892D-07615C4D39D7%7D&file=BlueField%20OPN%20Scheme.xlsx)
-
-### FleetCommand
-
-See https://nvidia.sharepoint.com/sites/EPG/SitePages/Fleet-Command.aspx
 
 ### HBN (Host Based Networking)
 
@@ -76,9 +68,9 @@ iPXE is an open-source implementation of the [Preboot eXecution Environment (PXE
 
 ### Leaf
 
-In the Forge project, we call "Leaf" the device that the host (which we to make available for tenants) plugs into.
+In the Carbide project, we call "Leaf" the device that the host (which we to make available for tenants) plugs into.
 This is typically a DPU that will make the overlay network available
-to the tenant. In future iterations of the Forge project, the Leaf might be a specialized switch instead of a DPU.
+to the tenant. In future iterations of the Carbide project, the Leaf might be a specialized switch instead of a DPU.
 
 ### Machine
 
@@ -96,8 +88,8 @@ A Kubernetes thing
 
 In computing, the Preboot eXecution Environment, PXE specification describes a standardized client–server environment that boots a software assembly, retrieved from a network, on PXE-enabled clients.
 
-In Forge, DPUs and Hosts are using PXE after startup to install both the
-Forge specific software images as well as the images that the tenant
+In Carbide, DPUs and Hosts are using PXE after startup to install both the
+Carbide specific software images as well as the images that the tenant
 wants to run.
 
 ### VLAN

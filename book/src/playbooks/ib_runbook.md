@@ -2,21 +2,21 @@
 
 ## Motivation
 
-[Infiniband](https://en.wikipedia.org/wiki/InfiniBand) is a new feature in Forge since the latest release. This runbook describes the steps on infrastructure setup and configuration of Forge to enable Infiniband in a site.
+[Infiniband](https://en.wikipedia.org/wiki/InfiniBand) This runbook describes the steps on infrastructure setup and configuration of enable Infiniband.
 
 ## Unified Fabric Manager (UFM)
 
 ### Installation
 
-UFM 6.19.0 and up is recommended for configuring UFM in more secury mode.
-
-For the Forge product environment, the HA mode is required.
+UFM 6.19.0 and up is recommended for configuring UFM in more security mode.
 
 * Follow the [prerequisites](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest/installing+ufm+server+software) guidance to install all required packages, including the HA part.
 * Follow the [HA installation](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest/installing+ufm+on+bare+metal+server+-+high+availability+mode) guidance to install the UFM in HA mode.
 
 ### Configuration
-After UFM is deployed, the following security features must be enabled on UFM and OpenSM to enable secure Infiniband support in a multi-tenant Forge site.
+
+After UFM is deployed, the following security features must be enabled on UFM and OpenSM to enable secure Infiniband support in a multi-tenant site.
+
 The management key (M_Key) is used across the subnet, and the administration key (SA_key) is for services.
 
 Perform the following steps on the host that provides the NVIDIA Unified Fabric Manager (UFM) server.
@@ -208,11 +208,11 @@ And then check UFM HA cluster status:
 root:/# ufm_ha_cluster status
 ```
 
-## Forge
+## Carbide
 
 ### Installation
 
-No additional steps are required to enable Infiniband in Forge.
+No additional steps are required to enable Infiniband in Carbide.
 
 ### Configuration
 
@@ -238,7 +238,7 @@ root:/# curl -s -k -XGET -u admin:45364nnfgd https://172.16.110.44:443/ufmRest/a
 ]
 ```
 
-Create the credential for UFM client in Forge by forge-admin-cli as follows:
+Create the credential for UFM client in Carbide by forge-admin-cli as follows:
 
 ```
 root:/# forge-admin-cli credential add-ufm --url=https://<address:port> --token=<access_token>
@@ -453,7 +453,7 @@ curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  h
 
 #### carbide-api-site-config
 
-Update the configmap `forge-system/carbide-api-site-config-files` to configure
+Update the configmap `carbide-api-site-config-files` to configure
 the UFM address/endpoint and the pkey range that is used per fabric as follows.
 
 Infiniband typically expresses `Pkeys` in hex; the available range is `“0x0 ~ 0x7FFF”`.
@@ -464,19 +464,19 @@ endpoints = ["https://10.217.161.194:443/"]
 pkeys = [{ start = "256", end = "2303" }]
 ```
 
-Note that currently Forge only supports only a single IB fabric. Therefore only
+Note that currently Carbide only supports only a single IB fabric. Therefore only
 the fabric ID `default` will be accepted here.
 
-**NOTES**: The Forge will generate pkey for all partitions that are managed by Forge; please make sure the range does not conflict with existing pkey in UFM if any.
+**NOTES**: The Carbide will generate pkey for all partitions that are managed by Carbide; please make sure the range does not conflict with existing pkey in UFM if any.
 
-Update the configmap `forge-system/carbide-api-site-config-files` to enable Infiniband features as follows:
+Update the configmap `carbide-api-site-config-files` to enable Infiniband features as follows:
 
 ```toml
 [ib_config]
 enabled = true
 ```
 
-To enable the monitor of IB, update the the configmap `forge-system/carbide-api-site-config-files`  as follows:
+To enable the monitor of IB, update the the configmap `carbide-api-site-config-files`  as follows:
 
 ```toml
 [ib_fabric_monitor]
@@ -542,9 +542,9 @@ Ports          :
     1070fd0300bd588c    -                   pf        1070fd0300bd588c    7         Active    1070fd0300bd588c_1  localhost ibp202s0f0
 ```
 
-### How to check the auth token and UFM IP in Forge?
+### How to check the auth token and UFM IP in Carbide?
 
-After configuring UFM credentials in Forge, using the following commands to check whether the token was updated in Forge accordingly.
+After configuring UFM credentials in Carbide, using the following commands to check whether the token was updated in Vault accordingly.
 
 ```
 kubectl exec -it vault-0 -n vault -- /bin/sh
@@ -582,7 +582,7 @@ SRE can also check the InfiniBand fabric monitor metrics emitted by Carbide to d
 
 ### How to check the log of UFM?
 
-Check the log of rest api from Forge/carbide:
+Check the log of rest api:
 
 ```
 root:/# tail $UFM_HOME/files/log/rest_api.log
@@ -612,12 +612,6 @@ root:/# tail $UFM_HOME/files/log/ufm.log
 2024-03-28 07:46:59.190 ufm   INIT    Prometheus Client: Start request for session 0
 2024-03-28 07:46:59.191 ufm   INIT    Prometheus Client: Total Processing time = 0.001762
 2024-03-28 07:46:59.192 ufm   INIT    handled device stats. (6) 25497.29 devices/sec. (10) 42495.48 ports/sec.
-```
-
-### How to check the log of IB in Forge?
-
-```
-root:/# kubectl logs carbide-api-77f948cd46-974kr -n forge-system -c carbide-api | grep -iF partition
 ```
 
 ### How to update pool.pkey?

@@ -68,19 +68,3 @@ Output should look like this assuming it is connecting to a 25G port
 	Speed: 25000Mb/s
 	Auto-negotiation: on
 ```
-
-#### Connecting to the Host/X86 OOB Interface
-The OOB of the servers in this lab is HP ilo.  In order to connect to the OOB you will
-first need to setup ssh port forwarding, as there is no direct access from your workstation
-
-`ssh -D 1080 <login>@<some jump host>`
-
-After that connection is established, open a browser (I am using firefox)
-![firefox_proxy](static/firefox_proxy.gif "Firefox")
-
-
-Once you have configured firefox to use the ssh connection as a SOCKS proxy, you can
-put use the ip address of the host OOB. e.g. `https://<host OOB IP>` and which point
-the HP iLO interface should show up and you can login with the credentials shown above.
-
-

@@ -206,7 +206,7 @@ One time build:
  RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
 ```
  - `docker build -t myarm myarm` # give it a cooler name
- - `docker run -it -v /home/graham/src/carbide:/carbide myarm /bin/bash`
+ - `docker run -it -v /home/user/src/carbide:/carbide myarm /bin/bash`
 
 Daily usage:
  - `docker start <container id or name>`

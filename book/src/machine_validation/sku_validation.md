@@ -1,12 +1,11 @@
 # SKU Validation
 
-As of April 2025, Forge (Carbide) supports checking and validating the hardware in a machine,
-known as "SKU Validation."
+As of April 2025, Carbide supports checking and validating the hardware in a machine, known as "SKU Validation."
 
 ## Summary
 
-A SKU is a collection of definitions managed by Forge that define a specific configuration of machine.
-Each host managed by Forge must have a SKU associated with it before it can be made available for use by a tenant
+A SKU is a collection of definitions managed by Carbide that define a specific configuration of machine.
+Each host managed by Carbide must have a SKU associated with it before it can be made available for use by a tenant
 (TODO: did we actually implement this?).
 
 Hardware configurations or SKUs are generated from existing machines by an admin and uploaded to forge via the CLI.
@@ -26,13 +25,13 @@ SKU Validation can be enabled or disabled for a site, however, when it is enable
 apply to a given machine. For a machine to have SKU Validation enforced, it must have an assigned SKU,
 however, note that SKUs will automatically be assigned to machines that match a given SKU, if they are in ready state.
 
-If a machine has an assigned SKU, and Forge (when the machine changes state and is not assigned) detects that
+If a machine has an assigned SKU, and Carbide (when the machine changes state and is not assigned) detects that
 the hardware configuration does not match, the machine will have a SKU mismatch health alert placed on it, and it
 will be prevented from having allocations assigned to it.
 
 Generally, SKUs must be manually added a site to configure its SKUs. At some point, we may do this during the site
 bring-up process. However, for now, SKUs are only manually added to sites. It is also expected that, generally,
-the SKU assignments for individual machines are added automatically by Forge as those machines are reconfigured.
+the SKU assignments for individual machines are added automatically by Carbide as those machines are reconfigured.
 
 ### BOM Validation States
 Verifying a SKU against a machine goes through several steps to aquire updated machine inventory and perform the validation.  Depending on the inventory of the machine and the SKU configuration, the state machine needs to handle several situations.  The bom validation process is broken down into the following sub-states:
@@ -57,17 +56,17 @@ enabled = false
 ignore_unassigned_machines = false
 allow_allocation_on_validation_failure = false
 find_match_interval = "300s"
-auto_generate_missing_sku = false,  
+auto_generate_missing_sku = false,
 auto_generate_missing_sku_interval = "300s"
 ```
 
  - `enabled` - Enables or disables the entire bom validation process.  When disabled, machines
-  will skip bom validation and proceed as if all validation has passed. 
+  will skip bom validation and proceed as if all validation has passed.
  - `allow_allocation_on_validation_failure` - When true, machines are allowed to stay in Ready state and remain allocatable
   even when SKU validation fails. Validation still occurs but only logs are recorded - health reports are cleared instead
-  of recording validation failures. Machines do not transition into failed states (SkuVerificationFailed, SkuMissing, 
-  WaitingForSkuAssignment). When false (default), standard mode applies where validation failures are recorded in health 
-  reports and machines enter failed states and become unallocatable until fixed. This is useful for avoiding machine 
+  of recording validation failures. Machines do not transition into failed states (SkuVerificationFailed, SkuMissing,
+  WaitingForSkuAssignment). When false (default), standard mode applies where validation failures are recorded in health
+  reports and machines enter failed states and become unallocatable until fixed. This is useful for avoiding machine
   allocation blockage due to SKU validation issues when you only need logging without health report alerts.
  - `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
   it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
@@ -78,7 +77,7 @@ auto_generate_missing_sku_interval = "300s"
  - `auto_generate_missing_sku` - enable or disable generation of a SKU from a machine.  This only applies to a machine with a SKU
   specified in the expected machine configuration and in the `SkuMissing` state.
  - `auto_generate_missing_sku_interval` - determines how often Carbide will attempt to generate a sku from the machine data.
-  
+
 ### Hardware Validated
 
 Machines will (currently) have the following hardware validated against the SKU:
@@ -148,7 +147,7 @@ forge-admin-cli sku show [<sku id>]
 ID                  : PowerEdge R750 1xGPU 1xIB
 Schema Version      : 4
 Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
-Device Type         :     
+Device Type         :
 Model               : PowerEdge R750
 Architecture        : x86_64
 Created At          : 2025-02-27T13:57:19.435162Z
@@ -166,7 +165,7 @@ GPUs:
           +========+==============+==================+=======+
           | NVIDIA | 81559 MiB    | NVIDIA H100 PCIe | 1     |
           +--------+--------------+------------------+-------+
-Memory (128 GiB): 
+Memory (128 GiB):
           +------+----------+-------+
           | Type | Capacity | Count |
           +======+==========+=======+
@@ -191,7 +190,7 @@ forge-admin-cli sku generate <machineid>
 ID                  : PowerEdge R750 1xGPU 1xIB
 Schema Version      : 4
 Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
-Device Type         :     
+Device Type         :
 Model               : PowerEdge R750
 Architecture        : x86_64
 Created At          : 2025-02-27T13:57:19.435162Z
@@ -208,7 +207,7 @@ GPUs:
           | Vendor | Total Memory | Model | Count |
           +========+==============+=======+=======+
           +--------+--------------+-------+-------+
-Memory (256 GiB): 
+Memory (256 GiB):
           +------+----------+-------+
           | Type | Capacity | Count |
           +======+==========+=======+
@@ -299,7 +298,7 @@ forge-admin-cli sku show XE9680
 ID:              XE9680
 Schema Version:  2
 Description:     PowerEdge XE9680; 2xCPU; 8xGPU; 2 TiB
-Device Type:     
+Device Type:
 Model:           PowerEdge XE9680
 Architecture:    x86_64
 Created At:      2025-04-18T16:30:58.748991Z
@@ -315,7 +314,7 @@ GPUs:
           +========+==============+=======================+=======+
           | NVIDIA | 81559 MiB    | NVIDIA H100 80GB HBM3 | 8     |
           +--------+--------------+-----------------------+-------+
-Memory (2 TiB): 
+Memory (2 TiB):
           +------+----------+-------+
           | Type | Capacity | Count |
           +======+==========+=======+
@@ -343,7 +342,7 @@ forge-admin-cli sku generate fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5
 ID                  : PowerEdge R750 1xGPU 1xIB
 Schema Version      : 4
 Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
-Device Type         :     
+Device Type         :
 Model               : PowerEdge R750
 Architecture        : x86_64
 Created At          : 2025-02-27T13:57:19.435162Z
@@ -361,7 +360,7 @@ GPUs:
           +========+==============+=======================+=======+
           | NVIDIA | 81559 MiB    | NVIDIA H100 80GB HBM3 | 8     |
           +--------+--------------+-----------------------+-------+
-Memory (2 TiB): 
+Memory (2 TiB):
           +------+----------+-------+
           | Type | Capacity | Count |
           +======+==========+=======+
@@ -391,7 +390,7 @@ forge-admin-cli -f json -o /tmp/xe9680.json sku g fm100hti7olik00gefc9qlma831n6q
 
 Then replace the old SKU
 ```sh
-forge-admin-clisku replace /tmp/xe9680.json 
+forge-admin-clisku replace /tmp/xe9680.json
 +--------+---------------------------------------+------------------+-----------------------------+
 | ID     | Description                           | Model            | Created                     |
 +========+=======================================+==================+=============================+
@@ -406,7 +405,7 @@ forge-admin-cli sku show XE9680
 ID                  : XE9680
 Schema Version      : 4
 Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
-Device Type         :     
+Device Type         :
 Model               : PowerEdge R750
 Architecture        : x86_64
 Created At          : 2025-02-27T13:57:19.435162Z
@@ -424,7 +423,7 @@ GPUs:
           +========+==============+=======================+=======+
           | NVIDIA | 81559 MiB    | NVIDIA H100 80GB HBM3 | 8     |
           +--------+--------------+-----------------------+-------+
-Memory (2 TiB): 
+Memory (2 TiB):
           +------+----------+-------+
           | Type | Capacity | Count |
           +======+==========+=======+

@@ -1,5 +1,5 @@
-User Guide for Machine Validation in Forge
-=====================================
+User Guide for Machine Validation
+=================================
 
 
 Table of Contents
@@ -78,7 +78,7 @@ SRE, Provider admin, Developer
 
 #### Feature gate {#feature-gate}
 
-Forge site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature controlled using these settings.  The feature gate enables or disables machine validation features at deploy time.
+Carbide site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature controlled using these settings.  The feature gate enables or disables machine validation features at deploy time.
 
 #### Test case management {#test-case-management}
 
@@ -198,7 +198,7 @@ If the machine is not allocated for long and the machine remains in ready state,
 
 ### Initial setup {#initial-setup}
 
-Forge has a Machine validation feature gate. By default the feature is disabled.
+Carbide has a Machine validation feature gate. By default the feature is disabled.
 
 To enable add below section in api site config toml [forged/](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs/)<name>/site/site-controller/files/carbide-api/carbide-api-site-config.toml
 

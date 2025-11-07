@@ -1,4 +1,5 @@
-# Re-creating issuer/CA in local dev
+# Re-creating issuer/CA for local development
+
 carbide-api uses Vault to generate certificates that it then vends to clients, such as e.g. Scout. Here are the instructions on how to set up this process from scratch - https://developer.hashicorp.com/vault/tutorials/secrets-management/pki-engine?variants=vault-deploy%3Aselfhosted
 
 In short, when a site or local dev environment is deployed, an issuer/CA is created inside vault. In addition, a role is created. That role points to the issuer. All client certificates are requested/created against that role. Unfortunately, in local dev environment, the TTL for that issuer/CA is set to only 3 months. Also, it is a rule that client certificates cannot outlive issuer's CA certificate, so as soon as CA certificate has less time remaining than client certificate, that we are trying to create (which typically is 30 days), we'll start getting an error like this: `cannot satisfy request, as TTL would result in notAfter 2024-... that is beyond the expiration of the CA certificate at 2024-...` The solution is to create a new issuer and make sure that the role points to it instead.
