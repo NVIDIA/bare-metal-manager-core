@@ -228,4 +228,11 @@ impl EndpointExplorer for MockEndpointExplorer {
     ) -> Result<Option<bool>, EndpointExplorationError> {
         Ok(None)
     }
+
+    async fn probe_redfish_endpoint(
+        &self,
+        _address: SocketAddr,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
 }

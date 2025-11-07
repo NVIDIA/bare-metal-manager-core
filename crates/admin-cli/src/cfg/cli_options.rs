@@ -2427,6 +2427,11 @@ pub struct CopyBfbToDpuRshimArgs {
     pub mac: Option<MacAddress>,
     #[clap(flatten)]
     pub timeout_config: Option<TimeoutConfig>,
+    #[clap(
+        long,
+        help = "Host BMC IP address. Provide this if you want to power cycle the host before SCPing."
+    )]
+    pub host_bmc_ip: Option<String>,
 }
 
 #[derive(Parser, Debug)]

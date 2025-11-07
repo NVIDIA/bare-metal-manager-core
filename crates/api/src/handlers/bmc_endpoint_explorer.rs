@@ -288,6 +288,40 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
+    // Create a separate address for Redfish probing (port 443) since bmc_addr uses SSH port 22
+    let redfish_addr = SocketAddr::new(bmc_addr.ip(), 443);
+
+    // Periodically probe the redfish endpoint until the DPU BMC is reachable (if host was powercycled)
+    const MAX_PROBE_ATTEMPTS: u32 = 20; // 20 attempts
+    const PROBE_INTERVAL: Duration = Duration::from_secs(30); // 30 seconds between attempts
+
+    for attempt in 0..MAX_PROBE_ATTEMPTS {
+        match api
+            .endpoint_explorer
+            .probe_redfish_endpoint(redfish_addr)
+            .await
+        {
+            Ok(_) => {
+                tracing::info!("DPU BMC is online, continuing...");
+                break;
+            }
+            Err(_) if attempt == MAX_PROBE_ATTEMPTS - 1 => {
+                return Err(tonic::Status::deadline_exceeded(
+                    "DPU BMC did not come back online after host powercycle",
+                ));
+            }
+            Err(_) => {
+                tracing::info!(
+                    "DPU BMC not yet reachable (attempt {}/{}), retrying in {} seconds...",
+                    attempt + 1,
+                    MAX_PROBE_ATTEMPTS,
+                    PROBE_INTERVAL.as_secs()
+                );
+                tokio::time::sleep(PROBE_INTERVAL).await;
+            }
+        }
+    }
+
     let ssh_timeout_config: Option<SshConfig> = ssh_config.map(|config| SshConfig {
         tcp_connection_timeout: Duration::from_secs(
             config
