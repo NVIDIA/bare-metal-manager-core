@@ -56,7 +56,7 @@ impl CredentialClient {
     ) -> Result<Credentials, EndpointExplorationError> {
         match self
             .credential_provider
-            .get_credentials(credential_key.clone())
+            .get_credentials(&credential_key)
             .await
         {
             Ok(Some(credentials)) => {
@@ -83,12 +83,12 @@ impl CredentialClient {
 
     async fn set_credentials(
         &self,
-        credential_key: CredentialKey,
-        credentials: Credentials,
+        credential_key: &CredentialKey,
+        credentials: &Credentials,
     ) -> Result<(), EndpointExplorationError> {
         match self
             .credential_provider
-            .set_credentials(credential_key.clone(), credentials)
+            .set_credentials(credential_key, credentials)
             .await
         {
             Ok(()) => Ok(()),
@@ -175,10 +175,10 @@ impl CredentialClient {
     pub async fn set_bmc_root_credentials(
         &self,
         bmc_mac_address: MacAddress,
-        credentials: Credentials,
+        credentials: &Credentials,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_root_credential_key = get_bmc_root_credential_key(bmc_mac_address);
-        self.set_credentials(bmc_root_credential_key, credentials)
+        self.set_credentials(&bmc_root_credential_key, credentials)
             .await
     }
 }

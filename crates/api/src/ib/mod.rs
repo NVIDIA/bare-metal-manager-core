@@ -145,7 +145,7 @@ impl IBFabricManager for IBFabricManagerImpl {
 
                 let credentials = self
                     .credential_provider
-                    .get_credentials(CredentialKey::UfmAuth {
+                    .get_credentials(&CredentialKey::UfmAuth {
                         fabric: fabric_name.to_string(),
                     })
                     .await

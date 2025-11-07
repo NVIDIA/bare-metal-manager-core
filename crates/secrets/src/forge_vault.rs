@@ -306,13 +306,13 @@ trait VaultTask<T> {
     ) -> Result<T, SecretsError>;
 }
 
-struct GetCredentialsHelper {
-    pub kv_mount_location: String,
-    pub key: CredentialKey,
+struct GetCredentialsHelper<'key, 'location> {
+    pub kv_mount_location: &'location String,
+    pub key: &'key CredentialKey,
 }
 
 #[async_trait]
-impl VaultTask<Option<Credentials>> for GetCredentialsHelper {
+impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
     async fn execute(
         &self,
         vault_client: Arc<VaultClient>,
@@ -325,7 +325,7 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper {
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::read(
             vault_client.deref(),
-            &self.kv_mount_location,
+            self.kv_mount_location,
             self.key.to_key_str().as_str(),
         )
         .await;
@@ -398,14 +398,14 @@ fn record_vault_client_error(
     status_code
 }
 
-struct SetCredentialsHelper {
-    pub kv_mount_location: String,
-    pub key: CredentialKey,
-    pub credentials: Credentials,
+struct SetCredentialsHelper<'key, 'location> {
+    pub kv_mount_location: &'location String,
+    pub key: &'key CredentialKey,
+    pub credentials: &'key Credentials,
 }
 
 #[async_trait]
-impl VaultTask<()> for SetCredentialsHelper {
+impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
     async fn execute(
         &self,
         vault_client: Arc<VaultClient>,
@@ -418,7 +418,7 @@ impl VaultTask<()> for SetCredentialsHelper {
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::set(
             vault_client.deref(),
-            &self.kv_mount_location,
+            self.kv_mount_location,
             self.key.to_key_str().as_str(),
             &self.credentials,
         )
@@ -442,13 +442,13 @@ impl VaultTask<()> for SetCredentialsHelper {
     }
 }
 
-struct DeleteCredentialsHelper {
-    pub kv_mount_location: String,
-    pub key: CredentialKey,
+struct DeleteCredentialsHelper<'key, 'location> {
+    pub kv_mount_location: &'location String,
+    pub key: &'key CredentialKey,
 }
 
 #[async_trait]
-impl VaultTask<()> for DeleteCredentialsHelper {
+impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
     async fn execute(
         &self,
         vault_client: Arc<VaultClient>,
@@ -461,7 +461,7 @@ impl VaultTask<()> for DeleteCredentialsHelper {
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::delete_metadata(
             vault_client.deref(),
-            &self.kv_mount_location,
+            self.kv_mount_location,
             self.key.to_key_str().as_str(),
         )
         .await;
@@ -489,9 +489,9 @@ impl VaultTask<()> for DeleteCredentialsHelper {
 impl CredentialProvider for ForgeVaultClient {
     async fn get_credentials(
         &self,
-        key: CredentialKey,
+        key: &CredentialKey,
     ) -> Result<Option<Credentials>, SecretsError> {
-        let kv_mount_location = self.vault_client_config.kv_mount_location.clone();
+        let kv_mount_location = &self.vault_client_config.kv_mount_location;
         let get_credentials_helper = GetCredentialsHelper {
             kv_mount_location,
             key,
@@ -504,10 +504,10 @@ impl CredentialProvider for ForgeVaultClient {
 
     async fn set_credentials(
         &self,
-        key: CredentialKey,
-        credentials: Credentials,
+        key: &CredentialKey,
+        credentials: &Credentials,
     ) -> Result<(), SecretsError> {
-        let kv_mount_location = self.vault_client_config.kv_mount_location.clone();
+        let kv_mount_location = &self.vault_client_config.kv_mount_location;
         let set_credentials_helper = SetCredentialsHelper {
             key,
             credentials,
@@ -519,8 +519,8 @@ impl CredentialProvider for ForgeVaultClient {
             .await
     }
 
-    async fn delete_credentials(&self, key: CredentialKey) -> Result<(), SecretsError> {
-        let kv_mount_location = self.vault_client_config.kv_mount_location.clone();
+    async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
+        let kv_mount_location = &self.vault_client_config.kv_mount_location;
         let delete_credentials_helper = DeleteCredentialsHelper {
             key,
             kv_mount_location,

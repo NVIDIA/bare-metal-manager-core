@@ -55,8 +55,8 @@ impl UpdateCredentials {
 
             credential_provider
                 .set_credentials(
-                    key,
-                    forge_secrets::credentials::Credentials::UsernamePassword {
+                    &key,
+                    &forge_secrets::credentials::Credentials::UsernamePassword {
                         username: credential.user.clone(),
                         password: credential.password.clone(),
                     },

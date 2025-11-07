@@ -92,7 +92,7 @@ impl BmcEndpointExplorer {
     pub async fn set_bmc_root_credentials(
         &self,
         bmc_mac_address: MacAddress,
-        credentials: Credentials,
+        credentials: &Credentials,
     ) -> Result<(), EndpointExplorationError> {
         self.credential_client
             .set_bmc_root_credentials(bmc_mac_address, credentials)
@@ -216,7 +216,7 @@ impl BmcEndpointExplorer {
         );
 
         // set the BMC root credentials in vault for this machine
-        self.set_bmc_root_credentials(bmc_mac_address, bmc_credentials.clone())
+        self.set_bmc_root_credentials(bmc_mac_address, &bmc_credentials)
             .await?;
 
         self.generate_exploration_report(bmc_ip_address, bmc_credentials)
@@ -710,7 +710,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         let bmc_mac_address = interface.mac_address;
         let credential_key = get_bmc_root_credential_key(bmc_mac_address);
         self.ipmi_tool
-            .bmc_cold_reset(bmc_ip_address.ip(), credential_key)
+            .bmc_cold_reset(bmc_ip_address.ip(), &credential_key)
             .await
             .map_err(|err| EndpointExplorationError::Other {
                 details: format!("ipmi_tool failed against {bmc_ip_address} failed: {err}"),

@@ -290,10 +290,10 @@ pub async fn populate_initial_vault_secrets(
         forge_vault::create_vault_client(vault_config_overrides, metrics.meter.clone()).await?;
     vault_client
         .set_credentials(
-            CredentialKey::BmcCredentials {
+            &CredentialKey::BmcCredentials {
                 credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
             },
-            Credentials::UsernamePassword {
+            &Credentials::UsernamePassword {
                 username: "root".to_string(),
                 password: "password".to_string(),
             },
@@ -301,10 +301,10 @@ pub async fn populate_initial_vault_secrets(
         .await?;
     vault_client
         .set_credentials(
-            CredentialKey::DpuUefi {
+            &CredentialKey::DpuUefi {
                 credential_type: forge_secrets::credentials::CredentialType::SiteDefault,
             },
-            Credentials::UsernamePassword {
+            &Credentials::UsernamePassword {
                 username: "root".to_string(),
                 password: "password".to_string(),
             },
@@ -312,10 +312,10 @@ pub async fn populate_initial_vault_secrets(
         .await?;
     vault_client
         .set_credentials(
-            CredentialKey::HostUefi {
+            &CredentialKey::HostUefi {
                 credential_type: forge_secrets::credentials::CredentialType::SiteDefault,
             },
-            Credentials::UsernamePassword {
+            &Credentials::UsernamePassword {
                 username: "root".to_string(),
                 password: "password".to_string(),
             },

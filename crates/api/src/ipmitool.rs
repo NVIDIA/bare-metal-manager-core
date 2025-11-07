@@ -24,7 +24,7 @@ pub trait IPMITool: Send + Sync + 'static {
     async fn bmc_cold_reset(
         &self,
         bmc_ip: IpAddr,
-        credential_key: CredentialKey,
+        credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report>;
 
     async fn restart(
@@ -32,7 +32,7 @@ pub trait IPMITool: Send + Sync + 'static {
         machine_id: &MachineId,
         bmc_ip: IpAddr,
         legacy_boot: bool,
-        credential_key: CredentialKey,
+        credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report>;
 }
 
@@ -59,11 +59,11 @@ impl IPMITool for IPMIToolImpl {
     async fn bmc_cold_reset(
         &self,
         bmc_ip: IpAddr,
-        credential_key: CredentialKey,
+        credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials = self
             .credential_provider
-            .get_credentials(credential_key.clone())
+            .get_credentials(credential_key)
             .await
             .map_err(|e| {
                 eyre!("Secret engine getting credentilas for key {credential_key:#?}: {e:#?}")
@@ -84,7 +84,7 @@ impl IPMITool for IPMIToolImpl {
         machine_id: &MachineId,
         bmc_ip: IpAddr,
         legacy_boot: bool,
-        credential_key: CredentialKey,
+        credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials: Credentials = self
             .credential_provider
@@ -176,7 +176,7 @@ impl IPMITool for IPMIToolTestImpl {
         _machine_id: &MachineId,
         _bmc_ip: IpAddr,
         _legacy_boot: bool,
-        _credential_key: CredentialKey,
+        _credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         Ok(())
     }
@@ -184,7 +184,7 @@ impl IPMITool for IPMIToolTestImpl {
     async fn bmc_cold_reset(
         &self,
         _bmc_ip: IpAddr,
-        _credential_key: CredentialKey,
+        _credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         Ok(())
     }

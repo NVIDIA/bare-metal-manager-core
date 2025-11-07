@@ -1062,10 +1062,10 @@ pub async fn new_mock_host(
         env.api
             .credential_provider
             .set_credentials(
-                CredentialKey::BmcCredentials {
+                &CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                 },
-                Credentials::UsernamePassword {
+                &Credentials::UsernamePassword {
                     username: "root".to_string(),
                     password: "notforprod".to_string(),
                 },

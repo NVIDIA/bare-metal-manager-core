@@ -68,7 +68,7 @@ pub(crate) async fn get(
 
     let credentials = api
         .credential_provider
-        .get_credentials(CredentialKey::BmcCredentials {
+        .get_credentials(&CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
         })
         .await
