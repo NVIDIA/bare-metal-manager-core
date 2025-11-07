@@ -101,20 +101,17 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
         .to_std()
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
     match state {
-        DpaInterfaceControllerState::Provisioning => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::PROVISIONING),
-            time_in_state,
-        ),
+        DpaInterfaceControllerState::Provisioning => {
+            StateSla::with_sla(slas::PROVISIONING, time_in_state)
+        }
         DpaInterfaceControllerState::Ready => StateSla::no_sla(),
-        DpaInterfaceControllerState::WaitingForSetVNI => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::WAITINGFORSETVNI),
-            time_in_state,
-        ),
+        DpaInterfaceControllerState::WaitingForSetVNI => {
+            StateSla::with_sla(slas::WAITINGFORSETVNI, time_in_state)
+        }
         DpaInterfaceControllerState::Assigned => StateSla::no_sla(),
-        DpaInterfaceControllerState::WaitingForResetVNI => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::WAITINGFORRESETVNI),
-            time_in_state,
-        ),
+        DpaInterfaceControllerState::WaitingForResetVNI => {
+            StateSla::with_sla(slas::WAITINGFORRESETVNI, time_in_state)
+        }
     }
 }
 

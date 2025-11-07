@@ -92,10 +92,9 @@ pub fn state_sla(state: &NetworkSegmentControllerState, state_version: &ConfigVe
         .to_std()
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
     match state {
-        NetworkSegmentControllerState::Provisioning => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::PROVISIONING),
-            time_in_state,
-        ),
+        NetworkSegmentControllerState::Provisioning => {
+            StateSla::with_sla(slas::PROVISIONING, time_in_state)
+        }
         NetworkSegmentControllerState::Ready => StateSla::no_sla(),
         NetworkSegmentControllerState::Deleting {
             deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps { .. },
@@ -106,10 +105,7 @@ pub fn state_sla(state: &NetworkSegmentControllerState, state_version: &ConfigVe
         }
         NetworkSegmentControllerState::Deleting {
             deletion_state: NetworkSegmentDeletionState::DBDelete,
-        } => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::DELETING_DBDELETE),
-            time_in_state,
-        ),
+        } => StateSla::with_sla(slas::DELETING_DBDELETE, time_in_state),
     }
 }
 

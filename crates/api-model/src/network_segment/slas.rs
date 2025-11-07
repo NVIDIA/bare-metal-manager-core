@@ -11,8 +11,8 @@
  */
 
 //! SLAs for Network Segment State Machine Controller
-//! These SLAs are in seconds
 
-pub const PROVISIONING: u64 = 15 * 60;
+use std::time::Duration;
 
-pub const DELETING_DBDELETE: u64 = 15 * 60;
+pub const PROVISIONING: Duration = Duration::from_secs(15 * 60);
+pub const DELETING_DBDELETE: Duration = Duration::from_secs(15 * 60);
