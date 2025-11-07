@@ -62,13 +62,9 @@ The carbide control plane consists of a number of services which work together t
   Currently, managed hosts are configured to always boot from PXE. If a local
   bootable device is found, the host will boot it. Hosts can also be configured to always boot from a
   particular image for stateless configurations.
-- [carbide-hw-health (Hardware health)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/health): This service pulls
-  hardware health and configuration information emitted from a Prometheus /metrics endpoint on port 9009 and
-  reports that state information back to Carbide.
-- [ssh-console](https://gitlab-master.nvidia.com/nvmetal/ssh-console): The SSH console provides a virtual serial
-  console logging and access over ssh. The virtual serial console allows viewing the console of remote
-  machines deployed in customer sites. The ssh-console also logs the output of each hosts serial console into
-  the logging system (Loki), from where it can be queried using Grafana and logcli.
+- [carbide-hw-health (Hardware health)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/health): This service scrapes all host and DPU BMCs known by Carbide for system health information. It extracts measurements like fan speeds, temperaturs and leak indicators. These measurements are emitted as prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the carbide-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within carbide-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare metal instances for tenants.
+- [ssh-console](https://gitlab-master.nvidia.com/nvmetal/ssh-console): The SSH console provides bare metal-tenants and site-administrators virtual serial console access to hosts managed by Carbide. The ssh-console service also sends the output of each hosts serial console to
+  the logging system (Loki), from where it can be queried using Grafana and logcli. In order to provide this functionality, the ssh-console service *continuously* connects to all host BMCs. The ssh-console service only forwards logs to users ("bare metal tenants") if they connect to the service and get authenticated. 
 - [carbide-dns (DNS)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/dns): Domain name service (DNS) functionality
   is handled by two services. The `carbide-dns` service handles DNS queries from the site controller and managed nodes
   and is authoritative for all `<name>.<site>.frg.nvidia.com` records.
