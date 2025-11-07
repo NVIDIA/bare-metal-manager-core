@@ -326,7 +326,7 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
         let vault_response = kv2::read(
             vault_client.deref(),
             self.kv_mount_location,
-            self.key.to_key_str().as_str(),
+            self.key.to_key_str().as_ref(),
         )
         .await;
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
@@ -349,14 +349,14 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
                         // Not found errors are common and of no concern
                         tracing::debug!(
                             "Credentials not found for key ({})",
-                            self.key.to_key_str().as_str()
+                            self.key.to_key_str().as_ref()
                         );
                         Ok(None)
                     }
                     _ => {
                         tracing::error!(
                             "Error getting credentials ({}). Error: {ce:?}",
-                            self.key.to_key_str().as_str()
+                            self.key.to_key_str().as_ref()
                         );
                         Err(SecretsError::GenericError(ce.into()))
                     }
@@ -419,7 +419,7 @@ impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
         let vault_response = kv2::set(
             vault_client.deref(),
             self.kv_mount_location,
-            self.key.to_key_str().as_str(),
+            self.key.to_key_str().as_ref(),
             &self.credentials,
         )
         .await;
@@ -462,7 +462,7 @@ impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
         let vault_response = kv2::delete_metadata(
             vault_client.deref(),
             self.kv_mount_location,
-            self.key.to_key_str().as_str(),
+            self.key.to_key_str().as_ref(),
         )
         .await;
 

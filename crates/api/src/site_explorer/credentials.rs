@@ -72,7 +72,7 @@ impl CredentialClient {
                 Ok(credentials)
             }
             Ok(None) => Err(EndpointExplorationError::MissingCredentials {
-                key: credential_key.to_key_str(),
+                key: credential_key.to_key_str().to_string(),
                 cause: "No credentials exists".to_string(),
             }),
             Err(err) => Err(EndpointExplorationError::SecretsEngineError {
@@ -93,7 +93,7 @@ impl CredentialClient {
         {
             Ok(()) => Ok(()),
             Err(err) => Err(EndpointExplorationError::SetCredentials {
-                key: credential_key.to_key_str(),
+                key: credential_key.to_key_str().to_string(),
                 cause: err.to_string(),
             }),
         }
@@ -113,9 +113,9 @@ impl CredentialClient {
         let credential_key = SITEWIDE_BMC_ROOT_CREDENTIAL_KEY;
         if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
             let credential_key_str = credential_key.to_key_str();
-            metrics.increment_credential_missing(credential_key_str);
+            metrics.increment_credential_missing(&credential_key_str);
             return Err(EndpointExplorationError::MissingCredentials {
-                key: credential_key.to_key_str(),
+                key: credential_key.to_key_str().to_string(),
                 cause: e.to_string(),
             });
         }
@@ -126,9 +126,9 @@ impl CredentialClient {
         };
         if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
             let credential_key_str = credential_key.to_key_str();
-            metrics.increment_credential_missing(credential_key_str);
+            metrics.increment_credential_missing(&credential_key_str);
             return Err(EndpointExplorationError::MissingCredentials {
-                key: credential_key.to_key_str(),
+                key: credential_key.to_key_str().to_string(),
                 cause: e.to_string(),
             });
         }
@@ -139,9 +139,9 @@ impl CredentialClient {
         };
         if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
             let credential_key_str = credential_key.to_key_str();
-            metrics.increment_credential_missing(credential_key_str);
+            metrics.increment_credential_missing(&credential_key_str);
             return Err(EndpointExplorationError::MissingCredentials {
-                key: credential_key.to_key_str(),
+                key: credential_key.to_key_str().to_string(),
                 cause: e.to_string(),
             });
         }

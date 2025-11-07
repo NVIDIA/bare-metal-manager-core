@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use core::fmt;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
@@ -152,7 +153,7 @@ impl CredentialProvider for TestCredentialProvider {
     ) -> Result<Option<Credentials>, SecretsError> {
         let credentials = self.credentials.lock().await;
         let cred = credentials
-            .get(key.to_key_str().as_str())
+            .get(key.to_key_str().as_ref())
             .or(self.fallback_credentials.as_ref());
 
         Ok(cred.cloned())
@@ -164,14 +165,14 @@ impl CredentialProvider for TestCredentialProvider {
         credentials: &Credentials,
     ) -> Result<(), SecretsError> {
         let mut data = self.credentials.lock().await;
-        let _ = data.insert(key.to_key_str(), credentials.clone());
+        let _ = data.insert(key.to_key_str().to_string(), credentials.clone());
 
         Ok(())
     }
 
     async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
         let mut data = self.credentials.lock().await;
-        let _ = data.remove(&key.to_key_str());
+        let _ = data.remove(key.to_key_str().as_ref());
 
         Ok(())
     }
@@ -208,24 +209,24 @@ pub enum CredentialKey {
 }
 
 impl CredentialKey {
-    pub fn to_key_str(&self) -> String {
+    pub fn to_key_str(&self) -> Cow<'_, str> {
         match self {
             CredentialKey::DpuSsh { machine_id } => {
-                format!("machines/{machine_id}/dpu-ssh")
+                Cow::from(format!("machines/{machine_id}/dpu-ssh"))
             }
             CredentialKey::DpuHbn { machine_id } => {
-                format!("machines/{machine_id}/dpu-hbn")
+                Cow::from(format!("machines/{machine_id}/dpu-hbn"))
             }
             CredentialKey::DpuRedfish { credential_type } => match credential_type {
                 CredentialType::DpuHardwareDefault => {
-                    "machines/all_dpus/factory_default/bmc-metadata-items/root".to_string()
+                    Cow::from("machines/all_dpus/factory_default/bmc-metadata-items/root")
                 }
                 CredentialType::SiteDefault => {
-                    "machines/all_dpus/site_default/bmc-metadata-items/root".to_string()
+                    Cow::from("machines/all_dpus/site_default/bmc-metadata-items/root")
                 }
-                CredentialType::Machine { machine_id } => {
-                    format!("machines/{machine_id}/bmc-metadata-items/administrator")
-                }
+                CredentialType::Machine { machine_id } => Cow::from(format!(
+                    "machines/{machine_id}/bmc-metadata-items/administrator"
+                )),
                 CredentialType::HostHardwareDefault { .. } => {
                     unreachable!(
                         "DpuRedfish / HostHardwareDefault is an invalid credential combination"
@@ -233,14 +234,14 @@ impl CredentialKey {
                 }
             },
             CredentialKey::HostRedfish { credential_type } => match credential_type {
-                CredentialType::HostHardwareDefault { vendor } => {
-                    format!("machines/all_hosts/factory_default/bmc-metadata-items/{vendor}")
-                }
+                CredentialType::HostHardwareDefault { vendor } => Cow::from(format!(
+                    "machines/all_hosts/factory_default/bmc-metadata-items/{vendor}"
+                )),
                 CredentialType::SiteDefault => {
-                    "machines/all_hosts/site_default/bmc-metadata-items/root".to_string()
+                    Cow::from("machines/all_hosts/site_default/bmc-metadata-items/root")
                 }
                 CredentialType::Machine { machine_id } => {
-                    format!("machines/{machine_id}/host-redfish-admin")
+                    Cow::from(format!("machines/{machine_id}/host-redfish-admin"))
                 }
                 CredentialType::DpuHardwareDefault => {
                     unreachable!(
@@ -248,15 +249,13 @@ impl CredentialKey {
                     );
                 }
             },
-            CredentialKey::UfmAuth { fabric } => {
-                format!("ufm/{fabric}/auth")
-            }
+            CredentialKey::UfmAuth { fabric } => Cow::from(format!("ufm/{fabric}/auth")),
             CredentialKey::DpuUefi { credential_type } => match credential_type {
                 CredentialType::DpuHardwareDefault => {
-                    "machines/all_dpus/factory_default/uefi-metadata-items/auth".to_string()
+                    Cow::from("machines/all_dpus/factory_default/uefi-metadata-items/auth")
                 }
                 CredentialType::SiteDefault => {
-                    "machines/all_dpus/site_default/uefi-metadata-items/auth".to_string()
+                    Cow::from("machines/all_dpus/site_default/uefi-metadata-items/auth")
                 }
                 _ => {
                     panic!("Not supported credential key");
@@ -264,26 +263,21 @@ impl CredentialKey {
             },
             CredentialKey::HostUefi { credential_type } => match credential_type {
                 CredentialType::SiteDefault => {
-                    "machines/all_hosts/site_default/uefi-metadata-items/auth".to_string()
+                    Cow::from("machines/all_hosts/site_default/uefi-metadata-items/auth")
                 }
                 _ => {
                     panic!("Not supported credential key");
                 }
             },
-            CredentialKey::BmcCredentials { credential_type } => {
-                let base: String = "machines/bmc".to_string();
-                match credential_type {
-                    BmcCredentialType::SiteWideRoot => {
-                        format!("{base}/site/root")
-                    }
-                    BmcCredentialType::BmcRoot { bmc_mac_address } => {
-                        format!("{base}/{bmc_mac_address}/root")
-                    }
-                    BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => {
-                        format!("{base}/{bmc_mac_address}/forge-admin-account")
-                    }
+            CredentialKey::BmcCredentials { credential_type } => match credential_type {
+                BmcCredentialType::SiteWideRoot => Cow::from("machines/bmc/site/root"),
+                BmcCredentialType::BmcRoot { bmc_mac_address } => {
+                    Cow::from(format!("machines/bmc/{bmc_mac_address}/root"))
                 }
-            }
+                BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => Cow::from(format!(
+                    "machines/bmc/{bmc_mac_address}/forge-admin-account"
+                )),
+            },
         }
     }
 }
