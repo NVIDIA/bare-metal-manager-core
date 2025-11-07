@@ -12,7 +12,7 @@ name = "forge_dpu_agent_utils"
 [dependencies]
 eyre = { workspace = true }
 rand = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tonic = { workspace = true }

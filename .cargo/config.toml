@@ -2,7 +2,14 @@
 #
 # -A dependency-on-unit-never-type-fallback is here due to `!` falling back to `()`  is being removed and looks like sqlx hasn't updated yet
 [target.'cfg(all())']
-rustflags = ["-D", "warnings", "--cfg", "tokio_unstable", "-A", "dependency-on-unit-never-type-fallback"]
+rustflags = [
+  "-D",
+  "warnings",
+  "--cfg",
+  "tokio_unstable",
+  "-A",
+  "dependency-on-unit-never-type-fallback",
+]
 
 [registries]
 sw-ngc-forge-cargo-local = { index = "https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git" }

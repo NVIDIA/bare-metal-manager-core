@@ -10,7 +10,7 @@ authors.workspace = true
 name = "forge_tls"
 
 [dependencies]
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 tonic = { workspace = true }
 thiserror = { workspace = true }

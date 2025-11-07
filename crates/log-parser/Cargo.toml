@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 regex = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 chrono = { workspace = true }
 anyhow = { workspace = true }
 getopts = { workspace = true }

@@ -7,7 +7,12 @@ authors.workspace = true
 
 [dependencies]
 hyper = { workspace = true }
-hyper-util = { features = ["server", "http1", "http2", "tokio"] , workspace = true }
+hyper-util = { features = [
+  "server",
+  "http1",
+  "http2",
+  "tokio",
+], workspace = true }
 tokio = { workspace = true }
 http-body-util = { workspace = true }
 bytes = { workspace = true }
@@ -16,9 +21,13 @@ prometheus = { workspace = true }
 tracing = { workspace = true }
 eyre = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
+opentelemetry-semantic-conventions = { workspace = true, features = [
+  "semconv_experimental",
+] }
 opentelemetry-prometheus = { workspace = true }
-opentelemetry_sdk = { workspace = true, features = ["spec_unstable_metrics_views"] }
+opentelemetry_sdk = { workspace = true, features = [
+  "spec_unstable_metrics_views",
+] }
 
 [lints]
 workspace = true

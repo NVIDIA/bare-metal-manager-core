@@ -10,10 +10,10 @@ name = "mlxconfig_runner"
 [dependencies]
 carbide-mlxconfig-device = { path = "../mlxconfig-device" }
 carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-uuid = { features = ["v4"] , workspace = true }
+uuid = { features = ["v4"], workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }

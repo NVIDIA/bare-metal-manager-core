@@ -22,7 +22,10 @@ thiserror = { workspace = true }
 tonic = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
 typed-builder = { workspace = true }
 
 # [local-dependencies]
@@ -37,9 +40,9 @@ ctor = { workspace = true }
 tempfile = { workspace = true }
 prost = { workspace = true }
 reqwest = { default-features = false, features = [
-    "rustls-tls",
-    "stream",
-] , workspace = true }
+  "rustls-tls",
+  "stream",
+], workspace = true }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 

@@ -8,13 +8,13 @@ description = "A Rust crate for managing Mellanox NIC hardware access locks."
 name = "mlxconfig_lockdown"
 
 [dependencies]
-clap = { features = ["derive"] , workspace = true }
-serde = { features = ["derive"] , workspace = true }
+clap = { features = ["derive"], workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
-chrono = { features = ["serde"] , workspace = true }
+chrono = { features = ["serde"], workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

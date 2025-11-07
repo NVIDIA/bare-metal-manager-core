@@ -19,8 +19,8 @@ path = "src/main.rs"
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 config-version = { path = "../config-version" }
 carbide-certs = { path = "../certs" }
-carbide-dpu-agent-utils = { path = "../dpu-agent-utils"}
-carbide-dpu-remediation = { path = "../dpu-remediation"}
+carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
+carbide-dpu-remediation = { path = "../dpu-remediation" }
 carbide-host-support = { path = "../host-support" }
 carbide-http-connector = { path = "../http-connector" }
 carbide-network = { path = "../network" }
@@ -37,7 +37,7 @@ carbide-utils = { path = "../utils" }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
-axum-server = { features = ["tls-rustls"] , workspace = true }
+axum-server = { features = ["tls-rustls"], workspace = true }
 blake3 = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -64,19 +64,23 @@ libc = { workspace = true }
 mac_address = { workspace = true }
 mockall = { workspace = true }
 netlink-packet-route = { workspace = true }
-nix = { features = ["fs", "user"] , workspace = true }
+nix = { features = ["fs", "user"], workspace = true }
 nonzero_ext = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
-opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
-opentelemetry_sdk = { workspace = true, features = ["spec_unstable_metrics_views"] }
+opentelemetry-semantic-conventions = { workspace = true, features = [
+  "semconv_experimental",
+] }
+opentelemetry_sdk = { workspace = true, features = [
+  "spec_unstable_metrics_views",
+] }
 prometheus = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 resolv-conf = { workspace = true }
 rtnetlink = { workspace = true }
 rustls = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
@@ -86,9 +90,9 @@ tempfile = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
-tower-http = { features = ["trace"] , workspace = true }
+tower-http = { features = ["trace"], workspace = true }
 tracing = { workspace = true }
-uuid = { features = ["v4", "serde"] , workspace = true }
+uuid = { features = ["v4", "serde"], workspace = true }
 uzers = { workspace = true }
 version-compare = { workspace = true }
 #these are alphabetized
@@ -99,7 +103,10 @@ carbide-version = { path = "../version" }
 [dev-dependencies]
 ctor = { workspace = true }
 prost = { workspace = true }
-reqwest = { default-features = false, features = ["rustls-tls", "stream"] , workspace = true }
+reqwest = { default-features = false, features = [
+  "rustls-tls",
+  "stream",
+], workspace = true }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 

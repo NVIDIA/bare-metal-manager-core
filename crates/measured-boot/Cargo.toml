@@ -19,9 +19,9 @@ carbide-rpc = { path = "../rpc" }
 
 thiserror = { workspace = true }
 sqlx = { workspace = true, optional = true }
-prettytable-rs = { optional = true , workspace = true }
+prettytable-rs = { optional = true, workspace = true }
 clap = { workspace = true, optional = true }
-eyre = { optional = true , workspace = true }
+eyre = { optional = true, workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true }
 tonic = { workspace = true }

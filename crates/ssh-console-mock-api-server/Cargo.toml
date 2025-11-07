@@ -15,12 +15,12 @@ carbide-api-test-helper = { path = "../api-test-helper" }
 carbide-rpc = { path = "../rpc" }
 carbide-uuid = { path = "../uuid" }
 
-tonic = { features = ["tls-ring"] , workspace = true }
+tonic = { features = ["tls-ring"], workspace = true }
 tonic-prost = { workspace = true }
 tonic-prost-build = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
-tokio = { features = ["macros"] , workspace = true }
+tokio = { features = ["macros"], workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 eyre = { workspace = true }

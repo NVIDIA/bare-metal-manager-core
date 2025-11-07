@@ -8,13 +8,13 @@ authors.workspace = true
 
 [dependencies]
 axum = { workspace = true }
-axum-server = { features = ["tls-rustls"] , workspace = true }
+axum-server = { features = ["tls-rustls"], workspace = true }
 libredfish = { workspace = true }
 clap = { workspace = true }
 tokio.workspace = true
 tracing = { workspace = true }
-tracing-subscriber = { features = ["env-filter"] , workspace = true }
-serde = { features = ["derive"] , workspace = true }
+tracing-subscriber = { features = ["env-filter"], workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tar = { workspace = true }
@@ -25,9 +25,9 @@ hyper = { workspace = true }
 http-body = { workspace = true }
 regex = { workspace = true }
 lazy_static = { workspace = true }
-mac_address = { features = ["serde"] , workspace = true }
+mac_address = { features = ["serde"], workspace = true }
 chrono = { workspace = true }
-tower-http = { features = ["normalize-path"] , workspace = true }
+tower-http = { features = ["normalize-path"], workspace = true }
 bytes = { workspace = true }
 form_urlencoded = { workspace = true }
 itertools = { workspace = true }

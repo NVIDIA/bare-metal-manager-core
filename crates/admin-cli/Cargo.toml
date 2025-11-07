@@ -38,7 +38,7 @@ libredfish = { workspace = true }
 mac_address = { workspace = true }
 prettytable-rs = { workspace = true }
 reqwest = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true }

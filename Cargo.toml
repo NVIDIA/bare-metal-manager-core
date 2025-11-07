@@ -31,9 +31,7 @@ sqlx-core = { version = "0.8.3" }
 
 opentelemetry = { version = "0.28.0", features = ["logs"] }
 opentelemetry_sdk = { version = "0.28.0", features = ["logs", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.28.0", features = [
-    "metrics",
-] }
+opentelemetry-otlp = { version = "0.28.0", features = ["metrics"] }
 opentelemetry-prometheus = { version = "0.28.0" }
 opentelemetry-semantic-conventions = "0.28.0"
 # tracing-opentelemetry 0.29.0 seems to correspond to opentelemetry 0.28.0, confusingly enough.
@@ -52,7 +50,7 @@ ipnetwork = "0.20.0"
 # Tonic does not support axum 0.8 or later. Until it does, pin axum to 0.7 and the related crates to the corresponding
 # (working) versions.
 axum = "0.8.4"
-axum-extra = "0.10" # Pin this until we can update axum
+axum-extra = "0.10"                 # Pin this until we can update axum
 axum-client-ip = "1.1.3"
 axum-template = { version = "3.0" }
 

@@ -22,7 +22,12 @@ carbide-tls = { path = "../tls" }
 
 ctor = { workspace = true }
 lazy_static = { workspace = true }
-tokio = { workspace = true, features = ["tokio-macros", "rt-multi-thread", "sync", "macros"] }
+tokio = { workspace = true, features = [
+  "tokio-macros",
+  "rt-multi-thread",
+  "sync",
+  "macros",
+] }
 tracing = { workspace = true }
 tracing-subscriber = { features = ["env-filter"], workspace = true }
 uuid = { features = ["v4"], workspace = true }

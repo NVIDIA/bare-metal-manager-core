@@ -25,7 +25,7 @@ carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 
 #these are alphabetized
 base64 = { workspace = true }
-casbin = { features = ["glob"] , workspace = true }
+casbin = { features = ["glob"], workspace = true }
 chrono = { workspace = true }
 duration-str = { workspace = true }
 eyre = { workspace = true }
@@ -33,21 +33,31 @@ ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 libredfish = { workspace = true }
-mac_address = { features = ["serde"] , workspace = true }
+mac_address = { features = ["serde"], workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_regex = { workspace = true }
 sha2 = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+] }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tss-esapi = { optional = true , workspace = true }
-uuid = { features = ["v4", "serde"] , workspace = true }
+tss-esapi = { optional = true, workspace = true }
+uuid = { features = ["v4", "serde"], workspace = true }
 version-compare = { workspace = true }
 tokio = { workspace = true }
 #these are alphabetized
@@ -55,9 +65,9 @@ tokio = { workspace = true }
 [features]
 default = ["linux-build"]
 linux-build = [
-    "tss-esapi",
-    "carbide-sqlx-testing/linux-build",
-    "carbide-host-support/linux-build",
+  "tss-esapi",
+  "carbide-sqlx-testing/linux-build",
+  "carbide-host-support/linux-build",
 ]
 
 [build-dependencies]

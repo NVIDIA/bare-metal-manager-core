@@ -12,7 +12,7 @@ name = "forge_systemd"
 [dependencies]
 eyre = { workspace = true }
 rand = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

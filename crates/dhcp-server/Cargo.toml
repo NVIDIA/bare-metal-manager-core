@@ -22,17 +22,17 @@ carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 
 serde_yaml = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 ipnetwork = { workspace = true }
-clap = { features = ["derive"] , workspace = true }
+clap = { features = ["derive"], workspace = true }
 dhcproto = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = [
-    "env-filter",
-    "local-time",
-] , workspace = true }
+  "env-filter",
+  "local-time",
+], workspace = true }
 thiserror = { workspace = true }
 lru = { workspace = true }
 socket2 = { workspace = true }

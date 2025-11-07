@@ -19,13 +19,13 @@ PKG_VERSION = { script = [
 [tasks.package-component-local]
 run_task = "package-component"
 dependencies = [
-  { name = "build-component-local", path = "./Makefile-build.toml"},
+  { name = "build-component-local", path = "./Makefile-build.toml" },
 ]
 
 [tasks.package-component-in-container]
 run_task = "package-component"
 dependencies = [
-  { name = "build-component-in-container", path = "./Makefile-build.toml"},
+  { name = "build-component-in-container", path = "./Makefile-build.toml" },
 ]
 
 [tasks.package-component]

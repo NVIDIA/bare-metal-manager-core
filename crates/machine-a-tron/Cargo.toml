@@ -35,11 +35,11 @@ futures = { workspace = true }
 figment = { features = ["toml"], workspace = true }
 libredfish = { workspace = true }
 reqwest = { default-features = false, features = [
-    "json",
-    "rustls-tls",
-    "stream",
-    "socks",
-    "multipart",
+  "json",
+  "rustls-tls",
+  "stream",
+  "socks",
+  "multipart",
 ], workspace = true }
 eyre = { workspace = true }
 tempfile = { workspace = true }

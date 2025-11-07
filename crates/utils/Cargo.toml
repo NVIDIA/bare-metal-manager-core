@@ -19,15 +19,27 @@ byte-unit = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 eyre = { workspace = true }
-prettytable-rs = { default-features = false, features = ["csv"] , workspace = true }
-serde = { features = ["derive"] , workspace = true }
+prettytable-rs = { default-features = false, features = [
+  "csv",
+], workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 ipnetwork = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+], optional = true }
 tonic = { workspace = true }
 humantime = { workspace = true }
 
