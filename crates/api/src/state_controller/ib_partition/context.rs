@@ -10,10 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::state_handler::StateHandlerContextObjects;
 
 pub struct IBPartitionStateHandlerContextObjects {}
 
 impl StateHandlerContextObjects for IBPartitionStateHandlerContextObjects {
+    type Services = CommonStateHandlerServices;
     type ObjectMetrics = ();
 }

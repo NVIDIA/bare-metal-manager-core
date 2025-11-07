@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -24,8 +24,8 @@ use crate::state_controller::config::IterationConfig;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics};
 use crate::state_controller::state_handler::{
-    FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerError,
-    StateHandlerOutcome, StateHandlerServices,
+    FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerContextObjects,
+    StateHandlerError, StateHandlerOutcome,
 };
 
 mod builder;
@@ -39,7 +39,9 @@ mod builder;
 /// synchronization to make sure that inside a single site - only a single controller
 /// will decide the next step for a single object.
 pub struct StateController<IO: StateControllerIO> {
-    handler_services: Arc<StateHandlerServices>,
+    /// A database connection pool that can be used for additional queries
+    pool: sqlx::PgPool,
+    handler_services: Arc<<IO::ContextObjects as StateHandlerContextObjects>::Services>,
     io: Arc<IO>,
     lock_query: String,
     state_handler: Arc<
@@ -213,7 +215,7 @@ impl<IO: StateControllerIO> StateController<IO> {
         &mut self,
         iteration_metrics: &mut IterationMetrics<IO>,
     ) -> Result<(), IterationError> {
-        let mut txn = self.handler_services.pool.begin().await?;
+        let mut txn = self.pool.begin().await?;
 
         let locked: bool = sqlx::query_scalar(&self.lock_query)
             .fetch_one(&mut *txn)
@@ -248,7 +250,7 @@ impl<IO: StateControllerIO> StateController<IO> {
         // The next iteration of the controller would also find objects that
         // have been added to the system. And no object should ever be removed
         // outside of the state controller
-        let mut txn = self.handler_services.pool.begin().await?;
+        let mut txn = self.pool.begin().await?;
         let object_ids = self.io.list_objects(&mut txn).await?;
         txn.commit().await?;
 
@@ -260,6 +262,7 @@ impl<IO: StateControllerIO> StateController<IO> {
 
         for object_id in object_ids.iter() {
             let object_id = object_id.clone();
+            let pool = self.pool.clone();
             let services = self.handler_services.clone();
             let io = self.io.clone();
             let handler = self.state_handler.clone();
@@ -292,7 +295,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                             Result<StateHandlerOutcome<_>, StateHandlerError>,
                             tokio::time::error::Elapsed,
                         > = tokio::time::timeout(max_object_handling_time, async {
-                            let mut txn = services.pool.begin().await?;
+                            let mut txn = pool.begin().await?;
                             let mut snapshot = io
                                 .load_object_state(&mut txn, &object_id)
                                 .await?
@@ -315,7 +318,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 state_sla.time_in_state_above_sla;
 
                             let mut ctx = StateHandlerContext {
-                                services: &services,
+                                services: services.as_ref(),
                                 metrics: &mut metrics.specific,
                                 power_options: None
                             };
@@ -382,7 +385,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                             } else if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted { .. })) {
                                 // Whatever is the reason, outcome must be stored in db.
                                 let _ = txn.rollback().await;
-                                let mut txn = services.pool.begin().await?;
+                                let mut txn = pool.begin().await?;
                                 let db_outcome = PersistentStateHandlerOutcome::from_result(handler_outcome.as_ref());
                                 io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
                                 txn.commit()
@@ -391,7 +394,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                             }
 
                             if let Some(power_options) = ctx.power_options {
-                                let mut txn = services.pool.begin().await?;
+                                let mut txn = pool.begin().await?;
                                 db::power_options::persist(&power_options, &mut txn).await?;
                                 txn.commit()
                                     .await

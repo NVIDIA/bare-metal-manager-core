@@ -80,6 +80,7 @@ use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
 use crate::redfish::test_support::RedfishSim;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
+use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::StateController;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
 use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
@@ -90,7 +91,7 @@ use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
 use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, StateHandlerServices,
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -250,11 +251,10 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
-    /// Creates an instance of StateHandlerServices that are suitable for this
+    /// Creates an instance of CommonStateHandlerServices that are suitable for this
     /// test environment
-    pub fn state_handler_services(&self) -> StateHandlerServices {
-        StateHandlerServices {
-            pool: self.pool.clone(),
+    pub fn state_handler_services(&self) -> CommonStateHandlerServices {
+        CommonStateHandlerServices {
             redfish_client_pool: self.redfish_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             ib_pools: self.common_pools.infiniband.clone(),
@@ -1124,15 +1124,19 @@ pub async fn create_test_env_with_overrides(
         )),
     };
 
+    let handler_services = Arc::new(CommonStateHandlerServices {
+        redfish_client_pool: redfish_sim.clone(),
+        ib_fabric_manager: ib_fabric_manager.clone(),
+        ib_pools: common_pools.infiniband.clone(),
+        ipmi_tool: ipmi_tool.clone(),
+        site_config: config.clone(),
+        mqtt_client: None,
+    });
+
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone())
         .meter("forge_machines", test_meter.meter())
-        .redfish_client_pool(redfish_sim.clone())
-        .ib_fabric_manager(ib_fabric_manager.clone())
-        .ib_pools(common_pools.infiniband.clone())
-        .forge_api(api.clone())
-        .ipmi_tool(ipmi_tool.clone())
-        .site_config(config.clone())
+        .services(handler_services.clone())
         .state_handler(Arc::new(machine_swap.clone()))
         .io(Arc::new(MachineStateControllerIO {
             host_health: config.host_health,
@@ -1147,12 +1151,7 @@ pub async fn create_test_env_with_overrides(
     let ib_controller = StateController::builder()
         .database(db_pool.clone())
         .meter("forge_machines", test_meter.meter())
-        .redfish_client_pool(redfish_sim.clone())
-        .ib_fabric_manager(ib_fabric_manager.clone())
-        .ib_pools(common_pools.infiniband.clone())
-        .forge_api(api.clone())
-        .ipmi_tool(ipmi_tool.clone())
-        .site_config(config.clone())
+        .services(handler_services.clone())
         .state_handler(Arc::new(ib_swap.clone()))
         .build_for_manual_iterations()
         .expect("Unable to build state controller");
@@ -1168,11 +1167,7 @@ pub async fn create_test_env_with_overrides(
     let mut network_controller = StateController::builder()
         .database(db_pool.clone())
         .meter("forge_machines", test_meter.meter())
-        .redfish_client_pool(redfish_sim.clone())
-        .ib_fabric_manager(ib_fabric_manager.clone())
-        .forge_api(api.clone())
-        .ipmi_tool(ipmi_tool.clone())
-        .site_config(config.clone())
+        .services(handler_services.clone())
         .state_handler(Arc::new(network_swap.clone()))
         .build_for_manual_iterations()
         .expect("Unable to build state controller");

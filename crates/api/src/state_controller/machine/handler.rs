@@ -70,12 +70,13 @@ use crate::cfg::file::{
 };
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::redfish::{self, host_power_control, set_host_uefi_password};
+use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::{
     MeasuringOutcome, get_measuring_prerequisites, handle_measuring_state,
 };
 use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, StateHandlerServices,
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 mod helpers;
@@ -1899,7 +1900,7 @@ fn is_dpu_up(state: &ManagedHostStateSnapshot, dpu_snapshot: &Machine) -> bool {
 async fn are_dpus_up_trigger_reboot_if_needed(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     txn: &mut PgConnection,
 ) -> bool {
     for dpu_snapshot in &state.dpu_snapshots {
@@ -2700,7 +2701,7 @@ async fn host_reprovisioning_requested(state: &ManagedHostStateSnapshot) -> bool
 async fn try_wait_for_dpu_discovery(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     is_reprovision_case: bool,
     txn: &mut PgConnection,
     current_dpu_machine_id: &MachineId,
@@ -2741,7 +2742,7 @@ async fn try_wait_for_dpu_discovery(
 ///     If Some(_) means at least one fw component is not updated.
 ///     If None: All fw components are updated.
 async fn check_fw_component_version(
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     dpu_snapshot: &Machine,
     txn: &mut PgConnection,
     hardware_models: &FirmwareConfig,
@@ -3798,7 +3799,7 @@ pub async fn trigger_reboot_if_needed(
     state: &ManagedHostStateSnapshot,
     retry_count: Option<i64>,
     reachability_params: &ReachabilityParams,
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     txn: &mut PgConnection,
 ) -> Result<RebootStatus, StateHandlerError> {
     let host = &state.host_snapshot;
@@ -5913,7 +5914,7 @@ impl HostUpgradeState {
     async fn handle_host_reprovision(
         &self,
         state: &mut ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
+        services: &CommonStateHandlerServices,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
         txn: &mut PgConnection,
@@ -6031,7 +6032,7 @@ impl HostUpgradeState {
     async fn host_checking_fw(
         &self,
         state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
+        services: &CommonStateHandlerServices,
         original_state: &ManagedHostState,
         scenario: HostFirmwareScenario,
         repeat: bool,
@@ -6068,7 +6069,7 @@ impl HostUpgradeState {
     async fn host_checking_fw_noclear(
         &self,
         state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
+        services: &CommonStateHandlerServices,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
         repeat: bool,
@@ -6334,7 +6335,7 @@ impl HostUpgradeState {
     async fn waiting_for_script(
         &self,
         state: &ManagedHostStateSnapshot,
-        _services: &StateHandlerServices,
+        _services: &CommonStateHandlerServices,
         scenario: HostFirmwareScenario,
         _txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
@@ -6370,7 +6371,7 @@ impl HostUpgradeState {
     async fn pre_update_resets(
         &self,
         state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
+        services: &CommonStateHandlerServices,
         scenario: HostFirmwareScenario,
         phase: Option<InitialResetPhase>,
         last_time: &Option<DateTime<Utc>>,
@@ -6470,7 +6471,7 @@ impl HostUpgradeState {
         &self,
         address: IpAddr,
         state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
+        services: &CommonStateHandlerServices,
         fw_info: FullFirmwareInfo<'_>,
         scenario: HostFirmwareScenario,
         txn: &mut PgConnection,
@@ -6680,7 +6681,7 @@ impl HostUpgradeState {
         &self,
         details: &HostReprovisionState,
         state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
+        services: &CommonStateHandlerServices,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
         txn: &mut PgConnection,
@@ -6907,7 +6908,7 @@ impl HostUpgradeState {
     async fn host_reset_for_new_firmware(
         &self,
         state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
+        services: &CommonStateHandlerServices,
         machine_id: &MachineId,
         details: &HostReprovisionState,
         scenario: HostFirmwareScenario,
@@ -7105,7 +7106,7 @@ impl HostUpgradeState {
     async fn host_new_firmware_reported_wait(
         &self,
         state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
+        services: &CommonStateHandlerServices,
         details: &HostReprovisionState,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
@@ -7297,7 +7298,7 @@ impl AsyncFirmwareUploader {
 /// Issues a reboot request command to a host or DPU
 async fn handler_restart_dpu(
     machine: &Machine,
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     txn: &mut PgConnection,
 ) -> Result<(), StateHandlerError> {
     db::machine::update_reboot_requested_time(
@@ -7655,7 +7656,7 @@ async fn wait_for_boss_controller_job_to_complete(
 async fn handle_boss_job_failure(
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     txn: &mut PgConnection,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let (next_state, expected_power_state) = get_next_state_boss_job_failure(mh_snapshot)?;
@@ -7741,7 +7742,7 @@ async fn handle_boss_job_failure(
 
 pub async fn handler_host_power_control(
     managedhost_snapshot: &ManagedHostStateSnapshot,
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     action: SystemPowerControl,
     txn: &mut PgConnection,
 ) -> Result<(), StateHandlerError> {
@@ -7804,7 +7805,7 @@ pub async fn handler_host_power_control(
 
 async fn restart_dpu(
     machine: &Machine,
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     txn: &mut PgConnection,
 ) -> Result<(), StateHandlerError> {
     let dpu_redfish_client = services

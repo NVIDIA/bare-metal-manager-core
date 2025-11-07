@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,21 +12,15 @@
 
 use std::sync::Arc;
 
-use model::resource_pool::common::IbPools;
-use mqttea::client::MqtteaClient;
 use opentelemetry::metrics::Meter;
 use tokio::sync::oneshot;
 
-use crate::cfg::file::CarbideConfig;
-use crate::ib::IBFabricManager;
-use crate::ipmitool::IPMITool;
-use crate::redfish::RedfishClientPool;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{StateController, StateControllerHandle};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::MetricHolder;
 use crate::state_controller::state_handler::{
-    NoopStateHandler, StateHandler, StateHandlerServices,
+    NoopStateHandler, StateHandler, StateHandlerContextObjects,
 };
 
 /// The return value of `[Builder::build_internal]`
@@ -50,8 +44,6 @@ pub enum StateControllerBuildError {
 /// A builder for `StateController`
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
-    redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
-    ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
     iteration_config: IterationConfig,
     object_type_for_metrics: Option<String>,
     meter: Option<Meter>,
@@ -64,11 +56,7 @@ pub struct Builder<IO: StateControllerIO> {
                 ObjectId = IO::ObjectId,
             >,
     >,
-    forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
-    ib_pools: Option<IbPools>,
-    ipmi_tool: Option<Arc<dyn IPMITool>>,
-    site_config: Option<Arc<CarbideConfig>>,
-    mqtt_client: Option<Arc<MqtteaClient>>,
+    services: Option<Arc<<IO::ContextObjects as StateHandlerContextObjects>::Services>>,
 }
 
 impl<IO: StateControllerIO> Default for Builder<IO> {
@@ -76,8 +64,6 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
     fn default() -> Self {
         Self {
             database: None,
-            redfish_client_pool: None,
-            ib_fabric_manager: None,
             iteration_config: IterationConfig::default(),
             io: None,
             state_handler: Arc::new(NoopStateHandler::<
@@ -88,11 +74,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
             >::default()),
             meter: None,
             object_type_for_metrics: None,
-            forge_api: None,
-            ib_pools: None,
-            ipmi_tool: None,
-            site_config: None,
-            mqtt_client: None,
+            services: None,
         }
     }
 }
@@ -138,20 +120,6 @@ impl<IO: StateControllerIO> Builder<IO> {
         let object_type_for_metrics = self.object_type_for_metrics.take();
         let meter = self.meter.take();
 
-        let redfish_client_pool =
-            self.redfish_client_pool
-                .take()
-                .ok_or(StateControllerBuildError::MissingArgument(
-                    "redfish_client_pool",
-                ))?;
-
-        let ib_fabric_manager =
-            self.ib_fabric_manager
-                .take()
-                .ok_or(StateControllerBuildError::MissingArgument(
-                    "ib_fabric_manager",
-                ))?;
-
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if self.iteration_config.max_concurrency == 0 {
@@ -161,37 +129,21 @@ impl<IO: StateControllerIO> Builder<IO> {
         }
         let controller_name = object_type_for_metrics.unwrap_or_else(|| "undefined".to_string());
 
-        let ipmi_tool = self
-            .ipmi_tool
+        let services = self
+            .services
             .take()
-            .ok_or(StateControllerBuildError::MissingArgument("ipmi_tool"))?;
-
-        let mqtt_client = self.mqtt_client.take();
-
-        let site_config = self
-            .site_config
-            .take()
-            .ok_or(StateControllerBuildError::MissingArgument("site_config"))?;
-
-        let handler_services = Arc::new(StateHandlerServices {
-            pool: database,
-            ib_fabric_manager,
-            redfish_client_pool,
-            ib_pools: self.ib_pools.unwrap_or_default(),
-            ipmi_tool,
-            site_config,
-            mqtt_client,
-        });
+            .ok_or(StateControllerBuildError::MissingArgument("services"))?;
 
         // This defines the shared storage location for metrics between the state handler
         // and the OTEL framework
         let metric_holder = Arc::new(MetricHolder::new(meter, &controller_name));
 
         let controller = StateController::<IO> {
+            pool: database,
             stop_receiver,
             iteration_config: self.iteration_config,
             lock_query: create_lock_query(IO::DB_LOCK_NAME),
-            handler_services,
+            handler_services: services,
             io: self.io.unwrap_or_default(),
             state_handler: self.state_handler.clone(),
             metric_holder,
@@ -204,15 +156,18 @@ impl<IO: StateControllerIO> Builder<IO> {
         })
     }
 
-    /// Configures the forge grpc api
-    pub fn forge_api(mut self, forge_api: Arc<dyn rpc::forge::forge_server::Forge>) -> Self {
-        self.forge_api = Some(forge_api);
-        self
-    }
-
     /// Configures the utilized database
     pub fn database(mut self, db: sqlx::PgPool) -> Self {
         self.database = Some(db);
+        self
+    }
+
+    /// Configures the services that will be available within the StateHandlerContext
+    pub fn services(
+        mut self,
+        services: Arc<<IO::ContextObjects as StateHandlerContextObjects>::Services>,
+    ) -> Self {
+        self.services = Some(services);
         self
     }
 
@@ -220,35 +175,6 @@ impl<IO: StateControllerIO> Builder<IO> {
     pub fn meter(mut self, object_type_for_metrics: impl Into<String>, meter: Meter) -> Self {
         self.object_type_for_metrics = Some(object_type_for_metrics.into());
         self.meter = Some(meter);
-        self
-    }
-
-    /// Configures the utilized Redfish client pool
-    pub fn redfish_client_pool(mut self, redfish_client_pool: Arc<dyn RedfishClientPool>) -> Self {
-        self.redfish_client_pool = Some(redfish_client_pool);
-        self
-    }
-
-    /// Configures the utilized IBService
-    pub fn ib_fabric_manager(mut self, ib_fabric_manager: Arc<dyn IBFabricManager>) -> Self {
-        self.ib_fabric_manager = Some(ib_fabric_manager);
-        self
-    }
-
-    pub fn mqtt_client(mut self, mqtt_client: Arc<MqtteaClient>) -> Self {
-        self.mqtt_client = Some(mqtt_client);
-        self
-    }
-
-    /// Configures the utilized IPMI tool
-    pub fn ipmi_tool(mut self, ipmi_tool: Arc<dyn IPMITool>) -> Self {
-        self.ipmi_tool = Some(ipmi_tool);
-        self
-    }
-
-    /// Configures the resource pools for allocating / releasing pkey
-    pub fn ib_pools(mut self, ib_pools: IbPools) -> Self {
-        self.ib_pools = Some(ib_pools);
         self
     }
 
@@ -277,11 +203,6 @@ impl<IO: StateControllerIO> Builder<IO> {
         >,
     ) -> Self {
         self.state_handler = handler;
-        self
-    }
-
-    pub fn site_config(mut self, config: Arc<CarbideConfig>) -> Self {
-        self.site_config = Some(config);
         self
     }
 }

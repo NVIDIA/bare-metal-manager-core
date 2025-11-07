@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use std::panic::Location;
-use std::sync::Arc;
 
 use db::DatabaseError;
 use forge_uuid::machine::MachineId;
@@ -19,40 +18,16 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::ManagedHostState;
 use model::power_manager::PowerOptions;
 use model::resource_pool::ResourcePoolError;
-use model::resource_pool::common::IbPools;
-use mqttea::MqtteaClient;
 use sqlx::PgConnection;
 
-use crate::cfg::file::CarbideConfig;
-use crate::ib::IBFabricManager;
-use crate::ipmitool::IPMITool;
-use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
-
-/// Services that are accessible to the `StateHandler`
-pub struct StateHandlerServices {
-    /// A database connection pool that can be used for additional queries
-    pub pool: sqlx::PgPool,
-
-    /// API for interaction with Libredfish
-    pub redfish_client_pool: Arc<dyn RedfishClientPool>,
-
-    /// API for interaction with Forge IBFabricManager
-    pub ib_fabric_manager: Arc<dyn IBFabricManager>,
-
-    /// Resource pools for ib pkey allocation/release.
-    pub ib_pools: IbPools,
-
-    /// An implementation of the IPMITool that understands how to reboot a machine
-    pub ipmi_tool: Arc<dyn IPMITool>,
-
-    /// Access to the site config
-    pub site_config: Arc<CarbideConfig>,
-
-    pub mqtt_client: Option<Arc<MqtteaClient>>,
-}
+use crate::redfish::RedfishClientCreationError;
 
 /// The collection of generic objects which are referenced in StateHandlerContext
 pub trait StateHandlerContextObjects: Send + Sync + 'static {
+    /// The type of services accessible on the state handler context object
+    /// via [`StateHandlerContext::services`]
+    type Services: Send + Sync + 'static;
+
     /// The type that can hold metrics specific to a single object.
     ///
     /// These metrics can be produced by code inside the state handler by writing
@@ -65,7 +40,7 @@ pub trait StateHandlerContextObjects: Send + Sync + 'static {
 /// Context parameter passed to `StateHandler`
 pub struct StateHandlerContext<'a, T: StateHandlerContextObjects> {
     /// Services that are available to the `StateHandler`
-    pub services: &'a Arc<StateHandlerServices>,
+    pub services: &'a T::Services,
     /// Metrics that are produced as a result of acting on an object
     pub metrics: &'a mut T::ObjectMetrics,
     /// Power Options.
