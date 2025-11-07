@@ -362,6 +362,31 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
+        3,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+                platform_config_state:
+                    model::machine::HostPlatformConfigurationState::CheckHostConfig,
+            },
+        },
+    )
+    .await;
+
+    mh.network_configured(env).await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::WaitingForDpusToUp,
+        },
+    )
+    .await;
+
+    mh.network_configured(env).await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
         1,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {

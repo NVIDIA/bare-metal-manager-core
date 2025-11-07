@@ -1746,6 +1746,7 @@ pub enum HostPlatformConfigurationState {
     PowerCycle {
         power_on: bool,
     },
+    CheckHostConfig,
     UnlockHost,
     ConfigureBios,
     PollingBiosSetup,

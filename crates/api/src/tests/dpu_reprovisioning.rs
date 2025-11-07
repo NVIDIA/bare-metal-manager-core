@@ -388,6 +388,14 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     assert_eq!(dpu.reprovision_requested.unwrap().initiator, "AdminCli");
 
     env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
+    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(matches!(
         dpu.current_state(),
@@ -713,6 +721,14 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     );
 
     env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
+    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(matches!(
         dpu.current_state(),
@@ -1580,7 +1596,18 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     );
 
     env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
+    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
     let dpu = mh.dpu().db_machine(&mut txn).await;
+
+    tracing::info!(machine_id = %dpu.id, "{} {}", dpu.current_state(), "curr state:");
+
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::Assigned {

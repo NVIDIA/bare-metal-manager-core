@@ -5069,89 +5069,16 @@ impl StateHandler for InstanceStateHandler {
                             .redfish_client_pool
                             .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
                             .await?;
+
                         let power_state = host_power_state(redfish_client.as_ref()).await?;
 
-                        let configure_host_boot_order = if !mh_snapshot.dpu_snapshots.is_empty() {
-                            let primary_interface = mh_snapshot
-                                .host_snapshot
-                                .interfaces
-                                .iter()
-                                .find(|x| x.primary_interface)
-                                .ok_or_else(|| {
-                                    StateHandlerError::GenericError(eyre::eyre!(
-                                        "Missing primary interface from host: {}",
-                                        mh_snapshot.host_snapshot.id
-                                    ))
-                                })?;
-
-                            if !(redfish_client
-                                .is_boot_order_setup(&primary_interface.mac_address.to_string())
-                                .await
-                                .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "is_boot_order_setup",
-                                    error: e,
-                                })?)
-                            {
-                                let vendor = mh_snapshot.host_snapshot.bmc_vendor();
-                                tracing::warn!(machine_id = %host_machine_id, "Tenant has released this machine but the {} does not have its boot order configured properly", vendor.to_string());
-                                // TODO: read this from a configurable map in Forged
-                                // We have seen this issue only on Dells so far, so this dumb logic should work
-                                vendor.is_dell()
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
-
-                        let next_state = if configure_host_boot_order {
-                            ManagedHostState::Assigned {
-                                instance_state: InstanceState::HostPlatformConfiguration {
-                                    platform_config_state:
-                                        HostPlatformConfigurationState::PowerCycle {
-                                            power_on: power_state == libredfish::PowerState::Off,
-                                        },
+                        let next_state = ManagedHostState::Assigned {
+                            instance_state: InstanceState::HostPlatformConfiguration {
+                                platform_config_state: HostPlatformConfigurationState::PowerCycle {
+                                    power_on: power_state == libredfish::PowerState::Off,
                                 },
-                            }
-                        } else {
-                            ManagedHostState::Assigned {
-                                instance_state: if power_state == libredfish::PowerState::Off {
-                                    // Instance is in powered-off state. This means DPUs are also
-                                    // powered-off. If we power on the host, DPU will take around10-15
-                                    // mins to come up. During this time, DHCP/ipxe will fail for the
-                                    // host and host will boot from the tenant-installed-OS.
-                                    // To avoid that, we should wait until DPUs come up and become
-                                    // healthy and restart host again to proceed.
-                                    InstanceState::WaitingForDpusToUp
-                                } else {
-                                    InstanceState::BootingWithDiscoveryImage {
-                                        retry: RetryInfo { count: 0 },
-                                    }
-                                },
-                            }
-                        };
-
-                        // Reboot host. Host will boot with carbide discovery image now. Changes
-                        // are done in get_pxe_instructions api.
-                        // User will lose all access to instance now.
-                        if let Err(err) = handler_host_power_control(
-                            mh_snapshot,
-                            ctx.services,
-                            if power_state == libredfish::PowerState::Off {
-                                SystemPowerControl::On
-                            } else {
-                                SystemPowerControl::ForceRestart
                             },
-                            txn,
-                        )
-                        .await
-                        {
-                            // Fix: 4647451
-                            // No need to return if reboot fails. The managedhost will move to next
-                            // state (BootingWithDiscoveryImage) and recovery code will try to
-                            // reboot after certain time, if machine does not respond.
-                            tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
-                        }
+                        };
 
                         if host_firmware_requested {
                             let health_override =
@@ -8054,7 +7981,7 @@ async fn handle_instance_host_platform_config(
                         })?;
 
                         InstanceState::HostPlatformConfiguration {
-                            platform_config_state: HostPlatformConfigurationState::UnlockHost,
+                            platform_config_state: HostPlatformConfigurationState::CheckHostConfig,
                         }
                     }
                     _ => {
@@ -8066,7 +7993,78 @@ async fn handle_instance_host_platform_config(
                 }
             }
         }
+        HostPlatformConfigurationState::CheckHostConfig => {
+            let configure_host_boot_order = if !mh_snapshot.dpu_snapshots.is_empty() {
+                // Given that we are checking the boot order of a server immediately after a power cycle, we
+                // shoudl do some waiting to ensure that the host is not reporting stale redfish information from
+                // before Carbide powered it off.
+                // This check guarantees that the host has finished loading the BIOS after the DPUs have come up.
+                // If Carbide is still reading an incorrect boot order at this point, something is wrong, and
+                // we should configure this host properly.
+                if !are_dpus_up_trigger_reboot_if_needed(
+                    mh_snapshot,
+                    reachability_params,
+                    ctx.services,
+                    txn,
+                )
+                .await
+                {
+                    return Ok(StateHandlerOutcome::wait(
+                        "Waiting for DPUs to come up.".to_string(),
+                    ));
+                }
 
+                let primary_interface = mh_snapshot
+                    .host_snapshot
+                    .interfaces
+                    .iter()
+                    .find(|x| x.primary_interface)
+                    .ok_or_else(|| {
+                        StateHandlerError::GenericError(eyre::eyre!(
+                            "Missing primary interface from host: {}",
+                            mh_snapshot.host_snapshot.id
+                        ))
+                    })?;
+
+                let vendor = mh_snapshot.host_snapshot.bmc_vendor();
+
+                if !(redfish_client
+                    .is_boot_order_setup(&primary_interface.mac_address.to_string())
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "is_boot_order_setup",
+                        error: e,
+                    })?)
+                {
+                    tracing::warn!(
+                        "Tenant has released {} but the {} does not have its boot order configured properly",
+                        mh_snapshot.host_snapshot.id,
+                        vendor.to_string()
+                    );
+                    // TODO: read this from a configurable map in Forged
+                    // We have seen this issue only on Dells so far, so this dumb logic should work
+                    vendor.is_dell()
+                } else {
+                    tracing::info!(
+                        "Tenant has released {} and the {} has its boot order configured properly",
+                        mh_snapshot.host_snapshot.id,
+                        vendor.to_string()
+                    );
+
+                    false
+                }
+            } else {
+                false
+            };
+
+            if configure_host_boot_order {
+                InstanceState::HostPlatformConfiguration {
+                    platform_config_state: HostPlatformConfigurationState::UnlockHost,
+                }
+            } else {
+                InstanceState::WaitingForDpusToUp
+            }
+        }
         HostPlatformConfigurationState::UnlockHost => {
             redfish_client
                 .lockdown_bmc(EnabledDisabled::Disabled)
@@ -8199,7 +8197,6 @@ async fn handle_instance_host_platform_config(
                     error: e,
                 })?;
 
-            // Transitioning to WaitingForDpusToUp is defensive--We could just go to booting scout immediately since we know the host is on at this point.
             InstanceState::WaitingForDpusToUp
         }
     };

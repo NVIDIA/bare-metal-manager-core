@@ -459,6 +459,31 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
+        3,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+                platform_config_state:
+                    model::machine::HostPlatformConfigurationState::CheckHostConfig,
+            },
+        },
+    )
+    .await;
+
+    mh.network_configured(&env).await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::WaitingForDpusToUp,
+        },
+    )
+    .await;
+
+    mh.network_configured(&env).await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
         1,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
@@ -1940,6 +1965,31 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         }))
         .await
         .expect("Delete instance failed.");
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        3,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+                platform_config_state:
+                    model::machine::HostPlatformConfigurationState::CheckHostConfig,
+            },
+        },
+    )
+    .await;
+
+    mh.network_configured(&env).await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::WaitingForDpusToUp,
+        },
+    )
+    .await;
+
+    mh.network_configured(&env).await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
