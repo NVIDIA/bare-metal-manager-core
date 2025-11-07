@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
-use db::DatabaseError;
 use db::dpu_remediation::AppliedRemediationIdQueryType;
 use model::dpu_remediation::{
     ApproveRemediation, DisableRemediation, EnableRemediation, NewRemediation, RevokeRemediation,
@@ -48,11 +47,7 @@ pub(crate) async fn create(
     crate::api::log_request_data(&request);
     let authored_by = external_user_name(&request)?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin create_remediation", e)))?;
+    let mut txn = api.txn_begin("create_remediation").await?;
     let response = Ok(db::dpu_remediation::persist_remediation(
         NewRemediation::try_from((request.into_inner(), authored_by))?,
         &mut txn,
@@ -61,9 +56,7 @@ pub(crate) async fn create(
     .map(rpc::CreateRemediationResponse::from)
     .map(Response::new)?);
 
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit create_remediation", e)))?;
+    txn.commit().await?;
 
     response
 }
@@ -75,11 +68,7 @@ pub(crate) async fn approve(
     crate::api::log_request_data(&request);
     let approved_by = external_user_name(&request)?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin approve_remediation", e)))?;
+    let mut txn = api.txn_begin("approve_remediation").await?;
 
     db::dpu_remediation::persist_approve_remediation(
         ApproveRemediation::try_from((request.into_inner(), approved_by))?,
@@ -87,9 +76,7 @@ pub(crate) async fn approve(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit approve_remediation", e)))?;
+    txn.commit().await?;
 
     Ok(Response::new(()))
 }
@@ -101,11 +88,7 @@ pub(crate) async fn revoke(
     crate::api::log_request_data(&request);
     let revoked_by = external_user_name(&request)?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin revoke_remediation", e)))?;
+    let mut txn = api.txn_begin("revoke_remediation").await?;
 
     db::dpu_remediation::persist_revoke_remediation(
         RevokeRemediation::try_from((request.into_inner(), revoked_by))?,
@@ -113,9 +96,7 @@ pub(crate) async fn revoke(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit revoke_remediation", e)))?;
+    txn.commit().await?;
 
     Ok(Response::new(()))
 }
@@ -127,11 +108,7 @@ pub(crate) async fn enable(
     crate::api::log_request_data(&request);
     let enabled_by = external_user_name(&request)?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin enable_remediation", e)))?;
+    let mut txn = api.txn_begin("enable_remediation").await?;
 
     db::dpu_remediation::persist_enable_remediation(
         EnableRemediation::try_from((request.into_inner(), enabled_by))?,
@@ -139,9 +116,7 @@ pub(crate) async fn enable(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit enable_remediation", e)))?;
+    txn.commit().await?;
 
     Ok(Response::new(()))
 }
@@ -153,11 +128,7 @@ pub(crate) async fn disable(
     crate::api::log_request_data(&request);
     let disabled_by = external_user_name(&request)?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin disable_remediation", e)))?;
+    let mut txn = api.txn_begin("disable_remediation").await?;
 
     db::dpu_remediation::persist_disable_remediation(
         DisableRemediation::try_from((request.into_inner(), disabled_by))?,
@@ -165,9 +136,7 @@ pub(crate) async fn disable(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit disable_remediation", e)))?;
+    txn.commit().await?;
 
     Ok(Response::new(()))
 }
@@ -177,18 +146,12 @@ pub(crate) async fn find_remediation_ids(
     request: Request<()>,
 ) -> Result<Response<rpc::RemediationIdList>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin find_remediation_ids", e)))?;
+    let mut txn = api.txn_begin("find_remediation_ids").await?;
 
     let remediation_ids = db::dpu_remediation::find_remediation_ids(&mut txn).await?;
     let response = rpc::RemediationIdList { remediation_ids };
 
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit find_remediation_ids", e)))?;
+    txn.commit().await?;
 
     Ok(Response::new(response))
 }
@@ -341,11 +304,7 @@ pub(crate) async fn remediation_applied(
     request: Request<rpc::RemediationAppliedRequest>,
 ) -> Result<Response<()>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin remediation_applied", e)))?;
+    let mut txn = api.txn_begin("remediation_applied").await?;
 
     let request = request.into_inner();
     let remediation_id = request
@@ -360,9 +319,7 @@ pub(crate) async fn remediation_applied(
 
     db::dpu_remediation::remediation_applied(&mut txn, machine_id, remediation_id, status).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit remediation_applied", e)))?;
+    txn.commit().await?;
 
     Ok(Response::new(()))
 }

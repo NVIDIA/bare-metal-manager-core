@@ -14,17 +14,18 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use db::dhcp_entry::DhcpEntry;
-use db::{self, Transaction, machine_interface};
+use db::{self, machine_interface};
 use mac_address::MacAddress;
 use tonic::{Request, Response};
 
 use crate::CarbideError;
+use crate::api::Api;
 
 pub async fn discover_dhcp(
-    database_connection: &sqlx::PgPool,
+    api: &Api,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
-    let mut txn = Transaction::begin(database_connection, "discover_dhcp").await?;
+    let mut txn = api.txn_begin("discover_dhcp").await?;
 
     let rpc::DhcpDiscovery {
         mac_address,
@@ -106,7 +107,7 @@ pub async fn discover_dhcp(
 
     txn.commit().await?;
 
-    let mut txn = Transaction::begin(database_connection, "discover_dhcp 2").await?;
+    let mut txn = api.txn_begin("discover_dhcp 2").await?;
 
     let record: rpc::DhcpRecord =
         db::dhcp_record::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)

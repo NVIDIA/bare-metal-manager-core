@@ -693,7 +693,7 @@ impl Forge for Api {
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         log_request_data(&request);
 
-        Ok(crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await?)
+        Ok(crate::dhcp::discover::discover_dhcp(self, request).await?)
     }
 
     async fn get_machine(
@@ -3242,7 +3242,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::CreateMeasurementSystemProfileResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_create_system_measurement_profile(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3255,7 +3255,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::DeleteMeasurementSystemProfileResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_delete_measurement_system_profile(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3268,7 +3268,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::RenameMeasurementSystemProfileResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_rename_measurement_system_profile(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3281,7 +3281,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ShowMeasurementSystemProfileResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_show_measurement_system_profile(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3294,7 +3294,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ShowMeasurementSystemProfilesResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_show_measurement_system_profiles(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3307,7 +3307,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ListMeasurementSystemProfilesResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_list_measurement_system_profiles(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3321,7 +3321,7 @@ impl Forge for Api {
     {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_list_measurement_system_profile_bundles(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3335,7 +3335,7 @@ impl Forge for Api {
     {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_list_measurement_system_profile_machines(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3348,7 +3348,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::CreateMeasurementReportResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::report::handle_create_measurement_report(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3361,7 +3361,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::DeleteMeasurementReportResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::report::handle_delete_measurement_report(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3374,7 +3374,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::PromoteMeasurementReportResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::report::handle_promote_measurement_report(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3387,7 +3387,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::RevokeMeasurementReportResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::report::handle_revoke_measurement_report(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3400,7 +3400,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ShowMeasurementReportForIdResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::report::handle_show_measurement_report_for_id(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3413,7 +3413,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ShowMeasurementReportsForMachineResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::report::handle_show_measurement_reports_for_machine(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3425,11 +3425,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ShowMeasurementReportsRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementReportsResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::report::handle_show_measurement_reports(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::report::handle_show_measurement_reports(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3438,11 +3435,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ListMeasurementReportRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementReportResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::report::handle_list_measurement_report(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::report::handle_list_measurement_report(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3451,11 +3445,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::MatchMeasurementReportRequest>,
     ) -> Result<Response<measured_boot_pb::MatchMeasurementReportResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::report::handle_match_measurement_report(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::report::handle_match_measurement_report(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3465,7 +3456,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::CreateMeasurementBundleResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_create_measurement_bundle(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3478,7 +3469,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::DeleteMeasurementBundleResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_delete_measurement_bundle(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3491,7 +3482,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::RenameMeasurementBundleResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_rename_measurement_bundle(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3504,7 +3495,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::UpdateMeasurementBundleResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_update_measurement_bundle(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3516,11 +3507,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ShowMeasurementBundleRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementBundleResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::bundle::handle_show_measurement_bundle(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::bundle::handle_show_measurement_bundle(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3529,11 +3517,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ShowMeasurementBundlesRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementBundlesResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::bundle::handle_show_measurement_bundles(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::bundle::handle_show_measurement_bundles(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3542,11 +3527,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ListMeasurementBundlesRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementBundlesResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::bundle::handle_list_measurement_bundles(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::bundle::handle_list_measurement_bundles(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3556,7 +3538,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ListMeasurementBundleMachinesResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_list_measurement_bundle_machines(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3568,11 +3550,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::FindClosestBundleMatchRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementBundleResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::bundle::handle_find_closest_match(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::bundle::handle_find_closest_match(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3582,7 +3561,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::DeleteMeasurementJournalResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::journal::handle_delete_measurement_journal(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3595,7 +3574,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ShowMeasurementJournalResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::journal::handle_show_measurement_journal(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3608,7 +3587,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ShowMeasurementJournalsResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::journal::handle_show_measurement_journals(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3621,7 +3600,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ListMeasurementJournalResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::journal::handle_list_measurement_journal(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3634,7 +3613,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::AttestCandidateMachineResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::machine::handle_attest_candidate_machine(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3646,11 +3625,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ShowCandidateMachineRequest>,
     ) -> Result<Response<measured_boot_pb::ShowCandidateMachineResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::machine::handle_show_candidate_machine(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::machine::handle_show_candidate_machine(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3659,11 +3635,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ShowCandidateMachinesRequest>,
     ) -> Result<Response<measured_boot_pb::ShowCandidateMachinesResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::machine::handle_show_candidate_machines(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::machine::handle_show_candidate_machines(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3672,11 +3645,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ListCandidateMachinesRequest>,
     ) -> Result<Response<measured_boot_pb::ListCandidateMachinesResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::machine::handle_list_candidate_machines(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::machine::handle_list_candidate_machines(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3685,11 +3655,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ImportSiteMeasurementsRequest>,
     ) -> Result<Response<measured_boot_pb::ImportSiteMeasurementsResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::site::handle_import_site_measurements(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::site::handle_import_site_measurements(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3698,11 +3665,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ExportSiteMeasurementsRequest>,
     ) -> Result<Response<measured_boot_pb::ExportSiteMeasurementsResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::site::handle_export_site_measurements(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::site::handle_export_site_measurements(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -3712,7 +3676,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::AddMeasurementTrustedMachineResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::site::handle_add_measurement_trusted_machine(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3725,7 +3689,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::RemoveMeasurementTrustedMachineResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::site::handle_remove_measurement_trusted_machine(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3738,7 +3702,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ListMeasurementTrustedMachinesResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::site::handle_list_measurement_trusted_machines(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3751,7 +3715,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::AddMeasurementTrustedProfileResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::site::handle_add_measurement_trusted_profile(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3764,7 +3728,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::RemoveMeasurementTrustedProfileResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::site::handle_remove_measurement_trusted_profile(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3777,7 +3741,7 @@ impl Forge for Api {
     ) -> Result<Response<measured_boot_pb::ListMeasurementTrustedProfilesResponse>, Status> {
         Ok(Response::new(
             measured_boot::rpc::site::handle_list_measurement_trusted_profiles(
-                &self.database_connection,
+                self,
                 request.into_inner(),
             )
             .await?,
@@ -3789,11 +3753,8 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ListAttestationSummaryRequest>,
     ) -> Result<Response<measured_boot_pb::ListAttestationSummaryResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::site::handle_list_attestation_summary(
-                &self.database_connection,
-                request.into_inner(),
-            )
-            .await?,
+            measured_boot::rpc::site::handle_list_attestation_summary(self, request.into_inner())
+                .await?,
         ))
     }
 
@@ -4035,29 +3996,28 @@ impl Forge for Api {
         &self,
         request: Request<rpc::TpmCaCert>,
     ) -> Result<Response<rpc::TpmCaAddedCaStatus>, tonic::Status> {
-        crate::handlers::tpm_ca::tpm_add_ca_cert(&self.database_connection, request).await
+        crate::handlers::tpm_ca::tpm_add_ca_cert(self, request).await
     }
 
     async fn tpm_show_ca_certs(
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::TpmCaCertDetailCollection>, tonic::Status> {
-        crate::handlers::tpm_ca::tpm_show_ca_certs(&self.database_connection, &request).await
+        crate::handlers::tpm_ca::tpm_show_ca_certs(self, &request).await
     }
 
     async fn tpm_show_unmatched_ek_certs(
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::TpmEkCertStatusCollection>, tonic::Status> {
-        crate::handlers::tpm_ca::tpm_show_unmatched_ek_certs(&self.database_connection, &request)
-            .await
+        crate::handlers::tpm_ca::tpm_show_unmatched_ek_certs(self, &request).await
     }
 
     async fn tpm_delete_ca_cert(
         &self,
         request: Request<rpc::TpmCaCertId>,
     ) -> Result<Response<()>, tonic::Status> {
-        crate::handlers::tpm_ca::tpm_delete_ca_cert(&self.database_connection, request).await
+        crate::handlers::tpm_ca::tpm_delete_ca_cert(self, request).await
     }
 
     async fn remove_machine_validation_external_config(

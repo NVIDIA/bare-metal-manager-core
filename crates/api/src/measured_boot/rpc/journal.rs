@@ -27,19 +27,18 @@ use rpc::protos::measured_boot::{
     ShowMeasurementJournalsResponse, list_measurement_journal_request,
     show_measurement_journal_request,
 };
-use sqlx::{Pool, Postgres};
 use tonic::Status;
 
+use crate::api::Api;
 use crate::errors::CarbideError;
-use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_delete_measurement_journal handles the DeleteMeasurementJournal
 /// API endpoint.
 pub async fn handle_delete_measurement_journal(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: DeleteMeasurementJournalRequest,
 ) -> Result<DeleteMeasurementJournalResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_delete_measurement_journal").await?;
     let journal = db::measured_boot::journal::delete_where_id(
         &mut txn,
         req.journal_id
@@ -49,7 +48,7 @@ pub async fn handle_delete_measurement_journal(
     .map_err(|e| Status::internal(format!("failed to delete journal: {e}")))?
     .ok_or(Status::not_found("no journal found with that ID"))?;
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(DeleteMeasurementJournalResponse {
         journal: Some(journal.into()),
     })
@@ -58,10 +57,10 @@ pub async fn handle_delete_measurement_journal(
 /// handle_show_measurement_journal handles the ShowMeasurementJournal
 /// API endpoint.
 pub async fn handle_show_measurement_journal(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ShowMeasurementJournalRequest,
 ) -> Result<ShowMeasurementJournalResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_show_measurement_journal").await?;
     let journal = match req.selector {
         Some(selector) => match selector {
             show_measurement_journal_request::Selector::JournalId(journal_id) => {
@@ -97,10 +96,10 @@ pub async fn handle_show_measurement_journal(
 /// handle_show_measurement_journals handles the ShowMeasurementJournals
 /// API endpoint.
 pub async fn handle_show_measurement_journals(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ShowMeasurementJournalsRequest,
 ) -> Result<ShowMeasurementJournalsResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_show_measurement_journals").await?;
 
     Ok(ShowMeasurementJournalsResponse {
         journals: db::measured_boot::journal::get_all(&mut txn)
@@ -115,10 +114,10 @@ pub async fn handle_show_measurement_journals(
 /// handle_list_measurement_journal handles the ListMeasurementJournal
 /// API endpoint.
 pub async fn handle_list_measurement_journal(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ListMeasurementJournalRequest,
 ) -> Result<ListMeasurementJournalResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_list_measurement_journal").await?;
 
     let journals: Vec<MeasurementJournalRecordPb> = match &req.selector {
         Some(list_measurement_journal_request::Selector::MachineId(machine_id)) => {

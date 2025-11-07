@@ -42,19 +42,18 @@ use rpc::protos::measured_boot::{
     RemoveMeasurementTrustedProfileResponse, remove_measurement_trusted_machine_request,
     remove_measurement_trusted_profile_request,
 };
-use sqlx::{Pool, Postgres};
 use tonic::Status;
 
 use crate::CarbideError;
-use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
+use crate::api::Api;
 
 /// handle_import_site_measurements handles the ImportSiteMeasurements
 /// API endpoint.
 pub async fn handle_import_site_measurements(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ImportSiteMeasurementsRequest,
 ) -> Result<ImportSiteMeasurementsResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_import_site_measurements").await?;
 
     // Convert the site model from the SiteModelPb (and
     // make sure its good).
@@ -73,17 +72,17 @@ pub async fn handle_import_site_measurements(
             result: ImportSiteResult::Success.into(),
         });
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     result
 }
 
 /// handle_export_site_measurements handles the ExportSiteMeasurements
 /// API endpoint.
 pub async fn handle_export_site_measurements(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_export_site_measurements").await?;
     let site_model = db::measured_boot::site::export(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("export failed: {e}")))?;
@@ -99,10 +98,12 @@ pub async fn handle_export_site_measurements(
 /// handle_add_measurement_trusted_machine handles the
 /// AddMeasurementTrustedMachine API endpoint.
 pub async fn handle_add_measurement_trusted_machine(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: AddMeasurementTrustedMachineRequest,
 ) -> Result<AddMeasurementTrustedMachineResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_add_measurement_trusted_machine")
+        .await?;
     let approval_type = req.approval_type();
     let approval_record = insert_into_approved_machines(
         &mut txn,
@@ -116,7 +117,7 @@ pub async fn handle_add_measurement_trusted_machine(
     .await
     .map_err(|e| Status::internal(format!("failed to insert trusted machine approval: {e}")))?;
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(AddMeasurementTrustedMachineResponse {
         approval_record: Some(approval_record.into()),
     })
@@ -125,10 +126,12 @@ pub async fn handle_add_measurement_trusted_machine(
 /// handle_remove_measurement_trusted_machine handles the
 /// RemoveMeasurementTrustedMachine API endpoint.
 pub async fn handle_remove_measurement_trusted_machine(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: RemoveMeasurementTrustedMachineRequest,
 ) -> Result<RemoveMeasurementTrustedMachineResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_remove_measurement_trusted_machine")
+        .await?;
 
     let approval_record: MeasurementApprovedMachineRecord = match req.selector {
         // Remove by approval ID.
@@ -156,7 +159,7 @@ pub async fn handle_remove_measurement_trusted_machine(
         }
     };
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(RemoveMeasurementTrustedMachineResponse {
         approval_record: Some(approval_record.into()),
     })
@@ -165,10 +168,12 @@ pub async fn handle_remove_measurement_trusted_machine(
 /// handle_list_measurement_trusted_machines handles the
 /// ListMeasurementTrustedMachines API endpoint.
 pub async fn handle_list_measurement_trusted_machines(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ListMeasurementTrustedMachinesRequest,
 ) -> Result<ListMeasurementTrustedMachinesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_list_measurement_trusted_machines")
+        .await?;
     let approval_records: Vec<MeasurementApprovedMachineRecordPb> = get_approved_machines(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("failed to fetch machine approvals: {e}")))?
@@ -182,10 +187,12 @@ pub async fn handle_list_measurement_trusted_machines(
 /// handle_add_measurement_trusted_profile handles the
 /// AddMeasurementTrustedProfile API endpoint.
 pub async fn handle_add_measurement_trusted_profile(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: AddMeasurementTrustedProfileRequest,
 ) -> Result<AddMeasurementTrustedProfileResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_add_measurement_trusted_profile")
+        .await?;
     let approval_type = req.approval_type();
     let approval_record = insert_into_approved_profiles(
         &mut txn,
@@ -198,7 +205,7 @@ pub async fn handle_add_measurement_trusted_profile(
     .await
     .map_err(|e| Status::internal(format!("failed to insert trusted profile approval: {e}")))?;
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(AddMeasurementTrustedProfileResponse {
         approval_record: Some(approval_record.into()),
     })
@@ -207,10 +214,12 @@ pub async fn handle_add_measurement_trusted_profile(
 /// handle_remove_measurement_trusted_profile handles the
 /// RemoveMeasurementTrustedProfile API endpoint.
 pub async fn handle_remove_measurement_trusted_profile(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: RemoveMeasurementTrustedProfileRequest,
 ) -> Result<RemoveMeasurementTrustedProfileResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_remove_measurement_trusted_profile")
+        .await?;
     let approval_record: MeasurementApprovedProfileRecord = match req.selector {
         // Remove by approval ID.
         Some(remove_measurement_trusted_profile_request::Selector::ApprovalId(approval_uuid)) => {
@@ -232,7 +241,7 @@ pub async fn handle_remove_measurement_trusted_profile(
         }
     };
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(RemoveMeasurementTrustedProfileResponse {
         approval_record: Some(approval_record.into()),
     })
@@ -241,10 +250,12 @@ pub async fn handle_remove_measurement_trusted_profile(
 /// handle_list_measurement_trusted_profiles handles the
 /// ListMeasurementTrustedProfiles API endpoint.
 pub async fn handle_list_measurement_trusted_profiles(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ListMeasurementTrustedProfilesRequest,
 ) -> Result<ListMeasurementTrustedProfilesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_list_measurement_trusted_profiles")
+        .await?;
     let approval_records: Vec<MeasurementApprovedProfileRecordPb> = get_approved_profiles(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("failed to fetch profile approvals: {e}")))?
@@ -256,10 +267,10 @@ pub async fn handle_list_measurement_trusted_profiles(
 }
 
 pub async fn handle_list_attestation_summary(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ListAttestationSummaryRequest,
 ) -> Result<ListAttestationSummaryResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_list_attestation_summary").await?;
     let attestation_summary = list_attestation_summary(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("failed to fetch attestation summary: {e}")))?;

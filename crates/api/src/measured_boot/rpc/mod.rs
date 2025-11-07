@@ -17,7 +17,6 @@
  * This includes handlers for all gRPC calls, for all aspects of
  * measured boot:
  *  - `bundle`: Measurement bundles.
- *  - `common`: Generic functions leveraged by all gRPC calls.
  *  - `journal`: Measurement journals.
  *  - `machine`: Mock machines (will eventually go away).
  *  - `profile`: System profiles.
@@ -26,7 +25,6 @@
  */
 
 pub mod bundle;
-pub mod common;
 pub mod journal;
 pub mod machine;
 pub mod profile;

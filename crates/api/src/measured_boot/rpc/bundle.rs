@@ -33,19 +33,18 @@ use rpc::protos::measured_boot::{
     rename_measurement_bundle_request, show_measurement_bundle_request,
     update_measurement_bundle_request,
 };
-use sqlx::{Pool, Postgres};
 use tonic::Status;
 
+use crate::api::Api;
 use crate::errors::CarbideError;
-use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 
 /// handle_create_measurement_bundle handles the CreateMeasurementBundle
 /// API endpoint.
 pub async fn handle_create_measurement_bundle(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: CreateMeasurementBundleRequest,
 ) -> Result<CreateMeasurementBundleResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_create_measurement_bundle").await?;
     let state = req.state();
     let bundle = db::measured_boot::bundle::new_with_txn(
         &mut txn,
@@ -58,7 +57,7 @@ pub async fn handle_create_measurement_bundle(
     .await
     .map_err(|e| Status::internal(format!("failed to create new bundle: {e}")))?;
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(CreateMeasurementBundleResponse {
         bundle: Some(bundle.into()),
     })
@@ -67,10 +66,10 @@ pub async fn handle_create_measurement_bundle(
 /// handle_delete_measurement_bundle handles the DeleteMeasurementBundle
 /// API endpoint.
 pub async fn handle_delete_measurement_bundle(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: DeleteMeasurementBundleRequest,
 ) -> Result<DeleteMeasurementBundleResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_delete_measurement_bundle").await?;
     let bundle = match req.selector {
         // Delete for the given bundle ID.
         Some(delete_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
@@ -92,7 +91,7 @@ pub async fn handle_delete_measurement_bundle(
         }
     };
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(DeleteMeasurementBundleResponse {
         bundle: Some(bundle.into()),
     })
@@ -101,10 +100,10 @@ pub async fn handle_delete_measurement_bundle(
 /// handle_rename_measurement_bundle handles the RenameMeasurementBundle
 /// API endpoint.
 pub async fn handle_rename_measurement_bundle(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: RenameMeasurementBundleRequest,
 ) -> Result<RenameMeasurementBundleResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_rename_measurement_bundle").await?;
     let bundle = match req.selector {
         // Rename for the given bundle ID.
         Some(rename_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
@@ -126,7 +125,7 @@ pub async fn handle_rename_measurement_bundle(
         }
     };
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(RenameMeasurementBundleResponse {
         bundle: Some(bundle.into()),
     })
@@ -135,10 +134,10 @@ pub async fn handle_rename_measurement_bundle(
 /// handle_update_measurement_bundle handles the UpdateMeasurementBundle
 /// API endpoint.
 pub async fn handle_update_measurement_bundle(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: UpdateMeasurementBundleRequest,
 ) -> Result<UpdateMeasurementBundleResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_update_measurement_bundle").await?;
     let state = req.state();
     let bundle_id = match req.selector {
         // Update for the given bundle ID.
@@ -161,7 +160,7 @@ pub async fn handle_update_measurement_bundle(
         .await
         .map_err(|e| Status::internal(format!("failed to update bundle: {e}")))?;
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(UpdateMeasurementBundleResponse {
         bundle: Some(bundle.into()),
     })
@@ -170,10 +169,10 @@ pub async fn handle_update_measurement_bundle(
 /// handle_show_measurement_bundle handles the ShowMeasurementBundle
 /// API endpoint.
 pub async fn handle_show_measurement_bundle(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ShowMeasurementBundleRequest,
 ) -> Result<ShowMeasurementBundleResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_show_measurement_bundle").await?;
     let bundle = match req.selector {
         Some(show_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
             db::measured_boot::bundle::from_id_with_txn(&mut txn, bundle_uuid)
@@ -196,10 +195,10 @@ pub async fn handle_show_measurement_bundle(
 /// handle_show_measurement_bundles handles the ShowMeasurementBundles
 /// API endpoint.
 pub async fn handle_show_measurement_bundles(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ShowMeasurementBundlesRequest,
 ) -> Result<ShowMeasurementBundlesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_show_measurement_bundles").await?;
     Ok(ShowMeasurementBundlesResponse {
         bundles: db::measured_boot::bundle::get_all(&mut txn)
             .await
@@ -213,10 +212,10 @@ pub async fn handle_show_measurement_bundles(
 /// handle_list_measurement_bundles handles the ListMeasurementBundles
 /// API endpoint.
 pub async fn handle_list_measurement_bundles(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ListMeasurementBundlesRequest,
 ) -> Result<ListMeasurementBundlesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_list_measurement_bundles").await?;
     let bundles: Vec<MeasurementBundleRecordPb> = get_measurement_bundle_records_with_txn(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("{e}")))?
@@ -230,10 +229,12 @@ pub async fn handle_list_measurement_bundles(
 /// handle_list_measurement_bundle_machines handles the
 /// ListMeasurementBundleMachines API endpoint.
 pub async fn handle_list_measurement_bundle_machines(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ListMeasurementBundleMachinesRequest,
 ) -> Result<ListMeasurementBundleMachinesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_list_measurement_bundle_machines")
+        .await?;
     let machine_ids: Vec<String> = match req.selector {
         // Select by bundle ID.
         Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_uuid)) => {
@@ -261,10 +262,10 @@ pub async fn handle_list_measurement_bundle_machines(
 }
 
 pub async fn handle_find_closest_match(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: FindClosestBundleMatchRequest,
 ) -> Result<ShowMeasurementBundleResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_find_closest_match").await?;
 
     let report_id = req
         .report_id
