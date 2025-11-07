@@ -160,7 +160,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             .get_credentials(&credential_key)
             .await?
             .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
-                key: credential_key.to_key_str(),
+                key: credential_key.to_key_str().to_string(),
             })?;
 
         let (_, current_password) = match credentials {
@@ -247,7 +247,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 .get_credentials(&credential_key)
                 .await?
                 .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
-                    key: credential_key.to_key_str(),
+                    key: credential_key.to_key_str().to_string(),
                 })?;
 
             (_, new_password) = match credentials {
@@ -263,7 +263,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 .get_credentials(&credential_key)
                 .await?
                 .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
-                    key: credential_key.to_key_str(),
+                    key: credential_key.to_key_str().to_string(),
                 })?;
 
             (_, new_password) = match credentials {
@@ -335,7 +335,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
                     .get_credentials(&credential_key)
                     .await?
                     .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
-                        key: credential_key.to_key_str(),
+                        key: credential_key.to_key_str().to_string(),
                     })?;
 
                 let (username, password) = match credentials {

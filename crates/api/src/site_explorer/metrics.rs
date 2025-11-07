@@ -103,7 +103,7 @@ impl SiteExplorationMetrics {
             .or_default() += 1;
     }
 
-    pub fn increment_credential_missing(&mut self, credential_key: String) {
+    pub fn increment_credential_missing(&mut self, credential_key: &str) {
         self.increment_endpoint_explorations_failures(format!(
             "credentials_missing_{credential_key}"
         ))
