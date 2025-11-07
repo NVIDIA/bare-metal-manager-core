@@ -36,18 +36,20 @@ use rpc::protos::measured_boot::{
     list_measurement_system_profile_machines_request, rename_measurement_system_profile_request,
     show_measurement_system_profile_request,
 };
-use sqlx::{PgConnection, Pool, Postgres};
+use sqlx::PgConnection;
 use tonic::Status;
 
-use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
+use crate::api::Api;
 
 /// handle_create_system_measurement_profile handles the
 /// CreateMeasurementSystemProfile API endpoint.
 pub async fn handle_create_system_measurement_profile(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: CreateMeasurementSystemProfileRequest,
 ) -> Result<CreateMeasurementSystemProfileResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_create_system_measurement_profile")
+        .await?;
     // sys_vendor and product_name are the two baseline attrs, so
     // just treat them as requirements, and then smash the
     // remaining ones on as "extra-attrs".
@@ -63,7 +65,7 @@ pub async fn handle_create_system_measurement_profile(
         .await
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(CreateMeasurementSystemProfileResponse {
         system_profile: Some(system_profile.into()),
     })
@@ -72,10 +74,12 @@ pub async fn handle_create_system_measurement_profile(
 /// handle_rename_measurement_system_profile handles the
 /// RenameMeasurementSystemProfile API endpoint.
 pub async fn handle_rename_measurement_system_profile(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: RenameMeasurementSystemProfileRequest,
 ) -> Result<RenameMeasurementSystemProfileResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_rename_measurement_system_profile")
+        .await?;
     let profile = match req.selector {
         // Rename for the given system_profile ID.
         Some(rename_measurement_system_profile_request::Selector::ProfileId(
@@ -105,7 +109,7 @@ pub async fn handle_rename_measurement_system_profile(
         }
     };
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(RenameMeasurementSystemProfileResponse {
         profile: Some(profile.into()),
     })
@@ -114,10 +118,12 @@ pub async fn handle_rename_measurement_system_profile(
 /// handle_delete_measurement_system_profile handles the
 /// DeleteMeasurementSystemProfile API endpoint.
 pub async fn handle_delete_measurement_system_profile(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: DeleteMeasurementSystemProfileRequest,
 ) -> Result<DeleteMeasurementSystemProfileResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_delete_measurement_system_profile")
+        .await?;
     let profile: Option<MeasurementSystemProfile> = match req.selector {
         // Deleting a profile based on profile ID.
         Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_uuid)) => {
@@ -135,7 +141,7 @@ pub async fn handle_delete_measurement_system_profile(
         "profile not found with provided selector",
     ))?;
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(DeleteMeasurementSystemProfileResponse {
         system_profile: Some(system_profile.into()),
     })
@@ -144,10 +150,12 @@ pub async fn handle_delete_measurement_system_profile(
 /// handle_show_measurement_system_profile handles the
 /// ShowMeasurementSystemProfile API endpoint.
 pub async fn handle_show_measurement_system_profile(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ShowMeasurementSystemProfileRequest,
 ) -> Result<ShowMeasurementSystemProfileResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_show_measurement_system_profile")
+        .await?;
     let system_profile = match req.selector {
         // Show a system profile with the given profile ID.
         Some(show_measurement_system_profile_request::Selector::ProfileId(profile_uuid)) => {
@@ -173,10 +181,12 @@ pub async fn handle_show_measurement_system_profile(
 /// handle_show_measurement_system_profiles handles the
 /// ShowMeasurementSystemProfiles API endpoint.
 pub async fn handle_show_measurement_system_profiles(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ShowMeasurementSystemProfilesRequest,
 ) -> Result<ShowMeasurementSystemProfilesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_show_measurement_system_profiles")
+        .await?;
     Ok(ShowMeasurementSystemProfilesResponse {
         system_profiles: db::measured_boot::profile::get_all(&mut txn)
             .await
@@ -190,10 +200,12 @@ pub async fn handle_show_measurement_system_profiles(
 /// handle_list_measurement_system_profiles handles the
 /// ListMeasurementSystemProfiles API endpoint.
 pub async fn handle_list_measurement_system_profiles(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ListMeasurementSystemProfilesRequest,
 ) -> Result<ListMeasurementSystemProfilesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_list_measurement_system_profiles")
+        .await?;
     let system_profiles: Vec<MeasurementSystemProfileRecordPb> =
         export_measurement_profile_records(&mut txn)
             .await
@@ -208,10 +220,12 @@ pub async fn handle_list_measurement_system_profiles(
 /// handle_list_measurement_system_profile_bundles handles the
 /// ListMeasurementSystemProfileBundles API endpoint.
 pub async fn handle_list_measurement_system_profile_bundles(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ListMeasurementSystemProfileBundlesRequest,
 ) -> Result<ListMeasurementSystemProfileBundlesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_list_measurement_system_profile_bundles")
+        .await?;
     let bundle_ids = match req.selector {
         // ...and do it by profile ID.
         Some(list_measurement_system_profile_bundles_request::Selector::ProfileId(
@@ -237,10 +251,12 @@ pub async fn handle_list_measurement_system_profile_bundles(
 /// handle_list_measurement_system_profile_machines handles the
 /// ListMeasurementSystemProfileMachines API endpoint.
 pub async fn handle_list_measurement_system_profile_machines(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ListMeasurementSystemProfileMachinesRequest,
 ) -> Result<ListMeasurementSystemProfileMachinesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api
+        .txn_begin("handle_list_measurement_system_profile_machines")
+        .await?;
     let machine_ids: Vec<String> = match req.selector {
         // ...and do it by profile ID.
         Some(list_measurement_system_profile_machines_request::Selector::ProfileId(profile_id)) => {

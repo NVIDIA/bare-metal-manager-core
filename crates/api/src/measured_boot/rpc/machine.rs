@@ -25,18 +25,17 @@ use rpc::protos::measured_boot::{
     ListCandidateMachinesResponse, ShowCandidateMachineRequest, ShowCandidateMachineResponse,
     ShowCandidateMachinesRequest, ShowCandidateMachinesResponse, show_candidate_machine_request,
 };
-use sqlx::{Pool, Postgres};
 use tonic::Status;
 
 use crate::CarbideError;
-use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
+use crate::api::Api;
 
 /// handle_attest_candidate_machine handles the AttestCandidateMachine API endpoint.
 pub async fn handle_attest_candidate_machine(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: AttestCandidateMachineRequest,
 ) -> Result<AttestCandidateMachineResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_attest_candidate_machine").await?;
     let report = db::measured_boot::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
@@ -47,7 +46,7 @@ pub async fn handle_attest_candidate_machine(
     .await
     .map_err(|e| Status::internal(format!("failed saving measurements: {e}")))?;
 
-    commit_txn(txn).await?;
+    txn.commit().await?;
     Ok(AttestCandidateMachineResponse {
         report: Some(report.into()),
     })
@@ -55,10 +54,10 @@ pub async fn handle_attest_candidate_machine(
 
 /// handle_show_candidate_machine handles the ShowCandidateMachine API endpoint.
 pub async fn handle_show_candidate_machine(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     req: ShowCandidateMachineRequest,
 ) -> Result<ShowCandidateMachineResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_show_candidate_machine").await?;
     let machine = match req.selector {
         // Show a machine with the given ID.
         Some(show_candidate_machine_request::Selector::MachineId(machine_uuid)) => {
@@ -82,10 +81,10 @@ pub async fn handle_show_candidate_machine(
 
 /// handle_show_candidate_machines handles the ShowCandidateMachines API endpoint.
 pub async fn handle_show_candidate_machines(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ShowCandidateMachinesRequest,
 ) -> Result<ShowCandidateMachinesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_show_candidate_machines").await?;
     Ok(ShowCandidateMachinesResponse {
         machines: db::measured_boot::machine::get_all(&mut txn)
             .await
@@ -98,10 +97,10 @@ pub async fn handle_show_candidate_machines(
 
 /// handle_list_candidate_machines handles the ListCandidateMachine API endpoint.
 pub async fn handle_list_candidate_machines(
-    db_conn: &Pool<Postgres>,
+    api: &Api,
     _req: ListCandidateMachinesRequest,
 ) -> Result<ListCandidateMachinesResponse, Status> {
-    let mut txn = begin_txn(db_conn).await?;
+    let mut txn = api.txn_begin("handle_list_candidate_machines").await?;
     Ok(ListCandidateMachinesResponse {
         machines: get_candidate_machine_records(&mut txn)
             .await

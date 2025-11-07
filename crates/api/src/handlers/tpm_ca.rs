@@ -11,16 +11,16 @@
  */
 
 use ::rpc::forge as rpc;
-use db::{Transaction, attestation as db_attest};
+use db::attestation as db_attest;
 use tonic::{Request, Response};
 use x509_parser::prelude::FromDer;
 use x509_parser::x509::X509Name;
 
-use crate::api::log_request_data;
+use crate::api::{Api, log_request_data};
 use crate::{CarbideError, attestation as attest};
 
 pub(crate) async fn tpm_add_ca_cert(
-    database_connection: &sqlx::PgPool,
+    api: &Api,
     request: Request<rpc::TpmCaCert>,
 ) -> Result<Response<rpc::TpmCaAddedCaStatus>, tonic::Status> {
     log_request_data(&request);
@@ -30,7 +30,7 @@ pub(crate) async fn tpm_add_ca_cert(
     // parse ca cert, extract serial num, nvb, nva, subject (in binary)
     let (not_valid_before, not_valid_after, subject) = attest::extract_ca_fields(ca_cert_bytes)?;
     // insert cert into the DB (in binary) + all the extracted fields above
-    let mut txn = Transaction::begin(database_connection, "tpm_add_ca_cert").await?;
+    let mut txn = api.txn_begin("tpm_add_ca_cert").await?;
 
     let db_ca_cert_opt = db_attest::tpm_ca_certs::insert(
         &mut txn,
@@ -83,12 +83,12 @@ pub(crate) async fn tpm_add_ca_cert(
 }
 
 pub(crate) async fn tpm_show_ca_certs(
-    database_connection: &sqlx::PgPool,
+    api: &Api,
     request: &Request<()>,
 ) -> Result<Response<rpc::TpmCaCertDetailCollection>, tonic::Status> {
     log_request_data(request);
 
-    let mut txn = Transaction::begin(database_connection, "tpm_show_ca_certs").await?;
+    let mut txn = api.txn_begin("tpm_show_ca_certs").await?;
 
     let ca_certs = db_attest::tpm_ca_certs::get_all(&mut txn).await?;
 
@@ -112,12 +112,12 @@ pub(crate) async fn tpm_show_ca_certs(
 }
 
 pub(crate) async fn tpm_show_unmatched_ek_certs(
-    database_connection: &sqlx::PgPool,
+    api: &Api,
     request: &Request<()>,
 ) -> Result<Response<rpc::TpmEkCertStatusCollection>, tonic::Status> {
     log_request_data(request);
 
-    let mut txn = Transaction::begin(database_connection, "tpm_show_unmatched_ek_certs").await?;
+    let mut txn = api.txn_begin("tpm_show_unmatched_ek_certs").await?;
 
     let unmatched_ek_statuses =
         db_attest::ek_cert_verification_status::get_by_unmatched_ca(&mut txn).await?;
@@ -142,7 +142,7 @@ pub(crate) async fn tpm_show_unmatched_ek_certs(
 }
 
 pub(crate) async fn tpm_delete_ca_cert(
-    database_connection: &sqlx::PgPool,
+    api: &Api,
     request: Request<rpc::TpmCaCertId>,
 ) -> Result<Response<()>, tonic::Status> {
     log_request_data(&request);
@@ -150,7 +150,7 @@ pub(crate) async fn tpm_delete_ca_cert(
     let payload = request.into_inner();
     let ca_cert_id = payload.ca_cert_id;
 
-    let mut txn = Transaction::begin(database_connection, "tpm_delete_ca_cert").await?;
+    let mut txn = api.txn_begin("tpm_delete_ca_cert").await?;
 
     db_attest::ek_cert_verification_status::unmatch_ca_verification_status(&mut txn, ca_cert_id)
         .await?;
