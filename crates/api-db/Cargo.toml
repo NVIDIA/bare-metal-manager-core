@@ -49,7 +49,7 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tss-esapi = { optional = true , workspace = true }
-version-compare = { version = "0.2.0" }
+version-compare = { workspace = true }
 uuid = { features = ["v4", "serde"] , workspace = true }
 #these are alphabetized
 

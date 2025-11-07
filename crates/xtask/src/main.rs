@@ -9,17 +9,34 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-mod move_deps_to_workspace;
+mod workspace_deps;
 
-use std::env::args;
+use clap::Parser;
 
-use crate::move_deps_to_workspace::move_deps_to_workspace;
+#[derive(Parser, Debug)]
+#[clap(name = "xtask")]
+enum Xtask {
+    #[clap(
+        name = "check-workspace-deps",
+        about = "Check for any dependency versions defined in crate-level Cargo.toml's instead of the workspace root"
+    )]
+    CheckWorkspaceDeps(CheckWorkspaceDeps),
+}
+
+#[derive(Parser, Debug)]
+struct CheckWorkspaceDeps {
+    #[clap(
+        short,
+        long,
+        help = "Fix any dependencies defined in crate-level Cargo.toml's by moving them to the workspace root"
+    )]
+    fix: bool,
+}
 
 fn main() -> eyre::Result<()> {
-    match args().nth(1).as_deref() {
-        Some("move-deps-to-workspace") => move_deps_to_workspace()?,
-        _ => eprintln!("Usage: cargo xtask move-deps-to-workspace"),
+    match Xtask::parse() {
+        Xtask::CheckWorkspaceDeps(CheckWorkspaceDeps { fix }) => {
+            workspace_deps::check(fix)?.report_and_exit()
+        }
     };
-
-    Ok(())
 }

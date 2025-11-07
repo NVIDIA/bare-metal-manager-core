@@ -9,6 +9,9 @@ authors.workspace = true
 toml_edit = { workspace = true }
 walkdir = { workspace = true }
 eyre = { workspace = true }
+clap = { workspace = true }
+similar = { workspace = true }
+version-compare = { workspace = true }
 
 [lints]
 workspace = true
