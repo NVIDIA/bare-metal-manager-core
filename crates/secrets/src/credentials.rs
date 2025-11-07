@@ -114,18 +114,17 @@ impl Credentials {
 #[async_trait]
 /// Abstract over a credentials provider that functions as a kv map between "key" -> "cred"
 pub trait CredentialProvider: Send + Sync {
-    // TODO: Should this take CredentialKey by ref? It's not Copy
     async fn get_credentials(
         &self,
-        key: CredentialKey,
+        key: &CredentialKey,
     ) -> Result<Option<Credentials>, SecretsError>;
     async fn set_credentials(
         &self,
-        key: CredentialKey,
-        credentials: Credentials,
+        key: &CredentialKey,
+        credentials: &Credentials,
     ) -> Result<(), SecretsError>;
 
-    async fn delete_credentials(&self, key: CredentialKey) -> Result<(), SecretsError>;
+    async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError>;
 }
 
 #[derive(Default)]
@@ -149,7 +148,7 @@ impl TestCredentialProvider {
 impl CredentialProvider for TestCredentialProvider {
     async fn get_credentials(
         &self,
-        key: CredentialKey,
+        key: &CredentialKey,
     ) -> Result<Option<Credentials>, SecretsError> {
         let credentials = self.credentials.lock().await;
         let cred = credentials
@@ -161,16 +160,16 @@ impl CredentialProvider for TestCredentialProvider {
 
     async fn set_credentials(
         &self,
-        key: CredentialKey,
-        credentials: Credentials,
+        key: &CredentialKey,
+        credentials: &Credentials,
     ) -> Result<(), SecretsError> {
         let mut data = self.credentials.lock().await;
-        let _ = data.insert(key.to_key_str(), credentials);
+        let _ = data.insert(key.to_key_str(), credentials.clone());
 
         Ok(())
     }
 
-    async fn delete_credentials(&self, key: CredentialKey) -> Result<(), SecretsError> {
+    async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
         let mut data = self.credentials.lock().await;
         let _ = data.remove(&key.to_key_str());
 

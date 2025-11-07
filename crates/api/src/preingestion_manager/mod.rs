@@ -1179,7 +1179,7 @@ impl PreingestionManagerStatic {
                     bmc_mac_address: interface.mac_address,
                 },
             };
-            match credential_provider.get_credentials(key).await {
+            match credential_provider.get_credentials(&key).await {
                 Ok(Some(credentials)) => match credentials {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 },

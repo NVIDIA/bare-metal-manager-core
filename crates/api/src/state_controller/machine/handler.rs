@@ -2650,7 +2650,7 @@ async fn handle_dpu_reprovision(
                         .ipmi_tool
                         .bmc_cold_reset(
                             bmc_ip_address,
-                            CredentialKey::BmcCredentials {
+                            &CredentialKey::BmcCredentials {
                                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                             },
                         )
@@ -6221,7 +6221,7 @@ impl HostUpgradeState {
             let key = CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             };
-            match credential_provider.get_credentials(key).await {
+            match credential_provider.get_credentials(&key).await {
                 Ok(Some(credentials)) => match credentials {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 },

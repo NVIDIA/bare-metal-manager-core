@@ -157,7 +157,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 
         let credentials = self
             .credential_provider()
-            .get_credentials(credential_key.clone())
+            .get_credentials(&credential_key)
             .await?
             .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
                 key: credential_key.to_key_str(),
@@ -226,7 +226,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             //
             let credentials = self
                 .credential_provider()
-                .get_credentials(CredentialKey::DpuUefi {
+                .get_credentials(&CredentialKey::DpuUefi {
                     credential_type: CredentialType::DpuHardwareDefault,
                 })
                 .await?
@@ -244,7 +244,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             };
             let credentials = self
                 .credential_provider()
-                .get_credentials(credential_key.clone())
+                .get_credentials(&credential_key)
                 .await?
                 .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
                     key: credential_key.to_key_str(),
@@ -260,7 +260,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             };
             let credentials = self
                 .credential_provider()
-                .get_credentials(credential_key.clone())
+                .get_credentials(&credential_key)
                 .await?
                 .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
                     key: credential_key.to_key_str(),
@@ -332,7 +332,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             RedfishAuth::Key(credential_key) => {
                 let credentials = self
                     .credential_provider
-                    .get_credentials(credential_key.clone())
+                    .get_credentials(&credential_key)
                     .await?
                     .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
                         key: credential_key.to_key_str(),
@@ -528,7 +528,7 @@ pub async fn host_power_control(
             };
 
             ipmi_tool
-                .restart(&machine.id, ip, false, credential_key)
+                .restart(&machine.id, ip, false, &credential_key)
                 .await
                 .map_err(|e: eyre::ErrReport| {
                     CarbideError::internal(format!("Failed to restart machine: {e}"))

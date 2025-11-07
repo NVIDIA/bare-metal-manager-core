@@ -67,10 +67,10 @@ pub(crate) async fn create_credential(
             if let Some(username) = req.username {
                 api.credential_provider
                     .set_credentials(
-                        CredentialKey::UfmAuth {
+                        &CredentialKey::UfmAuth {
                             fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
                         },
-                        Credentials::UsernamePassword {
+                        &Credentials::UsernamePassword {
                             username: username.clone(),
                             password: password.clone(),
                         },
@@ -92,7 +92,7 @@ pub(crate) async fn create_credential(
         rpc::CredentialType::DpuUefi => {
             if (api
                 .credential_provider
-                .get_credentials(CredentialKey::DpuUefi {
+                .get_credentials(&CredentialKey::DpuUefi {
                     credential_type: CredentialType::SiteDefault,
                 })
                 .await)
@@ -105,10 +105,10 @@ pub(crate) async fn create_credential(
             }
             api.credential_provider
                 .set_credentials(
-                    CredentialKey::DpuUefi {
+                    &CredentialKey::DpuUefi {
                         credential_type: CredentialType::SiteDefault,
                     },
-                    Credentials::UsernamePassword {
+                    &Credentials::UsernamePassword {
                         username: "".to_string(),
                         password: password.clone(),
                     },
@@ -121,7 +121,7 @@ pub(crate) async fn create_credential(
         rpc::CredentialType::HostUefi => {
             if api
                 .credential_provider
-                .get_credentials(CredentialKey::HostUefi {
+                .get_credentials(&CredentialKey::HostUefi {
                     credential_type: CredentialType::SiteDefault,
                 })
                 .await
@@ -134,10 +134,10 @@ pub(crate) async fn create_credential(
             }
             api.credential_provider
                 .set_credentials(
-                    CredentialKey::HostUefi {
+                    &CredentialKey::HostUefi {
                         credential_type: CredentialType::SiteDefault,
                     },
-                    Credentials::UsernamePassword {
+                    &Credentials::UsernamePassword {
                         username: "".to_string(),
                         password: password.clone(),
                     },
@@ -157,10 +157,10 @@ pub(crate) async fn create_credential(
             let vendor: bmc_vendor::BMCVendor = vendor.as_str().into();
             api.credential_provider
                 .set_credentials(
-                    CredentialKey::HostRedfish {
+                    &CredentialKey::HostRedfish {
                         credential_type: CredentialType::HostHardwareDefault { vendor },
                     },
-                    Credentials::UsernamePassword { username, password },
+                    &Credentials::UsernamePassword { username, password },
                 )
                 .await
                 .map_err(|e| {
@@ -175,10 +175,10 @@ pub(crate) async fn create_credential(
             };
             api.credential_provider
                 .set_credentials(
-                    CredentialKey::DpuRedfish {
+                    &CredentialKey::DpuRedfish {
                         credential_type: CredentialType::DpuHardwareDefault,
                     },
-                    Credentials::UsernamePassword { username, password },
+                    &Credentials::UsernamePassword { username, password },
                 )
                 .await
                 .map_err(|e| {
@@ -234,10 +234,10 @@ pub(crate) async fn delete_credential(
             if let Some(username) = req.username {
                 api.credential_provider
                     .set_credentials(
-                        CredentialKey::UfmAuth {
+                        &CredentialKey::UfmAuth {
                             fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
                         },
-                        Credentials::UsernamePassword {
+                        &Credentials::UsernamePassword {
                             username: username.clone(),
                             password: "".to_string(),
                         },
@@ -354,7 +354,7 @@ pub(crate) async fn get_dpu_ssh_credential(
     // Load credentials from Vault
     let credentials = api
         .credential_provider
-        .get_credentials(CredentialKey::DpuSsh {
+        .get_credentials(&CredentialKey::DpuSsh {
             machine_id: machine_id.to_string(),
         })
         .await
@@ -398,7 +398,7 @@ async fn set_sitewide_bmc_root_credentials(
         password: password.clone(),
     };
 
-    set_bmc_credentials(api, credential_key, credentials).await
+    set_bmc_credentials(api, &credential_key, &credentials).await
 }
 
 pub(crate) async fn delete_bmc_root_credentials_by_mac(
@@ -410,7 +410,7 @@ pub(crate) async fn delete_bmc_root_credentials_by_mac(
     };
 
     api.credential_provider
-        .delete_credentials(credential_key)
+        .delete_credentials(&credential_key)
         .await
         .map_err(|e| CarbideError::internal(format!("Error deleting credential for BMC: {e:?} ")))
 }
@@ -430,13 +430,13 @@ async fn set_bmc_root_credentials_by_mac(
         password: password.clone(),
     };
 
-    set_bmc_credentials(api, credential_key, credentials).await
+    set_bmc_credentials(api, &credential_key, &credentials).await
 }
 
 async fn set_bmc_credentials(
     api: &Api,
-    credential_key: CredentialKey,
-    credentials: Credentials,
+    credential_key: &CredentialKey,
+    credentials: &Credentials,
 ) -> Result<(), CarbideError> {
     api.credential_provider
         .set_credentials(credential_key, credentials)

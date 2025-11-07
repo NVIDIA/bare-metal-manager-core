@@ -1424,10 +1424,10 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
 async fn populate_default_credentials(credential_provider: &dyn CredentialProvider) {
     credential_provider
         .set_credentials(
-            CredentialKey::DpuRedfish {
+            &CredentialKey::DpuRedfish {
                 credential_type: CredentialType::DpuHardwareDefault,
             },
-            Credentials::UsernamePassword {
+            &Credentials::UsernamePassword {
                 username: "root".to_string(),
                 password: "dpuredfish_dpuhardwaredefault".to_string(),
             },
@@ -1436,10 +1436,10 @@ async fn populate_default_credentials(credential_provider: &dyn CredentialProvid
         .unwrap();
     credential_provider
         .set_credentials(
-            CredentialKey::DpuRedfish {
+            &CredentialKey::DpuRedfish {
                 credential_type: CredentialType::SiteDefault,
             },
-            Credentials::UsernamePassword {
+            &Credentials::UsernamePassword {
                 username: "root".to_string(),
                 password: "dpuredfish_sitedefault".to_string(),
             },
@@ -1448,10 +1448,10 @@ async fn populate_default_credentials(credential_provider: &dyn CredentialProvid
         .unwrap();
     credential_provider
         .set_credentials(
-            CredentialKey::HostRedfish {
+            &CredentialKey::HostRedfish {
                 credential_type: CredentialType::SiteDefault,
             },
-            Credentials::UsernamePassword {
+            &Credentials::UsernamePassword {
                 username: "root".to_string(),
                 password: "hostredfish_sitedefault".to_string(),
             },
