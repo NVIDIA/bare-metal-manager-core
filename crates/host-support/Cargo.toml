@@ -24,10 +24,10 @@ base64 = { workspace = true }
 csv = { workspace = true }
 eyre = { workspace = true }
 ipnetwork = { workspace = true }
-libudev = { optional = true , workspace = true }
-procfs = { optional = true , workspace = true }
+libudev = { optional = true, workspace = true }
+procfs = { optional = true, workspace = true }
 regex = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 smbios-lib = { workspace = true }
 thiserror = { workspace = true }
@@ -35,7 +35,10 @@ tokio = { workspace = true }
 toml = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
 tryhard = { workspace = true }
 uname = { workspace = true }
 uuid = { workspace = true }

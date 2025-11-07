@@ -34,7 +34,7 @@ lazy_static = { workspace = true }
 once_cell = { workspace = true }
 pwhash = { workspace = true }
 regex = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 smbios-lib = { workspace = true }
 tracing = { workspace = true }
@@ -46,9 +46,9 @@ tss-esapi = { workspace = true }
 uname = { workspace = true }
 uuid = { workspace = true }
 reqwest = { default-features = false, features = [
-    "rustls-tls",
-    "stream",
-] , workspace = true }
+  "rustls-tls",
+  "stream",
+], workspace = true }
 futures-util = { workspace = true }
 prost-types = { workspace = true }
 x509-parser = { workspace = true }

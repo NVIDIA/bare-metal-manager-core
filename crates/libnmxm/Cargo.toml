@@ -1,0 +1,37 @@
+[package]
+name = "libnmxm"
+version = "0.1.0"
+edition = "2021"
+exclude = ["/tests"]
+
+[lib]
+name = "libnmxm"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = "*"
+serde_derive = "1"
+serde = { features = ["derive"], workspace = true }
+serde_with = "*"
+serde_json = { workspace = true }
+tokio = { workspace = true }
+#tracing = "*"
+#thiserror = "*"
+#tracing-subscriber =  { workspace = true }
+#anyhow = "1.0.82"
+#getopts = "0.2.21"
+#uuid = { version = "^1.8", features = ["serde", "v4"] }
+#async-trait = "*"
+reqwest = { workspace = true, default-features = false, features = [
+  "json",
+  "rustls-tls",
+  "stream",
+  "socks",
+  "cookies",
+] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+getopts = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v4"] }

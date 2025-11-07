@@ -97,7 +97,14 @@ category = "Build"
 workspace = false
 description = "Referring to the prebuilt 'build' task doesn't work here, since it always tries to build the full workspace - including targets that are not aarch64 compatible"
 command = "cargo"
-args = ["build", "--release", "--bin", "forge-dpu-agent", "--bin", "forge-dhcp-server"]
+args = [
+  "build",
+  "--release",
+  "--bin",
+  "forge-dpu-agent",
+  "--bin",
+  "forge-dhcp-server",
+]
 
 [tasks.build-dpu-otel-agent]
 category = "Build"

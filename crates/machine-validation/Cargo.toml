@@ -14,21 +14,21 @@ name = "machine_validation"
 
 carbide-uuid = { path = "../uuid" }
 
-tokio = { features = ["full"] , workspace = true }
-serde = { features = ["derive"] , workspace = true }
+tokio = { features = ["full"], workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-futures = { default-features = false , workspace = true }
+futures = { default-features = false, workspace = true }
 carbide-tls = { path = "../tls" }
 carbide-rpc = { path = "../rpc" }
 carbide-utils = { path = "../utils" }
 tonic = { workspace = true }
-chrono = { features = ["serde"] , workspace = true }
+chrono = { features = ["serde"], workspace = true }
 tracing = { workspace = true }
 reqwest = { default-features = false, features = [
-    "rustls-tls",
-    "stream",
-] , workspace = true }
+  "rustls-tls",
+  "stream",
+], workspace = true }
 futures-util = { workspace = true }
 
 [lints]

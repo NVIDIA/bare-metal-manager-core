@@ -25,14 +25,27 @@ carbide-uuid = { path = "../uuid" }
 
 chrono = { workspace = true }
 eyre = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+] }
 tempfile = { workspace = true }
 tokio.workspace = true
 tracing = { workspace = true }
-tracing-subscriber = { features = ["env-filter", "local-time"] , workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 ctor = { workspace = true }

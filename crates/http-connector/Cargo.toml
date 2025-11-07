@@ -16,10 +16,8 @@ hickory-resolver = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing = { workspace = true }
 socket2 = { workspace = true }
-hyper = { workspace = true, features = [
-    "client",
-] }
-hyper-util = { features = ["tokio"] , workspace = true }
+hyper = { workspace = true, features = ["client"] }
+hyper-util = { features = ["tokio"], workspace = true }
 
 futures-util = { workspace = true }
 tower-service = { workspace = true }
@@ -30,11 +28,7 @@ tryhard = { workspace = true }
 dsocket = { path = "../dsocket" }
 
 [dev-dependencies]
-hyper = { workspace = true, features = [
-    "client",
-    "http1",
-    "http2",
-] }
+hyper = { workspace = true, features = ["client", "http1", "http2"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
 
 [lints]

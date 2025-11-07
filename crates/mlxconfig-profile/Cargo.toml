@@ -12,7 +12,7 @@ carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
 carbide-mlxconfig-registry = { path = "../mlxconfig-registry" }
 carbide-mlxconfig-runner = { path = "../mlxconfig-runner" }
 carbide-rpc = { path = "../rpc" }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -8,11 +8,11 @@ description = "Type definitions for Mellanox hardware configuration registry."
 name = "mlxconfig_variables"
 
 [dependencies]
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_yaml = { workspace = true }
 hex = { workspace = true }
 carbide-mlxconfig-device = { path = "../mlxconfig-device" }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-mac_address = { features = ["serde"] , workspace = true }
+mac_address = { features = ["serde"], workspace = true }

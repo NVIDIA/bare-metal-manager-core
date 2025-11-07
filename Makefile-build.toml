@@ -80,6 +80,7 @@ docker run \
     echo "Skipping strip of sysmbols in profile ${CARBIDE_PROFILE}"
   fi
 '''
-dependencies = [{ name = "build-x86-build-container", path = "${REPO_ROOT}" },
-                { name = "build-cross-docker-image", path = "${REPO_ROOT}" }]
-
+dependencies = [
+  { name = "build-x86-build-container", path = "${REPO_ROOT}" },
+  { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+]

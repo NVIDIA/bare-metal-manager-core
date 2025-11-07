@@ -74,7 +74,7 @@ cwd = "${BUILD_LOCATION}" # jf will try to upload the full path specified if the
 
 [tasks.stage-nvinit]
 # Note that libnss-exec is located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
-description="Stages files required for nvssh into the mkosi image for installation in postinst script"
+description = "Stages files required for nvssh into the mkosi image for installation in postinst script"
 script = '''
   cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
   cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_amd64.deb mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
@@ -83,21 +83,21 @@ script = '''
 '''
 
 [tasks.stage-disk_imaging-script]
-description="Copies the disk_imaging.sh script to the qcow profile directories"
+description = "Copies the disk_imaging.sh script to the qcow profile directories"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager/mkosi.extra/opt/forge/disk_imaging.sh
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/forge/disk_imaging.sh
 '''
 
 [tasks.stage-scout-loader-rclocal]
-description="Copies the rc.local script to the scout loader profile directories"
+description = "Copies the rc.local script to the scout loader profile directories"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/etc/rc.local
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/etc/rc.local
 '''
 
 [tasks.stage-scout-update-check]
-description="Copies the scout-update script and systemd files to build-output"
+description = "Copies the scout-update script and systemd files to build-output"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
@@ -318,7 +318,7 @@ args = [
   "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb",
   "mkosi.profiles/scout-x86_64/mkosi.extra/build-output/forge-scout.deb",
 ]
-dependencies=["mkdir-static"]
+dependencies = ["mkdir-static"]
 
 [tasks.copy-forge-scout-aarch64]
 category = "Copy Forge Scout locally"
@@ -327,7 +327,7 @@ args = [
   "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_arm64.deb",
   "mkosi.profiles/scout-aarch64/mkosi.extra/build-output/forge-scout.deb",
 ]
-dependencies=["mkdir-static"]
+dependencies = ["mkdir-static"]
 
 [tasks.mkosi-clean-qcow-imager]
 category = "Ephemeral Image"
@@ -337,7 +337,12 @@ args = ["--profile", "qcow-imager", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 [tasks.mkosi-clean-qcow-imager-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "qcow-imager-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "qcow-imager-aarch64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-clean-scout-x86_64]
 category = "Ephemeral Image"
@@ -347,17 +352,32 @@ args = ["--profile", "scout-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 [tasks.mkosi-clean-scout-loader-x86_64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "scout-loader-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "scout-loader-x86_64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-clean-scout-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "scout-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "scout-aarch64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-clean-scout-loader-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "scout-loader-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "scout-loader-aarch64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-generate-build-tmpdir]
 category = "Ephemeral Image"
@@ -438,25 +458,37 @@ dependencies = ["mkdir-static"]
 [tasks.mkosi-copy-scout-to-webroot-x86_64]
 category = "Ephemeral Image"
 command = "cp"
-args = ["${MKOSI_BUILD_TMP}/scout.cpio.zst", "static/blobs/internal/x86_64/scout.cpio.zst"]
+args = [
+  "${MKOSI_BUILD_TMP}/scout.cpio.zst",
+  "static/blobs/internal/x86_64/scout.cpio.zst",
+]
 dependencies = ["mkdir-static"]
 
 [tasks.mkosi-copy-scout-loader-to-webroot-x86_64]
 category = "Ephemeral Image"
 command = "cp"
-args = ["${MKOSI_BUILD_TMP}/loader.efi", "static/blobs/internal/x86_64/scout.efi"]
+args = [
+  "${MKOSI_BUILD_TMP}/loader.efi",
+  "static/blobs/internal/x86_64/scout.efi",
+]
 dependencies = ["mkdir-static"]
 
 [tasks.mkosi-copy-scout-to-webroot-aarch64]
 category = "Ephemeral Image"
 command = "cp"
-args = ["${MKOSI_BUILD_TMP}/scout.cpio.zst", "static/blobs/internal/aarch64/scout.cpio.zst"]
+args = [
+  "${MKOSI_BUILD_TMP}/scout.cpio.zst",
+  "static/blobs/internal/aarch64/scout.cpio.zst",
+]
 dependencies = ["mkdir-static"]
 
 [tasks.mkosi-copy-scout-loader-to-webroot-aarch64]
 category = "Ephemeral Image"
 command = "cp"
-args = ["${MKOSI_BUILD_TMP}/loader.efi", "static/blobs/internal/aarch64/scout.efi"]
+args = [
+  "${MKOSI_BUILD_TMP}/loader.efi",
+  "static/blobs/internal/aarch64/scout.efi",
+]
 dependencies = ["mkdir-static"]
 
 [tasks.ipxe-x86_64]
@@ -540,12 +572,22 @@ dependencies = ["ipxe-build-efi-x86_64"]
 [tasks.ipxe-aarch64]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
-dependencies = ["ipxe-config", "ipxe-patch-mlnx", "ipxe-patch-grace-grace", "ipxe-install-efi-aarch64"]
+dependencies = [
+  "ipxe-config",
+  "ipxe-patch-mlnx",
+  "ipxe-patch-grace-grace",
+  "ipxe-install-efi-aarch64",
+]
 
 [tasks.ipxe-aarch64-ci]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
-dependencies = ["ipxe-config", "ipxe-patch-mlnx", "ipxe-patch-grace-grace", "ipxe-install-efi-aarch64-ci"]
+dependencies = [
+  "ipxe-config",
+  "ipxe-patch-mlnx",
+  "ipxe-patch-grace-grace",
+  "ipxe-install-efi-aarch64-ci",
+]
 
 [tasks.ipxe-install-efi-aarch64]
 category = "iPXE Kernel"
@@ -822,8 +864,8 @@ description = "Add the scout to the bfb"
 command = "cp"
 args = [
   "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
-  "${BUILD_LOCATION}"
-  ]
+  "${BUILD_LOCATION}",
+]
 
 [tasks.bfb-add-scout-to-bfb]
 category = "iPXE Kernel"
@@ -833,19 +875,21 @@ args = [
   "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
   "${BUILD_LOCATION}",
 ]
-dependencies = [{ name = "build-scout-aarch64-release-cross", path = "${REPO_ROOT}" }]
+dependencies = [
+  { name = "build-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
+]
 
 [tasks.cp-hbn-installer-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN installer to the bfb"
 command = "cp"
-args = ["${HBN_CONFIG_URL}", "${BUILD_LOCATION}", ]
+args = ["${HBN_CONFIG_URL}", "${BUILD_LOCATION}"]
 
 [tasks.download-hbn-installer-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN installer to the bfb"
 command = "wget"
-args = ["-Nnv", "${HBN_CONFIG_URL}", "-P", "${BUILD_LOCATION}", ]
+args = ["-Nnv", "${HBN_CONFIG_URL}", "-P", "${BUILD_LOCATION}"]
 
 [tasks.mkdir-hbn-folder-in-bfb]
 category = "iPXE Kernel"
@@ -892,9 +936,7 @@ args = [
 
 [tasks.setup-apt-repo-arm64]
 category = "iPXE Kernel"
-dependencies = [
-    "mkdir-static",
-]
+dependencies = ["mkdir-static"]
 description = "Setup apt repo for arm64 forge-dpu and forge-scout package"
 script = '''
   cp "${REPO_ROOT}/target/debs/forge-dpu_${PKG_VERSION}_arm64.deb" \
@@ -927,9 +969,7 @@ Architecture: arm64" > Release
 
 [tasks.setup-apt-repo-amd64]
 category = "iPXE Kernel"
-dependencies = [
-    "mkdir-static",
-]
+dependencies = ["mkdir-static"]
 description = "Setup apt repo for amd64 forge-scout package"
 script = '''
   cp "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb" \

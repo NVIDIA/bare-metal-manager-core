@@ -16,13 +16,23 @@ sqlx = ["dep:sqlx"]
 [dependencies]
 data-encoding = { workspace = true }
 eyre = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+], optional = true }
 thiserror = { workspace = true }
 tonic = { workspace = true }
-uuid = { features = ["v4", "serde"] , workspace = true }
+uuid = { features = ["v4", "serde"], workspace = true }
 prost = { workspace = true }
 
 [lints]

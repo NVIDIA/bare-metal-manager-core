@@ -1,0 +1,17 @@
+[package]
+name = "nmxm_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libnmxm = { path = ".." }
+getopts = "0.2"
+reqwest = { version = "0.12.7", features = ["blocking", "json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+tokio = { version = "*", features = ["full"] }
+serde_json = "*"
+serde_derive = "*"
+serde = "1"
+uuid = { version = "^1.8", features = ["serde", "v4"] }

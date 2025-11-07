@@ -11,9 +11,9 @@ name = "health_report"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = { features = ["serde"] , workspace = true }
+chrono = { features = ["serde"], workspace = true }
 thiserror = { workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

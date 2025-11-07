@@ -8,8 +8,8 @@ bypass_rbac = true
 
 attestation_enabled = false
 
-initial_domain_name="local.forge"
-initial_dpu_agent_upgrade_policy="off"
+initial_domain_name = "local.forge"
+initial_dpu_agent_upgrade_policy = "off"
 
 [pools.lo-ip]
 type = "ipv4"
@@ -42,10 +42,10 @@ hardware_health_reports = "MonitorOnly"
 autoupdate = true
 
 [tls]
-identity_pemfile_path="/Users/fchua/repos/carbide/dev/certs/localhost/localhost.crt"
-identity_keyfile_path="/Users/fchua/repos/carbide/dev/certs/localhost/localhost.key"
-root_cafile_path="/Users/fchua/repos/carbide/dev/certs/localhost/ca.crt"
-admin_root_cafile_path="/Users/fchua/repos/carbide/dev/certs/forge_root.pem"
+identity_pemfile_path = "/Users/fchua/repos/carbide/dev/certs/localhost/localhost.crt"
+identity_keyfile_path = "/Users/fchua/repos/carbide/dev/certs/localhost/localhost.key"
+root_cafile_path = "/Users/fchua/repos/carbide/dev/certs/localhost/ca.crt"
+admin_root_cafile_path = "/Users/fchua/repos/carbide/dev/certs/forge_root.pem"
 
 # [auth]
 # permissive_mode=false
@@ -104,7 +104,7 @@ reserve_first = 2
 # iteration_time = "10s"
 
 [machine_state_controller]
-dpu_wait_time = "5s" # randomly chosen (fchua)
+dpu_wait_time = "5s"   # randomly chosen (fchua)
 power_down_wait = "5s" # randomly chosen (fchua)
 iteration_time = "10s"
 
