@@ -42,6 +42,11 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError>;
 
+    async fn probe_redfish_endpoint(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> Result<(), EndpointExplorationError>;
+
     // redfish_reset_bmc issues a BMC reset through redfish.
     async fn redfish_reset_bmc(
         &self,

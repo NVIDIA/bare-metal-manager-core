@@ -611,6 +611,16 @@ impl EndpointExplorer for BmcEndpointExplorer {
         self.credential_client.check_preconditions(metrics).await
     }
 
+    async fn probe_redfish_endpoint(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> Result<(), EndpointExplorationError> {
+        self.redfish_client
+            .probe_redfish_endpoint(bmc_ip_address)
+            .await
+            .map(|_| ())
+    }
+
     async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool {
         self.get_bmc_root_credentials(interface.mac_address)
             .await

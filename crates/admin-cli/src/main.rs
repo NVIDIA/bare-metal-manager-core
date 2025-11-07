@@ -1143,88 +1143,129 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::RouteServer(cmd) => {
             route_server::dispatch(&cmd, &api_client, config.format).await?
         }
-        CliCommand::SiteExplorer(action) => match action {
-            SiteExplorer::GetReport(mode) => {
-                show_site_explorer_discovered_managed_host(
-                    &api_client,
-                    &mut output_file,
-                    config.format,
-                    config.internal_page_size,
-                    mode,
-                )
-                .await?;
-            }
-            SiteExplorer::Explore(opts) => {
-                let report = api_client.explore(&opts.address, opts.mac).await?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-            }
-            SiteExplorer::ReExplore(opts) => {
-                api_client.re_explore_endpoint(&opts.address).await?;
-            }
-            SiteExplorer::ClearError(opts) => {
-                api_client
-                    .0
-                    .clear_site_exploration_error(opts.address)
-                    .await?;
-            }
-            SiteExplorer::Delete(opts) => {
-                let response = api_client.0.delete_explored_endpoint(opts.address).await?;
-
-                if response.deleted {
-                    println!(
-                        "{}",
-                        response
-                            .message
-                            .unwrap_or_else(|| "Endpoint deleted successfully.".to_string())
-                    );
-                } else {
-                    eprintln!(
-                        "{}",
-                        response
-                            .message
-                            .unwrap_or_else(|| "Failed to delete endpoint.".to_string())
-                    );
-                }
-            }
-            SiteExplorer::Remediation(opts) => {
-                if opts.pause {
-                    api_client
-                        .pause_explored_endpoint_remediation(&opts.address, true)
-                        .await?;
-                    println!("Remediation paused for endpoint {}", opts.address);
-                } else if opts.resume {
-                    api_client
-                        .pause_explored_endpoint_remediation(&opts.address, false)
-                        .await?;
-                    println!("Remediation resumed for endpoint {}", opts.address);
-                } else {
-                    return Err(CarbideCliError::GenericError(
-                        "Must specify either --pause or --resume".to_owned(),
+        CliCommand::SiteExplorer(action) => {
+            match action {
+                SiteExplorer::GetReport(mode) => {
+                    show_site_explorer_discovered_managed_host(
+                        &api_client,
+                        &mut output_file,
+                        config.format,
+                        config.internal_page_size,
+                        mode,
                     )
-                    .into());
+                    .await?;
+                }
+                SiteExplorer::Explore(opts) => {
+                    let report = api_client.explore(&opts.address, opts.mac).await?;
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                }
+                SiteExplorer::ReExplore(opts) => {
+                    api_client.re_explore_endpoint(&opts.address).await?;
+                }
+                SiteExplorer::ClearError(opts) => {
+                    api_client
+                        .0
+                        .clear_site_exploration_error(opts.address)
+                        .await?;
+                }
+                SiteExplorer::Delete(opts) => {
+                    let response = api_client.0.delete_explored_endpoint(opts.address).await?;
+
+                    if response.deleted {
+                        println!(
+                            "{}",
+                            response
+                                .message
+                                .unwrap_or_else(|| "Endpoint deleted successfully.".to_string())
+                        );
+                    } else {
+                        eprintln!(
+                            "{}",
+                            response
+                                .message
+                                .unwrap_or_else(|| "Failed to delete endpoint.".to_string())
+                        );
+                    }
+                }
+                SiteExplorer::Remediation(opts) => {
+                    if opts.pause {
+                        api_client
+                            .pause_explored_endpoint_remediation(&opts.address, true)
+                            .await?;
+                        println!("Remediation paused for endpoint {}", opts.address);
+                    } else if opts.resume {
+                        api_client
+                            .pause_explored_endpoint_remediation(&opts.address, false)
+                            .await?;
+                        println!("Remediation resumed for endpoint {}", opts.address);
+                    } else {
+                        return Err(CarbideCliError::GenericError(
+                            "Must specify either --pause or --resume".to_owned(),
+                        )
+                        .into());
+                    }
+                }
+                SiteExplorer::IsBmcInManagedHost(opts) => {
+                    let is_bmc_in_managed_host = api_client
+                        .is_bmc_in_managed_host(&opts.address, opts.mac)
+                        .await?;
+                    println!(
+                        "Is {} in a managed host?: {}",
+                        opts.address, is_bmc_in_managed_host.in_managed_host
+                    );
+                }
+                SiteExplorer::HaveCredentials(opts) => {
+                    let have_credentials = api_client
+                        .bmc_credential_status(&opts.address, opts.mac)
+                        .await?;
+                    println!("{}", have_credentials.have_credentials);
+                }
+                SiteExplorer::CopyBfbToDpuRshim(args) => {
+                    // Power cycle host if requested
+                    if let Some(host_ip) = &args.host_bmc_ip {
+                        tracing::info!(
+                            "Power cycling host at {} to ensure the DPU has rshim control",
+                            host_ip
+                        );
+
+                        // Power off
+                        tracing::info!("Powering off host...");
+                        api_client
+                            .admin_power_control(
+                                Some(::rpc::forge::BmcEndpointRequest {
+                                    ip_address: host_ip.clone(),
+                                    mac_address: None,
+                                }),
+                                None,
+                                ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff,
+                            )
+                            .await?;
+
+                        // Wait for power off
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+                        // Power on
+                        tracing::info!("Powering on host");
+                        api_client
+                            .admin_power_control(
+                                Some(::rpc::forge::BmcEndpointRequest {
+                                    ip_address: host_ip.clone(),
+                                    mac_address: None,
+                                }),
+                                None,
+                                ::rpc::forge::admin_power_control_request::SystemPowerControl::On,
+                            )
+                            .await?;
+                    }
+
+                    tracing::info!("Follow SCP progress in the carbide-api logs...");
+
+                    api_client
+                        .copy_bfb_to_dpu_rshim(args.address, args.mac, args.timeout_config)
+                        .await?;
                 }
             }
-            SiteExplorer::IsBmcInManagedHost(opts) => {
-                let is_bmc_in_managed_host = api_client
-                    .is_bmc_in_managed_host(&opts.address, opts.mac)
-                    .await?;
-                println!(
-                    "Is {} in a managed host?: {}",
-                    opts.address, is_bmc_in_managed_host.in_managed_host
-                );
-            }
-            SiteExplorer::HaveCredentials(opts) => {
-                let have_credentials = api_client
-                    .bmc_credential_status(&opts.address, opts.mac)
-                    .await?;
-                println!("{}", have_credentials.have_credentials);
-            }
-            SiteExplorer::CopyBfbToDpuRshim(args) => {
-                api_client
-                    .copy_bfb_to_dpu_rshim(args.address, args.mac, args.timeout_config)
-                    .await?;
-            }
-        },
+        }
         CliCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {
                 machine_interfaces::handle_show(machine_interfaces, config.format, &api_client)
