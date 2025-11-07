@@ -72,12 +72,13 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
 
-    let instance_config = rpcf::InstanceConfig {
+    let instance_config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     // allocate: should fail
@@ -205,6 +206,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
         os: Some(default_os_config()),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     // allocate: should fail

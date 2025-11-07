@@ -15,7 +15,10 @@ use std::collections::{HashMap, HashSet};
 use ::rpc::errors::RpcDataConversionError;
 use config_version::ConfigVersion;
 use db::ib_partition::{self, IBPartitionSearchConfig};
-use db::{self, ObjectColumnFilter, ObjectFilter, dpa_interface, network_security_group};
+use db::{
+    self, ObjectColumnFilter, ObjectFilter, dpa_interface, extension_service,
+    network_security_group,
+};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::instance_type::InstanceTypeId;
 use forge_uuid::machine::MachineId;
@@ -406,6 +409,52 @@ pub async fn allocate_instance(
         }
     }
 
+    // If extension services are configured, validate the extension service config versions to make
+    // sure the extension service versions all exist and are not deleted.
+    if !request.config.extension_services.service_configs.is_empty() {
+        let service_configs = &request.config.extension_services.service_configs;
+
+        // Validate no duplicate service IDs (only one version per service allowed)
+        let service_ids: Vec<_> = service_configs.iter().map(|s| s.service_id).collect();
+        let unique_service_ids: std::collections::HashSet<_> = service_ids.iter().collect();
+        if service_ids.len() != unique_service_ids.len() {
+            return Err(CarbideError::InvalidArgument(
+                "Duplicate extension services in configuration. Only one version of each service is allowed.".to_string()
+            ));
+        }
+
+        // Row level locks on all required extension services
+        let services = extension_service::find_versions_by_service_ids(
+            &mut txn,
+            service_configs
+                .iter()
+                .map(|s| s.service_id)
+                .collect_vec()
+                .as_slice(),
+            true,
+        )
+        .await?;
+
+        for service in service_configs.iter() {
+            if !services.contains_key(&service.service_id) {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "Extension service {} does not exist",
+                    service.service_id,
+                )));
+            }
+            if !services
+                .get(&service.service_id)
+                .unwrap()
+                .contains(&service.version)
+            {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "Extension service {} version {} does not exist or is deleted",
+                    service.service_id, service.version,
+                )));
+            }
+        }
+    }
+
     // Validate the OS image ID if it exists
     let os_config = &request.config.os;
     if let OperatingSystemVariant::OsImage(os_image_id) = os_config.variant {
@@ -451,6 +500,7 @@ pub async fn allocate_instance(
 
     let network_config_version = ConfigVersion::initial();
     let ib_config_version = ConfigVersion::initial();
+    let extension_services_config_version = ConfigVersion::initial();
     let config_version = ConfigVersion::initial();
 
     validate_ib_partition_ownership(
@@ -471,6 +521,7 @@ pub async fn allocate_instance(
         config_version,
         network_config_version,
         ib_config_version,
+        extension_services_config_version,
     };
 
     let machine_id = new_instance.machine_id;

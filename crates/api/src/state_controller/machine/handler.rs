@@ -18,7 +18,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
-use config_version::ConfigVersion;
+use config_version::{ConfigVersion, Versioned};
 use db::host_machine_update::clear_host_reprovisioning_request;
 use db::machine::update_restart_verification_status;
 use db::{self};
@@ -41,6 +41,11 @@ use model::instance::config::network::{
     DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId, NetworkDetails,
 };
 use model::instance::snapshot::InstanceSnapshot;
+use model::instance::status::SyncState;
+use model::instance::status::extension_service::{
+    self, ExtensionServiceDeploymentStatus, ExtensionServicesReadiness,
+    InstanceExtensionServicesStatus,
+};
 use model::machine::LockdownMode::{self, Enable};
 use model::machine::infiniband::ib_config_synced;
 use model::machine::{
@@ -4965,9 +4970,50 @@ impl StateHandler for InstanceStateHandler {
                     // InstanceState::WaitingForStorageConfig once we're sure no places have the
                     // state persisted.
                     let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::WaitingForRebootToReady,
+                        instance_state: InstanceState::WaitingForExtensionServicesConfig,
                     };
                     Ok(StateHandlerOutcome::transition(next_state))
+                }
+                InstanceState::WaitingForExtensionServicesConfig => {
+                    // If no extension services are configured, skip the wait and proceed
+                    if instance
+                        .config
+                        .extension_services
+                        .service_configs
+                        .is_empty()
+                    {
+                        let next_state = ManagedHostState::Assigned {
+                            instance_state: InstanceState::WaitingForRebootToReady,
+                        };
+                        return Ok(StateHandlerOutcome::transition(next_state));
+                    }
+
+                    let extension_services_status =
+                        get_extension_services_status(mh_snapshot, instance, txn).await?;
+                    match extension_service::compute_extension_services_readiness(&extension_services_status) {
+                        ExtensionServicesReadiness::Ready => {
+                            let next_state = ManagedHostState::Assigned {
+                                instance_state: InstanceState::WaitingForRebootToReady,
+                            };
+                            Ok(StateHandlerOutcome::transition(next_state))
+                        }
+                        ExtensionServicesReadiness::ConfigsPending => {
+                            Ok(StateHandlerOutcome::wait(
+                                "Waiting for extension services config to be applied on all DPUs.".to_string(),
+                            ))
+                        }
+                        ExtensionServicesReadiness::NotFullyRunning => {
+                            Ok(StateHandlerOutcome::wait(
+                                "Waiting for all active extension services to be running on all DPUs.".to_string(),
+                            ))
+                        }
+                        ExtensionServicesReadiness::SomeTerminating => {
+                            Ok(StateHandlerOutcome::wait(
+                                "Waiting for all terminating extension services to be fully terminated across all DPUs."
+                                    .to_string(),
+                            ))
+                        }
+                    }
                 }
                 InstanceState::WaitingForRebootToReady => {
                     // Reboot host
@@ -5362,6 +5408,32 @@ impl StateHandler for InstanceStateHandler {
                         ));
                     }
 
+                    // Check if all DPUs have terminated all extension services
+                    if let Some(instance) = mh_snapshot.instance.as_ref()
+                        && !instance
+                            .config
+                            .extension_services
+                            .service_configs
+                            .is_empty()
+                    {
+                        for (_dpu_id, extension_service_statuses) in
+                            instance.observations.extension_services.iter()
+                        {
+                            for status in
+                                extension_service_statuses.extension_service_statuses.iter()
+                            {
+                                if status.overall_state
+                                    != ExtensionServiceDeploymentStatus::Terminated
+                                {
+                                    return Ok(StateHandlerOutcome::wait(
+                                            "Waiting for extension services to be terminated on all DPUs."
+                                                .to_string()
+                                        ));
+                                }
+                            }
+                        }
+                    }
+
                     // Check each DPA interface associated with the machine to make sure the DPA NIC has updated
                     // its network config (setting VNI to zero in this case).
                     for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
@@ -5503,6 +5575,61 @@ impl StateHandler for InstanceStateHandler {
             Ok(StateHandlerOutcome::do_nothing())
         }
     }
+}
+
+// Gets extension services status from DB, checks if any removed services are fully terminated
+// across all DPUs, if so, remove them from the instance config in the DB(without updating the version).
+async fn get_extension_services_status(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    instance: &InstanceSnapshot,
+    txn: &mut PgConnection,
+) -> Result<InstanceExtensionServicesStatus, StateHandlerError> {
+    let (_, dpu_id_to_device_map) = mh_snapshot
+        .host_snapshot
+        .get_dpu_device_and_id_mappings()
+        .unwrap_or_else(|_| (HashMap::default(), HashMap::default()));
+
+    // Gather instance extension services status from all DPU observations
+    let mut extension_services_status =
+        InstanceExtensionServicesStatus::from_config_and_observations(
+            &dpu_id_to_device_map,
+            Versioned::new(
+                &instance.config.extension_services,
+                instance.extension_services_config_version,
+            ),
+            &instance.observations.extension_services,
+        );
+
+    if extension_services_status.configs_synced == SyncState::Synced {
+        let terminated_service_ids = extension_services_status.get_terminated_service_ids();
+        if !terminated_service_ids.is_empty() {
+            tracing::info!(
+                instance_id = %instance.id,
+                service_ids = ?terminated_service_ids,
+                "Cleaning up fully terminated extension services from instance config"
+            );
+
+            let new_config = instance
+                .config
+                .extension_services
+                .remove_terminated_services(&terminated_service_ids);
+
+            db::instance::update_extension_services_config(
+                txn,
+                instance.id,
+                instance.extension_services_config_version,
+                &new_config,
+                false,
+            )
+            .await?;
+
+            extension_services_status
+                .extension_services
+                .retain(|svc| !terminated_service_ids.contains(&svc.service_id));
+        }
+    }
+
+    Ok(extension_services_status)
 }
 
 async fn handle_instance_network_config_update_request(

@@ -74,6 +74,8 @@ pub struct InstanceConfig {
     pub network: ::core::option::Option<rpc::forge::InstanceNetworkConfig>,
     pub infiniband: ::core::option::Option<::rpc::forge::InstanceInfinibandConfig>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub dpu_extension_services:
+        ::core::option::Option<::rpc::forge::InstanceDpuExtensionServicesConfig>,
 }
 
 impl InstanceConfig {

@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
-use db::network_security_group;
+use db::{extension_service, network_security_group};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::instance::InstanceId;
@@ -26,6 +26,7 @@ use itertools::Itertools as _;
 use model::ConfigValidationError;
 use model::instance::DeleteInstance;
 use model::instance::config::InstanceConfig;
+use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
 use model::instance::config::tenant_config::TenantConfig;
@@ -1000,6 +1001,57 @@ pub(crate) async fn update_instance_config(
         }
     }
 
+    // If extension services are configured, validate the extension service config versions to make
+    // sure the extension service versions all exist and are not deleted. Grabs the locks to make
+    // sure the extension service versions are not deleted by other concurrent requests.
+    if !config.extension_services.service_configs.is_empty() {
+        let service_configs = &config.extension_services.service_configs;
+
+        // Validate no duplicate service IDs (only one version per service allowed)
+        let service_ids: Vec<_> = service_configs.iter().map(|s| s.service_id).collect();
+        let unique_service_ids: std::collections::HashSet<_> = service_ids.iter().collect();
+
+        if service_ids.len() != unique_service_ids.len() {
+            return Err(CarbideError::InvalidArgument(
+                "Duplicate extension services in configuration. Only one version of each service is allowed.".to_string()
+            )
+            .into());
+        }
+
+        // Row level locks on all required extension services
+        let services = extension_service::find_versions_by_service_ids(
+            &mut txn,
+            service_configs
+                .iter()
+                .map(|s| s.service_id)
+                .collect_vec()
+                .as_slice(),
+            true,
+        )
+        .await?;
+
+        for service in service_configs.iter() {
+            if !services.contains_key(&service.service_id) {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "Extension service {} does not exist",
+                    service.service_id,
+                ))
+                .into());
+            }
+            if !services
+                .get(&service.service_id)
+                .unwrap()
+                .contains(&service.version)
+            {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "Extension service {} version {} does not exist or is deleted",
+                    service.service_id, service.version,
+                ))
+                .into());
+            }
+        }
+    }
+
     update_instance_network_config(
         api.runtime_config
             .vmaas_config
@@ -1018,6 +1070,14 @@ pub(crate) async fn update_instance_config(
     // the database and increment the IB version number
     update_instance_infiniband_config(&mh_snapshot, &instance, &mut config.infiniband, &mut txn)
         .await?;
+
+    update_instance_extension_services_config(
+        &mh_snapshot,
+        &instance,
+        &mut config.extension_services,
+        &mut txn,
+    )
+    .await?;
 
     db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
@@ -1162,6 +1222,52 @@ async fn update_instance_infiniband_config(
         instance.id,
         instance.ib_config_version,
         ib_config,
+        true,
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn update_instance_extension_services_config(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    instance: &InstanceSnapshot,
+    extension_services: &mut InstanceExtensionServicesConfig,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), CarbideError> {
+    if !instance
+        .config
+        .extension_services
+        .is_extension_services_config_update_requested(extension_services)
+    {
+        return Ok(());
+    }
+
+    if !matches!(
+        mh_snapshot.managed_state,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    ) {
+        return Err(ConfigValidationError::InvalidState.into());
+    }
+
+    if instance.deleted.is_some() {
+        return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
+    }
+
+    // Calculate the new extension services config.
+    let new_extension_services_config = instance
+        .config
+        .extension_services
+        .calculate_new_extension_services_config(extension_services);
+
+    // Persist the extension services config.
+    db::instance::update_extension_services_config(
+        txn,
+        instance.id,
+        instance.extension_services_config_version,
+        &new_extension_services_config,
         true,
     )
     .await?;

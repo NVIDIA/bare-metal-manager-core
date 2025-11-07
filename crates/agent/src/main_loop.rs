@@ -49,7 +49,7 @@ use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::{UrlResolver, get_host_boot_timestamp};
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
-    ethernet_virtualization, hbn, health, instance_metadata_endpoint, lldp,
+    ethernet_virtualization, extension_services, hbn, health, instance_metadata_endpoint, lldp,
     machine_inventory_updater, managed_files, mtu, netlink, nvue, periodic_config_fetcher,
     pretty_cmd, sysfs, upgrade,
 };
@@ -315,6 +315,7 @@ pub async fn setup_and_run(
         close_sender,
         network_monitor_handle,
         interface_state: None,
+        extension_service_manager: extension_services::ExtensionServiceManager::default(),
     };
 
     main_loop.run().await
@@ -346,6 +347,7 @@ struct MainLoop {
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
     interface_state: Option<ethernet_virtualization::InterfaceState>,
+    extension_service_manager: extension_services::ExtensionServiceManager,
 }
 
 struct IterationResult {
@@ -405,6 +407,7 @@ impl MainLoop {
         let mut current_instance_network_config_version = None;
         let mut current_instance_config_version = None;
         let mut current_instance_id = None;
+        let mut current_extension_service_version = None;
 
         let client_certificate_expiry_unix_epoch_secs =
             self.forge_client_config.client_cert_expiry();
@@ -428,6 +431,8 @@ impl MainLoop {
             client_certificate_expiry_unix_epoch_secs,
             fabric_interfaces,
             last_dhcp_requests: vec![],
+            dpu_extension_service_version: None,
+            dpu_extension_services: vec![],
         };
 
         let mut last_dhcp_requests = vec![];
@@ -712,6 +717,48 @@ impl MainLoop {
                 current_health_report = Some(health_report);
                 current_config_error = status_out.network_config_error.clone();
 
+                // Process extension services if configuration is available
+                // If use_admin_network is true, it means the instance is being deleted,
+                // so we mark all extension services as removed for termination
+                let expected_extension_services = if conf.use_admin_network {
+                    conf.dpu_extension_services
+                        .clone()
+                        .into_iter()
+                        .map(|mut service| {
+                            if service.removed.is_none() {
+                                service.removed = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                            service
+                        })
+                        .collect()
+                } else {
+                    conf.dpu_extension_services.clone()
+                };
+
+                if let Err(err) = self
+                    .extension_service_manager
+                    .update_desired_services(expected_extension_services.clone())
+                    .await
+                {
+                    tracing::error!(
+                        error = format!("{err:#}"),
+                        "Failed to update extension services"
+                    );
+                }
+                status_out.dpu_extension_service_version = instance_data
+                    .as_ref()
+                    .map(|instance| instance.extension_service_version.version_string());
+                status_out.dpu_extension_services = self
+                    .extension_service_manager
+                    .get_service_statuses(expected_extension_services.clone())
+                    .await
+                    .unwrap_or_else(|err| {
+                        tracing::error!(error = %err, "Error getting extension service statuses");
+                        vec![]
+                    });
+                current_extension_service_version =
+                    status_out.dpu_extension_service_version.clone();
+
                 record_network_status(
                     status_out,
                     &self.forge_api_server,
@@ -796,6 +843,7 @@ impl MainLoop {
             instance_id = current_instance_id.unwrap_or_default(),
             instance_network_config_version = current_instance_network_config_version.unwrap_or_default(),
             instance_config_version = current_instance_config_version.unwrap_or_default(),
+            extension_service_version = current_extension_service_version.unwrap_or_default(),
             loop_duration = %dt(loop_start.elapsed()),
             version_check_in = %dt(self.version_check_time - Instant::now()),
             uptime = %dt(self.started_at.elapsed()),

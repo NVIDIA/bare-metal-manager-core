@@ -63,6 +63,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let tinstance = mh.instance_builer(&env).config(config).build().await;
@@ -251,6 +252,7 @@ async fn test_instance_creation_with_os_in_tenantconfig(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let tinstance = mh.instance_builer(&env).config(config).build().await;

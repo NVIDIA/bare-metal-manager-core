@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod extension_services;
 pub mod infiniband;
 pub mod network;
 pub mod tenant_config;
@@ -21,6 +22,9 @@ use forge_uuid::network_security_group::{
 use serde::{Deserialize, Serialize};
 
 use crate::ConfigValidationError;
+use crate::instance::config::extension_services::{
+    InstanceExtensionServiceConfig, InstanceExtensionServicesConfig,
+};
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::network::InstanceNetworkConfig;
 use crate::instance::config::tenant_config::TenantConfig;
@@ -48,6 +52,10 @@ pub struct InstanceConfig {
 
     /// Configures the security group
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
+
+    /// Configures instance extension services
+    #[serde(default)]
+    pub extension_services: InstanceExtensionServicesConfig,
 }
 
 impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
@@ -96,6 +104,13 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             .transpose()?
             .unwrap_or(InstanceInfinibandConfig::default());
 
+        // Extension services config is optional
+        let extension_services = config
+            .dpu_extension_services
+            .map(InstanceExtensionServicesConfig::try_from)
+            .transpose()?
+            .unwrap_or(InstanceExtensionServicesConfig::default());
+
         Ok(InstanceConfig {
             tenant,
             os,
@@ -108,6 +123,7 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
                     RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
+            extension_services,
         })
     }
 }
@@ -139,12 +155,29 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             false => Some(infiniband),
         };
 
+        // We only show user active extension services, and track terminating services internally.
+        let active_extension_services: Vec<InstanceExtensionServiceConfig> = config
+            .extension_services
+            .active_services()
+            .into_iter()
+            .cloned()
+            .collect();
+        let extension_services = match active_extension_services.is_empty() {
+            true => None,
+            false => Some(rpc::forge::InstanceDpuExtensionServicesConfig::try_from(
+                InstanceExtensionServicesConfig {
+                    service_configs: active_extension_services,
+                },
+            )?),
+        };
+
         Ok(rpc::InstanceConfig {
             tenant: Some(tenant),
             os: Some(os),
             network: Some(network),
             infiniband,
             network_security_group_id: config.network_security_group_id.map(|i| i.to_string()),
+            dpu_extension_services: extension_services,
         })
     }
 }
@@ -186,6 +219,9 @@ impl InstanceConfig {
 
         self.infiniband
             .verify_update_allowed_to(&new_config.infiniband)?;
+
+        self.extension_services
+            .verify_update_allowed_to(&new_config.extension_services)?;
 
         Ok(())
     }

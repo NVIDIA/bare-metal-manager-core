@@ -40,6 +40,7 @@ pub mod dpu_machine_update;
 pub mod dpu_remediation;
 pub mod errors;
 pub mod expected_machine;
+pub mod extension_service;
 pub mod firmware;
 pub mod hardware_info;
 pub mod host_machine_update;

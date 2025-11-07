@@ -18,11 +18,13 @@ use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::config::InstanceConfig;
+use crate::instance::config::extension_services::InstanceExtensionServicesConfig;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::network::InstanceNetworkConfig;
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::{InstanceState, ManagedHostState, ReprovisionRequest};
 
+pub mod extension_service;
 pub mod infiniband;
 pub mod network;
 pub mod tenant;
@@ -41,6 +43,9 @@ pub struct InstanceStatus {
 
     /// Status of the infiniband subsystem of an instance
     pub infiniband: infiniband::InstanceInfinibandStatus,
+
+    /// Status of the extension services configured on an instance
+    pub extension_services: extension_service::InstanceExtensionServicesStatus,
 
     /// Whether all configurations related to an instance are in-sync.
     /// This is a logical AND for the settings of all sub-configurations.
@@ -62,6 +67,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
             tenant: status.tenant.map(|status| status.try_into()).transpose()?,
             network: Some(status.network.try_into()?),
             infiniband: Some(status.infiniband.try_into()?),
+            dpu_extension_services: Some(status.extension_services.try_into()?),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
             update: status.reprovision_request.map(|request| request.into()),
         })
@@ -75,6 +81,7 @@ impl InstanceStatus {
         configs_synced: SyncState,
         phone_home_enrolled: bool,
         phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
+        extension_services_ready: bool,
     ) -> Result<tenant::TenantState, RpcDataConversionError> {
         // At this point, we are sure that instance is created.
         // If machine state is still ready, means state machine has not processed this instance
@@ -87,27 +94,32 @@ impl InstanceStatus {
                 | InstanceState::WaitingForNetworkSegmentToBeReady
                 | InstanceState::WaitingForNetworkConfig
                 | InstanceState::WaitingForStorageConfig
+                | InstanceState::WaitingForExtensionServicesConfig
                 | InstanceState::WaitingForRebootToReady => tenant::TenantState::Provisioning,
                 InstanceState::NetworkConfigUpdate { .. } => tenant::TenantState::Configuring,
+
                 InstanceState::Ready => {
-                    let phone_home_pending =
-                        phone_home_enrolled && phone_home_last_contact.is_none();
+                    if !extension_services_ready {
+                        tenant::TenantState::Provisioning
+                    } else {
+                        let phone_home_pending =
+                            phone_home_enrolled && phone_home_last_contact.is_none();
 
-                    // TODO phone_home_last_contact window? e.g. must have been received in last 10 minutes
+                        // TODO phone_home_last_contact window? e.g. must have been received in last 10 minutes
+                        match (phone_home_pending, configs_synced) {
+                            // If there is no pending phone-home, but configs are
+                            // not synced, configs must have changed after provisioning finished
+                            // since we entered Ready state.
+                            (false, SyncState::Pending) => tenant::TenantState::Configuring,
 
-                    match (phone_home_pending, configs_synced) {
-                        // If there is no pending phone-home, but configs are
-                        // not synced, configs must have changed after provisioning finished
-                        // since we entered Ready state.
-                        (false, SyncState::Pending) => tenant::TenantState::Configuring,
+                            // If there is no pending phone-home,
+                            // return Ready (this was the default before phone_home)
+                            (false, SyncState::Synced) => tenant::TenantState::Ready,
 
-                        // If there is no pending phone-home,
-                        // return Ready (this was the default before phone_home)
-                        (false, SyncState::Synced) => tenant::TenantState::Ready,
-
-                        // If there is a pending phone-home, we're still
-                        // provisioning.
-                        (true, _) => tenant::TenantState::Provisioning,
+                            // If there is a pending phone-home, we're still
+                            // provisioning.
+                            (true, _) => tenant::TenantState::Provisioning,
+                        }
                     }
                 }
                 // If termination had been requested (i.e., if the `deleted` column
@@ -155,6 +167,7 @@ impl InstanceStatus {
         instance_config: Versioned<&InstanceConfig>,
         network_config: Versioned<&InstanceNetworkConfig>,
         ib_config: Versioned<&InstanceInfinibandConfig>,
+        extension_services_config: Versioned<&InstanceExtensionServicesConfig>,
         observations: &InstanceStatusObservations,
         machine_state: ManagedHostState,
         delete_requested: bool,
@@ -178,7 +191,7 @@ impl InstanceStatus {
         }
 
         let network = network::InstanceNetworkStatus::from_config_and_observations(
-            dpu_id_to_device_map,
+            dpu_id_to_device_map.clone(),
             network_config,
             &observations.network,
             is_network_config_request_pending,
@@ -187,15 +200,27 @@ impl InstanceStatus {
         let infiniband =
             infiniband::InstanceInfinibandStatus::from_config_and_observation(ib_config, ib_status);
 
+        let extension_services =
+            extension_service::InstanceExtensionServicesStatus::from_config_and_observations(
+                &dpu_id_to_device_map,
+                extension_services_config,
+                &observations.extension_services,
+            );
+        let extension_services_ready =
+            extension_service::is_extension_services_ready(&extension_services);
+
         let phone_home_last_contact = observations.phone_home_last_contact;
 
         // If additional configs are added, they need to be incorporated here
         let configs_synced = match (
             network.configs_synced,
             infiniband.configs_synced,
+            extension_services.configs_synced,
             instance_config_synced,
         ) {
-            (SyncState::Synced, SyncState::Synced, SyncState::Synced) => SyncState::Synced,
+            (SyncState::Synced, SyncState::Synced, SyncState::Synced, SyncState::Synced) => {
+                SyncState::Synced
+            }
             _ => SyncState::Pending,
         };
 
@@ -206,6 +231,7 @@ impl InstanceStatus {
                     configs_synced,
                     instance_config.os.phone_home_enabled,
                     phone_home_last_contact,
+                    extension_services_ready,
                 )?,
                 true => {
                     // If instance deletion was requested, we always confirm the
@@ -223,6 +249,7 @@ impl InstanceStatus {
             tenant: Some(tenant),
             network,
             infiniband,
+            extension_services,
             configs_synced,
             reprovision_request,
         })
@@ -258,6 +285,10 @@ pub struct InstanceStatusObservations {
     /// Observed status of the networking subsystem
     pub network: HashMap<MachineId, network::InstanceNetworkStatusObservation>,
 
+    /// Observed status of extension services
+    pub extension_services:
+        HashMap<MachineId, extension_service::InstanceExtensionServiceStatusObservation>,
+
     /// Has the instance phoned home?
     pub phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -288,6 +319,7 @@ mod tests {
                 SyncState::Synced,
                 false,
                 None,
+                false,
             )
             .unwrap(),
             tenant::TenantState::Invalid

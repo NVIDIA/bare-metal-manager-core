@@ -41,6 +41,7 @@ use super::StateSla;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::MachineInventory;
 use super::instance::snapshot::InstanceSnapshot;
+use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::metadata::Metadata;
 use super::sku::SkuStatus;
@@ -128,6 +129,10 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
         if let Some(instance) = &mut instance {
             instance.observations.network =
                 InstanceNetworkStatusObservation::aggregate_instance_observation(&dpu_snapshots);
+            instance.observations.extension_services =
+                InstanceExtensionServiceStatusObservation::aggregate_instance_observation(
+                    &dpu_snapshots,
+                );
         }
 
         // TODO: consider dropping this field from ManagedHostStateSnapshot
@@ -508,6 +513,9 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
             config_version: instance.config_version.version_string(),
             network_config_version: instance.network_config_version.version_string(),
             ib_config_version: instance.ib_config_version.version_string(),
+            dpu_extension_service_version: instance
+                .extension_services_config_version
+                .version_string(),
             instance_type_id: instance.instance_type_id.map(|i| i.to_string()),
             metadata: Some(instance.metadata.into()),
             tpm_ek_certificate: snapshot.host_snapshot.hardware_info.and_then(|hi| {
@@ -1713,6 +1721,7 @@ pub enum InstanceState {
     WaitingForNetworkSegmentToBeReady,
     WaitingForNetworkConfig,
     WaitingForStorageConfig,
+    WaitingForExtensionServicesConfig,
     WaitingForRebootToReady,
     Ready,
     HostPlatformConfiguration {

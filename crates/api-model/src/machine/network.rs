@@ -20,6 +20,9 @@ use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use serde::{Deserialize, Serialize};
 
+use crate::instance::status::extension_service::{
+    ExtensionServiceStatusObservation, InstanceExtensionServiceStatusObservation,
+};
 use crate::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
@@ -35,6 +38,7 @@ pub struct MachineNetworkStatusObservation {
     pub client_certificate_expiry: Option<i64>,
     pub agent_version_superseded_at: Option<DateTime<Utc>>,
     pub instance_network_observation: Option<InstanceNetworkStatusObservation>,
+    pub extension_service_observation: Option<InstanceExtensionServiceStatusObservation>,
 }
 
 impl MachineNetworkStatusObservation {
@@ -136,6 +140,30 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
                 None
             };
 
+        let extension_service_observation =
+            if let Some(version_string) = obs.dpu_extension_service_version {
+                let Ok(version) = version_string.as_str().parse() else {
+                    return Err(RpcDataConversionError::InvalidConfigVersion(format!(
+                        "applied_config.extension_service_version: {version_string}"
+                    )));
+                };
+
+                let mut extension_service_statuses: Vec<ExtensionServiceStatusObservation> = vec![];
+                for service in obs.dpu_extension_services {
+                    let v = service.try_into()?;
+                    extension_service_statuses.push(v);
+                }
+
+                Some(InstanceExtensionServiceStatusObservation {
+                    config_version: version,
+                    instance_config_version,
+                    extension_service_statuses,
+                    observed_at,
+                })
+            } else {
+                None
+            };
+
         Ok(MachineNetworkStatusObservation {
             observed_at,
             machine_id: obs
@@ -146,6 +174,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
             client_certificate_expiry: obs.client_certificate_expiry_unix_epoch_secs,
             agent_version_superseded_at: None,
             instance_network_observation,
+            extension_service_observation,
         })
     }
 }
@@ -171,6 +200,8 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             dpu_health: None,
             fabric_interfaces: vec![],
             last_dhcp_requests: vec![],
+            dpu_extension_service_version: None,
+            dpu_extension_services: vec![],
         }
     }
 }

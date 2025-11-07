@@ -206,6 +206,7 @@ pub enum CredentialKey {
     DpuUefi { credential_type: CredentialType },
     HostUefi { credential_type: CredentialType },
     BmcCredentials { credential_type: BmcCredentialType },
+    ExtensionService { service_id: String, version: String },
 }
 
 impl CredentialKey {
@@ -278,6 +279,12 @@ impl CredentialKey {
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
                 )),
             },
+            CredentialKey::ExtensionService {
+                service_id,
+                version,
+            } => Cow::from(format!(
+                "machines/extension-services/{service_id}/versions/{version}/credential"
+            )),
         }
     }
 }

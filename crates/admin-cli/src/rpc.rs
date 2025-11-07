@@ -1473,6 +1473,7 @@ impl ApiClient {
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
+            dpu_extension_services: None,
         };
 
         let mut labels = vec![
@@ -2378,5 +2379,157 @@ impl ApiClient {
             })
             .await?;
         Ok(RemediationList { remediations })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_extension_service(
+        &self,
+        service_id: Option<String>,
+        service_name: String,
+        tenant_organization_id: String,
+        service_type: i32,
+        description: Option<String>,
+        data: String,
+        credential: Option<rpc::DpuExtensionServiceCredential>,
+    ) -> CarbideCliResult<rpc::DpuExtensionService> {
+        let request = rpc::CreateDpuExtensionServiceRequest {
+            service_id,
+            service_name,
+            service_type,
+            tenant_organization_id,
+            data,
+            description,
+            credential,
+        };
+
+        self.0
+            .create_dpu_extension_service(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn update_extension_service(
+        &self,
+        service_id: String,
+        service_name: Option<String>,
+        description: Option<String>,
+        data: String,
+        credential: Option<rpc::DpuExtensionServiceCredential>,
+        if_version_ctr_match: Option<i32>,
+    ) -> CarbideCliResult<rpc::DpuExtensionService> {
+        let request = rpc::UpdateDpuExtensionServiceRequest {
+            service_id,
+            service_name,
+            description,
+            data,
+            credential,
+            if_version_ctr_match,
+        };
+
+        self.0
+            .update_dpu_extension_service(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn delete_extension_service(
+        &self,
+        service_id: String,
+        versions: Vec<String>,
+    ) -> CarbideCliResult<rpc::DeleteDpuExtensionServiceResponse> {
+        let request = rpc::DeleteDpuExtensionServiceRequest {
+            service_id,
+            versions,
+        };
+
+        self.0
+            .delete_dpu_extension_service(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn find_extension_services(
+        &self,
+        service_type: Option<i32>,
+        name: Option<String>,
+        tenant_organization_id: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::DpuExtensionServiceList> {
+        let filter = rpc::DpuExtensionServiceSearchFilter {
+            service_type,
+            name,
+            tenant_organization_id,
+        };
+        let ids_response = self.0.find_dpu_extension_service_ids(filter).await?;
+
+        let mut all_list = rpc::DpuExtensionServiceList {
+            services: Vec::with_capacity(ids_response.service_ids.len()),
+        };
+
+        for ids in ids_response.service_ids.chunks(page_size) {
+            let request = rpc::DpuExtensionServicesByIdsRequest {
+                service_ids: ids.to_vec(),
+            };
+            let list = self.0.find_dpu_extension_services_by_ids(request).await?;
+            all_list.services.extend(list.services);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_extension_service_by_id(
+        &self,
+        service_id: String,
+    ) -> CarbideCliResult<rpc::DpuExtensionService> {
+        let request = rpc::DpuExtensionServicesByIdsRequest {
+            service_ids: vec![service_id],
+        };
+
+        let service_response = self.0.find_dpu_extension_services_by_ids(request).await;
+
+        match service_response {
+            Ok(service_response) => match service_response.services.len() {
+                0 => Err(CarbideCliError::GenericError(
+                    "Extension service not found".to_string(),
+                )),
+                1 => Ok(service_response.services.first().unwrap().clone()),
+                _ => Err(CarbideCliError::GenericError(
+                    "Multiple extension services found for the same ID".to_string(),
+                )),
+            },
+            Err(e) => Err(CarbideCliError::ApiInvocationError(e)),
+        }
+    }
+
+    pub async fn get_extension_service_version_infos(
+        &self,
+        service_id: String,
+        versions: Vec<String>,
+    ) -> CarbideCliResult<rpc::DpuExtensionServiceVersionInfoList> {
+        let request = rpc::GetDpuExtensionServiceVersionsInfoRequest {
+            service_id,
+            versions,
+        };
+
+        self.0
+            .get_dpu_extension_service_versions_info(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn find_instances_by_extension_service(
+        &self,
+        service_id: String,
+        version: Option<String>,
+    ) -> CarbideCliResult<rpc::FindInstancesByDpuExtensionServiceResponse> {
+        let request = rpc::FindInstancesByDpuExtensionServiceRequest {
+            service_id,
+            version,
+        };
+
+        self.0
+            .find_instances_by_dpu_extension_service(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
     }
 }

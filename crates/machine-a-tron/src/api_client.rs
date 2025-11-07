@@ -268,6 +268,8 @@ impl ApiClient {
                 client_certificate_expiry_unix_epoch_secs: None,
                 fabric_interfaces: vec![],
                 last_dhcp_requests: vec![],
+                dpu_extension_service_version: None,
+                dpu_extension_services: vec![],
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -346,6 +348,7 @@ impl ApiClient {
             }),
             network_security_group_id: None,
             infiniband: None,
+            dpu_extension_services: None,
         };
 
         let instance_request = rpc::InstanceAllocationRequest {
