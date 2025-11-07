@@ -150,16 +150,12 @@ pub fn state_sla(state: &IBPartitionControllerState, state_version: &ConfigVersi
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
     match state {
-        IBPartitionControllerState::Provisioning => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::PROVISIONING),
-            time_in_state,
-        ),
+        IBPartitionControllerState::Provisioning => {
+            StateSla::with_sla(slas::PROVISIONING, time_in_state)
+        }
         IBPartitionControllerState::Ready => StateSla::no_sla(),
         IBPartitionControllerState::Error { .. } => StateSla::no_sla(),
-        IBPartitionControllerState::Deleting => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::DELETING),
-            time_in_state,
-        ),
+        IBPartitionControllerState::Deleting => StateSla::with_sla(slas::DELETING, time_in_state),
     }
 }
 

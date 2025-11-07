@@ -11,34 +11,34 @@
  */
 
 //! SLAs for Machine State Machine Controller
-//! These SLAs are in seconds
 
-pub const DPUDISCOVERING: u64 = 30 * 60;
+use std::time::Duration;
+
+pub const DPUDISCOVERING: Duration = Duration::from_secs(30 * 60);
 
 // DPUInit any substate other than INIT
 // WaitingForPlatformPowercycle WaitingForPlatformConfiguration WaitingForNetworkConfig WaitingForNetworkInstall
-pub const DPUINIT_NOTINIT: u64 = 30 * 60;
+pub const DPUINIT_NOTINIT: Duration = Duration::from_secs(30 * 60);
 
 // HostInit state, any substate other than Init and  WaitingForDiscovery
 // EnableIpmiOverLan WaitingForPlatformConfiguration PollingBiosSetup UefiSetup Discovered Lockdown PollingLockdownStatus MachineValidating
-pub const HOST_INIT: u64 = 30 * 60;
+pub const HOST_INIT: Duration = Duration::from_secs(30 * 60);
 
-pub const WAITING_FOR_CLEANUP: u64 = 30 * 60;
+pub const WAITING_FOR_CLEANUP: Duration = Duration::from_secs(30 * 60);
 
-pub const CREATED: u64 = 30 * 60;
+pub const CREATED: Duration = Duration::from_secs(30 * 60);
 
-pub const FORCE_DELETION: u64 = 30 * 60;
+pub const FORCE_DELETION: Duration = Duration::from_secs(30 * 60);
 
-pub const DPU_REPROVISION: u64 = 30 * 60;
+pub const DPU_REPROVISION: Duration = Duration::from_secs(30 * 60);
 
-pub const HOST_REPROVISION: u64 = 40 * 60;
+pub const HOST_REPROVISION: Duration = Duration::from_secs(40 * 60);
 
-pub const MEASUREMENT_WAIT_FOR_MEASUREMENT: u64 = 30 * 60;
+pub const MEASUREMENT_WAIT_FOR_MEASUREMENT: Duration = Duration::from_secs(30 * 60);
 
-pub const BOM_VALIDATION: u64 = 5 * 60;
+pub const BOM_VALIDATION: Duration = Duration::from_secs(5 * 60);
 
 // ASSIGNED state, any substate other than Ready and BootingWithDiscoveryImage
 // Init WaitingForNetworkConfig WaitingForStorageConfig WaitingForRebootToReady SwitchToAdminNetwork WaitingForNetworkReconfig DPUReprovision Failed
-pub const ASSIGNED: u64 = 30 * 60;
-
-pub const VALIDATION: u64 = 30 * 60; // 30 minutes
+pub const ASSIGNED: Duration = Duration::from_secs(30 * 60);
+pub const VALIDATION: Duration = Duration::from_secs(30 * 60);

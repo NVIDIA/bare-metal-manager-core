@@ -11,8 +11,8 @@
  */
 
 //! SLAs for IB Partition State Machine Controller
-//! These SLAs are in seconds
 
-pub const PROVISIONING: u64 = 15 * 60;
+use std::time::Duration;
 
-pub const DELETING: u64 = 15 * 60;
+pub const PROVISIONING: Duration = Duration::from_secs(15 * 60);
+pub const DELETING: Duration = Duration::from_secs(15 * 60);

@@ -11,10 +11,9 @@
  */
 
 //! SLAs for Dpa Interface State Machine Controller
-//! These SLAs are in seconds
 
-pub const PROVISIONING: u64 = 15 * 60;
+use std::time::Duration;
 
-pub const WAITINGFORSETVNI: u64 = 15 * 60;
-
-pub const WAITINGFORRESETVNI: u64 = 15 * 60;
+pub const PROVISIONING: Duration = Duration::from_secs(15 * 60);
+pub const WAITINGFORSETVNI: Duration = Duration::from_secs(15 * 60);
+pub const WAITINGFORRESETVNI: Duration = Duration::from_secs(15 * 60);

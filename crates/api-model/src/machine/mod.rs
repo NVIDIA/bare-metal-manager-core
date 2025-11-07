@@ -2226,10 +2226,9 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
                 | DpuDiscoveringState::DisableSecureBoot { .. }
                 | DpuDiscoveringState::SetUefiHttpBoot
                 | DpuDiscoveringState::RebootAllDPUS
-                | DpuDiscoveringState::EnableRshim => StateSla::with_sla(
-                    std::time::Duration::from_secs(slas::DPUDISCOVERING),
-                    time_in_state,
-                ),
+                | DpuDiscoveringState::EnableRshim => {
+                    StateSla::with_sla(slas::DPUDISCOVERING, time_in_state)
+                }
             }
         }
         ManagedHostState::DPUInit { dpu_states } => {
@@ -2243,18 +2242,12 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
             // Init has no SLA since starting discovery requires a manual action
             match dpu_state {
                 DpuInitState::Init => StateSla::no_sla(),
-                _ => StateSla::with_sla(
-                    std::time::Duration::from_secs(slas::DPUINIT_NOTINIT),
-                    time_in_state,
-                ),
+                _ => StateSla::with_sla(slas::DPUINIT_NOTINIT, time_in_state),
             }
         }
         ManagedHostState::HostInit { machine_state } => match machine_state {
             MachineState::Init => StateSla::no_sla(),
-            _ => StateSla::with_sla(
-                std::time::Duration::from_secs(slas::HOST_INIT),
-                time_in_state,
-            ),
+            _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
         ManagedHostState::Assigned { instance_state } => match instance_state {
@@ -2263,45 +2256,31 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
                 // Since retries happen after 30min, the occurence of any retry means we exhausted the SLA
                 StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
             }
-            _ => StateSla::with_sla(
-                std::time::Duration::from_secs(slas::ASSIGNED),
-                time_in_state,
-            ),
+            _ => StateSla::with_sla(slas::ASSIGNED, time_in_state),
         },
-        ManagedHostState::WaitingForCleanup { .. } => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::WAITING_FOR_CLEANUP),
-            time_in_state,
-        ),
-        ManagedHostState::Created => {
-            StateSla::with_sla(std::time::Duration::from_secs(slas::CREATED), time_in_state)
+        ManagedHostState::WaitingForCleanup { .. } => {
+            StateSla::with_sla(slas::WAITING_FOR_CLEANUP, time_in_state)
         }
-        ManagedHostState::ForceDeletion => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::FORCE_DELETION),
-            time_in_state,
-        ),
+        ManagedHostState::Created => StateSla::with_sla(slas::CREATED, time_in_state),
+        ManagedHostState::ForceDeletion => StateSla::with_sla(slas::FORCE_DELETION, time_in_state),
         ManagedHostState::Failed { .. } => {
             StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
         }
-        ManagedHostState::DPUReprovision { .. } => StateSla::with_sla(
-            std::time::Duration::from_secs(slas::DPU_REPROVISION),
-            time_in_state,
-        ),
+        ManagedHostState::DPUReprovision { .. } => {
+            StateSla::with_sla(slas::DPU_REPROVISION, time_in_state)
+        }
         ManagedHostState::HostReprovision { .. } => {
             // Multiple types of firmware may need to be updated, and in some cases it can take a while.
             // This SHOULD be enough based on current observed behavior, but may need to be extended.
-            StateSla::with_sla(
-                std::time::Duration::from_secs(slas::HOST_REPROVISION),
-                time_in_state,
-            )
+            StateSla::with_sla(slas::HOST_REPROVISION, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon
             // as it transitions into this state, Scout should get an Action::Measure
             // action, and it should pretty quickly send measurements in (~seconds).
-            MeasuringState::WaitingForMeasurements => StateSla::with_sla(
-                std::time::Duration::from_secs(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT),
-                time_in_state,
-            ),
+            MeasuringState::WaitingForMeasurements => {
+                StateSla::with_sla(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT, time_in_state)
+            }
             // If the machine is waiting for a matching bundle, this could
             // take a bit, since it means either auto-bundle generation OR
             // manual bundle generation needs to happen. In the case of new
@@ -2313,10 +2292,9 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
             // The API shouldn't be waiting for measurements for long. As soon
             // as it transitions into this state, Scout should get an Action::Measure
             // action, and it should pretty quickly send measurements in (~seconds).
-            MeasuringState::WaitingForMeasurements => StateSla::with_sla(
-                std::time::Duration::from_secs(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT),
-                time_in_state,
-            ),
+            MeasuringState::WaitingForMeasurements => {
+                StateSla::with_sla(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT, time_in_state)
+            }
             // If the machine is waiting for a matching bundle, this could
             // take a bit, since it means either auto-bundle generation OR
             // manual bundle generation needs to happen. In the case of new
@@ -2329,21 +2307,16 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
         } => match bom_validating_state {
             BomValidating::SkuVerificationFailed(_bom_validating_context) => StateSla::no_sla(),
             BomValidating::WaitingForSkuAssignment(_bom_validating_context) => StateSla::no_sla(),
-            _ => StateSla::with_sla(
-                std::time::Duration::from_secs(slas::BOM_VALIDATION),
-                time_in_state,
-            ),
+            _ => StateSla::with_sla(slas::BOM_VALIDATION, time_in_state),
         },
         ManagedHostState::Validation { validation_state } => match validation_state {
             ValidationState::MachineValidation { machine_validation } => match machine_validation {
-                MachineValidatingState::MachineValidating { .. } => StateSla::with_sla(
-                    std::time::Duration::from_secs(slas::VALIDATION),
-                    time_in_state,
-                ),
-                MachineValidatingState::RebootHost { .. } => StateSla::with_sla(
-                    std::time::Duration::from_secs(slas::VALIDATION),
-                    time_in_state,
-                ),
+                MachineValidatingState::MachineValidating { .. } => {
+                    StateSla::with_sla(slas::VALIDATION, time_in_state)
+                }
+                MachineValidatingState::RebootHost { .. } => {
+                    StateSla::with_sla(slas::VALIDATION, time_in_state)
+                }
             },
         },
     }
