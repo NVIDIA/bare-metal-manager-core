@@ -24,6 +24,7 @@ use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use sqlx::PgConnection;
 use tonic::Request;
 
+use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::StateController;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
@@ -102,6 +103,15 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let expected_iterations = (TEST_TIME.as_millis() / ITERATION_TIME.as_millis()) as f64;
     let expected_total_count = expected_iterations * host_configs.len() as f64;
 
+    let handler_services = Arc::new(CommonStateHandlerServices {
+        redfish_client_pool: env.redfish_sim.clone(),
+        ib_fabric_manager: env.ib_fabric_manager.clone(),
+        ib_pools: env.common_pools.infiniband.clone(),
+        ipmi_tool: env.ipmi_tool.clone(),
+        site_config: env.config.clone(),
+        mqtt_client: None,
+    });
+
     // We build multiple state controllers. But since only one should act at a time,
     // the count should still not increase
     let mut handles = Vec::new();
@@ -113,12 +123,8 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                     ..Default::default()
                 })
                 .database(pool.clone())
-                .redfish_client_pool(env.redfish_sim.clone())
-                .ib_fabric_manager(env.ib_fabric_manager.clone())
-                .forge_api(env.api.clone())
+                .services(handler_services.clone())
                 .state_handler(machine_handler.clone())
-                .ipmi_tool(env.ipmi_tool.clone())
-                .site_config(env.config.clone())
                 .build_and_spawn()
                 .unwrap(),
         );

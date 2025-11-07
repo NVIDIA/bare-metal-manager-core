@@ -10,11 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::dpa_interface::metrics::DpaInterfaceMetrics;
 use crate::state_controller::state_handler::StateHandlerContextObjects;
 
 pub struct DpaInterfaceStateHandlerContextObjects {}
 
 impl StateHandlerContextObjects for DpaInterfaceStateHandlerContextObjects {
+    type Services = CommonStateHandlerServices;
     type ObjectMetrics = DpaInterfaceMetrics;
 }

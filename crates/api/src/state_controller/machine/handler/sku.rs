@@ -19,10 +19,9 @@ use model::sku::diff_skus;
 use sqlx::PgConnection;
 
 use super::{HostHandlerParams, discovered_after_state_transition};
+use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::machine::handler::trigger_reboot_if_needed;
-use crate::state_controller::state_handler::{
-    StateHandlerError, StateHandlerOutcome, StateHandlerServices,
-};
+use crate::state_controller::state_handler::{StateHandlerError, StateHandlerOutcome};
 
 fn get_bom_validation_context(state: &ManagedHostState) -> BomValidatingContext {
     if let ManagedHostState::BomValidating {
@@ -419,7 +418,7 @@ async fn skip_bom_validation_and_advance(
 pub(crate) async fn handle_bom_validation_state(
     txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
-    services: &StateHandlerServices,
+    services: &CommonStateHandlerServices,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     bom_validating_state: &BomValidating,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {

@@ -56,6 +56,7 @@ use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::preingestion_manager::PreingestionManager;
 use crate::redfish::RedfishClientPool;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
+use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::StateController;
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
 use crate::state_controller::dpa_interface::io::DpaInterfaceStateControllerIO;
@@ -477,14 +478,27 @@ pub async fn initialize_and_start_controllers(
     let downloader = FirmwareDownloader::new();
     let upload_limiter = Arc::new(Semaphore::new(carbide_config.firmware_global.max_uploads));
 
+    let mqtt_client = if carbide_config.is_dpa_enabled() {
+        Some(dpa::start_dpa_handler(api_service.clone()).await?)
+    } else {
+        None
+    };
+
+    let handler_services = Arc::new(CommonStateHandlerServices {
+        redfish_client_pool: shared_redfish_pool.clone(),
+        ib_fabric_manager: ib_fabric_manager.clone(),
+        ib_pools: common_pools.infiniband.clone(),
+        ipmi_tool: ipmi_tool.clone(),
+        site_config: carbide_config.clone(),
+        mqtt_client,
+    });
+
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
     let _machine_state_controller_handle = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone())
         .meter("forge_machines", meter.clone())
-        .redfish_client_pool(shared_redfish_pool.clone())
-        .ib_fabric_manager(ib_fabric_manager.clone())
-        .forge_api(api_service.clone())
+        .services(handler_services.clone())
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
         .state_handler(Arc::new(
             MachineStateHandlerBuilder::builder()
@@ -545,8 +559,6 @@ pub async fn initialize_and_start_controllers(
                     .prevent_allocations_on_stale_dpu_agent_version,
             },
         }))
-        .ipmi_tool(ipmi_tool.clone())
-        .site_config(carbide_config.clone())
         .build_and_spawn()
         .expect("Unable to build MachineStateController");
 
@@ -556,9 +568,7 @@ pub async fn initialize_and_start_controllers(
     let ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
         .database(db_pool.clone())
         .meter("forge_network_segments", meter.clone())
-        .redfish_client_pool(shared_redfish_pool.clone())
-        .ib_fabric_manager(ib_fabric_manager.clone())
-        .forge_api(api_service.clone());
+        .services(handler_services.clone());
     let _network_segment_controller_handle = ns_builder
         .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
         .state_handler(Arc::new(NetworkSegmentStateHandler::new(
@@ -568,8 +578,6 @@ pub async fn initialize_and_start_controllers(
             sc_pool_vlan_id,
             sc_pool_vni,
         )))
-        .ipmi_tool(ipmi_tool.clone())
-        .site_config(carbide_config.clone())
         .build_and_spawn()
         .expect("Unable to build NetworkSegmentController");
 
@@ -580,22 +588,16 @@ pub async fn initialize_and_start_controllers(
     > = None;
 
     if carbide_config.is_dpa_enabled() {
-        let mqtt_client = dpa::start_dpa_handler(api_service.clone()).await?;
         tracing::info!("Starting DpaInterfaceStateController as dpa is enabled");
         _dpa_interface_state_controller_handle = Some(
             StateController::<DpaInterfaceStateControllerIO>::builder()
                 .database(db_pool.clone())
                 .meter("forge_dpa_interfaces", meter.clone())
-                .redfish_client_pool(shared_redfish_pool.clone())
-                .ib_fabric_manager(ib_fabric_manager.clone())
-                .forge_api(api_service.clone())
-                .mqtt_client(mqtt_client)
+                .services(handler_services.clone())
                 .iteration_config(
                     (&carbide_config.dpa_interface_state_controller.controller).into(),
                 )
                 .state_handler(Arc::new(DpaInterfaceStateHandler::new(dpa_pool_vni)))
-                .ipmi_tool(ipmi_tool.clone())
-                .site_config(carbide_config.clone())
                 .build_and_spawn()
                 .expect("Unable to build DpaInterfaceStateController"),
         );
@@ -605,14 +607,9 @@ pub async fn initialize_and_start_controllers(
         StateController::<IBPartitionStateControllerIO>::builder()
             .database(db_pool.clone())
             .meter("forge_ib_partitions", meter.clone())
-            .redfish_client_pool(shared_redfish_pool.clone())
-            .ib_fabric_manager(ib_fabric_manager.clone())
-            .ib_pools(common_pools.infiniband.clone())
-            .forge_api(api_service.clone())
+            .services(handler_services.clone())
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
             .state_handler(Arc::new(IBPartitionStateHandler::default()))
-            .ipmi_tool(ipmi_tool.clone())
-            .site_config(carbide_config.clone())
             .build_and_spawn()
             .expect("Unable to build IBPartitionStateController");
 
