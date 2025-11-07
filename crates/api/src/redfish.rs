@@ -1614,6 +1614,43 @@ pub mod test_support {
         ) -> Result<Vec<String>, RedfishError> {
             Ok(Vec::new())
         }
+
+        async fn get_component_integrities(
+            &self,
+        ) -> Result<libredfish::model::component_integrity::ComponentIntegrities, RedfishError>
+        {
+            todo!()
+        }
+
+        async fn get_firmware_for_component(
+            &self,
+            _component_integrity_id: &str,
+        ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError>
+        {
+            todo!()
+        }
+
+        async fn get_component_ca_certificate(
+            &self,
+            _url: &str,
+        ) -> Result<libredfish::model::component_integrity::CaCertificate, RedfishError> {
+            todo!()
+        }
+
+        async fn trigger_evidence_collection(
+            &self,
+            _url: &str,
+            _nonce: &str,
+        ) -> Result<Task, RedfishError> {
+            todo!()
+        }
+
+        async fn get_evidence(
+            &self,
+            _url: &str,
+        ) -> Result<libredfish::model::component_integrity::Evidence, RedfishError> {
+            todo!()
+        }
     }
 
     #[async_trait]
