@@ -3,7 +3,7 @@
 This page discusses the high level architecture of a Carbide managed site.
 
 Carbide orchestrates the lifecycle of ["Managed Hosts"](#managed-hosts) and other resources via set of cooperating control plane services.
-These control plane services have to be deployed to a Kubernetes cluster with a size of at least 3 nodes (for high availability). 
+These control plane services have to be deployed to a Kubernetes cluster with a size of at least 3 nodes (for high availability).
 
 The Kubernetes cluster needs to have variety of services deployed:
 1. [The Carbide control plane services](#carbide-control-plane-services). These services are specific to Carbide, and must be deployed together in order to allow Carbide to manage the lifecyle of hosts.
@@ -58,7 +58,7 @@ The carbide control plane consists of a number of services which work together t
 - [carbide-core](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/api): The Carbide core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all Carbide managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances). The [Carbide Core](#carbide_core_architecture) section describes it further in detail.
 - [carbide-dhcp (DHCP)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/dhcp): The DHCP server responds to DHCP requests for all
   devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. carbide-dhcp can be thought of as a stateless proxy: It does not acutally perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC based DHCP requests to carbide core.
-- [carbide-pxe (iPXE)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from carbide core - therefore the PXE server is also stateless.  
+- [carbide-pxe (iPXE)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from carbide core - therefore the PXE server is also stateless.
   Currently, managed hosts are configured to always boot from PXE. If a local
   bootable device is found, the host will boot it. Hosts can also be configured to always boot from a
   particular image for stateless configurations.
@@ -86,13 +86,13 @@ Carbide core can be considered as a "collection of independent components that a
 Carbide core is the only component within carbide which interacts with the postgres database. This simplifies the rollout of database migrations throughout the product lifecycle.
 
 <!-- Source drawio file at static/carbide-core.drawio -->
-![Forge site controller](static/carbide-core.png)
+![Carbide site controller](static/carbide-core.png)
 
 ### Carbide Core Components
 
 ### [gRPC](https://grpc.io) API handlers
 
-The API handlers accept gRPC requests from Carbide users and internal system components. They provide users the ability to inspect the current state of the system, and modify the desired state of various components (e.g. create or reconfigure bare metal instances).  
+The API handlers accept gRPC requests from Carbide users and internal system components. They provide users the ability to inspect the current state of the system, and modify the desired state of various components (e.g. create or reconfigure bare metal instances).
   API handlers are all implemented within the trait/interface `rpc::forge::forge_server::Forge`. Various implementations delegate to the `handlers` subdirectory. For resources managed by Carbide, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead of it, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The carbide-core gRPC API supports
 [gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine readable API
 description so clients can auto-generate code and RPC functions in the client.
@@ -187,7 +187,7 @@ controller nodes.
 ### K8s Persistent Storage Objects
 
 Some site controller node services require persistent, durable storage to maintain state for their attendant
-pods. There are three different K8s statefulsets that run in the controller nodes:
+pods. There are three different K8s statefulsets that run on the controller nodes:
 
 - [Loki](https://grafana.com/oss/loki/) - The loki/loki-0 pod instatites a single 50GB persistent volume and is used to
   store logs for the site controller components.
@@ -200,8 +200,14 @@ pods. There are three different K8s statefulsets that run in the controller node
 
 ## Optional services
 
-- A multi-site deployment of Carbide uses the [Elektra site agent](https://gitlab-master.nvidia.com/nvmetal/elektra-site-agent) to establish communication between the local site control plane and the multi-site aggregation layer. The site agent maintains a
-  northbound [Temporal](https://gitlab-master.nvidia.com/nvmetal/cloud-temporal) connection to the multi-site control plane
-  for command and control.
-- The [carbide admin CLI](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/admin) provides a command
-  line interface into Carbide.
+The point of having a site controller is to administer a site that has been populated with tenant managed hosts.
+Each managed host is a pairing of a Bluefield (BF) 2/3 DPUs and a host server (only two DPUs have been tested).
+During initial deployment [scout](https://github.com/NVIDIA/carbide-core-snapshot/tree/main/crates/scout) runs and
+informs carbide-api of any discovered DPUs. Carbide completes the installation of services on the DPU and boots
+into regular operation mode. Thereafter the forge-dpu-agent starts as a daemon.
+
+Each DPU runs the forge-dpu-agent which connects via gRPC to the API service in Carbide to get configuration
+instructions.
+
+The forge-dpu-agent also runs the Forge metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance.
+Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.

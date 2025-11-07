@@ -13,21 +13,6 @@ development feeling.
     - Open VS Code
     - Press `Cmd + Shift + P` to open the Command Palette.
     - Type `Shell Command: Install 'code' command in PATH` and select it. This sets up the code command for your terminal.
-- Update the `~/.ssh/config` file to set up the jump host and remote instance. Example
-    ```
-    Host my_instance
-        HostName remote_server_ip
-        User your_id
-        Port 22
-        ProxyJump renojump
-
-    # Jumphost info
-    Host renojump 155.130.12.194
-    User your_id
-    HostName 155.130.12.194
-    Compression yes
-    PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com  # This is only required if you are running the latest SSH. OpenSSH deprecated RSA a while ago
-    ```
 - On the remote server, update the SSH daemon configuration to support port forwarding:
     - Edit the sshd configuration file:
         ```
@@ -51,10 +36,6 @@ development feeling.
 ### Basic remote setup
 
 Start `VS Code` using the `code` command in the same shell after running `nvinit`:
-- ```
-  nvinit ssh -user `whoami`
-  code
-  ```
 
 Click the remote button on the lower left of the IDE window:
 ![](../static/remote_button.png).

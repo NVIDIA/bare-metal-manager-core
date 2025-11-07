@@ -25,6 +25,6 @@ Note: * OVX does not show up as an option; need to check with Server Serial Numb
 ## DPU
 | DPU          | Firmware / Software Version                |
 |--------------|-------------------------------------------|
-| Bluefield-2  | Forge DOCA 2.8 (DOCA v2.10.0 available)   |
-| Bluefield-3  | Forge DOCA 2.8 (DOCA v2.10.0 available)   |
+| Bluefield-2  | DOCA 2.8 (DOCA v2.10.0 available)   |
+| Bluefield-3  | DOCA 2.8 (DOCA v2.10.0 available)   |
 

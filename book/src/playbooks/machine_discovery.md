@@ -4,7 +4,7 @@
 
 1) ssh to the BMC of the DPU and issue a `echo 'SW_RESET 1' > /dev/rshim0/misc`.
 2) log in to the rshim console and wait for the prompt to press escape twice `microcom /dev/rshim0/console`
-3) Once you see the bios password prompt, type `bluefield123` to get in
+3) Once you see the bios password prompt, type `bluefield123` (hardware default) to get in
 4) go to Boot device and select device 14 and click enter.
 
 At this point you should see a dhcp and a download of the ipxe.efi kernel. If you do not, be sure to check the dhcp servers config map for the proper values of the pxe server IP/port.

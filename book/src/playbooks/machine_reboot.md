@@ -6,7 +6,7 @@ in any potential state of its lifecycle.
 ## Important note
 
 *This this is not a facing site-provider or tenant facing workflow.
-Rebooting a machine while it is in-use for a tenant can have unexpected 
+Rebooting a machine while it is in-use for a tenant can have unexpected
 side effects. If a tenant requires a reboot, they should use the
 `InvokeInstancePower` request - which is properly integrated into the
 instance lifecycle.**
@@ -43,5 +43,3 @@ or using username and password:
 ```
 /opt/carbide/forge-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --username myhost --password mypassword
 ```
-
-

@@ -1,10 +1,10 @@
-# Force deleting and rebuilding Forge hosts
+# Force deleting and rebuilding Carbide hosts
 
 In various cases it might be necessary to force-delete knowledge about hosts from
-the Forge database, and to restart the discovery process for those. Examples for
+the Carbide database, and to restart the discovery process for those. Examples for
 use-cases where force-delete can be helpful:
 
-- If a host managed by Forge has entered an errorenous state from which it can not
+- If a host managed by Carbide has entered an errorenous state from which it can not
 automatically recover
 - If a non backward compatible software update requires the host to go through the discovery phase again
 
@@ -19,11 +19,11 @@ Site providers would get a safe version of this workflow later on that moves the
 
 ## Force-Deletion Steps
 
-The following steps can be used to force-delete knowledge about a a Forge host:
+The following steps can be used to force-delete knowledge about a a Carbide host:
 
 ### 1. Obtain access to `forge-admin-cli`
 
-See [forge-admin-cli access on a Forge cluster](../sites/forge_admin_cli.md).
+See [forge-admin-cli access on a Carbide cluster](../sites/forge_admin_cli.md).
 
 ### 2. Execute the `forge-admin-cli machine force-delete` command
 
@@ -49,28 +49,21 @@ as parameters.
 Force-deleting a machine will not delete its last set of credentials from `vault`. Therefore the site controller can still access those.
 
 Once a reboot is triggered, the DPU of the Machine should boot into the
-Forge discovery image again. This should initiate DPU discovery. A second
+Carbide discovery image again. This should initiate DPU discovery. A second
 reboot is required to initiate host discovery. After those steps, the host
 should be fully rebuilt and available.
 
 ## Reinstall OS Steps
 
-Deleting and recreating a Forge instance can take upwards of 1.5 hours. However, if you do not need to change the
+Deleting and recreating a Carbide instance can take upwards of 1.5 hours. However, if you do not need to change the
 PXE image you can reinstall the OS in place and reuse your allocated system. All the other information about your
 instance will stay the same. *This procedure will delete any data on the host!*
 
-The following steps can be used to reinstall the host OS on a Forge host:
+The following steps can be used to reinstall the host OS on a Carbide host:
 
 ### 1. Obtain access to the `forge-admin-cli` tool
 
-See [forge-admin-cli access on a Forge cluster](../sites/forge_admin_cli.md).
-
-### 2. Get the instance ID
-
-This can be found by logging into https://forge.stg.ngc.nvidia.com/ then navigating to VPCs > `{your vpc}`> `{your instance name}`.
-In the URL for this page will be the instance ID.
-
-![Instance ID](../static/playbooks/forge_instance_id.png)
+See [forge-admin-cli access on a Carbide cluster](../sites/forge_admin_cli.md).
 
 ### 3. Execute the `forge-admin-cli instance reboot --custom-pxe` command
 
