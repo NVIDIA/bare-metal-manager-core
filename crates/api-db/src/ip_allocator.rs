@@ -17,6 +17,7 @@ use forge_uuid::instance::InstanceId;
 use forge_uuid::network::NetworkPrefixId;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use model::address_selection_strategy::AddressSelectionStrategy;
+use model::network_prefix::NetworkPrefix;
 use model::network_segment::NetworkSegment;
 use sqlx::PgConnection;
 
@@ -241,6 +242,33 @@ impl Iterator for IpAllocator {
             Some(network) => Some((segment_prefix.id, Ok(network))),
         }
     }
+}
+
+/// This is a simple function which shortcuts all the IpAllocator logic for the specific case where
+/// we know we only want a single IPv4 /32. It finds the next IP in a single database query, which
+/// can be much faster than loading all used IP's from the database and selecting the next one
+/// locally, especially during ingestion when we are allocating lots of IP's at once.
+pub async fn next_machine_interface_v4_ip(
+    txn: &mut PgConnection,
+    prefix: &NetworkPrefix,
+) -> DatabaseResult<Option<IpAddr>> {
+    let query = r#"
+SELECT ($1::inet + ip_series.n)::inet AS ip
+FROM generate_series($3, (1 << (32 - $2)) - 2) AS ip_series(n)
+LEFT JOIN machine_interface_addresses AS mia
+  ON mia.address = ($1::inet + ip_series.n)::inet
+WHERE mia.address IS NULL
+ORDER BY ip
+LIMIT 1
+    "#;
+
+    sqlx::query_scalar(query)
+        .bind(prefix.prefix.ip())
+        .bind(prefix.prefix.prefix() as i32)
+        .bind(prefix.num_reserved)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// build_allocated_networks builds a list of IpNetworks that have

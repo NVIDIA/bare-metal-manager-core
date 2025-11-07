@@ -28,7 +28,7 @@ use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{FromRow, PgConnection};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
-use crate::ip_allocator::{IpAllocator, UsedIpResolver};
+use crate::ip_allocator::{IpAllocator, UsedIpResolver, next_machine_interface_v4_ip};
 use crate::{DatabaseError, DatabaseResult, Transaction};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
@@ -328,7 +328,7 @@ pub async fn create(
     macaddr: &MacAddress,
     domain_id: Option<DomainId>,
     primary_interface: bool,
-    addresses: AddressSelectionStrategy,
+    _addresses: AddressSelectionStrategy,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     // We're potentially about to insert a couple rows, so create a savepoint.
     let mut inner_txn = Transaction::begin_inner(txn, "machine_interface::create").await?;
@@ -341,54 +341,23 @@ pub async fn create(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    // Use the UsedAdminNetworkIpResolver, which specifically looks at
-    // the machine interface addresses table in the database for finding
-    // the next available IP.
-    let mut busy_ips = vec![];
-    for prefix in &segment.prefixes {
-        if let Some(svi_ip) = prefix.svi_ip {
-            busy_ips.push(svi_ip);
-        }
-    }
-    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
-        segment_id: segment.id,
-        busy_ips,
-    });
-
+    // In the case of machine interfaces, we always use a hard-coded /32 allocation prefix.
     // In the case of machine interfaces, the IpAllocator is going to remain
     // a hard-coded /32 allocation prefix.
-    let prefix_length = 32;
-    let addresses_allocator = IpAllocator::new(
-        &mut inner_txn,
-        segment,
-        dhcp_handler,
-        addresses,
-        prefix_length,
-    )
-    .await?;
-
-    let mut hostname: String = "".to_string();
-    let mut allocated_addresses = Vec::new();
-    for (_, maybe_address) in addresses_allocator {
-        let address = maybe_address?;
-        if address.prefix() != prefix_length {
-            return Err(DatabaseError::internal(format!(
-                "received allocated address candidate with mismatched prefix length (expected: {}, got: {}",
-                prefix_length,
-                address.prefix()
-            )));
-        }
-        allocated_addresses.push(address.ip());
-        if hostname.is_empty() && address.is_ipv4() {
-            hostname = address_to_hostname(&address.ip())?;
+    let mut allocated_address = None;
+    for prefix in &segment.prefixes {
+        if let Some(address) = next_machine_interface_v4_ip(&mut inner_txn, prefix).await? {
+            allocated_address = Some(address);
+            break;
         }
     }
-    if hostname.is_empty() {
-        return Err(DatabaseError::internal(
-            "Could not generate hostname".to_string(),
+    let Some(allocated_address) = allocated_address else {
+        return Err(crate::DatabaseError::ResourceExhausted(
+            "No IP addresses left in network segment".to_string(),
         ));
-    }
+    };
 
+    let hostname = address_to_hostname(&allocated_address)?;
     let interface_id = insert_machine_interface(
         &mut inner_txn,
         &segment.id,
@@ -399,9 +368,7 @@ pub async fn create(
     )
     .await?;
 
-    for address in allocated_addresses {
-        insert_machine_interface_address(&mut inner_txn, &interface_id, &address).await?;
-    }
+    insert_machine_interface_address(&mut inner_txn, &interface_id, &allocated_address).await?;
 
     inner_txn.commit().await?;
 
