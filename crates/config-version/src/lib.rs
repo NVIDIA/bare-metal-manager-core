@@ -115,6 +115,13 @@ impl ConfigVersion {
         }
     }
 
+    pub fn new(version_nr: u64) -> Self {
+        Self {
+            version_nr,
+            timestamp: now(),
+        }
+    }
+
     // Creates an invalid version that should not match any valid version
     pub fn invalid() -> Self {
         Self {

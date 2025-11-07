@@ -16,11 +16,13 @@ use std::str::FromStr;
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
+use forge_uuid::extension_service::ExtensionServiceId;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::VpcId;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
+use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
 use model::instance::snapshot::InstanceSnapshot;
@@ -174,6 +176,34 @@ pub async fn find_by_machine_ids(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
+}
+
+pub async fn find_by_extension_service(
+    txn: &mut PgConnection,
+    service_id: ExtensionServiceId,
+    version: Option<ConfigVersion>,
+) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new(
+        r#"SELECT row_to_json(i.*) FROM instances i
+            WHERE i.deleted IS NULL AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(i.extension_services_config->'service_configs') AS es_config(cfg)
+                WHERE cfg->>'service_id' =
+        "#,
+    );
+    builder.push_bind(service_id.to_string());
+
+    if let Some(version) = version {
+        builder.push(" AND cfg->>'version' = ");
+        builder.push_bind(version.to_string());
+    }
+    builder.push(")");
+
+    builder
+        .build_query_as()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(builder.sql(), e))
 }
 
 pub async fn use_custom_ipxe_on_next_boot(
@@ -428,6 +458,36 @@ pub async fn delete_update_network_config_request(
     Ok(())
 }
 
+pub async fn update_extension_services_config(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+    expected_version: ConfigVersion,
+    new_config: &InstanceExtensionServicesConfig,
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    let next_version = if increment_version {
+        expected_version.increment()
+    } else {
+        expected_version
+    };
+
+    let query = "UPDATE instances SET extension_services_config_version=$1, extension_services_config=$2::json
+        WHERE id=$3 AND extension_services_config_version=$4
+        RETURNING id";
+    let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
+        .bind(next_version)
+        .bind(sqlx::types::Json(new_config))
+        .bind(instance_id)
+        .bind(expected_version)
+        .fetch_one(txn)
+        .await;
+
+    match query_result {
+        Ok((_instance_id,)) => Ok(()),
+        Err(e) => Err(DatabaseError::query(query, e)),
+    }
+}
+
 /// Persists the new instance to the DB.
 ///
 /// Does ***not*** check for the existence of the associated machine.
@@ -472,12 +532,14 @@ pub async fn persist(
                         hostname,
                         network_security_group_id,
                         use_custom_pxe_on_boot,
-                        instance_type_id
+                        instance_type_id,
+                        extension_services_config,
+                        extension_services_config_version
                     )
                     SELECT 
                             $1, $2, $3, $4, $5, $6, $7, $8::json, $9, $10::json,
                             $11, $12, $13, $14, $15, $16::json, $17, $18,
-                            $19, true, m.instance_type_id
+                            $19, true, m.instance_type_id, $22::json, $23
                     FROM machines m WHERE m.id=$20 AND ($21 IS NULL OR m.instance_type_id=$21) FOR UPDATE
                     RETURNING row_to_json(instances.*)";
     match sqlx::query_as(query)
@@ -502,6 +564,8 @@ pub async fn persist(
         .bind(&value.config.network_security_group_id)
         .bind(value.machine_id.to_string())
         .bind(&value.instance_type_id)
+        .bind(sqlx::types::Json(&value.config.extension_services))
+        .bind(value.extension_services_config_version)
         .fetch_one(txn)
         .await
     {

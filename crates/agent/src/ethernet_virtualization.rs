@@ -2206,6 +2206,7 @@ mod tests {
             internet_l3_vni: Some(1337),
             stateful_acls_enabled: true,
             instance: None,
+            dpu_extension_services: vec![],
         }
     }
 
@@ -2621,6 +2622,7 @@ mod tests {
             internet_l3_vni: Some(1337),
             stateful_acls_enabled: true,
             instance: None,
+            dpu_extension_services: vec![],
         };
 
         let f = tempfile::NamedTempFile::new()?;

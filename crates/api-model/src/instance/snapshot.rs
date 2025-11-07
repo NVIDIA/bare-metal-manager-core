@@ -25,6 +25,7 @@ use sqlx::{FromRow, Row};
 
 use super::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
 use crate::instance::config::InstanceConfig;
+use crate::instance::config::extension_services::InstanceExtensionServicesConfig;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::tenant_config::TenantConfig;
 use crate::instance::status::{InstanceStatus, InstanceStatusObservations};
@@ -70,6 +71,10 @@ pub struct InstanceSnapshot {
 
     pub storage_config_version: ConfigVersion,
 
+    /// Current version of the extension services configuration that is stored as part
+    /// of [InstanceConfig::extension_services]
+    pub extension_services_config_version: ConfigVersion,
+
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
 
@@ -102,6 +107,10 @@ impl InstanceSnapshot {
             Versioned::new(&self.config, self.config_version),
             Versioned::new(&self.config.network, self.network_config_version),
             Versioned::new(&self.config.infiniband, self.ib_config_version),
+            Versioned::new(
+                &self.config.extension_services,
+                self.extension_services_config_version,
+            ),
             &self.observations,
             managed_host_state,
             self.deleted.is_some(),
@@ -141,6 +150,8 @@ pub struct InstanceSnapshotPgJson {
     os_image_id: Option<uuid::Uuid>,
     instance_type_id: Option<InstanceTypeId>,
     network_security_group_id: Option<NetworkSecurityGroupId>,
+    extension_services_config: InstanceExtensionServicesConfig,
+    extension_services_config_version: String,
     requested: DateTime<Utc>,
     started: DateTime<Utc>,
     finished: Option<DateTime<Utc>>,
@@ -193,6 +204,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             network: value.network_config,
             infiniband: value.ib_config,
             network_security_group_id: value.network_security_group_id,
+            extension_services: value.extension_services_config,
         };
 
         Ok(InstanceSnapshot {
@@ -225,8 +237,16 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
                     source: Box::new(e),
                 }
             })?,
+            extension_services_config_version: value
+                .extension_services_config_version
+                .parse()
+                .map_err(|e| sqlx::error::Error::ColumnDecode {
+                    index: "extension_services_config_version".to_string(),
+                    source: Box::new(e),
+                })?,
             observations: InstanceStatusObservations {
                 network: HashMap::default(),
+                extension_services: HashMap::default(),
                 phone_home_last_contact: value.phone_home_last_contact,
             },
             use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,

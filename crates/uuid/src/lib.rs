@@ -15,6 +15,7 @@ use std::fmt;
 pub mod domain;
 pub mod dpa_interface;
 pub mod dpu_remediations;
+pub mod extension_service;
 pub mod infiniband;
 pub mod instance;
 pub mod instance_type;

@@ -558,6 +558,16 @@ service Forge {
   // end DPU Remediation APIs
 
   rpc SetPrimaryDpu(SetPrimaryDpuRequest) returns (google.protobuf.Empty);
+
+  // Extension service version management
+  rpc CreateDpuExtensionService(CreateDpuExtensionServiceRequest) returns (DpuExtensionService);
+  rpc UpdateDpuExtensionService(UpdateDpuExtensionServiceRequest) returns (DpuExtensionService);
+  rpc DeleteDpuExtensionService(DeleteDpuExtensionServiceRequest) returns (DeleteDpuExtensionServiceResponse);
+
+  rpc FindDpuExtensionServiceIds(DpuExtensionServiceSearchFilter) returns (DpuExtensionServiceIdList);
+  rpc FindDpuExtensionServicesByIds(DpuExtensionServicesByIdsRequest) returns (DpuExtensionServiceList);
+  rpc GetDpuExtensionServiceVersionsInfo(GetDpuExtensionServiceVersionsInfoRequest) returns (DpuExtensionServiceVersionInfoList);
+  rpc FindInstancesByDpuExtensionService(FindInstancesByDpuExtensionServiceRequest) returns (FindInstancesByDpuExtensionServiceResponse);
 }
 
 message TpmCaAddedCaStatus{
@@ -1505,6 +1515,9 @@ message InstanceConfig {
   // Takes precedence over any NSG set on the parent VPC.
   // Superseded by any NSG set on an individual interface.
   optional string network_security_group_id = 22;
+
+  // Configures instance extension services (e.g., SDN components)
+  optional InstanceDpuExtensionServicesConfig dpu_extension_services = 23;
 }
 
 // Desired network configuration for an instance
@@ -1517,6 +1530,16 @@ message InstanceNetworkConfig {
 message InstanceInfinibandConfig {
   // Configures how instance infiniband interfaces are set up
   repeated InstanceIBInterfaceConfig ib_interfaces = 1;
+}
+
+message InstanceDpuExtensionServiceConfig {
+  string service_id = 1;
+  string version = 2;
+}
+
+// Extension services configuration for an instance
+message InstanceDpuExtensionServicesConfig {
+  repeated InstanceDpuExtensionServiceConfig service_configs = 1;
 }
 
 // New configuration for the instances network interfaces
@@ -1593,6 +1616,9 @@ message InstanceStatus {
 
   reserved 21;
 
+  // Status of attached extension services of an instance
+  InstanceDpuExtensionServicesStatus dpu_extension_services = 22;
+
   // Whether all configurations related to an instance are in-sync.
   // This is a logical AND for the settings of all sub-configurations.
   // At this time it equals `InstanceNetworkStatus::configs_synced`,
@@ -1652,6 +1678,27 @@ message InstanceInfinibandStatus {
   SyncState configs_synced = 101;
 }
 
+message DpuExtensionServiceStatus {
+  common.MachineId dpu_machine_id = 1;
+  DpuExtensionServiceDeploymentStatus status = 2;
+  optional string error_message = 3;
+  repeated DpuExtensionServiceComponent components = 4;
+}
+
+message InstanceDpuExtensionServiceStatus {
+  string service_id = 1;
+  string version = 2;
+  DpuExtensionServiceDeploymentStatus deployment_status = 3;
+  repeated DpuExtensionServiceStatus dpu_statuses = 4;
+  optional string removed = 5;
+}
+
+// Status of extension services subsystem of an instance
+message InstanceDpuExtensionServicesStatus {
+  repeated InstanceDpuExtensionServiceStatus dpu_extension_services = 1;
+  SyncState configs_synced = 101;
+}
+
 // Contains all information about an actively running instance
 // This entails both the instance configuration, as well as the current state of the instance
 message Instance {
@@ -1699,6 +1746,8 @@ message Instance {
   // todo: not sure if we need a storage specific config version or we can use
   // the instance config version above.
   reserved 204;
+  // Current version of the extension service configuration that is applied on the instance
+  string dpu_extension_service_version = 205;
 }
 
 message InstanceUpdateStatus {
@@ -2525,6 +2574,19 @@ message ManagedHostNetworkConfigResponse {
   // This should land in a separate policy on the DPU that is
   // evaluated before any user-defined rules but after deny_prefixes.
   repeated ResolvedNetworkSecurityGroupRule network_security_policy_overrides = 111;
+
+  // Extension services that should be deployed on this DPU
+  repeated ManagedHostDpuExtensionServiceConfig dpu_extension_services = 112;
+}
+
+message ManagedHostDpuExtensionServiceConfig {
+  string service_id = 1;
+  string version = 2;
+  string name = 3;
+  optional string removed = 4; // Signals that the service was removed from instance config and needs to be terminated
+  DpuExtensionServiceType service_type = 5;
+  string data = 6;
+  optional DpuExtensionServiceCredential credential = 7;
 }
 
 message ManagedHostQuarantineState {
@@ -3104,11 +3166,33 @@ message DpuNetworkStatus {
   optional string instance_config_version = 12;
   repeated FabricInterfaceData fabric_interfaces = 13;
   repeated LastDhcpRequest last_dhcp_requests = 14;
+  // Extension service status reported by DPU
+  optional string dpu_extension_service_version = 15;
+  repeated DpuExtensionServiceStatusObservation dpu_extension_services = 16;
 }
 
 message LastDhcpRequest {
   common.MachineInterfaceId host_interface_id = 1;
   string timestamp = 2;
+}
+
+// DPU extension service status
+message DpuExtensionServiceStatusObservation {
+  string service_id = 1;
+  DpuExtensionServiceType service_type = 2;
+  string service_name = 3;
+  string version = 4;
+  optional string removed = 5; // Signals that this service was removed from instance config and is terminating
+  DpuExtensionServiceDeploymentStatus state = 6;
+  repeated DpuExtensionServiceComponent components = 7;
+  string message = 8;
+}
+
+message DpuExtensionServiceComponent {
+  string name = 1;
+  string version = 2;
+  string url = 3;
+  string status = 4;
 }
 
 message HardwareHealthReport {
@@ -4989,4 +5073,152 @@ message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
   bool reboot=3;
+}
+
+// DPU Extension Service Types and Messages
+enum DpuExtensionServiceType {
+  KUBERNETES_POD = 0;
+  // Add supported service types in the future
+}
+
+message UsernamePassword {
+  string username = 1;
+  string password = 2;
+}
+
+message DpuExtensionServiceCredential {
+  string registry_url = 1;
+
+  oneof type {
+    UsernamePassword username_password = 2;
+    // @TODO: add more credential types in the future
+  }
+}
+
+message DpuExtensionServiceVersionInfo {
+  string version = 1;
+  string data = 2;
+  bool has_credential = 3;
+  string created = 4;
+}
+
+message DpuExtensionService {
+  string service_id = 1;
+
+  DpuExtensionServiceType service_type = 2;
+
+  string service_name = 3;
+
+  string tenant_organization_id = 4;
+
+  // Tracks how many versions has ever been created for this extension service.
+  // This is always incremented and is not always equal to the latest version since versions
+  // can be deleted.
+  int32 version_ctr = 5;
+
+  // The information of the latest version of the extension service among all non-deleted versions.
+  optional DpuExtensionServiceVersionInfo latest_version_info = 6;
+
+  // All versions of the extension service that's not deleted.
+  repeated string active_versions = 7;
+
+  string description = 8;
+  string created = 9;
+  string updated = 10;
+}
+
+message CreateDpuExtensionServiceRequest {
+  // Metadata
+  optional string service_id = 1; // If not provided, a new UUID will be generated
+  string service_name = 2;
+  optional string description = 3;
+  DpuExtensionServiceType service_type = 4; // Immutable
+
+  string tenant_organization_id = 5; // Immutable
+
+  // Versioned extension service spec
+  string data = 6;
+  optional DpuExtensionServiceCredential credential = 7;
+}
+
+message UpdateDpuExtensionServiceRequest {
+  string service_id = 1;
+
+  // optionally update the extension service metadata
+  optional string service_name = 2;
+  optional string description = 3;
+
+  // create a new extension service version
+  string data = 4;
+  optional DpuExtensionServiceCredential credential = 5;
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current version on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional int32 if_version_ctr_match = 6;
+} 
+
+// If versions is empty, request to delete the whole service;
+// otherwise, request to delete the specified versions **but**
+// if all versions are deleted, the service will be deleted.
+message DeleteDpuExtensionServiceRequest {
+  string service_id = 1;
+  repeated string versions = 2;
+}
+
+message DeleteDpuExtensionServiceResponse {
+}
+
+message DpuExtensionServiceSearchFilter {
+  optional DpuExtensionServiceType service_type = 1;
+  optional string name = 2;
+  optional string tenant_organization_id = 3;
+}
+
+message DpuExtensionServiceIdList {
+  repeated string service_ids = 1;
+}
+
+message DpuExtensionServicesByIdsRequest {
+  repeated string service_ids = 1;
+}
+
+message DpuExtensionServiceList {
+  repeated DpuExtensionService services = 1;
+}
+
+// If versions is empty, request to get all versions of the extension service
+message GetDpuExtensionServiceVersionsInfoRequest {
+  string service_id = 1;
+  repeated string versions = 2;
+}
+
+message DpuExtensionServiceVersionInfoList {
+  repeated DpuExtensionServiceVersionInfo version_infos = 1;
+}
+
+enum DpuExtensionServiceDeploymentStatus {
+  DPU_EXTENSION_SERVICE_UNKNOWN = 0;
+  DPU_EXTENSION_SERVICE_PENDING = 1;
+  DPU_EXTENSION_SERVICE_RUNNING = 2;
+  DPU_EXTENSION_SERVICE_TERMINATING = 3;
+  DPU_EXTENSION_SERVICE_TERMINATED = 4;
+  DPU_EXTENSION_SERVICE_FAILED = 5;
+  DPU_EXTENSION_SERVICE_ERROR = 6;
+}
+
+message FindInstancesByDpuExtensionServiceRequest {
+  string service_id = 1;
+  optional string version = 2;
+}
+
+message FindInstancesByDpuExtensionServiceResponse {
+  repeated InstanceDpuExtensionServiceInfo instances = 1;
+}
+
+message InstanceDpuExtensionServiceInfo {
+  string instance_id = 1;
+  string service_id = 2;
+  string version = 3;
+  optional string removed = 4; // Signals that this service is being removed from instance config and is terminating
 }

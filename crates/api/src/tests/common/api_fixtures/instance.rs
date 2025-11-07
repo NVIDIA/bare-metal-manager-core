@@ -23,6 +23,7 @@ use model::instance::status::network::InstanceNetworkStatusObservation;
 use model::machine::{
     CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
+use rpc::forge::InstanceDpuExtensionServicesConfig;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::instance_interface_config::NetworkDetails;
 use rpc::{InstanceReleaseRequest, Timestamp};
@@ -48,6 +49,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
                 network: None,
                 infiniband: None,
                 network_security_group_id: None,
+                dpu_extension_services: None,
             },
             tenant: default_tenant_config(),
             metadata: None,
@@ -62,6 +64,14 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
 
     pub fn network(mut self, network: rpc::InstanceNetworkConfig) -> Self {
         self.config.network = Some(network);
+        self
+    }
+
+    pub fn extension_services(
+        mut self,
+        extension_services: InstanceDpuExtensionServicesConfig,
+    ) -> Self {
+        self.config.dpu_extension_services = Some(extension_services);
         self
     }
 
@@ -285,6 +295,7 @@ pub fn config_for_ib_config(
         network: Some(single_interface_network_config(network_segment_id)),
         infiniband: Some(ib_config),
         network_security_group_id: None,
+        dpu_extension_services: None,
     }
 }
 

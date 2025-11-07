@@ -73,6 +73,7 @@ mod dpa;
 mod dpu;
 mod dpu_remediation;
 mod expected_machines;
+mod extension_service;
 mod firmware;
 mod host;
 mod ib_partition;
@@ -2164,6 +2165,44 @@ async fn main() -> color_eyre::Result<()> {
                 .await?;
             }
         },
+        CliCommand::ExtensionService(extension_service_command) => {
+            match extension_service_command {
+                cfg::cli_options::ExtensionServiceOptions::Create(create_options) => {
+                    extension_service::handle_create(create_options, config.format, &api_client)
+                        .await?;
+                }
+                cfg::cli_options::ExtensionServiceOptions::Update(update_options) => {
+                    extension_service::handle_update(update_options, config.format, &api_client)
+                        .await?;
+                }
+                cfg::cli_options::ExtensionServiceOptions::Delete(delete_options) => {
+                    extension_service::handle_delete(delete_options, config.format, &api_client)
+                        .await?;
+                }
+                cfg::cli_options::ExtensionServiceOptions::Show(show_options) => {
+                    extension_service::handle_show(
+                        show_options,
+                        config.format,
+                        &api_client,
+                        config.internal_page_size,
+                    )
+                    .await?;
+                }
+                cfg::cli_options::ExtensionServiceOptions::GetVersion(get_version_options) => {
+                    extension_service::handle_get_version(get_version_options, &api_client).await?;
+                }
+                cfg::cli_options::ExtensionServiceOptions::ShowInstances(
+                    show_instances_options,
+                ) => {
+                    extension_service::handle_show_instances(
+                        show_instances_options,
+                        config.format,
+                        &api_client,
+                    )
+                    .await?;
+                }
+            }
+        }
     }
 
     Ok(())

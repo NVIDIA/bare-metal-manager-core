@@ -488,6 +488,22 @@ impl InternalRBACRules {
         x.perm("GetNextRemediationForMachine", vec![Agent]);
         x.perm("RemediationApplied", vec![Agent]);
         x.perm("SetPrimaryDpu", vec![ForgeAdminCLI]);
+        x.perm("CreateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindDpuExtensionServiceIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindDpuExtensionServicesByIds",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "GetDpuExtensionServiceVersionsInfo",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "FindInstancesByDpuExtensionService",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

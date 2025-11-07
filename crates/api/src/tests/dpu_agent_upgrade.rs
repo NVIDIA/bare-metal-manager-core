@@ -89,6 +89,8 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             client_certificate_expiry_unix_epoch_secs: None,
             fabric_interfaces: vec![],
             last_dhcp_requests: vec![],
+            dpu_extension_service_version: Some("V1-T1".to_string()),
+            dpu_extension_services: vec![],
         }))
         .await
         .unwrap();
@@ -267,6 +269,8 @@ impl TestManagedHost {
                 client_certificate_expiry_unix_epoch_secs: None,
                 fabric_interfaces: vec![],
                 last_dhcp_requests: vec![],
+                dpu_extension_service_version: Some("V1-T1".to_string()),
+                dpu_extension_services: vec![],
             }))
             .await
             .unwrap();

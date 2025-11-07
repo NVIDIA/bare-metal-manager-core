@@ -79,6 +79,8 @@ async fn update_network_status_observation(
             instance_config_version: Some("V1-T1".to_string()),
             fabric_interfaces: vec![],
             last_dhcp_requests: vec![],
+            dpu_extension_service_version: Some("V1-T1".to_string()),
+            dpu_extension_services: vec![],
         }))
         .await
         .unwrap();
@@ -897,6 +899,7 @@ async fn test_network_security_group_delete(
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 network_security_group_id: Some(good_network_security_group_id.into()),
+                dpu_extension_services: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -1193,6 +1196,7 @@ async fn test_network_security_group_propagation_impl(
                 )),
                 infiniband: None,
                 network_security_group_id: Some(good_network_security_group_id.to_string()),
+                dpu_extension_services: None,
             }),
             instance_id: Some(instance_id),
             instance_type_id: None,
@@ -1314,6 +1318,7 @@ async fn test_network_security_group_propagation_impl(
                     )),
                     infiniband: None,
                     network_security_group_id: None,
+                    dpu_extension_services: None,
                 }),
                 instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
@@ -1423,6 +1428,7 @@ async fn test_network_security_group_propagation_impl(
                 )),
                 infiniband: None,
                 network_security_group_id: None,
+                dpu_extension_services: None,
             }),
             instance_id: Some(instance_id2),
             instance_type_id: None,
@@ -1781,6 +1787,7 @@ async fn test_network_security_group_get_attachments(
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 network_security_group_id: Some(good_network_security_group_id.to_string()),
+                dpu_extension_services: None,
             }),
             instance_id: Some(instance_id),
             instance_type_id: None,

@@ -33,6 +33,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
+use crate::handlers::extension_service;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::{CarbideError, ethernet_virtualization};
 
@@ -448,6 +449,60 @@ pub(crate) async fn get_managed_host_network_config_inner(
         VpcIsolationBehaviorType::Open => deny_prefixes.clone(),
     };
 
+    // If instance is present, get the extension services configured for the instance.
+    let extension_services = if let Some(instance) = snapshot.instance.as_ref() {
+        let configs = &instance.config.extension_services.service_configs;
+        let mut services_config = Vec::with_capacity(configs.len());
+        // @TODO(Felicity): optimize database query to fetch all extension service versions at once.
+        //  This might be ok for now since the number of extension services is expected to be small.
+        for config in configs {
+            let service_id = config.service_id;
+
+            let service_res = db::extension_service::find_by_ids(txn, &[service_id], false).await?;
+            let service = service_res
+                .first()
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "ExtensionService",
+                    id: service_id.to_string(),
+                })?;
+
+            let service_version =
+                db::extension_service::find_version_info(txn, service_id, Some(config.version))
+                    .await?;
+
+            // Get the credential if it exists
+            let credential = if service_version.has_credential {
+                let key = extension_service::create_extension_service_credential_key(
+                    &service_id,
+                    service_version.version,
+                );
+                Some(
+                    extension_service::get_extension_service_credential(
+                        &api.credential_provider,
+                        key,
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
+
+            services_config.push(rpc::ManagedHostDpuExtensionServiceConfig {
+                service_id: service_id.to_string(),
+                name: service.name.clone(),
+                removed: config.removed.map(|ts| ts.to_string()),
+                version: service_version.version.to_string(),
+                service_type: rpc::DpuExtensionServiceType::from(service.service_type.clone())
+                    .into(),
+                data: service_version.data,
+                credential,
+            });
+        }
+        services_config
+    } else {
+        Vec::new()
+    };
+
     let resp = rpc::ManagedHostNetworkConfigResponse {
         instance_id: snapshot.instance.as_ref().map(|instance| instance.id),
         asn,
@@ -548,6 +603,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             })
             .unwrap_or_default(),
         instance: maybe_instance,
+        dpu_extension_services: extension_services,
     };
 
     // If this all worked, we shouldn't emit a log line

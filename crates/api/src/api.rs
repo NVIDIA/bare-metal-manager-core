@@ -5022,6 +5022,55 @@ impl Forge for Api {
         }
         Ok(tonic::Response::new(()))
     }
+
+    async fn create_dpu_extension_service(
+        &self,
+        request: Request<rpc::CreateDpuExtensionServiceRequest>,
+    ) -> Result<Response<rpc::DpuExtensionService>, Status> {
+        crate::handlers::extension_service::create(self, request).await
+    }
+
+    async fn update_dpu_extension_service(
+        &self,
+        request: Request<rpc::UpdateDpuExtensionServiceRequest>,
+    ) -> Result<Response<rpc::DpuExtensionService>, Status> {
+        crate::handlers::extension_service::update(self, request).await
+    }
+
+    async fn delete_dpu_extension_service(
+        &self,
+        request: Request<rpc::DeleteDpuExtensionServiceRequest>,
+    ) -> Result<Response<rpc::DeleteDpuExtensionServiceResponse>, Status> {
+        crate::handlers::extension_service::delete(self, request).await
+    }
+
+    async fn find_dpu_extension_service_ids(
+        &self,
+        request: Request<rpc::DpuExtensionServiceSearchFilter>,
+    ) -> Result<Response<rpc::DpuExtensionServiceIdList>, Status> {
+        crate::handlers::extension_service::find_ids(self, request).await
+    }
+
+    async fn find_dpu_extension_services_by_ids(
+        &self,
+        request: Request<rpc::DpuExtensionServicesByIdsRequest>,
+    ) -> Result<Response<rpc::DpuExtensionServiceList>, Status> {
+        crate::handlers::extension_service::find_by_ids(self, request).await
+    }
+
+    async fn get_dpu_extension_service_versions_info(
+        &self,
+        request: Request<rpc::GetDpuExtensionServiceVersionsInfoRequest>,
+    ) -> Result<Response<rpc::DpuExtensionServiceVersionInfoList>, Status> {
+        crate::handlers::extension_service::get_versions_info(self, request).await
+    }
+
+    async fn find_instances_by_dpu_extension_service(
+        &self,
+        request: Request<rpc::FindInstancesByDpuExtensionServiceRequest>,
+    ) -> Result<Response<rpc::FindInstancesByDpuExtensionServiceResponse>, Status> {
+        crate::handlers::extension_service::find_instances_by_extension_service(self, request).await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

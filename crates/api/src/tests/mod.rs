@@ -26,6 +26,7 @@ mod dynamic_config;
 mod expected_machine;
 mod explored_endpoint_find;
 mod explored_managed_host_find;
+mod extension_service;
 mod finder;
 mod host_bmc_firmware_test;
 mod ib_fabric_find;

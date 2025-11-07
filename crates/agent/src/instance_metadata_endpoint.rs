@@ -540,6 +540,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -573,6 +574,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -606,6 +608,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let expected_output = [
@@ -651,6 +654,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -714,6 +718,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -754,6 +759,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -801,6 +807,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -841,6 +848,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -881,6 +889,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -921,6 +930,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -961,6 +971,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -1001,6 +1012,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -1034,6 +1046,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -1067,6 +1080,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(
@@ -1100,6 +1114,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let network_config = ManagedHostNetworkConfigResponse {
@@ -1129,6 +1144,7 @@ mod tests {
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
             sitename: Some("testsite".to_string()),
+            extension_service_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(

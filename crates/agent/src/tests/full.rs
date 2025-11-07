@@ -747,6 +747,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             }),
             infiniband: None,
             network_security_group_id: None,
+            dpu_extension_services: None,
         }),
         status: Some(rpc::InstanceStatus {
             tenant: Some(rpc::InstanceTenantStatus {
@@ -769,12 +770,17 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 ib_interfaces: vec![],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),
+            dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesStatus {
+                dpu_extension_services: vec![],
+                configs_synced: rpc::SyncState::Synced.into(),
+            }),
             configs_synced: rpc::SyncState::Synced.into(),
             update: None,
         }),
         network_config_version: "V1-T1748645613333257".to_string(),
         ib_config_version: "V1-T1748645613333260".to_string(),
         config_version: "V1-T1748645613333260".to_string(),
+        dpu_extension_service_version: "V1-T1748645613333257".to_string(),
         tpm_ek_certificate: None,
     };
 
@@ -822,6 +828,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         internet_l3_vni: Some(1337),
         stateful_acls_enabled: true,
         instance: Some(instance),
+        dpu_extension_services: vec![],
     };
     common::respond(netconf)
 }

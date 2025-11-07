@@ -57,6 +57,7 @@ pub struct InstanceMetadata {
     pub ib_devices: Option<Vec<IBDeviceConfig>>,
     pub config_version: ConfigVersion,
     pub network_config_version: ConfigVersion,
+    pub extension_service_version: ConfigVersion,
 }
 
 #[derive(Clone, Debug)]
@@ -304,6 +305,10 @@ pub async fn instance_metadata_from_instance(
             .network_config_version
             .parse()
             .wrap_err("Failed to parse instance network_config_version")?,
+        extension_service_version: instance
+            .dpu_extension_service_version
+            .parse()
+            .wrap_err("Failed to parse instance extension_service_version")?,
     }))
 }
 

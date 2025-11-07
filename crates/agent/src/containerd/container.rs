@@ -31,6 +31,10 @@ pub enum ContainerState {
     Running,
     #[serde(rename(deserialize = "CONTAINER_EXITED"))]
     Exited,
+    #[serde(rename(deserialize = "CONTAINER_UNKNOWN"))]
+    Unknown,
+    #[serde(rename(deserialize = "CONTAINER_CREATED"))]
+    Created,
 }
 
 /// An image associated with a container that is running or has terminated
@@ -152,6 +156,31 @@ impl Containers {
         Ok(Containers { containers })
     }
 
+    pub async fn list_pod(pod_id: &str) -> eyre::Result<Self> {
+        let data = get_pod_containers(pod_id).await?;
+
+        let containers = serde_json::from_str::<Containers>(&data)
+            .map_err(|e| eyre::eyre!(e))?
+            .containers;
+
+        let images = Images::list().await?;
+
+        let containers: Vec<_> = containers
+            .into_iter()
+            .map(|mut c| {
+                c.image_ref = images
+                    .images
+                    .iter()
+                    .filter(|i| i.id == c.image.id)
+                    .flat_map(|i| i.names.clone())
+                    .collect();
+                c
+            })
+            .collect();
+
+        Ok(Containers { containers })
+    }
+
     pub fn find_by_name<T>(self, name: T) -> eyre::Result<ContainerSummary>
     where
         T: AsRef<str>,
@@ -200,6 +229,31 @@ async fn get_containers() -> eyre::Result<String> {
     } else {
         let result = BashCommand::new("bash")
             .args(vec!["-c", "crictl ps -o json"])
+            .run()
+            .await
+            .map_err(|e| {
+                error!("Could not read containers.json: {e}");
+                eyre::eyre!("Could not read containers.json: {}", e)
+            })?;
+        Ok(result)
+    }
+}
+
+/// Returns a list of all containers on a host in JSON format.
+async fn get_pod_containers(pod_id: &str) -> eyre::Result<String> {
+    if cfg!(test) || std::env::var("NO_DPU_CONTAINERS").is_ok() {
+        let test_data_dir = PathBuf::from(TEST_DATA_DIR);
+
+        println!("Path: {}", test_data_dir.join("containers.json").display());
+
+        std::fs::read_to_string(test_data_dir.join("containers.json")).map_err(|e| {
+            error!("Could not read containers.json: {e}");
+            eyre::eyre!("Could not read containers.json: {}", e)
+        })
+    } else {
+        let cmd = format!("crictl ps -a --pod {} -o json", pod_id);
+        let result = BashCommand::new("bash")
+            .args(vec!["-c", cmd.as_str()])
             .run()
             .await
             .map_err(|e| {

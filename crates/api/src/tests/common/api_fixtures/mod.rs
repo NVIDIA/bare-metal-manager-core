@@ -1657,6 +1657,26 @@ pub async fn network_configured_with_health(
         alerts: vec![],
     });
 
+    let dpu_extension_services: Vec<rpc::forge::DpuExtensionServiceStatusObservation> =
+        network_config
+            .dpu_extension_services
+            .iter()
+            .map(
+                |extension_service| rpc::forge::DpuExtensionServiceStatusObservation {
+                    service_id: extension_service.service_id.clone(),
+                    service_type: extension_service.service_type,
+                    service_name: "".to_string(),
+                    version: extension_service.version.to_string(),
+                    state:
+                        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning
+                            as i32,
+                    components: vec![],
+                    message: "".to_string(),
+                    removed: extension_service.removed.clone(),
+                },
+            )
+            .collect();
+
     let status = rpc::forge::DpuNetworkStatus {
         dpu_machine_id: Some(*dpu_machine_id),
         dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
@@ -1671,6 +1691,10 @@ pub async fn network_configured_with_health(
         client_certificate_expiry_unix_epoch_secs: None,
         fabric_interfaces: vec![],
         last_dhcp_requests: vec![],
+        dpu_extension_service_version: network_config
+            .instance
+            .map(|instance| instance.dpu_extension_service_version),
+        dpu_extension_services,
     };
     tracing::trace!(
         "network_configured machine={} instance_network={} instance={}",

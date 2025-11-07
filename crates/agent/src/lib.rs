@@ -42,6 +42,7 @@ mod dhcp;
 mod ethernet_virtualization;
 pub use ethernet_virtualization::FPath;
 use forge_uuid::machine::MachineId;
+pub mod extension_services;
 
 pub mod duppet;
 mod frr;

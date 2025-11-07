@@ -96,6 +96,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.InstanceStorageConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceDpuExtensionServicesConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceDpuExtensionServiceConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.ManagedHostDpuExtensionServiceConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.DpuExtensionService", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceVersionInfo", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceType", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceIdList", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceCredential", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceCredential.type", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.UsernamePassword", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceStatusObservation", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceComponent", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceStatus", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(
             "forge.InstanceInterfaceStatus",
             "#[derive(serde::Serialize)]",
@@ -110,6 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.InstanceStorageStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceDpuExtensionServicesStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceDpuExtensionServiceStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceTenantStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")

@@ -100,6 +100,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -353,6 +354,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -600,6 +602,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         network: Some(network.clone()),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -727,6 +730,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         network: Some(network.clone()),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -908,6 +912,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         network: Some(network.clone()),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -1042,6 +1047,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
         network: Some(network.clone()),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -1203,6 +1209,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
         network: Some(network.clone()),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {

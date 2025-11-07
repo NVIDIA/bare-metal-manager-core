@@ -29,6 +29,7 @@ use common::api_fixtures::{
     get_config, get_vpc_fixture_id, inject_machine_measurements, network_configured_with_health,
     persist_machine_validation_result, populate_network_security_groups, site_explorer,
 };
+use config_version::ConfigVersion;
 use db::instance_address::UsedOverlayNetworkIpResolver;
 use db::ip_allocator::UsedIpResolver;
 use db::network_segment::IdColumn;
@@ -41,6 +42,7 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::dpu_machine_update::DpuMachineUpdate;
+use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
@@ -57,7 +59,8 @@ use model::network_security_group::NetworkSecurityGroupStatusObservation;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::vpc::UpdateVpcVirtualization;
 use rpc::forge::{
-    Issue, IssueCategory, NetworkSegmentSearchFilter, OperatingSystem, TpmCaCert, TpmCaCertId,
+    DpuExtensionService, Issue, IssueCategory, NetworkSegmentSearchFilter, OperatingSystem,
+    TpmCaCert, TpmCaCertId,
 };
 use rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp};
 use sqlx::PgPool;
@@ -1603,6 +1606,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &Vec::default()),
             infiniband: InstanceInfinibandConfig::default(),
             network_security_group_id: None,
+            extension_services: InstanceExtensionServicesConfig::default(),
         },
         metadata: Metadata {
             name: "test_instance".to_string(),
@@ -1891,6 +1895,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let tinstance = mh
@@ -2025,6 +2030,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let instance_id: InstanceId = uuid::Uuid::new_v4().into();
@@ -2083,6 +2089,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let instance_id: InstanceId = uuid::Uuid::new_v4().into();
@@ -2238,6 +2245,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         network: Some(x),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let mut config: model::instance::config::InstanceConfig = config.try_into().unwrap();
@@ -3156,6 +3164,7 @@ async fn test_network_details_migration(
                 }),
                 infiniband: None,
                 network_security_group_id: None,
+                dpu_extension_services: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -3223,6 +3232,7 @@ async fn test_network_details_migration(
                 }),
                 infiniband: None,
                 network_security_group_id: None,
+                dpu_extension_services: None,
             }),
             instance_id: None,
             instance_type_id: None,
@@ -3374,6 +3384,7 @@ async fn test_allocate_and_update_network_config_instance(
                     network: Some(new_network_config),
                     infiniband: None,
                     network_security_group_id: None,
+                    dpu_extension_services: None,
                 }),
                 instance_id: instance.rpc_id(),
                 metadata: Some(rpc::forge::Metadata {
@@ -3500,6 +3511,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                     network: Some(new_network_config),
                     infiniband: None,
                     network_security_group_id: None,
+                    dpu_extension_services: None,
                 }),
                 instance_id: instance_id_rpc,
                 metadata: Some(rpc::forge::Metadata {
@@ -3645,6 +3657,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         network: Some(network.clone()),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -3871,6 +3884,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
                     network: Some(new_network_config),
                     infiniband: None,
                     network_security_group_id: None,
+                    dpu_extension_services: None,
                 }),
                 instance_id: instance.rpc_id(),
                 metadata: Some(rpc::forge::Metadata {
@@ -3985,6 +3999,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         network: Some(network.clone()),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -4202,6 +4217,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
         network: Some(network_config),
         infiniband: None,
         network_security_group_id: None,
+        dpu_extension_services: None,
     };
 
     let mut config: model::instance::config::InstanceConfig = config.try_into().unwrap();
@@ -5052,4 +5068,688 @@ async fn test_instance_without_vf_when_vf_disabled(_: PgPoolOptions, options: Pg
         .await;
 
     assert!(instance_result.is_ok());
+}
+
+fn create_dpu_extension_service_data(name: &str) -> String {
+    format!(
+        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: {}\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27",
+        name
+    )
+}
+
+#[crate::sqlx_test]
+async fn test_allocate_instance_with_extension_services(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let _ = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "best_org".to_string(),
+            metadata: Some(rpc::Metadata {
+                name: "best_org".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+
+    // Create an extension service
+    let service = env
+        .api
+        .create_dpu_extension_service(tonic::Request::new(
+            rpc::forge::CreateDpuExtensionServiceRequest {
+                service_id: None,
+                service_name: "test-service".to_string(),
+                description: Some("Test service for instance".to_string()),
+                tenant_organization_id: "best_org".to_string(),
+                service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
+                data: create_dpu_extension_service_data("test-service"),
+                credential: None,
+            },
+        ))
+        .await?
+        .into_inner();
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+                service_id: service.service_id.clone(),
+                version: service
+                    .latest_version_info
+                    .as_ref()
+                    .unwrap()
+                    .version
+                    .clone(),
+            }],
+        }),
+    };
+
+    let _tinstance = mh
+        .instance_builer(&env)
+        .config(config.clone())
+        .build()
+        .await;
+
+    // Verify the extension service config is correctly stored in database
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    let instance_snapshot = snapshot.instance.unwrap();
+
+    assert_eq!(
+        instance_snapshot
+            .config
+            .extension_services
+            .service_configs
+            .len(),
+        1
+    );
+    assert_eq!(
+        instance_snapshot.config.extension_services.service_configs[0].service_id,
+        service.service_id.parse().unwrap()
+    );
+
+    Ok(())
+}
+
+async fn create_dpu_extension_services(
+    env: &TestEnv,
+) -> Result<
+    (
+        DpuExtensionService,
+        DpuExtensionService,
+        DpuExtensionService,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let _ = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "best_org".to_string(),
+            metadata: Some(rpc::Metadata {
+                name: "best_org".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+
+    let service1 = env
+        .api
+        .create_dpu_extension_service(tonic::Request::new(
+            rpc::forge::CreateDpuExtensionServiceRequest {
+                service_id: None,
+                service_name: "test-service1".to_string(),
+                description: Some("Test service for instance".to_string()),
+                tenant_organization_id: "best_org".to_string(),
+                service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
+                data: create_dpu_extension_service_data("test-service1-v1"),
+                credential: None,
+            },
+        ))
+        .await?
+        .into_inner();
+
+    // Update the extension service with a new version
+    let service1 = env
+        .api
+        .update_dpu_extension_service(tonic::Request::new(
+            rpc::forge::UpdateDpuExtensionServiceRequest {
+                service_id: service1.service_id.clone(),
+                service_name: None,
+                description: Some("Test service for instance".to_string()),
+                data: create_dpu_extension_service_data("test-service1-v2"),
+                credential: None,
+                if_version_ctr_match: None,
+            },
+        ))
+        .await?
+        .into_inner();
+
+    let service2 = env
+        .api
+        .create_dpu_extension_service(tonic::Request::new(
+            rpc::forge::CreateDpuExtensionServiceRequest {
+                service_id: None,
+                service_name: "test-service2".to_string(),
+                description: Some("Test service for instance".to_string()),
+                tenant_organization_id: "best_org".to_string(),
+                service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
+                data: create_dpu_extension_service_data("test-service2-v1"),
+                credential: None,
+            },
+        ))
+        .await?
+        .into_inner();
+
+    let service3 = env
+        .api
+        .create_dpu_extension_service(tonic::Request::new(
+            rpc::forge::CreateDpuExtensionServiceRequest {
+                service_id: None,
+                service_name: "test-service3".to_string(),
+                description: Some("Test service for instance".to_string()),
+                tenant_organization_id: "best_org".to_string(),
+                service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
+                data: create_dpu_extension_service_data("test-service3-v1"),
+                credential: None,
+            },
+        ))
+        .await?
+        .into_inner();
+
+    Ok((service1, service2, service3))
+}
+
+#[crate::sqlx_test]
+async fn test_allocate_instance_with_duplicate_extension_services(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    // Create extension services
+    let (service1, _, _) = create_dpu_extension_services(&env).await.unwrap();
+
+    let instance = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: mh.id.into(),
+            config: Some(rpc::InstanceConfig {
+                network_security_group_id: None,
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+                    service_configs: vec![
+                        rpc::forge::InstanceDpuExtensionServiceConfig {
+                            service_id: service1.service_id.clone(),
+                            version: service1
+                                .latest_version_info
+                                .as_ref()
+                                .unwrap()
+                                .version
+                                .clone(),
+                        },
+                        rpc::forge::InstanceDpuExtensionServiceConfig {
+                            service_id: service1.service_id.clone(),
+                            version: service1
+                                .latest_version_info
+                                .as_ref()
+                                .unwrap()
+                                .version
+                                .clone(),
+                        },
+                    ],
+                }),
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await;
+    println!("instance: {:?}", instance);
+    assert!(instance.is_err());
+    let err = instance.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Duplicate extension services in configuration. Only one version of each service is allowed.")
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_update_instance_with_extension_services(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    // Create extension services
+    let (service1, service2, service3) = create_dpu_extension_services(&env).await.unwrap();
+
+    let service1_version2 = service1.active_versions[0].clone();
+    let service1_version1 = service1.active_versions[1].clone();
+    let service2_version = service2
+        .latest_version_info
+        .as_ref()
+        .unwrap()
+        .version
+        .clone();
+    let service3_version = service3
+        .latest_version_info
+        .as_ref()
+        .unwrap()
+        .version
+        .clone();
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+                service_id: service1.service_id.clone(),
+                version: service1_version1.clone(),
+            }],
+        }),
+    };
+
+    let tinstance = mh
+        .instance_builer(&env)
+        .config(config.clone())
+        .build()
+        .await;
+
+    let instance = tinstance.rpc_instance().await.into_inner();
+    assert!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state
+            == rpc::forge::TenantState::Ready as i32
+    );
+
+    let instance_id = tinstance.id;
+
+    // Update the extension service config
+    let updated_config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![
+                rpc::forge::InstanceDpuExtensionServiceConfig {
+                    service_id: service1.service_id.clone(),
+                    version: service1_version2.clone(),
+                },
+                rpc::forge::InstanceDpuExtensionServiceConfig {
+                    service_id: service2.service_id.clone(),
+                    version: service2_version.clone(),
+                },
+                rpc::forge::InstanceDpuExtensionServiceConfig {
+                    service_id: service3.service_id.clone(),
+                    version: service3_version.clone(),
+                },
+            ],
+        }),
+    };
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                if_version_match: None,
+                config: Some(updated_config),
+                instance_id: Some(instance_id),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state
+            == rpc::forge::TenantState::Provisioning as i32
+    );
+
+    // The extension services config in the instance rpc response should be empty because
+    // we only return active services to users.
+    let extension_services_config = instance
+        .config
+        .unwrap()
+        .dpu_extension_services
+        .unwrap()
+        .service_configs;
+    assert_eq!(extension_services_config.len(), 3);
+
+    // However, internally we should track all services (including terminating ones) in status
+    let status = instance.status.unwrap().dpu_extension_services.unwrap();
+
+    // We expect 4 services total:
+    // - service1 v1 (terminating, was replaced by v2)
+    // - service1 v2 (active)
+    // - service2 v1 (active)
+    // - service3 v1 (active)
+    assert_eq!(
+        status.dpu_extension_services.len(),
+        4,
+        "Status should track all 4 services (including terminating ones)"
+    );
+
+    // Verify the services exist with correct versions (order-independent check)
+    let mut service_versions: Vec<(String, u64, bool)> = status
+        .dpu_extension_services
+        .iter()
+        .map(|s| {
+            let version = s.version.parse::<ConfigVersion>().unwrap();
+            (
+                s.service_id.clone(),
+                version.version_nr(),
+                s.removed.is_some(),
+            )
+        })
+        .collect();
+    service_versions.sort();
+
+    let mut expected_versions = vec![
+        (service1.service_id.clone(), 1_u64, true),
+        (service1.service_id.clone(), 2_u64, false),
+        (service2.service_id.clone(), 1_u64, false),
+        (service3.service_id.clone(), 1_u64, false),
+    ];
+    expected_versions.sort();
+
+    assert_eq!(
+        service_versions, expected_versions,
+        "All service versions should be tracked in status"
+    );
+
+    // Update the extension service config with no services
+    let updated_config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![],
+        }),
+    };
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                if_version_match: None,
+                config: Some(updated_config),
+                instance_id: Some(instance_id),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // The extension services config in the instance rpc response should be empty because
+    // we only return active services to users.
+    let extension_services_config = instance.config.unwrap().dpu_extension_services;
+    assert!(extension_services_config.is_none());
+
+    // However, internally we should track all services (including terminating ones) in status
+    let status = instance.status.unwrap().dpu_extension_services.unwrap();
+
+    // We expect 4 services total:
+    // - service1 v1 (terminating, was replaced by v2)
+    // - service1 v2 (terminating, being removed)
+    // - service2 v1 (terminating, being removed)
+    // - service3 v1 (terminating, being removed)
+    assert_eq!(
+        status.dpu_extension_services.len(),
+        4,
+        "Status should track all 4 services (including terminating ones)"
+    );
+
+    // Verify the services exist with correct versions (order-independent check)
+    let mut service_versions: Vec<(String, u64, bool)> = status
+        .dpu_extension_services
+        .iter()
+        .map(|s| {
+            let version = s.version.parse::<ConfigVersion>().unwrap();
+            (
+                s.service_id.clone(),
+                version.version_nr(),
+                s.removed.is_some(),
+            )
+        })
+        .collect();
+    service_versions.sort();
+
+    let mut expected_versions = vec![
+        (service1.service_id.clone(), 1_u64, true),
+        (service1.service_id.clone(), 2_u64, true),
+        (service2.service_id.clone(), 1_u64, true),
+        (service3.service_id.clone(), 1_u64, true),
+    ];
+    expected_versions.sort();
+
+    assert_eq!(
+        service_versions, expected_versions,
+        "All service versions should be tracked in status"
+    );
+
+    // Update the extension service config with non-existing service version, expect error
+    // Update the extension service config with fewer new service
+    let updated_config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+                service_id: service1.service_id.clone(),
+                version: service3_version.clone(),
+            }],
+        }),
+    };
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                if_version_match: None,
+                config: Some(updated_config),
+                instance_id: Some(instance_id),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await;
+    assert!(instance.is_err());
+    let err = instance.unwrap_err();
+    assert!(err.to_string().contains("does not exist or is deleted"));
+
+    // Update the extension service config with duplicate service ID, expect error
+    let updated_config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![
+                rpc::forge::InstanceDpuExtensionServiceConfig {
+                    service_id: service1.service_id.clone(),
+                    version: service1_version1.clone(),
+                },
+                rpc::forge::InstanceDpuExtensionServiceConfig {
+                    service_id: service1.service_id.clone(),
+                    version: service1_version2.clone(),
+                },
+            ],
+        }),
+    };
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                if_version_match: None,
+                config: Some(updated_config),
+                instance_id: Some(instance_id),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await;
+    assert!(instance.is_err());
+    let err = instance.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Duplicate extension services in configuration. Only one version of each service is allowed.")
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_extension_services_status_observation(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    // Create an extension service
+    let (service1, _, _) = create_dpu_extension_services(&env).await.unwrap();
+    let versions = service1
+        .active_versions
+        .iter()
+        .map(|v| v.parse::<ConfigVersion>().unwrap())
+        .collect::<Vec<_>>();
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+                service_id: service1.service_id.clone(),
+                version: versions[0].version_string(),
+            }],
+        }),
+    };
+
+    let tinstance = mh
+        .instance_builer(&env)
+        .config(config.clone())
+        .build()
+        .await;
+
+    // Verify the status is correctly updated
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    let instance_snapshot = snapshot.instance.unwrap();
+
+    // Check that the observation was stored
+    assert_eq!(instance_snapshot.observations.extension_services.len(), 1,);
+
+    let dpu_observation = instance_snapshot
+        .observations
+        .extension_services
+        .get(&mh.dpu().id)
+        .unwrap();
+
+    assert_eq!(
+        dpu_observation.config_version,
+        instance_snapshot.extension_services_config_version,
+    );
+
+    assert_eq!(dpu_observation.extension_service_statuses.len(), 1,);
+
+    let service_status = &dpu_observation.extension_service_statuses[0];
+    assert_eq!(
+        service_status.service_id.to_string(),
+        service1.service_id.clone()
+    );
+    assert_eq!(service_status.version, versions[0].clone());
+    assert_eq!(
+        service_status.overall_state,
+        model::instance::status::extension_service::ExtensionServiceDeploymentStatus::Running
+    );
+
+    // Now verify the RPC instance status
+    let instance = tinstance.rpc_instance().await.into_inner();
+    let ext_status = instance
+        .status
+        .as_ref()
+        .unwrap()
+        .dpu_extension_services
+        .as_ref()
+        .unwrap();
+
+    // Since we have matching config version observation, status should be synced
+    assert_eq!(
+        ext_status.configs_synced,
+        rpc::forge::SyncState::Synced as i32
+    );
+
+    // Verify the service status
+    assert_eq!(ext_status.dpu_extension_services.len(), 1,);
+
+    let service_status = &ext_status.dpu_extension_services[0];
+    assert_eq!(service_status.service_id, service1.service_id.clone());
+    assert_eq!(service_status.version, versions[0].to_string());
+    assert_eq!(
+        service_status.deployment_status,
+        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning as i32,
+    );
+
+    // Verify DPU status details
+    assert_eq!(service_status.dpu_statuses.len(), 1,);
+
+    let dpu_status = &service_status.dpu_statuses[0];
+    assert_eq!(dpu_status.dpu_machine_id, Some(mh.dpu().id));
+    assert_eq!(
+        dpu_status.status,
+        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning as i32,
+    );
+
+    Ok(())
 }
