@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased (v2025.11.07-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.24-rc2-0...trunk)
+## [Unreleased (v2025.11.21-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc1-0...trunk)
 
 ### Added
 
@@ -11,6 +11,64 @@
 ### Removed
 
 ### Internal Changes
+
+## [v2025.11.07-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.24-rc2-0...v2025.11.07-rc2-0)
+
+### Added
+
+- [5504231](https://nvbugspro.nvidia.com/bug/5504231), [MR-4804](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4804): Added the ability to powercycle the host and release the DPU rshim before attempting SCP when copying BFB to DPU rshim via a new `--host-bmc-ip` field.
+- [MR-4591](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4591): Added the ability to collect and bundle host machine and carbide-api logs from Grafana/Loki for a specified time range into a ZIP file with deduplicated logs, metadata, and Grafana query links using `forge-admin-cli managed-host debug-bundle <HOST_ID> --start-time "HH:MM:SS" --end-time "HH:MM:SS" --site <SITE> --output-path <PATH>`.
+- [MR-4788](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4788): Added the ability to insert global/admin-level security policies that take precedence over tenant-defined policies, enabling granular overrides such as ensuring tenant instances can always communicate with the iPXE server even when NSGs are applied.
+
+### Changed
+
+- [5615222](https://nvbugspro.nvidia.com/bug/5615222), [5600721](https://nvbugspro.nvidia.com/bug/5600721), [FORGE-7220](https://jirasw.nvidia.com/browse/FORGE-7220), [MR-4786](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4786): Changed the behavior of BIOS setup verification and lockdown status checks to use polling-based verification instead of arbitrary wait times, improving reliability during host and DPU platform configuration.
+- [MR-4745](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4745): Changed the behavior of `forge-admin-cli managed-host show` to sort DPUs by PCI info so they always appear in the same position, i.e. that the primary DPU is at position 0.
+- [MR-4749](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4749): Changed the behavior of the SKU create CLI to make the `created` field optional and to ingest `device_type` directly from JSON input when present.
+- [MR-4771](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4771): Changed the behavior of the agent to check the hbn container config file for hbn version instead of checking running container details with crictl, since the container might not be running when the check is done.
+
+### Fixed
+
+- [MR-4806](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4806): Fixed an issue with merging the `metadata.toml` where the `explicit_start_needed` property setting may get lost, causing firmware for that vendor and model become automatic, rather than requiring an explicit start.
+- [5602784](https://nvbugspro.nvidia.com/bug/5602784), [MR-4798](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4798): Fixed an issue where site explorer failed to ingest DPUs when ComputerSystem `base_mac` contained invalid data by handling sanitization failures and falling back to the legacy method instead of returning an error.
+- [MR-4762](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4762): Fixed an issue where `forge-admin-cli expected-machine update` would clear metadata fields that were not explicitly provided, making it impossible to update one field while preserving others.
+- [MR-4760](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4760): Fixed an issue where the global log level was set to trace, causing significant performance penalty; the fix limits the global log level and raises an error if the limitation fails.
+- [MR-4768](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4768): Fixed an issue where tenants couldn't access the FMDS metadata service after FNN migration by moving the FMDS SF into the tenant VRF.
+- [FORGE-7247](https://jirasw.nvidia.com/browse/FORGE-7247), [MR-4775](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4775): Fixed an issue where Grace Grace Supermicro nodes couldn't PXE boot when `host_interfaces` was disabled.
+- [MR-4769](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4769): Fixed an issue where expected-machines.json autoloading was too lenient during parsing, allowing the API to start even when the file failed to parse, and where unknown fields weren't properly defaulted.
+- [MR-4809](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4809): Fixed an issue where ingesting a large number of observations could exceed Postgres bind parameter limits that could cause failures.
+- [MR-4776](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4776): Fixed an issue where a missing overflow check in russh servers (CVE-2025-54804) could allow a malicious client to crash the server by bumping russh to 0.54.6.
+- [MR-4779](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4779): Fixed an issue where an unused openssl dependency in carbide-ssh was causing build failures due to a missing cmake dependency in aws-lc-sys; the unused dependency has been removed.
+- [MR-4777](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4777): Fixed an issue where `cargo make build` would fail to build `admin_cli` due to the missing `to_csv` method in the `Table` struct caused by a missing library feature.
+
+### Removed
+
+- [MR-4787](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4787): Removed the ability to profile memory via the profiler endpoint.
+- [FORGE-7309](https://jirasw.nvidia.com/browse/FORGE-7309), [MR-4782](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4782): Removed the ability to manage storage, including removing storage management APIs, storage-related database models and tables (such as the os_image_id column from the instances table), storage-related RPC calls, and the WaitingForStorageConfig state from the machine state controller.
+
+### Internal Changes
+
+- [MR-4785](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4785): Added the ability to build forge-admin-cli locally and use it in localdev for the table-trimmer cronjob.
+- [MR-4801](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4801): Fixed an issue where the bmc-mock firmware inventory response didn't comply with Redfish spec because the SoftwareInventory model was missing the required Name field, which was lost during re-serialization.
+- [MR-4794](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4794): Fixed an issue where the bmc-mock Systems response was missing the required `Name` field, violating the Redfish specification.
+- [MR-4784](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4784): Fixed an issue where the bmc-mock certs path fallback was incorrect and changed it to crates/bmc-mock.
+- [MR-4818](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4818): Internal change where the State Controller framework was decoupled from service types by making the service parameter a generic argument, allowing different state controllers to reference different objects.
+- [MR-4819](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4819): Internal change where the architecture page documentation was updated with more details.
+- [MR-4811](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4811): Internal change where the architecture page documentation was improved.
+- [MR-4810](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4810): Internal change where the carbide architecture documentation was extended.
+- [MR-4813](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4813): Internal change where ManagedHost state machine helpers were moved to `machine/handler` and custom `StateHandlerError` variants were replaced with `MissingData` to prepare for moving statehandler infrastructure to a different crate.
+- [MR-4807](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4807): Internal change where bmc-mock adds support for Redfish navigation property expansion with "*" and with default levels.
+- [MR-4808](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4808): Internal change that made machine-a-tron put less load on carbide-api.
+- [MR-4805](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4805): Internal change where metadata in `dpa_rpc.proto` was renamed to `DpaMetadata` to avoid conflicts.
+- [MR-4799](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4799): Internal change to enable publishing on <github.com>.
+- [MR-4796](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4796): Internal change where a typo was fixed in the default ForgeSpiffeContext.
+- [5604404](https://nvbugspro.nvidia.com/bug/5604404), [MR-4792](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4792): Internal change where SPDX license headers were added to all files.
+- [FORGE-7075](https://jirasw.nvidia.com/browse/FORGE-7075), [MR-4781](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4781): Internal change where the client certificate auth was made configurable and NVDIDIA-specific assumptions were dropped.
+- [MR-4783](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4783): Internal change where the mock carbide-api protos used by ssh-console-mock-api-server are now automatically generated during the build process instead of being maintained by hand, reducing manual effort and ensuring consistency with the actual carbide-api protos.
+- [MR-4774](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4774): Internal change where the paths to crates were fixed in docker-compose.yml after the crate move.
+- [MR-4773](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4773): Internal change where obsolete files in dev/ were removed and copy repo rules were updated to exclude unnecessary items.
+- [MR-4772](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4772): Internal change where the copy-and-sanitize-repo process was updated to properly initialize submodules, fixing an issue where the mirror did not have submodules initialized correctly.
+- [MR-4737](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4737): Internal change where all crates were moved into a unified `crates` directory, organizing the codebase by crate name to improve maintainability and consistency.
 
 ## [v2025.10.24-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc2-0...v2025.10.24-rc2-0)
 
@@ -48,7 +106,6 @@
 - [FORGE-7073](https://jirasw.nvidia.com/browse/FORGE-7073), [MR-4726](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4726): Removed the ssh-console admin certificate default role and default CA certificate fingerprint for eventual open-sourcing.
 
 ### Internal Changes
-
 
 - [MR-4747](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4747): Fixed an internal issue where the site_explorer's DPU report cloning optimization using a mutable dpu_sn_to_endpoint map was fragile and could cause bugs with the fallback mechanism if systems/pcie-devices or chassis/network_devices start exposing DPU devices with errors. The fix removes the fragile remove/reinsert logic from the dpu_sn_to_endpoint map and adds TODO guidance for future fallback logic improvements.refactor: site_explorer: get rid of fragile remove/reinsert logic.
 - [MR-4753](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4753): Internal change where proc-macro is introduced to generate builder code for prost (GRPC) messages, with `DhcpDiscovery` as an example implementation.
