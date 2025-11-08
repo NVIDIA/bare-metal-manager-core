@@ -136,6 +136,54 @@ pub(crate) async fn update(
     Ok(response)
 }
 
+pub(crate) async fn find_tenants_by_organization_ids(
+    api: &Api,
+    request: Request<rpc::TenantByOrganizationIdsRequest>,
+) -> Result<Response<rpc::TenantList>, Status> {
+    crate::api::log_request_data(&request);
+    let request = request.into_inner();
+
+    let mut txn = api.txn_begin("find_tenants_by_organization_ids").await?;
+
+    let tenant_organization_ids: Vec<String> = request.organization_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if tenant_organization_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if tenant_organization_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let tenants: Vec<rpc::Tenant> =
+        db::tenant::load_by_organization_ids(&mut txn, &tenant_organization_ids)
+            .await?
+            .into_iter()
+            .filter_map(|tenant| rpc::Tenant::try_from(tenant).ok())
+            .collect();
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(rpc::TenantList { tenants }))
+}
+
+pub(crate) async fn find_tenant_organization_ids(
+    api: &Api,
+    request: Request<rpc::TenantSearchFilter>,
+) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
+    crate::api::log_request_data(&request);
+    let mut txn = api.txn_begin("find_tenant_organization_ids").await?;
+    let search_config = request.into_inner();
+    let tenant_org_ids = db::tenant::find_tenant_organization_ids(&mut txn, search_config).await?;
+    Ok(tonic::Response::new(rpc::TenantOrganizationIdList {
+        tenant_organization_ids: tenant_org_ids.into_iter().collect(),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use ::rpc::forge as rpc;

@@ -27,8 +27,11 @@ pub mod ib_fabric;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_type;
+pub mod machine;
 pub mod machine_discovery;
 pub mod machine_hardware_info;
+pub mod machine_interface;
+pub mod machine_quarantine;
 pub mod machine_validation;
 #[cfg(feature = "linux-build")]
 pub mod measured_boot;
