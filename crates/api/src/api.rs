@@ -10,8 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -21,11 +20,6 @@ use ::rpc::errors::RpcDataConversionError;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
-use ::rpc::protos::forge::{
-    EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
-    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse,
-};
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use chrono::TimeZone;
 use db::machine::{self};
@@ -34,7 +28,7 @@ use db::resource_pool::ResourcePoolDatabaseError;
 use db::{DatabaseError, ObjectFilter, attestation as db_attest};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
-use forge_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use itertools::Itertools;
 use libredfish::{RoleId, SystemPowerControl};
 use mac_address::MacAddress;
@@ -44,11 +38,10 @@ use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::ib_partition::PartitionKey;
 use model::machine::machine_id::try_parse_machine_id;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::network::ManagedHostQuarantineState;
 use model::machine::{
     BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, LoadSnapshotOptions,
-    Machine, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
-    MeasuringState, ValidationState, get_action_for_dpu_state,
+    Machine, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
+    ValidationState, get_action_for_dpu_state,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use model::metadata::Metadata;
@@ -407,8 +400,8 @@ impl Forge for Api {
 
     async fn update_instance_phone_home_last_contact(
         &self,
-        request: Request<InstancePhoneHomeLastContactRequest>,
-    ) -> Result<Response<InstancePhoneHomeLastContactResponse>, Status> {
+        request: Request<rpc::InstancePhoneHomeLastContactRequest>,
+    ) -> Result<Response<rpc::InstancePhoneHomeLastContactResponse>, Status> {
         crate::handlers::instance::update_phone_home_last_contact(self, request).await
     }
 
@@ -503,10 +496,13 @@ impl Forge for Api {
         crate::handlers::instance::invoke_power(self, request).await
     }
 
-    async fn echo(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
+    async fn echo(
+        &self,
+        request: Request<rpc::EchoRequest>,
+    ) -> Result<Response<rpc::EchoResponse>, Status> {
         log_request_data(&request);
 
-        let reply = EchoResponse {
+        let reply = rpc::EchoResponse {
             message: request.into_inner().message,
         };
 
@@ -532,6 +528,20 @@ impl Forge for Api {
         request: Request<rpc::UpdateTenantRequest>,
     ) -> Result<Response<rpc::UpdateTenantResponse>, Status> {
         crate::handlers::tenant::update(self, request).await
+    }
+
+    async fn find_tenants_by_organization_ids(
+        &self,
+        request: Request<rpc::TenantByOrganizationIdsRequest>,
+    ) -> Result<Response<rpc::TenantList>, Status> {
+        crate::handlers::tenant::find_tenants_by_organization_ids(self, request).await
+    }
+
+    async fn find_tenant_organization_ids(
+        &self,
+        request: Request<rpc::TenantSearchFilter>,
+    ) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
+        crate::handlers::tenant::find_tenant_organization_ids(self, request).await
     }
 
     async fn create_tenant_keyset(
@@ -700,238 +710,35 @@ impl Forge for Api {
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<rpc::Machine>, Status> {
-        log_request_data(&request);
-        let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
-
-        let mut txn = self.txn_begin("get_machine").await?;
-
-        let snapshot = db::managed_host::load_snapshot(
-            &mut txn,
-            &machine_id,
-            LoadSnapshotOptions {
-                include_history: true,
-                include_instance_data: false,
-                host_health_config: self.runtime_config.host_health,
-            },
-        )
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
-
-        txn.commit().await?;
-
-        let rpc_machine = snapshot
-            .rpc_machine_state(match machine_id.machine_type().is_dpu() {
-                true => Some(&machine_id),
-                false => None,
-            })
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            })?;
-        Ok(Response::new(rpc_machine))
+        crate::handlers::machine::get_machine(self, request).await
     }
 
     async fn find_machine_ids(
         &self,
         request: Request<rpc::MachineSearchConfig>,
     ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("find_machines").await?;
-
-        let search_config = request
-            .into_inner()
-            .try_into()
-            .map_err(CarbideError::from)?;
-
-        let machine_ids = db::machine::find_machine_ids(&mut txn, search_config).await?;
-
-        Ok(tonic::Response::new(::rpc::common::MachineIdList {
-            machine_ids: machine_ids.into_iter().collect(),
-        }))
+        crate::handlers::machine::find_machine_ids(self, request).await
     }
 
     async fn find_machines_by_ids(
         &self,
         request: Request<::rpc::forge::MachinesByIdsRequest>,
     ) -> Result<Response<::rpc::MachineList>, Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-
-        let mut txn = self.txn_begin("find_machines_by_ids").await?;
-
-        let machine_ids = request.machine_ids;
-
-        let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
-        if machine_ids.len() > max_find_by_ids {
-            return Err(CarbideError::InvalidArgument(format!(
-                "no more than {max_find_by_ids} IDs can be accepted"
-            ))
-            .into());
-        } else if machine_ids.is_empty() {
-            return Err(CarbideError::InvalidArgument(
-                "at least one ID must be provided".to_string(),
-            )
-            .into());
-        }
-
-        let snapshots = db::managed_host::load_by_machine_ids(
-            &mut txn,
-            &machine_ids,
-            LoadSnapshotOptions {
-                include_history: request.include_history,
-                include_instance_data: false,
-                host_health_config: self.runtime_config.host_health,
-            },
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        Ok(tonic::Response::new(snapshot_map_to_rpc_machines(
-            snapshots,
-        )))
+        crate::handlers::machine::find_machines_by_ids(self, request).await
     }
 
     async fn find_machine_state_histories(
         &self,
         request: tonic::Request<rpc::MachineStateHistoriesRequest>,
     ) -> std::result::Result<tonic::Response<rpc::MachineStateHistories>, tonic::Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-
-        let machine_ids = request.machine_ids;
-
-        let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
-        if machine_ids.len() > max_find_by_ids {
-            return Err(CarbideError::InvalidArgument(format!(
-                "no more than {max_find_by_ids} IDs can be accepted"
-            ))
-            .into());
-        } else if machine_ids.is_empty() {
-            return Err(CarbideError::InvalidArgument(
-                "at least one ID must be provided".to_string(),
-            )
-            .into());
-        }
-
-        let mut txn = self.txn_begin("find_machine_state_histories").await?;
-
-        let results =
-            db::machine_state_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
-
-        let mut response = rpc::MachineStateHistories::default();
-        for (machine_id, records) in results {
-            response.histories.insert(
-                machine_id.to_string(),
-                ::rpc::forge::MachineStateHistoryRecords {
-                    records: records.into_iter().map(Into::into).collect(),
-                },
-            );
-        }
-
-        txn.commit().await?;
-
-        Ok(tonic::Response::new(response))
+        crate::handlers::machine::find_machine_state_histories(self, request).await
     }
 
     async fn find_machine_health_histories(
         &self,
         request: tonic::Request<rpc::MachineHealthHistoriesRequest>,
     ) -> std::result::Result<tonic::Response<rpc::MachineHealthHistories>, tonic::Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-
-        let machine_ids = request.machine_ids;
-
-        let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
-        if machine_ids.len() > max_find_by_ids {
-            return Err(CarbideError::InvalidArgument(format!(
-                "no more than {max_find_by_ids} IDs can be accepted"
-            ))
-            .into());
-        } else if machine_ids.is_empty() {
-            return Err(CarbideError::InvalidArgument(
-                "at least one ID must be provided".to_string(),
-            )
-            .into());
-        }
-
-        let mut txn = self.txn_begin("find_machine_health_histories").await?;
-
-        let results =
-            db::machine_health_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
-
-        let mut response = rpc::MachineHealthHistories::default();
-        for (machine_id, records) in results {
-            response.histories.insert(
-                machine_id.to_string(),
-                ::rpc::forge::MachineHealthHistoryRecords {
-                    records: records.into_iter().map(Into::into).collect(),
-                },
-            );
-        }
-
-        txn.commit().await?;
-
-        Ok(tonic::Response::new(response))
-    }
-
-    async fn find_tenant_organization_ids(
-        &self,
-        request: Request<rpc::TenantSearchFilter>,
-    ) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("find_tenant_organization_ids").await?;
-
-        let search_config = request.into_inner();
-
-        let tenant_org_ids =
-            db::tenant::find_tenant_organization_ids(&mut txn, search_config).await?;
-
-        Ok(tonic::Response::new(rpc::TenantOrganizationIdList {
-            tenant_organization_ids: tenant_org_ids.into_iter().collect(),
-        }))
-    }
-
-    async fn find_tenants_by_organization_ids(
-        &self,
-        request: Request<rpc::TenantByOrganizationIdsRequest>,
-    ) -> Result<Response<rpc::TenantList>, Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-
-        let mut txn = self.txn_begin("find_tenants_by_organization_ids").await?;
-
-        let tenant_organization_ids: Vec<String> = request.organization_ids;
-
-        let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
-        if tenant_organization_ids.len() > max_find_by_ids {
-            return Err(CarbideError::InvalidArgument(format!(
-                "no more than {max_find_by_ids} IDs can be accepted"
-            ))
-            .into());
-        } else if tenant_organization_ids.is_empty() {
-            return Err(CarbideError::InvalidArgument(
-                "at least one ID must be provided".to_string(),
-            )
-            .into());
-        }
-
-        let tenants: Vec<rpc::Tenant> =
-            db::tenant::load_by_organization_ids(&mut txn, &tenant_organization_ids)
-                .await?
-                .into_iter()
-                .filter_map(|tenant| rpc::Tenant::try_from(tenant).ok())
-                .collect();
-
-        txn.commit().await?;
-
-        Ok(tonic::Response::new(rpc::TenantList { tenants }))
+        crate::handlers::machine::find_machine_health_histories(self, request).await
     }
 
     // DEPRECATED: use find_machine_ids and find_machines_by_ids instead
@@ -939,160 +746,21 @@ impl Forge for Api {
         &self,
         request: Request<rpc::MachineSearchQuery>,
     ) -> Result<Response<rpc::MachineList>, Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-
-        let mut txn = self.txn_begin("find_machines").await?;
-
-        let search_config = request
-            .search_config
-            .map(MachineSearchConfig::try_from)
-            .transpose()
-            .map_err(CarbideError::from)?
-            .unwrap_or_default();
-
-        let machine_ids: Vec<MachineId> = match (request.id, request.fqdn) {
-            (Some(id), _) => {
-                let machine_id = convert_and_log_machine_id(Some(&id))?;
-                vec![machine_id]
-            }
-            (None, Some(fqdn)) => match db::machine::find_id_by_fqdn(&mut txn, &fqdn).await? {
-                Some(id) => vec![id],
-                None => vec![],
-            },
-            (None, None) => db::machine::find_machine_ids(&mut txn, search_config.clone()).await?,
-        };
-
-        let snapshots = db::managed_host::load_by_machine_ids(
-            &mut txn,
-            &machine_ids,
-            LoadSnapshotOptions {
-                include_history: search_config.include_history,
-                include_instance_data: false,
-                host_health_config: self.runtime_config.host_health,
-            },
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(snapshot_map_to_rpc_machines(snapshots)))
+        crate::handlers::machine::find_machines(self, request).await
     }
 
     async fn find_interfaces(
         &self,
         request: Request<rpc::InterfaceSearchQuery>,
     ) -> Result<Response<rpc::InterfaceList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("find_interfaces").await?;
-
-        let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
-
-        let mut interfaces: Vec<rpc::MachineInterface> = match (id, ip) {
-            (Some(id), _) => vec![db::machine_interface::find_one(&mut txn, id).await?.into()],
-            (None, Some(ip)) => match Ipv4Addr::from_str(ip.as_ref()) {
-                Ok(ip) => {
-                    match db::machine_interface::find_by_ip(&mut txn, IpAddr::V4(ip)).await? {
-                        Some(interface) => vec![interface.into()],
-                        None => {
-                            return Err(CarbideError::internal(format!(
-                                "No machine interface with IP {ip} was found"
-                            ))
-                            .into());
-                        }
-                    }
-                }
-                Err(_) => {
-                    return Err(CarbideError::internal(
-                        "Could not marshall an IP from the request".to_string(),
-                    )
-                    .into());
-                }
-            },
-            (None, None) => match db::machine_interface::find_all(&mut txn).await {
-                Ok(machine_interfaces) => machine_interfaces
-                    .into_iter()
-                    .map(|i| i.into())
-                    .collect_vec(),
-                Err(error) => return Err(error.into()),
-            },
-        };
-
-        // Link BMC interface to its machine, for carbide-web and admin-cli.
-        // Don't link if the search returned multiple, in case perf is an issue.
-        if interfaces.len() == 1 {
-            let interface = interfaces.get_mut(0).unwrap();
-            let not_linked_yet = interface.machine_id.is_none();
-            let maybe_a_bmc_interface = interface.primary_interface && interface.address.len() == 1;
-            if not_linked_yet && maybe_a_bmc_interface {
-                let Some(ip) = interface.address.first() else {
-                    return Err(Status::internal(
-                        "Impossible interface.address array length",
-                    ));
-                };
-                match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
-                    Ok(Some(machine_id)) => {
-                        let rpc_machine_id = Some(machine_id);
-                        interface.is_bmc = Some(true);
-                        match machine_id.machine_type() {
-                            MachineType::Dpu => interface.attached_dpu_machine_id = rpc_machine_id,
-                            MachineType::Host | MachineType::PredictedHost => {
-                                interface.machine_id = rpc_machine_id
-                            }
-                        }
-                    }
-                    Ok(None) => {} // expected, not a BMC interface
-                    Err(err) => {
-                        tracing::warn!(%err, %ip, "db::machine_topology::find_machine_id_by_bmc_ip error");
-                    }
-                }
-            }
-        }
-
-        Ok(Response::new(rpc::InterfaceList { interfaces }))
+        crate::handlers::machine_interface::find_interfaces(self, request).await
     }
 
     async fn delete_interface(
         &self,
         request: Request<rpc::InterfaceDeleteQuery>,
     ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("delete_interface").await?;
-
-        let rpc::InterfaceDeleteQuery { id } = request.into_inner();
-        let Some(id) = id else {
-            return Err(CarbideError::MissingArgument("delete interface.interface_id").into());
-        };
-
-        let interface = db::machine_interface::find_one(&mut txn, id).await?;
-
-        // There should not be any machine associated with this interface.
-        if let Some(machine_id) = interface.machine_id {
-            return Err(Status::invalid_argument(format!(
-                "Already a machine {machine_id} is attached to this interface. Delete that first."
-            )));
-        }
-
-        // There should not be any BMC information associated with any machine.
-        for address in interface.addresses.iter() {
-            let machine_id =
-                db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, &address.to_string())
-                    .await?;
-
-            if let Some(machine_id) = machine_id {
-                return Err(Status::invalid_argument(format!(
-                    "This looks like a BMC interface and attached with machine: {machine_id}. Delete that first."
-                )));
-            }
-        }
-
-        db::machine_interface::delete(&interface.id, &mut txn).await?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(()))
+        crate::handlers::machine_interface::delete_interface(self, request).await
     }
 
     // Fetch the DPU admin SSH password from Vault.
@@ -1133,8 +801,8 @@ impl Forge for Api {
 
     async fn update_machine_credentials(
         &self,
-        request: Request<MachineCredentialsUpdateRequest>,
-    ) -> Result<Response<MachineCredentialsUpdateResponse>, Status> {
+        request: Request<rpc::MachineCredentialsUpdateRequest>,
+    ) -> Result<Response<rpc::MachineCredentialsUpdateResponse>, Status> {
         crate::handlers::credential::update_machine_credentials(self, request).await
     }
 
@@ -3847,29 +3515,7 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::MachineSetAutoUpdateRequest>,
     ) -> Result<tonic::Response<rpc::MachineSetAutoUpdateResponse>, Status> {
-        log_request_data(&request);
-
-        let request = request.into_inner();
-
-        let mut txn = self.txn_begin("machine_set_auto_update").await?;
-
-        let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
-        let Some(_machine) =
-            db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?
-        else {
-            return Err(Status::not_found("The machine ID was not found"));
-        };
-
-        let state = match request.action() {
-            rpc::machine_set_auto_update_request::SetAutoupdateAction::Enable => Some(true),
-            rpc::machine_set_auto_update_request::SetAutoupdateAction::Disable => Some(false),
-            rpc::machine_set_auto_update_request::SetAutoupdateAction::Clear => None,
-        };
-        db::machine::set_firmware_autoupdate(&mut txn, &machine_id, state).await?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(rpc::MachineSetAutoUpdateResponse {}))
+        crate::handlers::machine::machine_set_auto_update(self, request).await
     }
 
     async fn get_machine_validation_external_config(
@@ -4356,79 +4002,22 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::SetManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::SetManagedHostQuarantineStateResponse>, Status> {
-        log_request_data(&request);
-        let rpc::SetManagedHostQuarantineStateRequest {
-            quarantine_state,
-            machine_id,
-        } = request.into_inner();
-        let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
-        let Some(quarantine_state) = quarantine_state else {
-            return Err(CarbideError::MissingArgument("quarantine_state").into());
-        };
-        let quarantine_state: ManagedHostQuarantineState =
-            quarantine_state.try_into().map_err(CarbideError::from)?;
-
-        let mut txn = self.txn_begin("set_managed_host_quarantine_state").await?;
-
-        let prior_quarantine_state =
-            db::machine::set_quarantine_state(&mut txn, &machine_id, quarantine_state)
-                .await?
-                .map(Into::into);
-
-        txn.commit().await?;
-
-        Ok(tonic::Response::new(
-            rpc::SetManagedHostQuarantineStateResponse {
-                prior_quarantine_state,
-            },
-        ))
+        crate::handlers::machine_quarantine::set_managed_host_quarantine_state(self, request).await
     }
 
     async fn get_managed_host_quarantine_state(
         &self,
         request: tonic::Request<rpc::GetManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::GetManagedHostQuarantineStateResponse>, Status> {
-        log_request_data(&request);
-        let rpc::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
-        let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
-
-        let mut txn = self.txn_begin("get_managed_host_quarantine_state").await?;
-
-        let quarantine_state = db::machine::get_quarantine_state(&mut txn, &machine_id)
-            .await?
-            .map(Into::into);
-
-        txn.commit().await?;
-
-        Ok(tonic::Response::new(
-            rpc::GetManagedHostQuarantineStateResponse { quarantine_state },
-        ))
+        crate::handlers::machine_quarantine::get_managed_host_quarantine_state(self, request).await
     }
 
     async fn clear_managed_host_quarantine_state(
         &self,
         request: tonic::Request<rpc::ClearManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::ClearManagedHostQuarantineStateResponse>, Status> {
-        log_request_data(&request);
-
-        let rpc::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
-        let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
-
-        let mut txn = self
-            .txn_begin("clear_managed_host_quarantine_state")
-            .await?;
-
-        let prior_quarantine_state = db::machine::clear_quarantine_state(&mut txn, &machine_id)
-            .await?
-            .map(Into::into);
-
-        txn.commit().await?;
-
-        Ok(tonic::Response::new(
-            rpc::ClearManagedHostQuarantineStateResponse {
-                prior_quarantine_state,
-            },
-        ))
+        crate::handlers::machine_quarantine::clear_managed_host_quarantine_state(self, request)
+            .await
     }
 
     async fn reset_host_reprovisioning(
@@ -5300,29 +4889,6 @@ impl Api {
 
         Ok(())
     }
-}
-
-fn snapshot_map_to_rpc_machines(
-    snapshots: HashMap<MachineId, ManagedHostStateSnapshot>,
-) -> rpc::MachineList {
-    let mut result = rpc::MachineList {
-        machines: Vec::with_capacity(snapshots.len()),
-    };
-
-    for (machine_id, snapshot) in snapshots.into_iter() {
-        if let Some(rpc_machine) =
-            snapshot.rpc_machine_state(match machine_id.machine_type().is_dpu() {
-                true => Some(&machine_id),
-                false => None,
-            })
-        {
-            result.machines.push(rpc_machine);
-        }
-        // A log message for the None case is already emitted inside
-        // managed_host::load_by_machine_ids
-    }
-
-    result
 }
 
 #[cfg(test)]
