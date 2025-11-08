@@ -354,9 +354,7 @@ pub(crate) async fn get_dpu_ssh_credential(
     // Load credentials from Vault
     let credentials = api
         .credential_provider
-        .get_credentials(&CredentialKey::DpuSsh {
-            machine_id: machine_id.to_string(),
-        })
+        .get_credentials(&CredentialKey::DpuSsh { machine_id })
         .await
         .map_err(|err| CarbideError::internal(format!("Secret manager error: {err}")))?
         .ok_or_else(|| CarbideError::NotFoundError {

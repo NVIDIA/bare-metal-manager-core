@@ -2117,6 +2117,7 @@ dependencies = [
  "async-trait",
  "bmc-vendor",
  "carbide-rpc",
+ "carbide-uuid",
  "eyre",
  "mac_address",
  "opentelemetry",

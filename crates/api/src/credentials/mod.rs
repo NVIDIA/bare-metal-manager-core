@@ -39,10 +39,10 @@ impl UpdateCredentials {
 
             let key = match credential_purpose {
                 CredentialPurpose::Hbn => CredentialKey::DpuHbn {
-                    machine_id: self.machine_id.to_string(),
+                    machine_id: self.machine_id,
                 },
                 CredentialPurpose::LoginUser => CredentialKey::DpuSsh {
-                    machine_id: self.machine_id.to_string(),
+                    machine_id: self.machine_id,
                 },
                 CredentialPurpose::Bmc => CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::BmcRoot {

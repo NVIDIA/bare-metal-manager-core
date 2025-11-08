@@ -14,6 +14,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use rand::Rng;
 use rand::seq::SliceRandom;
@@ -178,15 +179,15 @@ impl CredentialProvider for TestCredentialProvider {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[allow(clippy::enum_variant_names)]
 pub enum CredentialType {
     DpuHardwareDefault,
     HostHardwareDefault { vendor: bmc_vendor::BMCVendor },
     SiteDefault,
-    Machine { machine_id: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum BmcCredentialType {
     // Site Wide Root Credentials
     SiteWideRoot,
@@ -198,8 +199,8 @@ pub enum BmcCredentialType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialKey {
-    DpuSsh { machine_id: String },
-    DpuHbn { machine_id: String },
+    DpuSsh { machine_id: MachineId },
+    DpuHbn { machine_id: MachineId },
     DpuRedfish { credential_type: CredentialType },
     HostRedfish { credential_type: CredentialType },
     UfmAuth { fabric: String },
@@ -224,9 +225,6 @@ impl CredentialKey {
                 CredentialType::SiteDefault => {
                     Cow::from("machines/all_dpus/site_default/bmc-metadata-items/root")
                 }
-                CredentialType::Machine { machine_id } => Cow::from(format!(
-                    "machines/{machine_id}/bmc-metadata-items/administrator"
-                )),
                 CredentialType::HostHardwareDefault { .. } => {
                     unreachable!(
                         "DpuRedfish / HostHardwareDefault is an invalid credential combination"
@@ -239,9 +237,6 @@ impl CredentialKey {
                 )),
                 CredentialType::SiteDefault => {
                     Cow::from("machines/all_hosts/site_default/bmc-metadata-items/root")
-                }
-                CredentialType::Machine { machine_id } => {
-                    Cow::from(format!("machines/{machine_id}/host-redfish-admin"))
                 }
                 CredentialType::DpuHardwareDefault => {
                     unreachable!(
