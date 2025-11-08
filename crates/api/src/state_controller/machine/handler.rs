@@ -4080,7 +4080,16 @@ async fn handle_host_boot_order_setup(
 
     let next_state = match set_boot_order_info {
         Some(info) => {
-            match set_host_boot_order(txn, ctx, redfish_client.as_ref(), mh_snapshot, info).await? {
+            match set_host_boot_order(
+                txn,
+                ctx,
+                &host_handler_params.reachability_params,
+                redfish_client.as_ref(),
+                mh_snapshot,
+                info,
+            )
+            .await?
+            {
                 Some(boot_order_info) => ManagedHostState::HostInit {
                     machine_state: MachineState::SetBootOrder {
                         set_boot_order_info: Some(boot_order_info),
@@ -8174,6 +8183,7 @@ async fn handle_instance_host_platform_config(
             match set_host_boot_order(
                 txn,
                 ctx,
+                reachability_params,
                 redfish_client.as_ref(),
                 mh_snapshot,
                 set_boot_order_info,
@@ -8293,6 +8303,7 @@ async fn configure_host_bios(
 async fn set_host_boot_order(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    reachability_params: &ReachabilityParams,
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
     set_boot_order_info: SetBootOrderInfo,
@@ -8315,17 +8326,57 @@ async fn set_host_boot_order(
                         ))
                     })?;
 
-                let jid = set_boot_order_dpu_first_and_handle_no_dpu_error(
+                let jid = match set_boot_order_dpu_first_and_handle_no_dpu_error(
                     redfish_client,
                     &primary_interface.mac_address.to_string(),
                     mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
                     &ctx.services.site_config,
                 )
                 .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "set_boot_order_dpu_first",
-                    error: e,
-                })?;
+                {
+                    Ok(jid) => jid,
+                    Err(e) => {
+                        tracing::warn!(
+                            "redfish set_boot_order_dpu_first failed for {}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}",
+                            mh_snapshot.host_snapshot.id,
+                            e
+                        );
+
+                        let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
+                            bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
+                            _ => SystemPowerControl::ForceRestart,
+                        };
+
+                        let reboot_status =
+                            if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
+                                handler_host_power_control(
+                                    mh_snapshot,
+                                    ctx.services,
+                                    power_control_action,
+                                    txn,
+                                )
+                                .await?;
+
+                                RebootStatus {
+                                    increase_retry_count: true,
+                                    status: "Restarted host".to_string(),
+                                }
+                            } else {
+                                trigger_reboot_if_needed(
+                                    &mh_snapshot.host_snapshot,
+                                    mh_snapshot,
+                                    None,
+                                    reachability_params,
+                                    ctx.services,
+                                    txn,
+                                )
+                                .await?
+                            };
+                        return Err(StateHandlerError::GenericError(eyre::eyre!(
+                            "redfish set_boot_order_dpu_first failed: {e}; triggered host reboot?: {reboot_status:#?}"
+                        )));
+                    }
+                };
 
                 Ok(Some(SetBootOrderInfo {
                     set_boot_order_jid: jid,
