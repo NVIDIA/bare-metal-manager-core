@@ -19,6 +19,14 @@
 - [5504231](https://nvbugspro.nvidia.com/bug/5504231), [MR-4804](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4804): Added the ability to powercycle the host and release the DPU rshim before attempting SCP when copying BFB to DPU rshim via a new `--host-bmc-ip` field.
 - [MR-4591](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4591): Added the ability to collect and bundle host machine and carbide-api logs from Grafana/Loki for a specified time range into a ZIP file with deduplicated logs, metadata, and Grafana query links using `forge-admin-cli managed-host debug-bundle <HOST_ID> --start-time "HH:MM:SS" --end-time "HH:MM:SS" --site <SITE> --output-path <PATH>`.
 - [MR-4788](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4788): Added the ability to insert global/admin-level security policies that take precedence over tenant-defined policies, enabling granular overrides such as ensuring tenant instances can always communicate with the iPXE server even when NSGs are applied.
+- [MR-4767](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4767): Create an xtask module that is able to move dependencies to the workspace level to avoid version conflicts between different crates' dependencies.
+- [MR-4756](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4756), [VMAAS-49](https://jirasw.nvidia.com/browse/VMAAS-49), [VMAAS-95](https://jirasw.nvidia.com/browse/VMAAS-95): Added lifecycle management for DPU extension services with versioned configurations and per-instance deployment. 
+
+DPU extension services are tenant-scoped, versioned service definitions (currently supporting "KubernetesPod" service type which deploys static pod manifests). Services can include private registry credentials stored securely in Vault. Instances can attach multiple DPU extension services by declaring them in InstanceConfig. The system tracks per-DPU deployment status and reports aggregated instance-level state for all attached services.
+
+    - DPU agents obtains list of DPU extension services configured for any instance attached from GetManagedHostNetworkConfig. For "KubernetesPod` services, DPU agents deploy the services as static pods via kubelet, automatically configuring the image credential provider, setting up a SOCKS5 proxy for containerd, and monitoring status via crictl.
+    - RPC calls added: CreateDpuExtensionService, UpdateDpuExtensionService, DeleteDpuExtensionService, FindDpuExtensionServiceIds, FindDpuExtensionServicesByIds, GetDpuExtensionServiceVersionInfos, FindInstancesByDpuExtensionService.
+    - forge-admin-cli commands added: extension-service commands including create, update, delete, show, get-version, show-instance
 
 ### Changed
 
@@ -26,6 +34,8 @@
 - [MR-4745](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4745): Changed the behavior of `forge-admin-cli managed-host show` to sort DPUs by PCI info so they always appear in the same position, i.e. that the primary DPU is at position 0.
 - [MR-4749](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4749): Changed the behavior of the SKU create CLI to make the `created` field optional and to ingest `device_type` directly from JSON input when present.
 - [MR-4771](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4771): Changed the behavior of the agent to check the hbn container config file for hbn version instead of checking running container details with crictl, since the container might not be running when the check is done.
+- [MR-4820](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4820): Update language in the Carbide documentation to refer to Carbide, remove other Nvidia-specific information from documentation.
+- [MR-4764](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4764), [FORGE-3754](https://jirasw.nvidia.com/browse/FORGE-3754): Always power a cycle a machine when it is released by a tenant.
 
 ### Fixed
 
@@ -40,6 +50,9 @@
 - [MR-4776](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4776): Fixed an issue where a missing overflow check in russh servers (CVE-2025-54804) could allow a malicious client to crash the server by bumping russh to 0.54.6.
 - [MR-4779](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4779): Fixed an issue where an unused openssl dependency in carbide-ssh was causing build failures due to a missing cmake dependency in aws-lc-sys; the unused dependency has been removed.
 - [MR-4777](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4777): Fixed an issue where `cargo make build` would fail to build `admin_cli` due to the missing `to_csv` method in the `Table` struct caused by a missing library feature.
+- [MR-4822](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4822): Fixed an issue with horizontal overflow on a table for PCIe devices table in in the system tab.
+- [MR-4830](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4830): Update libredfish to 0.31.5
+- [MR-4834](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4834): Fixes an issue where if Carbide is unable to set the boot order on a given machine, it will issue a reboot to try to remediate the issue
 
 ### Removed
 
@@ -69,6 +82,12 @@
 - [MR-4773](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4773): Internal change where obsolete files in dev/ were removed and copy repo rules were updated to exclude unnecessary items.
 - [MR-4772](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4772): Internal change where the copy-and-sanitize-repo process was updated to properly initialize submodules, fixing an issue where the mirror did not have submodules initialized correctly.
 - [MR-4737](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4737): Internal change where all crates were moved into a unified `crates` directory, organizing the codebase by crate name to improve maintainability and consistency.
+- [MR-4816](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4816): Add NMX-M client library. Adds support for Carbide to talk to the NVLink partition management tool.
+- [MR-4823](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4823): Updates internal uses of time for SLA constants to use Duration type.
+- [MR-4824](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4824): Internal change to pass crednetials and keys by reference instead of value (copies).
+- [MR-4827](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4827): Internal change to refactor CredentialKey to return a COW type instead of a copy.
+- [MR-4832](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4832): Internal change to make Api reference usage for DB connections consistent across project, with Api handler as first parameter.
+- [MR-4802](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4802): Internal change to make the strategy for assigning /32 IP blocks significantly faster, compared to /30 IP blocks for machines, which are currently unused.
 
 ## [v2025.10.24-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.10-rc2-0...v2025.10.24-rc2-0)
 
