@@ -41,7 +41,7 @@ static EXEC_TIMEOUT: Duration = Duration::from_secs(10);
 
 static BANNER_SSH_BMC: &str = "\
 +------------------------------------------------------------------------------+\r\n\
-|                 NVIDIA Forge SSH Serial Console (beta)                       |\r\n\
+|                NVIDIA Carbide SSH Serial Console (beta)                      |\r\n\
 +------------------------------------------------------------------------------+\r\n\
 |             Use SSH escape sequences to manage this session.                 |\r\n\
 |      (Note that escapes are only recognized immediately after newline.)      |\r\n\
@@ -52,14 +52,14 @@ static BANNER_SSH_BMC: &str = "\
 
 static BANNER_IPMI_BMC: &str = "\
 +------------------------------------------------------------------------------+\r\n\
-|                 NVIDIA Forge SSH Serial Console (beta)                       |\r\n\
+|                NVIDIA Carbide SSH Serial Console (beta)                      |\r\n\
 +------------------------------------------------------------------------------+\r\n\
 |             Use SSH escape sequences to manage this session.                 |\r\n\
 |      (Note that escapes are only recognized immediately after newline.)      |\r\n\
 |                               ~. | terminate session                         |\r\n\
 |                               ~? | Help                                      |\r\n\
 |   This system supports power reset requests. To reboot this system, append   |\r\n\
-|                \"power reset\" to your original SSH command                    |\r\n\
+|                \"power reset\" to your original SSH command                  |\r\n\
 |                (e.g. ssh <host>@<console-ip> power reset)                    |\r\n\
 +------------------------------------------------------------------------------+\r\n\
 ";

@@ -1,6 +1,6 @@
 [book]
-title = "Forge Documentation"
-author = "Forge Development Team <forge-dev@exchange.nvidia.com>"
+title = "Carbide Documentation"
+author = "Carbide Development Team <carbide-dev@exchange.nvidia.com>"
 
 [rust]
 edition = "2021"
