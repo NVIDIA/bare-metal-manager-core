@@ -72,8 +72,7 @@ impl RedfishClient {
     async fn create_direct_redfish_client(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        Credentials::UsernamePassword { username, password }: Credentials,
         initialize: bool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         self.create_redfish_client(
@@ -87,10 +86,9 @@ impl RedfishClient {
     async fn create_authenticated_redfish_client(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_direct_redfish_client(bmc_ip_address, username.clone(), password.clone(), true)
+        self.create_direct_redfish_client(bmc_ip_address, credentials, true)
             .await
     }
 
@@ -119,15 +117,13 @@ impl RedfishClient {
         current_bmc_root_credentials: Credentials,
         new_password: String,
     ) -> Result<(), EndpointExplorationError> {
-        let (curr_user, curr_pass) = match current_bmc_root_credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
+        let curr_user = match &current_bmc_root_credentials {
+            Credentials::UsernamePassword { username, .. } => username,
         };
-
         let mut client = self
             .create_direct_redfish_client(
                 bmc_ip_address,
-                curr_user.clone(),
-                curr_pass.clone(),
+                current_bmc_root_credentials.clone(),
                 false,
             )
             .await
@@ -200,7 +196,13 @@ impl RedfishClient {
 
         // log in using the new credentials
         client = self
-            .create_authenticated_redfish_client(bmc_ip_address, curr_user, new_password)
+            .create_authenticated_redfish_client(
+                bmc_ip_address,
+                Credentials::UsernamePassword {
+                    username: curr_user.to_string(),
+                    password: new_password,
+                },
+            )
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -215,11 +217,10 @@ impl RedfishClient {
     pub async fn generate_exploration_report(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -282,11 +283,10 @@ impl RedfishClient {
     pub async fn reset_bmc(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -298,12 +298,11 @@ impl RedfishClient {
     pub async fn power(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
         action: libredfish::SystemPowerControl,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -314,11 +313,10 @@ impl RedfishClient {
     pub async fn disable_secure_boot(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -333,12 +331,11 @@ impl RedfishClient {
     pub async fn lockdown(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
         action: libredfish::EnabledDisabled,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -350,11 +347,10 @@ impl RedfishClient {
     pub async fn lockdown_status(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<LockdownStatus, EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -368,11 +364,10 @@ impl RedfishClient {
     pub async fn enable_infinite_boot(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -387,11 +382,10 @@ impl RedfishClient {
     pub async fn is_infinite_boot_enabled(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<Option<bool>, EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -404,12 +398,11 @@ impl RedfishClient {
     pub async fn forge_setup(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
         boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -429,12 +422,11 @@ impl RedfishClient {
     pub async fn set_boot_order_dpu_first(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
         boot_interface_mac: &str,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -449,12 +441,11 @@ impl RedfishClient {
     pub async fn set_nic_mode(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
         mode: NicMode,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -466,11 +457,10 @@ impl RedfishClient {
     pub async fn is_viking(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<bool, EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -487,11 +477,10 @@ impl RedfishClient {
     pub async fn clear_nvram(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -502,14 +491,13 @@ impl RedfishClient {
     pub async fn create_bmc_user(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
         new_username: &str,
         new_password: &str,
         new_user_role_id: libredfish::RoleId,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -523,12 +511,11 @@ impl RedfishClient {
     pub async fn delete_bmc_user(
         &self,
         bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
+        credentials: Credentials,
         delete_user: &str,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -604,7 +591,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
         .await
         .map_err(map_redfish_error)?;
 
-    let boot_order = fetch_boot_order(client, system.clone())
+    let boot_order = fetch_boot_order(client, &system)
         .await
         .inspect_err(|error| tracing::warn!(%error, "Failed to fetch boot order."))
         .ok();
@@ -856,15 +843,17 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
 
 async fn fetch_boot_order(
     client: &dyn Redfish,
-    system: libredfish::model::ComputerSystem,
+    system: &libredfish::model::ComputerSystem,
 ) -> Result<BootOrder, RedfishError> {
-    let boot_options_id = system
-        .boot
-        .boot_options
-        .ok_or_else(|| RedfishError::MissingKey {
-            key: "boot.boot_options".to_string(),
-            url: system.odata.odata_id.to_string(),
-        })?;
+    let boot_options_id =
+        system
+            .boot
+            .boot_options
+            .clone()
+            .ok_or_else(|| RedfishError::MissingKey {
+                key: "boot.boot_options".to_string(),
+                url: system.odata.odata_id.to_string(),
+            })?;
 
     let all_boot_options: Vec<BootOption> = client
         .get_collection(boot_options_id)
@@ -878,8 +867,8 @@ async fn fetch_boot_order(
     let boot_order: Vec<BootOption> = system
         .boot
         .boot_order
-        .into_iter()
-        .filter_map(|id| all_boot_options.iter().find(|opt| opt.id == id).cloned())
+        .iter()
+        .filter_map(|id| all_boot_options.iter().find(|opt| opt.id == *id).cloned())
         .collect();
 
     Ok(BootOrder { boot_order })

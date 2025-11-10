@@ -139,12 +139,8 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .generate_exploration_report(bmc_ip_address, username, password)
+            .generate_exploration_report(bmc_ip_address, credentials)
             .await
     }
 
@@ -228,12 +224,8 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .reset_bmc(bmc_ip_address, username, password)
+            .reset_bmc(bmc_ip_address, credentials)
             .await
     }
 
@@ -243,12 +235,8 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         action: libredfish::SystemPowerControl,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .power(bmc_ip_address, username, password, action)
+            .power(bmc_ip_address, credentials, action)
             .await
     }
 
@@ -258,12 +246,8 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .forge_setup(bmc_ip_address, username, password, boot_interface_mac)
+            .forge_setup(bmc_ip_address, credentials, boot_interface_mac)
             .await
     }
 
@@ -273,12 +257,8 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         boot_interface_mac: &str,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .set_boot_order_dpu_first(bmc_ip_address, username, password, boot_interface_mac)
+            .set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface_mac)
             .await
     }
 
@@ -288,12 +268,8 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         mode: NicMode,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .set_nic_mode(bmc_ip_address, username, password, mode)
+            .set_nic_mode(bmc_ip_address, credentials, mode)
             .await
     }
 
@@ -302,12 +278,8 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<bool, EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .is_viking(bmc_ip_address, username, password)
+            .is_viking(bmc_ip_address, credentials)
             .await
     }
 
@@ -316,12 +288,8 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .clear_nvram(bmc_ip_address, username, password)
+            .clear_nvram(bmc_ip_address, credentials)
             .await
     }
 
@@ -330,12 +298,8 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .disable_secure_boot(bmc_ip_address, username, password)
+            .disable_secure_boot(bmc_ip_address, credentials)
             .await
     }
 
@@ -345,12 +309,8 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         action: libredfish::EnabledDisabled,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .lockdown(bmc_ip_address, username, password, action)
+            .lockdown(bmc_ip_address, credentials, action)
             .await
     }
 
@@ -359,12 +319,8 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<LockdownStatus, EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .lockdown_status(bmc_ip_address, username, password)
+            .lockdown_status(bmc_ip_address, credentials)
             .await
     }
 
@@ -373,12 +329,8 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .enable_infinite_boot(bmc_ip_address, username, password)
+            .enable_infinite_boot(bmc_ip_address, credentials)
             .await
     }
 
@@ -387,12 +339,8 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<Option<bool>, EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .is_infinite_boot_enabled(bmc_ip_address, username, password)
+            .is_infinite_boot_enabled(bmc_ip_address, credentials)
             .await
     }
 
@@ -402,7 +350,7 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         ssh_config: Option<SshConfig>,
     ) -> Result<bool, EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
+        let (username, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
         let rshim_status =
@@ -421,7 +369,7 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
+        let (username, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
@@ -435,7 +383,7 @@ impl BmcEndpointExplorer {
     async fn check_and_enable_rshim(
         &self,
         bmc_ip_address: SocketAddr,
-        credentials: Credentials,
+        credentials: &Credentials,
         ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         let mut i = 0;
@@ -544,7 +492,7 @@ impl BmcEndpointExplorer {
         self.create_unified_preingestion_bfb(&username, &password)
             .await?;
 
-        self.check_and_enable_rshim(bmc_ip_address, credentials, ssh_config.clone())
+        self.check_and_enable_rshim(bmc_ip_address, &credentials, ssh_config.clone())
             .await?;
 
         forge_ssh::ssh::copy_bfb_to_bmc_rshim(
@@ -570,15 +518,10 @@ impl BmcEndpointExplorer {
         new_password: &str,
         role_id: libredfish::RoleId,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
             .create_bmc_user(
                 bmc_ip_address,
-                username,
-                password,
+                credentials,
                 new_username,
                 new_password,
                 role_id,
@@ -592,12 +535,8 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         delete_username: &str,
     ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
         self.redfish_client
-            .delete_bmc_user(bmc_ip_address, username, password, delete_username)
+            .delete_bmc_user(bmc_ip_address, credentials, delete_username)
             .await
     }
 }
