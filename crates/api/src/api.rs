@@ -1438,6 +1438,19 @@ impl Forge for Api {
                 .await
                 .map_err(CarbideError::from)?
             }
+
+            if let Some(secondary_overlay_vtep_ip) =
+                dpu_machine.network_config.secondary_overlay_vtep_ip
+            {
+                db::resource_pool::release(
+                    &self.common_pools.ethernet.pool_secondary_vtep_ip,
+                    &mut txn,
+                    secondary_overlay_vtep_ip,
+                )
+                .await
+                .map_err(CarbideError::from)?
+            }
+
             db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id)
                 .await?;
 

@@ -1814,6 +1814,40 @@ pub async fn allocate_vpc_dpu_loopback(
     }
 }
 
+/// Allocate a value from the secondary VTEP IP resource pool.
+pub async fn allocate_secondary_vtep_ip(
+    common_pools: &CommonPools,
+    txn: &mut PgConnection,
+    owner_id: &str,
+) -> Result<Ipv4Addr, DatabaseError> {
+    match crate::resource_pool::allocate(
+        &common_pools.ethernet.pool_secondary_vtep_ip,
+        txn,
+        resource_pool::OwnerType::Machine,
+        owner_id,
+    )
+    .await
+    {
+        Ok(val) => Ok(val),
+        Err(crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+            resource_pool::ResourcePoolError::Empty,
+        )) => {
+            tracing::error!(
+                owner_id,
+                pool = "secondary-vtep-ip",
+                "Pool exhausted, cannot allocate"
+            );
+            Err(DatabaseError::ResourceExhausted(
+                "pool secondary-vtep-ip".to_string(),
+            ))
+        }
+        Err(err) => {
+            tracing::error!(owner_id, error = %err, pool = "secondary-vtep-ip", "Error allocating from resource pool");
+            Err(err.into())
+        }
+    }
+}
+
 pub async fn find_by_validation_id(
     txn: &mut PgConnection,
     validation_id: &Uuid,

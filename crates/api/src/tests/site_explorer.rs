@@ -646,6 +646,7 @@ async fn test_site_explorer_audit_exploration_results(
         bmc_proxy: Arc::default(),
         reset_rate_limit: chrono::Duration::hours(1),
         allow_proxy_to_unknown_host: false,
+        allocate_secondary_vtep_ip: false,
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
@@ -1461,6 +1462,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
 
@@ -1478,6 +1480,14 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         db::resource_pool::stats(&mut *txn, env.common_pools.ethernet.pool_loopback_ip.name())
             .await
             .expect("failed to get inital pool stats");
+
+    let initial_secondary_vtep_pool_stats = db::resource_pool::stats(
+        &mut *txn,
+        env.common_pools.ethernet.pool_secondary_vtep_ip.name(),
+    )
+    .await
+    .expect("failed to get inital secondary-vtep-ip pool stats");
+
     let mut oob_interfaces = Vec::new();
     let mut explored_dpus = Vec::new();
 
@@ -1583,7 +1593,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     let mut dpu_machines = Vec::new();
     let mut host_machine = None;
 
-    for dpu in explored_dpus {
+    for dpu in explored_dpus.iter() {
         let dpu_machine = db::machine::find_one(
             &mut txn,
             dpu.report.machine_id.as_ref().unwrap(),
@@ -1597,6 +1607,12 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         .unwrap();
 
         let expected_loopback_ip = dpu_machine.network_config.loopback_ip.unwrap().to_string();
+        let expected_secondary_overlay_vtep_ip = dpu_machine
+            .network_config
+            .secondary_overlay_vtep_ip
+            .unwrap()
+            .to_string();
+
         let network_config_response = env
             .api
             .get_managed_host_network_config(Request::new(
@@ -1604,14 +1620,24 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                     dpu_machine_id: Some(dpu_machine.id),
                 },
             ))
-            .await?;
+            .await?
+            .into_inner();
+
         assert_eq!(
             expected_loopback_ip,
             network_config_response
-                .into_inner()
                 .managed_host_config
                 .unwrap()
                 .loopback_ip
+        );
+
+        assert_eq!(
+            expected_secondary_overlay_vtep_ip,
+            network_config_response
+                .traffic_intercept_config
+                .unwrap()
+                .additional_overlay_vtep_ip
+                .unwrap()
         );
 
         if host_machine.is_none() {
@@ -1627,6 +1653,21 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         assert_eq!(&hm.id, host_machine_id.as_ref().unwrap());
         dpu_machines.push(dpu_machine);
     }
+
+    // And make sure resource pool stats agree with how many
+    // secondary vteps should have been assigned.
+    let expected_secondary_vtep_count = NUM_DPUS;
+    assert_eq!(
+        db::resource_pool::stats(
+            &mut *txn,
+            env.common_pools.ethernet.pool_secondary_vtep_ip.name()
+        )
+        .await?,
+        ResourcePoolStats {
+            used: expected_loopback_count,
+            free: initial_secondary_vtep_pool_stats.free - expected_secondary_vtep_count
+        }
+    );
 
     let expected_state = ManagedHostState::DpuDiscoveringState {
         dpu_states: model::machine::DpuDiscoveringStates {
@@ -1751,6 +1792,7 @@ async fn test_disable_machine_creation_outside_site_explorer(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
     let env = common::api_fixtures::create_test_env_with_overrides(
@@ -1826,6 +1868,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -2039,6 +2082,7 @@ async fn test_site_explorer_health_report(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
 
@@ -2187,6 +2231,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
 
@@ -2288,6 +2333,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
 
@@ -2864,6 +2910,7 @@ async fn test_site_explorer_unknown_vendor(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         allow_zero_dpu_hosts: true,
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -3069,6 +3116,7 @@ async fn test_machine_creation_with_sku(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -3352,6 +3400,7 @@ async fn test_expected_machine_device_type_metrics(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(false.into()),
+        allocate_secondary_vtep_ip: true,
         ..Default::default()
     };
 

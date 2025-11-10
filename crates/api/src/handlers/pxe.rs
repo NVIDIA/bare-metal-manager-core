@@ -120,6 +120,46 @@ pub(crate) async fn get_cloud_init_instructions(
                         .vmaas_config
                         .as_ref()
                         .and_then(|vc| vc.hbn_reps.clone()),
+                    hbn_sfs: api
+                        .runtime_config
+                        .vmaas_config
+                        .as_ref()
+                        .and_then(|vc| vc.hbn_sfs.clone()),
+                    vf_intercept_bridge_name: api.runtime_config.vmaas_config.as_ref().and_then(
+                        |vc| {
+                            vc.bridging
+                                .as_ref()
+                                .map(|b| b.vf_intercept_bridge_name.clone())
+                        },
+                    ),
+                    host_intercept_bridge_name: api.runtime_config.vmaas_config.as_ref().and_then(
+                        |vc| {
+                            vc.bridging
+                                .as_ref()
+                                .map(|b| b.host_intercept_bridge_name.clone())
+                        },
+                    ),
+                    host_intercept_bridge_port: api.runtime_config.vmaas_config.as_ref().and_then(
+                        |vc| {
+                            vc.bridging
+                                .as_ref()
+                                .map(|b| b.host_intercept_bridge_port.clone())
+                        },
+                    ),
+                    vf_intercept_bridge_port: api.runtime_config.vmaas_config.as_ref().and_then(
+                        |vc| {
+                            vc.bridging
+                                .as_ref()
+                                .map(|b| b.vf_intercept_bridge_port.clone())
+                        },
+                    ),
+                    vf_intercept_bridge_sf: api.runtime_config.vmaas_config.as_ref().and_then(
+                        |vc| {
+                            vc.bridging
+                                .as_ref()
+                                .map(|b| b.vf_intercept_bridge_sf.clone())
+                        },
+                    ),
                 }),
                 metadata,
             }

@@ -26,6 +26,7 @@
         ip:
           address:
             169.254.169.253/30: {}
+          vrf: vpc_0
       p0_if:
         type: swp
       p1_if:
@@ -76,18 +77,29 @@
         enable: on
         router-id: 10.217.5.39
       policy:
-        prefix-list:
-          FORGE_FROM_UNDERLAY:
+        community-list:
+          BYOIP_LEAK_COMMUNITY_LIST:
             rule:
               '10':
                 action: permit
+                community:
+                  65000:0: {}
+        prefix-list:
+          LEAK_TO_UNDERLAY_PREFIX_LIST:
+             rule:
+              '1':
+                action: permit
                 match:
-                  0.0.0.0/0: {}
-              '1000':
-                action: deny
+                   7.8.0.0/16: {}
+              '65000':
+                action: permit
                 match:
-                  any: {}
-          dpu_from_instance:
+                   127.0.0.1/32: {}
+              '65001':
+                action: permit
+                match:
+                   10.2.2.1/32: {}
+          DPU_FROM_INSTANCE_PREFIX_LIST: 
             rule:
               '10':
                 action: permit
@@ -95,21 +107,48 @@
                   0.0.0.0/0:
                     min-prefix-len: 32
         route-map:
-          FORGE_TO_UNDERLAY:
+          dpu_to_evpn:
+            rule:
+              '65534':
+                action:
+                  deny: {}
+                match:
+                  type: ipv4
+                  evpn-route-type: ip-prefix
+                  ip-prefix-list: DPU_TO_EVPN_DROP_PREFIX_LIST
+              '65535':
+                action:
+                  permit: {}
+          leak_to_underlay:
+            rule:
+              '65533':
+                action:
+                  permit: {}
+                match:
+                  type: ipv4
+                  ip-prefix-list: LEAK_TO_UNDERLAY_PREFIX_LIST
+              '65534':
+                action:
+                  permit: {}
+                match:
+                  community-list: BYOIP_LEAK_COMMUNITY_LIST
+              '65535':
+                action:
+                  deny: {}
+          dpu_from_instance:
             rule:
               '10':
                 action:
-                  deny: {}
-                match:
-                  interface: vlan196
-              '20':
-                action:
-                  deny: {}
-                match:
-                  interface: vlan185
-              '1000':
-                action:
                   permit: {}
+                match:
+                  type: ipv4
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST
+                set:
+                  community:
+                      65000:0: {}
+              '65535':
+                action:
+                  deny: {}
           dpu_to_instance:
             rule:
               '10':
@@ -190,7 +229,7 @@
                   ipv4-unicast:
                     policy:
                       inbound:
-                        prefix-list: dpu_from_instance
+                        route-map: dpu_from_instance
                       outbound:
                         route-map: dpu_to_instance
                 nexthop-connected-check: off

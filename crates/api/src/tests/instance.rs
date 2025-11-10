@@ -5055,6 +5055,10 @@ async fn test_instance_with_vf_when_vf_disabled(_: PgPoolOptions, options: PgCon
     config.vmaas_config = Some(VmaasConfig {
         allow_instance_vf: false,
         hbn_reps: None,
+        hbn_sfs: None,
+        bridging: None,
+        public_prefixes: vec![],
+        secondary_overlay_support: false,
     });
 
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
@@ -5091,6 +5095,10 @@ async fn test_instance_without_vf_when_vf_disabled(_: PgPoolOptions, options: Pg
     config.vmaas_config = Some(VmaasConfig {
         allow_instance_vf: false,
         hbn_reps: None,
+        hbn_sfs: None,
+        bridging: None,
+        public_prefixes: vec![],
+        secondary_overlay_support: false,
     });
 
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;

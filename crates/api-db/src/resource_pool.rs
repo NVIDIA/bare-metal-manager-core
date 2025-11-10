@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex};
 use config_version::ConfigVersion;
 use model::resource_pool;
 use model::resource_pool::common::{
-    CommonPools, DPA_VNI, DpaPools, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP, VLANID, VNI,
-    VPC_DPU_LOOPBACK, VPC_VNI,
+    CommonPools, DPA_VNI, DpaPools, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
+    SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
 use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 use model::resource_pool::{
@@ -446,6 +446,12 @@ pub async fn create_common_pools(
     //  TODO: This should be removed from optional once FNN become mandatory.
     optional_pool_names.push(pool_vpc_dpu_loopback_ip.name().to_string());
 
+    let pool_secondary_vtep_ip: Arc<ResourcePool<Ipv4Addr>> = Arc::new(ResourcePool::new(
+        SECONDARY_VTEP_IP.to_string(),
+        ValueType::Ipv4,
+    ));
+    optional_pool_names.push(pool_secondary_vtep_ip.name().to_string());
+
     // We can't run if any of the mandatory pools are missing
     for name in &pool_names {
         if stats(&db, name).await?.free == 0 {
@@ -512,6 +518,7 @@ pub async fn create_common_pools(
             pool_vpc_vni,
             pool_fnn_asn,
             pool_vpc_dpu_loopback_ip,
+            pool_secondary_vtep_ip,
         },
         infiniband: IbPools { pkey_pools },
         dpa: DpaPools { pool_dpa_vni },

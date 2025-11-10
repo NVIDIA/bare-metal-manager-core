@@ -554,14 +554,35 @@ impl MainLoop {
                                 }
                             }
 
-                            ethernet_virtualization::update_nvue(
-                                virtualization_type,
-                                &self.agent_config.hbn.root_dir,
-                                &conf,
-                                self.agent_config.hbn.skip_reload,
-                                self.hbn_device_names.clone(),
-                            )
-                            .await
+                            // We'll update some internal bridging config if bridging config
+                            // for traffic_intercept was sent in.
+                            let bridging_result = if conf
+                                .traffic_intercept_config
+                                .as_ref()
+                                .map(|vc| vc.bridging.is_some())
+                                .unwrap_or_default()
+                            {
+                                ethernet_virtualization::update_traffic_intercept_bridging(
+                                    &conf,
+                                    self.agent_config.hbn.skip_reload,
+                                )
+                                .await
+                            } else {
+                                Ok(false) // No errors and no change.
+                            };
+
+                            if bridging_result.is_ok() {
+                                ethernet_virtualization::update_nvue(
+                                    virtualization_type,
+                                    &self.agent_config.hbn.root_dir,
+                                    &conf,
+                                    self.agent_config.hbn.skip_reload,
+                                    self.hbn_device_names.clone(),
+                                )
+                                .await
+                            } else {
+                                bridging_result
+                            }
                         }
                     };
 

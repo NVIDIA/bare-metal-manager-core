@@ -212,6 +212,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManagedHostNetworkConfig {
     pub loopback_ip: Option<Ipv4Addr>,
+    pub secondary_overlay_vtep_ip: Option<Ipv4Addr>,
     pub use_admin_network: Option<bool>,
     pub quarantine_state: Option<ManagedHostQuarantineState>,
 }
@@ -290,6 +291,7 @@ impl Default for ManagedHostNetworkConfig {
     fn default() -> Self {
         ManagedHostNetworkConfig {
             loopback_ip: None,
+            secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
         }
