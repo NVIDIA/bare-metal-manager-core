@@ -188,46 +188,39 @@ pub(crate) async fn create(
 pub(crate) async fn delete(
     api: &Api,
     request: Request<rpc::NetworkSegmentDeletionRequest>,
-) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Box<Status>> {
+) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api
-        .txn_begin("delete_network_segment")
-        .await
-        .map_err(Status::from)?;
+    let mut txn = api.txn_begin("delete_network_segment").await?;
 
     let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
-    let segment_id = id.ok_or_else(|| Box::new(CarbideError::MissingArgument("id").into()))?;
+    let segment_id = id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
     let mut segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
         NetworkSegmentSearchConfig::default(),
     )
-    .await
-    .map_err(Status::from)?;
+    .await?;
 
     let segment = match segments.len() {
         1 => segments.remove(0),
         _ => {
-            return Err(Box::new(
-                CarbideError::NotFoundError {
-                    kind: "network segment",
-                    id: segment_id.to_string(),
-                }
-                .into(),
-            ));
+            return Err(CarbideError::NotFoundError {
+                kind: "network segment",
+                id: segment_id.to_string(),
+            }
+            .into());
         }
     };
 
     let response = Ok(db::network_segment::mark_as_deleted(&segment, &mut txn)
         .await
         .map(|_| rpc::NetworkSegmentDeletionResult {})
-        .map(Response::new)
-        .map_err(|e| Box::new(e.into()))?);
+        .map(Response::new)?);
 
-    txn.commit().await.map_err(Status::from)?;
+    txn.commit().await?;
 
     response
 }

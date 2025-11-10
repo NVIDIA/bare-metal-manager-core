@@ -12,10 +12,12 @@
 
 use std::collections::HashMap;
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use forge_uuid::machine::MachineId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -267,6 +269,49 @@ pub(crate) async fn machine_set_auto_update(
     txn.commit().await?;
 
     Ok(Response::new(rpc::MachineSetAutoUpdateResponse {}))
+}
+
+pub(crate) async fn update_machine_metadata(
+    api: &Api,
+    request: Request<rpc::MachineMetadataUpdateRequest>,
+) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+
+    // Prepare the metadata
+    let metadata = match request.metadata {
+        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        _ => {
+            return Err(
+                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+            );
+        }
+    };
+    metadata.validate(true).map_err(CarbideError::from)?;
+
+    let (machine, mut txn) = api
+        .load_machine(
+            &machine_id,
+            MachineSearchConfig {
+                include_dpus: true,
+                include_predicted_host: true,
+                ..Default::default()
+            },
+            "update_machine_metadata handler",
+        )
+        .await?;
+
+    let expected_version: config_version::ConfigVersion = match request.if_version_match {
+        Some(version) => version.parse().map_err(CarbideError::from)?,
+        None => machine.version,
+    };
+
+    db::machine::update_metadata(&mut txn, &machine_id, expected_version, metadata).await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
 }
 
 fn snapshot_map_to_rpc_machines(
