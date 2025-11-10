@@ -9,10 +9,10 @@ name = "libnmxm"
 path = "src/lib.rs"
 
 [dependencies]
-async-trait = "*"
-serde_derive = "1"
+async-trait = { workspace = true }
+serde_derive = { workspace = true }
 serde = { features = ["derive"], workspace = true }
-serde_with = "*"
+serde_with = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 #tracing = "*"

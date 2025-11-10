@@ -218,6 +218,7 @@ walkdir = "2.5.0"
 x509-parser = "0.17.0"
 urlencoding = "2.1"
 zip = "0.6"
+serde_derive = "1"
 
 [profile.release]
 debug = true            # Enable debuginfo
