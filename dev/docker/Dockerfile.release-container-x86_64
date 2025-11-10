@@ -37,6 +37,8 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
   echo "$(date): Finished taplo fmt \n" && \
   cargo make --no-workspace check-format-nightly && \
   echo "$(date): Finished cargo make check-format-nightly\n" && \
+  cargo xtask check-workspace-deps && \
+  echo "$(date): Finished cargo xtask check-workspace-deps\n" && \
   cargo make build-and-test-release-container-services && \
   echo "$(date): Finished cargo make build-and-test-release-container-services\n" && \
   mkdir -p /carbide/target/bin && \
