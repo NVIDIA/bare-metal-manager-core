@@ -10,8 +10,7 @@ environment.
 
 1. Install rust by following the directions [here](https://www.rust-lang.org/tools/install).
    You will need to use the rustup based installation method to use the same Rust compiler utilized by the CI toolchain.
-   You can find the target compiler version in
-   [rust-toolchain.toml](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/rust-toolchain.toml).
+   You can find the target compiler version in `rust-toolchain.toml` in the root of this directory
    If rustup is installed, you can switch toolchain versions using `rustup toolchain`.
 
    Make sure you have a C++ compiler:
@@ -220,11 +219,7 @@ Remember to `strip` before you scp so that scp goes faster. scp to DPU example (
 
 ## Next steps
 
-Setup a complete local environment with docker-compose:
-
-- [Docker workflow](docker/development.md)
-
 Setup a QEMU host for your docker-compose services to manager:
 
 1. [Build iPXE and bootable artifacts image](bootable_artifacts.md)
-1. [Start QEMU server](vm_pxe_client.html)
+1. [Start QEMU server](vm_pxe_client.md)
