@@ -148,10 +148,8 @@ write_files:
   - path: /etc/sysctl.d/98-hbn.conf
     permissions: '0644'
     content: |
-      net.ipv4.ip_forward = 1
       net.ipv6.conf.all.forwarding = 1
       kernel.shmmax = 4294967296
-      vm.hugetlb_shm_group = 0
       vm.nr_hugepages=2048
       vm.min_free_kbytes=67584
   - path: /etc/forge/config.toml
@@ -179,7 +177,6 @@ write_files:
       set -e
       date -s '@{{ seconds_since_epoch }}'
       hwclock --systohc
-      /usr/bin/systemctl daemon-reload
       /usr/bin/bfrec --capsule /lib/firmware/mellanox/boot/capsule/efi_sbkeysync.cap || true
       /usr/bin/bfcfg
       ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
@@ -193,7 +190,6 @@ write_files:
       chmod +x /opt/forge/doca_container_configs/scripts/hbn-dpu-setup.sh
       cd /opt/forge/doca_container_configs/scripts/
       ip vrf exec mgmt /bin/bash hbn-dpu-setup.sh
-      /usr/bin/systemctl enable ssh@mgmt
       ctr -n=k8s.io image import /opt/forge/doca_hbn.tar
       /opt/mellanox/doca/services/telemetry/import_doca_telemetry.sh
       /opt/forge/run-scout.sh
