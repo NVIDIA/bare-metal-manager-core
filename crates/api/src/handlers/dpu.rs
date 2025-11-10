@@ -85,6 +85,22 @@ pub(crate) async fn get_managed_host_network_config_inner(
         }
     };
 
+    if api
+        .runtime_config
+        .vmaas_config
+        .as_ref()
+        .map(|vc| vc.secondary_overlay_support)
+        .unwrap_or_default()
+        && dpu_snapshot
+            .network_config
+            .secondary_overlay_vtep_ip
+            .is_none()
+    {
+        return Err(Status::failed_precondition(format!(
+            "DPU {dpu_machine_id} needs discovery. Does not have a secondary VTEP IP yet."
+        )));
+    };
+
     // its ok if there is no locator here.  if there isn't one, then only the primary dpu is allowed to be configred (checked below)
     let device_locator = snapshot
         .host_snapshot
@@ -588,6 +604,24 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     vni: rt.vni,
                 })
         }),
+        traffic_intercept_config: api.runtime_config.vmaas_config.as_ref().map(|c| {
+            rpc::TrafficInterceptConfig {
+                bridging: c.bridging.as_ref().map(|b| rpc::TrafficInterceptBridging {
+                    internal_bridge_routing_prefix: b.internal_bridge_routing_prefix.to_string(),
+                    host_intercept_bridge_name: b.host_intercept_bridge_name.clone(),
+                    vf_intercept_bridge_name: b.vf_intercept_bridge_name.clone(),
+                    vf_intercept_bridge_port: b.vf_intercept_bridge_port.clone(),
+                    host_intercept_bridge_port: b.host_intercept_bridge_port.clone(),
+                    vf_intercept_bridge_sf: b.vf_intercept_bridge_sf.clone(),
+                }),
+                public_prefixes: c.public_prefixes.iter().map(|p| p.to_string()).collect(),
+                additional_overlay_vtep_ip: dpu_snapshot
+                    .network_config
+                    .secondary_overlay_vtep_ip
+                    .map(|i| i.to_string()),
+            }
+        }),
+
         additional_route_target_imports: api
             .runtime_config
             .fnn

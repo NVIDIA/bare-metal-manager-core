@@ -194,6 +194,34 @@ pub(crate) async fn discover_machine(
             )
             .await?;
         }
+
+        if api
+            .runtime_config
+            .vmaas_config
+            .as_ref()
+            .map(|vc| vc.secondary_overlay_support)
+            .unwrap_or_default()
+            && network_config.secondary_overlay_vtep_ip.is_none()
+        {
+            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
+                &api.common_pools,
+                &mut txn,
+                &stable_machine_id.to_string(),
+            )
+            .await?;
+
+            let (mut network_config, version) = db_machine.network_config.clone().take();
+            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
+            network_config.use_admin_network = Some(true);
+            db::machine::try_update_network_config(
+                &mut txn,
+                &stable_machine_id,
+                version,
+                &network_config,
+            )
+            .await?;
+        }
+
         db_machine.id
     } else {
         // Now we know stable machine id for host. Let's update it in db.

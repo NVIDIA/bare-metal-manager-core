@@ -26,6 +26,7 @@ use ::rpc::forge::{
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
 use eyre::WrapErr;
+use forge_network::ip::prefix::Ipv4Net;
 use forge_network::virtualization::VpcVirtualizationType;
 use mac_address::MacAddress;
 use serde::Deserialize;
@@ -33,7 +34,10 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
 use crate::nvue::NetworkSecurityGroupRule;
-use crate::{HBNDeviceNames, acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
+use crate::{
+    HBNDeviceNames, acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue,
+    traffic_intercept_bridging,
+};
 
 /// None of the files we deal with should be bigger than this
 const MAX_EXPECTED_SIZE: u64 = 1048576; // 1 MiB
@@ -213,6 +217,7 @@ pub async fn update_nvue(
             .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
         vec![nvue::PortConfig {
             interface_name: physical_name,
+            is_phy: true,
             vlan: admin_interface.vlan_id as u16,
             vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn {
                 Some(admin_interface.vni)
@@ -256,6 +261,7 @@ pub async fn update_nvue(
 
             ifs.push(nvue::PortConfig {
                 interface_name: name,
+                is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
                 vlan: net.vlan_id as u16,
                 vni: Some(net.vni), // TODO should this be nc.vni_device?
                 l3_vni: Some(net.vpc_vni),
@@ -302,6 +308,35 @@ pub async fn update_nvue(
         vpc_virtualization_type,
         use_admin_network: nc.use_admin_network,
         loopback_ip,
+        vf_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
+            vc.bridging
+                .as_ref()
+                .map(|b| b.vf_intercept_bridge_port.clone())
+        }),
+        vf_intercept_bridge_sf: nc.traffic_intercept_config.as_ref().and_then(|vc| {
+            vc.bridging
+                .as_ref()
+                .map(|b| b.vf_intercept_bridge_sf.clone())
+        }),
+        host_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
+            vc.bridging
+                .as_ref()
+                .map(|b| b.host_intercept_bridge_port.clone())
+        }),
+        secondary_overlay_vtep_ip: nc
+            .traffic_intercept_config
+            .as_ref()
+            .and_then(|vc| vc.additional_overlay_vtep_ip.clone()),
+        internal_bridge_routing_prefix: nc.traffic_intercept_config.as_ref().and_then(|vc| {
+            vc.bridging
+                .as_ref()
+                .map(|b| b.internal_bridge_routing_prefix.clone())
+        }),
+        traffic_intercept_public_prefixes: nc
+            .traffic_intercept_config
+            .as_ref()
+            .map(|vc| vc.public_prefixes.clone())
+            .unwrap_or_default(),
         asn: nc.asn,
         datacenter_asn: nc.datacenter_asn,
         common_internal_route_target: nc.common_internal_route_target.map(|rt| {
@@ -425,6 +460,76 @@ pub async fn update_nvue(
         // Make it so
         nvue::apply(hbn_root, &path).await?;
     }
+    Ok(true)
+}
+
+// Update internal bridge configuration for traffic-intercept routing and bridging.
+pub async fn update_traffic_intercept_bridging(
+    nc: &rpc::ManagedHostNetworkConfigResponse,
+    skip_post: bool,
+) -> eyre::Result<bool> {
+    let (bridge_config, secondary_overlay_vtep_ip) = match nc
+        .traffic_intercept_config
+        .as_ref()
+        .map(|vc| (vc.bridging.as_ref(), vc.additional_overlay_vtep_ip.as_ref()))
+    {
+        Some((b, s)) => (
+            match b {
+                Some(b) => b,
+                _ => eyre::bail!("traffic_intercept bridging config not provided"),
+            },
+            match s {
+                Some(s) => s.to_owned(),
+                _ => eyre::bail!(
+                    "secondary_overlay_vtep_ip required by traffic_intercept bridging not found"
+                ),
+            },
+        ),
+        _ => {
+            eyre::bail!("traffic_intercept config not provided")
+        }
+    };
+
+    let bridge_prefix = bridge_config
+        .internal_bridge_routing_prefix
+        .parse::<Ipv4Net>()?;
+
+    let mut bridge_prefix_hosts = bridge_prefix.hosts();
+
+    // First host address in bridge_prefix_hosts is for VF-intercept bridge, often called 'br-dpu' in various diagrams.
+    let Some(vf_intercept_bridge_ip) = bridge_prefix_hosts.next() else {
+        eyre::bail!(
+            "too few hosts in internal bridge routing prefix config to support VF intercept bridge"
+        )
+    };
+
+    let conf = traffic_intercept_bridging::TrafficInterceptBridgingConfig {
+        secondary_overlay_vtep_ip,
+        vf_intercept_bridge_ip: vf_intercept_bridge_ip.to_string(),
+        intercept_bridge_prefix_len: bridge_prefix.prefix_len(),
+        // We use the bridge name here because the OVS will create a link/dev on the
+        // DPU OS side of that name.
+        vf_intercept_bridge_name: bridge_config.vf_intercept_bridge_name.clone(),
+    };
+
+    // Write the config we're going to apply
+    let next_contents = traffic_intercept_bridging::build(conf)?;
+    let path = FPath(PathBuf::from(traffic_intercept_bridging::SAVE_PATH));
+    path.cleanup();
+
+    if nc.use_admin_network
+        || !write(next_contents, &path, "TRAFFIC_INTERCEPT_BRIDGING", false)
+            .wrap_err(format!("NVUE config at {path}"))?
+    {
+        // config didn't change OR we are switching to the admin network.
+        return Ok(false);
+    };
+
+    if !skip_post {
+        // Make it so
+        traffic_intercept_bridging::apply(&path).await?;
+    }
+
     Ok(true)
 }
 
@@ -2174,6 +2279,19 @@ mod tests {
             use_admin_network: false,
             admin_interface: Some(admin_interface),
 
+            traffic_intercept_config: Some(rpc::TrafficInterceptConfig {
+                bridging: Some(rpc::TrafficInterceptBridging {
+                    vf_intercept_bridge_port: "dpuVf0mg".to_string(),
+                    host_intercept_bridge_port: "dpuVf1mg".to_string(),
+                    host_intercept_bridge_name: "br-host".to_string(),
+                    vf_intercept_bridge_name: "br-dpu".to_string(),
+                    vf_intercept_bridge_sf: "pf0dpu5".to_string(),
+                    internal_bridge_routing_prefix: "10.10.10.0/29".to_string(),
+                }),
+                additional_overlay_vtep_ip: Some("10.255.254.253".to_string()),
+                public_prefixes: vec!["7.6.5.0/24".to_string()],
+            }),
+
             tenant_interfaces,
             instance_network_config_version: "V1-T1666644937952999".to_string(),
 
@@ -2274,6 +2392,7 @@ mod tests {
         let vpc_virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
         let networks = vec![nvue::PortConfig {
             interface_name: HBNDeviceNames::hbn_23().reps[0].to_string(),
+            is_phy: true,
             vlan: 123u16,
             vni: Some(5555),
             l3_vni: Some(7777),
@@ -2300,6 +2419,12 @@ mod tests {
             vpc_virtualization_type,
             use_admin_network: true,
             loopback_ip: "10.217.5.39".to_string(),
+            secondary_overlay_vtep_ip: Some("10.255.254.253".to_string()),
+            internal_bridge_routing_prefix: Some("10.255.255.0/29".to_string()),
+            vf_intercept_bridge_port_name: Some("pfdpu0".to_string()),
+            vf_intercept_bridge_sf: Some("pf0dpu5".to_string()),
+            host_intercept_bridge_port_name: Some("pfdpu1".to_string()),
+            traffic_intercept_public_prefixes: vec!["7.6.5.0/24".to_string()],
             asn: 65535,
             datacenter_asn: 11414,
             common_internal_route_target: Some(nvue::RouteTargetConfig {
@@ -2373,6 +2498,7 @@ mod tests {
             }]),
         };
         let startup_yaml = nvue::build(conf)?;
+
         const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
         let yaml_obj: Vec<serde_yaml::Value> = serde_yaml::from_str(&startup_yaml)
             .inspect_err(|_| {
@@ -2584,6 +2710,8 @@ mod tests {
                 asn: 11111,
                 vni: 22222,
             }],
+
+            traffic_intercept_config: None,
 
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],

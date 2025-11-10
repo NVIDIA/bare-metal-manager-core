@@ -15,6 +15,7 @@ use std::path::Path;
 
 use ::rpc::forge as rpc;
 use eyre::WrapErr;
+use forge_network::ip::prefix::Ipv4Net;
 use forge_network::sanitized_mac;
 use forge_network::virtualization::VpcVirtualizationType;
 use gtmpl_derive::Gtmpl;
@@ -98,13 +99,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 .map(|vni| TmplVni { Vni: *vni })
                 .collect()
         }
+
         let svi_mac = vni_to_svi_mac(network.vni.unwrap_or(0))?.to_string();
         port_configs.push(TmplConfigPort {
             InterfaceName: network.interface_name.clone(),
             Index: format!("{}", (base_i + 1) * 10),
             VlanID: network.vlan,
+            IsPhy: network.is_phy,
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
-            IP: network.gateway_cidr.clone(),
+            IPs: vec![network.gateway_cidr.clone()],
             SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
             SviMAC: svi_mac,
             VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
@@ -157,9 +160,87 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     // This is just an easy way to maintain the ordering of the original behavior.
     let deny_prefix_index_offset = conf.site_fabric_prefixes.len();
 
+    let has_static_advertisements = conf.secondary_overlay_vtep_ip.is_some();
+
+    let (
+        has_internal_bridging,
+        vf_intercept_bridge_ip,
+        vf_intercept_hbn_representor_ip,
+        public_prefix_internal_next_hop,
+        intercept_bridge_prefix_len,
+    ) = if let Some(bridge_prefix) = conf
+        .internal_bridge_routing_prefix
+        .map(|p| p.parse::<Ipv4Net>())
+        .transpose()?
+    {
+        let prefix_len = bridge_prefix.prefix_len();
+        let mut hosts = bridge_prefix.hosts();
+
+        // 1st host is for the VF intercept bridge.
+        let Some(vf_intercept_bridge_ip) = hosts.next() else {
+            return Err(eyre::eyre!(
+                "expected VF intercept bridge IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
+            ));
+        };
+
+        // 2nd host address is used within the HBN container on the SF being used for
+        // intercepted VF traffic.
+        let Some(vf_intercept_hbn_representor_ip) = hosts.next() else {
+            return Err(eyre::eyre!(
+                "expected VF intercept HBN representor IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
+            ));
+        };
+
+        // 3rd host is for use by a traffic intercept user.  This lets the user know, a priori, of an IP
+        // within the stretched L2 domain of the combined br-hbn and custom bridges.
+        // This allows them to route traffic directly to and out of the HBN pod.
+        let Some(public_prefix_internal_next_hop) = hosts.next() else {
+            return Err(eyre::eyre!(
+                "expected public_prefix_internal_next_hop bridge IP not found in bridge routing prefix supplied by internal_bridge_routing_prefix",
+            ));
+        };
+
+        // >= 4th host is currently unused.
+
+        (
+            true,
+            format!("{vf_intercept_bridge_ip}"),
+            format!("{vf_intercept_hbn_representor_ip}"),
+            format!("{public_prefix_internal_next_hop}"),
+            prefix_len,
+        )
+    } else {
+        (
+            false,
+            String::default(),
+            String::default(),
+            String::default(),
+            0,
+        )
+    };
+
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
+
+        HasStaticAdvertisements: has_static_advertisements,
+        HasSecondaryOverlayVTEP: conf.secondary_overlay_vtep_ip.is_some(),
+        SecondaryOverlayVtepIP: conf.secondary_overlay_vtep_ip.unwrap_or_default(),
+        HasInternalBridgeRouting: has_internal_bridging,
+        VfInterceptBridgeIP: vf_intercept_bridge_ip,
+        InterceptBridgePrefixLen: intercept_bridge_prefix_len,
+        PublicPrefixInternalNextHop: public_prefix_internal_next_hop,
+        VfInterceptHbnRepresentorIp: vf_intercept_hbn_representor_ip,
+        VfInterceptBridgeSf: conf.vf_intercept_bridge_sf.unwrap_or_default(),
+        TrafficInterceptPublicPrefixes: conf
+            .traffic_intercept_public_prefixes
+            .iter()
+            .enumerate()
+            .map(|(i, s)| Prefix {
+                Index: format!("{}", 1 + i),
+                Prefix: s.to_string(),
+            })
+            .collect(),
         ASN: conf.asn,
         DatacenterASN: conf.datacenter_asn,
         UseCommonInternalTenantRouteTarget: conf.common_internal_route_target.is_some(),
@@ -635,6 +716,13 @@ pub struct NvueConfig {
     pub common_internal_route_target: Option<RouteTargetConfig>,
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
 
+    pub secondary_overlay_vtep_ip: Option<String>,
+    pub vf_intercept_bridge_port_name: Option<String>,
+    pub vf_intercept_bridge_sf: Option<String>,
+    pub host_intercept_bridge_port_name: Option<String>,
+    pub internal_bridge_routing_prefix: Option<String>,
+    pub traffic_intercept_public_prefixes: Vec<String>,
+
     pub dpu_hostname: String,
     pub dpu_search_domain: String,
     pub hbn_version: Option<String>,
@@ -751,6 +839,7 @@ pub struct PortConfig {
     pub svi_ip: Option<String>,
     pub tenant_vrf_loopback_ip: Option<String>,
     pub is_l2_segment: bool,
+    pub is_phy: bool,
 }
 
 //
@@ -762,6 +851,28 @@ pub struct PortConfig {
 struct TmplNvue {
     UseAdminNetwork: bool, // akak service network
     LoopbackIP: String,
+    HasSecondaryOverlayVTEP: bool,
+    HasStaticAdvertisements: bool,
+    SecondaryOverlayVtepIP: String,
+    HasInternalBridgeRouting: bool,
+    /// This IP is used in a static route in NVUE
+    /// to send traffic over to a bridge used by a traffic
+    /// intercept user for further processing.
+    VfInterceptBridgeIP: String,
+    /// This _might_ be the same IP as VfInterceptBridgeIP,
+    /// or it might not.  See the details of VfInterceptBridgeIP.
+    PublicPrefixInternalNextHop: String,
+    /// An IP from the same subnet as VfInterceptBridgeIP
+    VfInterceptHbnRepresentorIp: String,
+    /// The SF used to route traffic VF traffic to the HBN pod.
+    VfInterceptBridgeSf: String,
+
+    /// The size of the of the prefix used for the internal
+    /// bridge routing.
+    InterceptBridgePrefixLen: u8,
+
+    TrafficInterceptPublicPrefixes: Vec<Prefix>,
+
     ASN: u32,
     DatacenterASN: u32,
     UseCommonInternalTenantRouteTarget: bool,
@@ -943,7 +1054,7 @@ struct TmplConfigPort {
     /// Format: 24bit integer (usable range: 4096 to 16777215).
     /// Empty string if no tenant
     L2VNI: String, // Previously called VNIDevice
-    IP: String, // with mask, 1.1.1.1/20
+    IPs: Vec<String>, // with mask, 1.1.1.1/20
 
     /// In a symmetrical EVPN configuration, an SVI (vlan interfaces) requires a separate IP that
     /// is not the gateway address. Typically the 2nd usable ip in the prefix is being used,
@@ -976,6 +1087,8 @@ struct TmplConfigPort {
 
     // does this segment support L2?
     IsL2Segment: bool,
+
+    IsPhy: bool,
 }
 
 #[allow(non_snake_case)]

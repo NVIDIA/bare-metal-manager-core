@@ -7,6 +7,10 @@ ENABLE_BR_SFC=yes
 BR_HBN_REPS={{ forge_hbn_reps }}
 {% endif %}
 
+{% if forge_hbn_sfs %}
+BR_HBN_SFS={{ forge_hbn_sfs }}
+{% endif %}
+
 {{ forge_bmc_fw_update }}
 
 # This function is called by install.sh script embedded in the BFB
@@ -192,6 +196,87 @@ write_files:
       ip vrf exec mgmt /bin/bash hbn-dpu-setup.sh
       ctr -n=k8s.io image import /opt/forge/doca_hbn.tar
       /opt/mellanox/doca/services/telemetry/import_doca_telemetry.sh
+
+
+      {% if forge_vf_intercept_bridge_name %}
+        
+        # Create our new bridge
+        ovs-vsctl --may-exist add-br {{ forge_vf_intercept_bridge_name }} -- set bridge {{ forge_vf_intercept_bridge_name }} datapath_type=netdev -- set interface {{ forge_vf_intercept_bridge_name }} mtu_request=9216
+
+        {% if forge_vf_intercept_bridge_port %}
+
+          # Grab the current port index of the hbn bridge and increment it
+          next_br_hbn_ofport_index=$(($(ovs-vsctl get bridge br-hbn external_ids | grep -o '[0-9]*')+1))
+
+          # Set the port index of the hbn bridge to the new index
+          ovs-vsctl set bridge br-hbn external_ids:ofport_index=${next_br_hbn_ofport_index}
+
+          # Add the hbn side of our patch port and set its ofport index to match what we set on the hbn bridge
+          ovs-vsctl --may-exist add-port br-hbn {{ forge_vf_intercept_hbn_port }} -- set interface {{ forge_vf_intercept_hbn_port }} type=patch options:peer={{ forge_vf_intercept_bridge_port }} ofport_request="${next_br_hbn_ofport_index}"
+
+          # Add our side of the patch to our new bridge
+          ovs-vsctl --may-exist add-port {{ forge_vf_intercept_bridge_name }} {{ forge_vf_intercept_bridge_port }} -- set interface {{ forge_vf_intercept_bridge_port }} type=patch options:peer={{ forge_vf_intercept_hbn_port }}
+
+          # Adjust the sfc.conf to insert our patch port where {{ forge_vf_intercept_bridge_sf }} used to be
+          sed -i 's/br-hbn~{{ forge_vf_intercept_bridge_sf_representor }}~{{ forge_vf_intercept_bridge_sf_hbn_bridge_representor }}/br-hbn~{{ forge_vf_intercept_hbn_port }}~{{ forge_vf_intercept_bridge_sf_hbn_bridge_representor }}/' /etc/mellanox/sfc.conf
+
+          # Match ofport and ofport_request match so that sfc.sh doesn't error out.
+          ovs-vsctl set interface {{ forge_vf_intercept_bridge_port }} ofport_request=$(ovs-vsctl get interface {{ forge_vf_intercept_bridge_port }} ofport)
+
+          # Clear the related link-propagation line.
+          # We're going to delete the {{ forge_vf_intercept_bridge_sf_representor }}
+          # so we don't need/want its link state to be propagated to {{ forge_vf_intercept_bridge_sf_hbn_bridge_representor }}
+          sed -i ':a;N;$!ba;s/{{ forge_vf_intercept_bridge_sf_representor }}:{{ forge_vf_intercept_bridge_sf_hbn_bridge_representor }}\n*//' /etc/mellanox/sfc.conf
+
+          # Now delete {{ forge_vf_intercept_bridge_sf_representor }} from br-hbn
+          # OVS will get breaking flows if we leave it dangling. We either need to
+          # move it to br-dpu or delete it, and we can delete it because we don't
+          # need it.
+          ovs-vsctl --if-exists del-port {{ forge_vf_intercept_bridge_sf_representor }}
+
+        {% endif %}
+      {% endif %}
+      
+      {% if forge_host_intercept_bridge_name %}
+        
+        # Create our new bridge
+        ovs-vsctl --may-exist add-br {{ forge_host_intercept_bridge_name }} -- set bridge {{ forge_host_intercept_bridge_name }} datapath_type=netdev
+
+        {% if forge_host_intercept_bridge_port %}
+
+          # Grab the current port index of the hbn bridge and increment it
+          next_br_hbn_ofport_index=$(($(ovs-vsctl get bridge br-hbn external_ids | grep -o '[0-9]*')+1))
+
+          # Set the port index of the hbn bridge to the new index
+          ovs-vsctl set bridge br-hbn external_ids:ofport_index=${next_br_hbn_ofport_index}
+
+          # Add our patch port to br-hbn and set its ofport index to match what we set on the hbn bridge
+          ovs-vsctl --may-exist add-port br-hbn {{ forge_host_intercept_hbn_port }} -- set interface {{ forge_host_intercept_hbn_port }} type=patch options:peer={{ forge_host_intercept_bridge_port }} ofport_request="${next_br_hbn_ofport_index}" external_ids='{dependencies=pf0hpf_if_r, hbn_netdev=pf0hpf_if, hbn_rep_ofport=pf0hpf_if_r}'
+
+          # Add our side of the patch to our new bridge
+          ovs-vsctl --may-exist add-port {{ forge_host_intercept_bridge_name }} {{ forge_host_intercept_bridge_port }} -- set interface {{ forge_host_intercept_bridge_port }} type=patch options:peer={{ forge_host_intercept_hbn_port }}
+
+          # Match ofport and ofport_request match so that sfc.sh doesn't error out.
+          ovs-vsctl set interface {{ forge_host_intercept_bridge_port }} ofport_request=$(ovs-vsctl get interface {{ forge_host_intercept_bridge_port }} ofport)
+
+          # Adjust the sfc.conf to insert our patch port where pf0hpf used to be
+          sed -i 's/br-hbn~pf0hpf~pf0hpf_if_r~pf0hpf_if~pf0hpf_if_r/br-hbn~{{ forge_host_intercept_hbn_port }}~pf0hpf_if_r~pf0hpf_if~pf0hpf_if_r/' /etc/mellanox/sfc.conf
+
+          # Now pop pf0hpf off of br-hbn and attach it to br-host
+          ovs-vsctl --if-exists del-port pf0hpf -- \
+            --may-exist add-port {{ forge_host_intercept_bridge_name }} pf0hpf -- \
+            set interface pf0hpf type=dpdk mtu_request=9216 external_ids='{}'
+          ovs-vsctl set interface pf0hpf ofport_request=$(ovs-vsctl get interface pf0hpf ofport)
+        {% endif %}
+      {% endif %}
+
+      # Now restart sfc.  This might not be necessary since OVS restart seems
+      # to trigger this because of a systemd dependency.
+      /usr/sbin/service sfc restart
+
+      # And restart ovs
+      /usr/sbin/service openvswitch-switch restart
+
       /opt/forge/run-scout.sh
       touch /run/cloud-init.done
 

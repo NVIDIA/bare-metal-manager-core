@@ -157,10 +157,39 @@ pub struct NvueOptions {
     #[clap(
         long,
         help = "Whether stateful ACLs are allowed and the DPU should adjust config to handle them.",
-        default_value_t = true
+        default_value_t = false
     )]
     pub stateful_acls_enabled: bool,
 
+    #[clap(
+        long,
+        help = "IP to be used for a local VTEP when configuring an additional overlay network"
+    )]
+    pub secondary_overlay_vtep_ip: Option<String>,
+
+    #[clap(
+        long,
+        help = "Prefix to be used for configuring a set of internal bridges to be used with advanced routing for traffic interception.  Prefix length is expected to be /29 or smaller (i.e., 8 or more IP addresses)."
+    )]
+    pub internal_bridge_routing_prefix: Option<String>,
+
+    #[clap(
+        long,
+        help = "The name of a patch-port to be used with advanced routing for traffic interception that connects the HBN pod to an intermediate bridge between VFs and HBN."
+    )]
+    pub vf_intercept_bridge_port_name: Option<String>,
+
+    #[clap(
+        long,
+        help = "The name of patch-port to be used with advanced routing for traffic interception that connects the HBN pod to an intermediate bridge between the host PF and HBN."
+    )]
+    pub host_intercept_bridge_port_name: Option<String>,
+
+    #[clap(
+        long,
+        help = "The SF used for routing intercepted VF traffic to the HBN pod."
+    )]
+    pub vf_intercept_bridge_sf: Option<String>,
     #[clap(
         long,
         help = "Full JSON representation of a NetworkSecurityGroupRule (see nvue.rs) that will be evaluated before any tenant-defined rules. Repeats with multiple --network_security_policy_override_rule."

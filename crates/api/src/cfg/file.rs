@@ -885,6 +885,15 @@ pub struct SiteExplorerConfig {
     /// initiated by SiteExplorer.
     /// Default is 1 hour.
     pub reset_rate_limit: Duration,
+
+    /// Whether site-controller should allocate a secondary
+    /// VTEP IP or leave that to discovery.
+    /// Current secondary VTEP use-case is additional
+    /// VTEP IPs for GENEVE VTEPS (GTEPS) used by traffic-intercept users.
+    ///  Only sites expected to support
+    /// additional VTEPS would turn this on.
+    #[serde(default)]
+    pub allocate_secondary_vtep_ip: bool,
 }
 
 impl Default for SiteExplorerConfig {
@@ -903,6 +912,7 @@ impl Default for SiteExplorerConfig {
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Self::default_reset_rate_limit(),
             allow_proxy_to_unknown_host: false,
+            allocate_secondary_vtep_ip: false,
         }
     }
 }
@@ -2001,6 +2011,71 @@ pub struct VmaasConfig {
     /// Configure the DPUs to create the reps specified.
     /// when not provided, the DPU creates the reps for the 2 physical devices and 14 virtual devices
     pub hbn_reps: Option<String>,
+
+    /// Configure the DPUs to create the SF representors specified.
+    pub hbn_sfs: Option<String>,
+
+    /// Options to configure advanced routing and bridging.
+    pub bridging: Option<TrafficInterceptBridging>,
+
+    /// Prefixes expected to be publicly routable and used
+    /// by traffic-intercept users.
+    pub public_prefixes: Vec<Ipv4Network>,
+
+    /// Whether a secondary overlay is expected,
+    /// which will require secondary VTEP IPs to be allocated
+    /// to DPUs
+    #[serde(default = "default_to_true")]
+    pub secondary_overlay_support: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct TrafficInterceptBridging {
+    /// Prefix to be used for internal routing between HBN and intercept bridges
+    /// within the DPU.
+    pub internal_bridge_routing_prefix: Ipv4Network,
+
+    /// The name of the bridge (aka br-host) that sits between host PF and br-hbn
+    /// It will be connected to br-hbn or the hbn pod via a patch_point or
+    /// patch port of some kind.
+    #[serde(default = "default_host_intercept_bridge_name")]
+    pub host_intercept_bridge_name: String,
+
+    /// The name of the bridge that sits between VFs and br-hbn.
+    /// This bridge will be assigned an address from <internal_bridge_routing_prefix>
+    /// so that we can route traffic to a /32 bound to it and used as a VTEP for
+    /// an additional GENEVE VPN.
+    #[serde(default = "default_vf_intercept_bridge_name")]
+    pub vf_intercept_bridge_name: String,
+
+    /// The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
+    /// This will be the side owned by the <vf_intercept_bridge_name> bridge
+    #[serde(default = "default_vf_intercept_bridge_port")]
+    pub vf_intercept_bridge_port: String,
+
+    /// The <host_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
+    /// This will be the side owned by the <host_intercept_bridge_name> bridge.
+    #[serde(default = "default_host_intercept_bridge_port")]
+    pub host_intercept_bridge_port: String,
+
+    /// The SF used for internal routing of VF traffic.
+    pub vf_intercept_bridge_sf: String,
+}
+
+pub fn default_host_intercept_bridge_name() -> String {
+    "br-host".to_string()
+}
+
+pub fn default_vf_intercept_bridge_name() -> String {
+    "br-dpu".to_string()
+}
+
+pub fn default_vf_intercept_bridge_port() -> String {
+    "patch-br-dpu-to-hbn".to_string()
+}
+
+pub fn default_host_intercept_bridge_port() -> String {
+    "patch-br-host-to-hbn".to_string()
 }
 
 #[cfg(test)]
@@ -2296,6 +2371,7 @@ mod tests {
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(1),
                 allow_proxy_to_unknown_host: false,
+                allocate_secondary_vtep_ip: false,
             }
         );
         assert_eq!(
@@ -2445,6 +2521,7 @@ mod tests {
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
                 allow_proxy_to_unknown_host: false,
+                allocate_secondary_vtep_ip: false,
             }
         );
 
@@ -2698,6 +2775,7 @@ mod tests {
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
                 allow_proxy_to_unknown_host: false,
+                allocate_secondary_vtep_ip: false,
             }
         );
 

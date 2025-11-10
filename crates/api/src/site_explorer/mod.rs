@@ -1701,6 +1701,19 @@ impl SiteExplorer {
             .await?;
             network_config.loopback_ip = Some(loopback_ip);
         }
+
+        if self.config.allocate_secondary_vtep_ip
+            && network_config.secondary_overlay_vtep_ip.is_none()
+        {
+            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
+                &self.common_pools,
+                txn,
+                &dpu_machine.id.to_string(),
+            )
+            .await?;
+            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
+        }
+
         network_config.use_admin_network = Some(true);
         db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
             .await?;

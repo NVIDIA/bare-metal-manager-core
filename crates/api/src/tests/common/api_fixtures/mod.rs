@@ -70,7 +70,7 @@ use crate::cfg::file::{
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
     MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, PowerManagerOptions, SiteExplorerConfig,
-    StateControllerConfig, VpcPeeringPolicy, default_max_find_by_ids,
+    StateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
@@ -842,6 +842,7 @@ pub fn get_config() -> CarbideConfig {
             explorations_per_run: 0,
             create_machines: Arc::new(false.into()),
             allow_proxy_to_unknown_host: false,
+            allocate_secondary_vtep_ip: true,
             ..Default::default()
         },
         nvue_enabled: true,
@@ -928,7 +929,14 @@ pub fn get_config() -> CarbideConfig {
             ..PowerManagerOptions::default()
         },
         auto_machine_repair_plugin: Default::default(),
-        vmaas_config: None,
+        vmaas_config: Some(VmaasConfig {
+            allow_instance_vf: true,
+            hbn_reps: None,
+            hbn_sfs: None,
+            secondary_overlay_support: true,
+            bridging: None,
+            public_prefixes: vec![],
+        }),
         mlxconfig_profiles: None,
     }
 }
@@ -1197,6 +1205,7 @@ pub async fn create_test_env_with_overrides(
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Duration::hours(1),
             allow_proxy_to_unknown_host: false,
+            allocate_secondary_vtep_ip: true,
         },
         test_meter.meter(),
         Arc::new(fake_endpoint_explorer.clone()),
@@ -1547,6 +1556,14 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
                 end: "30035".to_string(),
             }],
             prefix: None,
+        },
+    );
+    defs.insert(
+        resource_pool::common::SECONDARY_VTEP_IP.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Ipv4,
+            prefix: Some("172.30.0.0/24".to_string()),
+            ranges: vec![],
         },
     );
     defs

@@ -203,6 +203,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.ManagedHostNetworkConfigResponse",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.TrafficInterceptConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.TrafficInterceptBridging", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")

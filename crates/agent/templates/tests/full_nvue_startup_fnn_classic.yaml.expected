@@ -21,6 +21,7 @@
         ip:
           address:
             169.254.169.253/30: {}
+          vrf: vpc_0            
       p0_if:
         type: swp
       p1_if:
@@ -37,6 +38,7 @@
         ip:
           address:
             192.168.0.0/16: {}
+            10.255.255.2/29: {}
     nve:
       vxlan:
         arp-nd-suppress: on

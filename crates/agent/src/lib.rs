@@ -65,6 +65,7 @@ mod periodic_config_fetcher;
 mod sysfs;
 #[cfg(test)]
 mod tests;
+pub mod traffic_intercept_bridging;
 pub mod upgrade;
 pub mod util;
 
@@ -371,6 +372,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     hbn_version: opts.hbn_version,
                     use_admin_network: true,
                     loopback_ip: opts.loopback_ip.to_string(),
+                    secondary_overlay_vtep_ip: opts.secondary_overlay_vtep_ip,
+                    internal_bridge_routing_prefix: opts.internal_bridge_routing_prefix,
+                    vf_intercept_bridge_port_name: opts.vf_intercept_bridge_port_name,
+                    host_intercept_bridge_port_name: opts.host_intercept_bridge_port_name,
                     asn: opts.asn,
                     datacenter_asn: opts.datacenter_asn,
                     common_internal_route_target: opts
@@ -384,6 +389,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     dhcp_servers: opts.dhcp_servers,
                     deny_prefixes: vec![],
                     site_fabric_prefixes: vec![],
+                    traffic_intercept_public_prefixes: vec![],
+                    vf_intercept_bridge_sf: opts.vf_intercept_bridge_sf,
                     use_vpc_isolation: true,
                     network_security_policy_override_rules,
                     stateful_acls_enabled: opts.stateful_acls_enabled,

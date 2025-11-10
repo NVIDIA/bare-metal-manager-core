@@ -2564,19 +2564,65 @@ message ManagedHostNetworkConfigResponse {
   // internal tenant routes with this tag.
   optional common.RouteTarget common_internal_route_target = 109;
 
-  // Additionl RTs that we can import if needed for additional services,
+  // Additional RTs that we can import if needed for additional services,
   // or to make it easier to handle GNI changes, such as a swap
   // in the default-route RT.
   repeated common.RouteTarget additional_route_target_imports = 110;
 
-
   // Rules to be inserted before any other NSG rules.Action
   // This should land in a separate policy on the DPU that is
   // evaluated before any user-defined rules but after deny_prefixes.
-  repeated ResolvedNetworkSecurityGroupRule network_security_policy_overrides = 111;
+  repeated ResolvedNetworkSecurityGroupRule network_security_policy_overrides = 111;  
 
   // Extension services that should be deployed on this DPU
   repeated ManagedHostDpuExtensionServiceConfig dpu_extension_services = 112;
+
+  // All config related to traffic interception on
+  // the DPU: intermediate bridging, additional VTEPs, etc.
+  optional TrafficInterceptConfig traffic_intercept_config = 113;
+}
+
+message TrafficInterceptConfig {
+  // Optional IP to be used for a VTEP for an additional
+  // overlay network.  Initial use-case is catalyst VMaaS's
+  // GENEVE overlay.
+  optional string additional_overlay_vtep_ip = 1;
+
+  // Internal DPU bridging config VMaaS support
+  optional TrafficInterceptBridging bridging = 2;
+
+  // Prefixes expected to be publicly routable and used
+  // by VMaaS for internet gateways.
+  repeated string public_prefixes            = 3;
+}
+
+
+message TrafficInterceptBridging {
+  // Prefix to be used for assigning gateway IPs
+  // to bridges used for VMaaS routing within the DPU.
+  string internal_bridge_routing_prefix  = 1;
+
+  // Name of the bridge acting as the last hop before the PF
+  // on the host.
+  string host_intercept_bridge_name      = 2;
+
+  // Name of the bridge acting as the gateway for packets
+  // leaving VMaaS pods and destined for the outside.
+  // (E.g., internet or pods on other hosts)
+  string vf_intercept_bridge_name        = 3;
+
+  // The name of the patch-port on the intercept bridge side
+  // that connects to the host_intercept_bridge.
+  string host_intercept_bridge_port      = 4;
+
+  // Name of the patch-port on the intercept bridge side
+  // of the vf_intercept_bridge that connects to the HBN pod
+  // via br-hbn.
+  string vf_intercept_bridge_port        = 5;
+
+  // Name of SF used for routing VMaaS VF traffic into
+  // the HBN pod.
+  string vf_intercept_bridge_sf          = 6;  
 }
 
 message ManagedHostDpuExtensionServiceConfig {
@@ -3118,7 +3164,20 @@ message CloudInitDiscoveryInstructions {
   MachineInterface machine_interface = 1;
   Domain domain = 2;
   optional string hbn_reps = 3;
+  optional string hbn_sfs = 4;
+  optional string vf_intercept_bridge_name = 5;
+  optional string host_intercept_bridge_name = 6; 
+  // The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
+  // This will be the side owned by the <vf_intercept_bridge_name> bridge
+  optional string vf_intercept_bridge_port   = 7;
 
+  // The <host_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
+  // This will be the side owned by the <host_intercept_bridge_name> bridge.
+  optional string host_intercept_bridge_port = 8;
+
+  // The representor that will plug into the HBN container to connect it to br-hbn
+  // to open connectivity between all the VFs.
+  optional string vf_intercept_bridge_sf = 9;
 }
 
 message CloudInitMetaData {
