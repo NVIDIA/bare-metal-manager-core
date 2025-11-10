@@ -13,7 +13,7 @@
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
-use db::{DatabaseError, extension_service, instance};
+use db::{extension_service, instance};
 use forge_secrets::credentials::{CredentialKey, Credentials};
 use forge_uuid::extension_service::ExtensionServiceId;
 use model::extension_service::ExtensionServiceType;
@@ -68,12 +68,7 @@ pub(crate) async fn create(
         validate_extension_service_credential(&service_type, credential)?;
     }
 
-    const DB_TXN_NAME: &str = "create_extension_service";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("create_extension_service").await?;
 
     let (service, version) = extension_service::create(
         &mut txn,
@@ -130,7 +125,7 @@ pub(crate) async fn create(
                     );
                 }
             }
-            return Err(DatabaseError::txn_commit(DB_TXN_NAME, e).into());
+            return Err(e.into());
         }
     }
 
@@ -173,12 +168,7 @@ pub(crate) async fn update(
         ))
     })?;
 
-    const DB_TXN_NAME: &str = "update_extension_service";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("update_extension_service").await?;
 
     // We lock the extension service for update so that no other request can update the service
     let current_service_res = extension_service::find_by_ids(&mut txn, &[service_id], true).await?;
@@ -291,7 +281,7 @@ pub(crate) async fn update(
                     );
                 }
             }
-            return Err(DatabaseError::txn_commit("update_extension_service", e).into());
+            return Err(e.into());
         }
     }
 
@@ -332,12 +322,7 @@ pub(crate) async fn delete(
         ))
     })?;
 
-    const DB_TXN_NAME: &str = "delete_extension_service";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("delete_extension_service").await?;
 
     // Parse versions from strings to ConfigVersion
     let versions: Vec<config_version::ConfigVersion> = req
@@ -403,9 +388,7 @@ pub(crate) async fn delete(
         }
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit("delete_extension_service", e))?;
+    txn.commit().await?;
 
     // Delete credentials from Vault for the deleted versions that had credentials
     // Note: This happens after the transaction commit, so it's best-effort cleanup
@@ -459,12 +442,7 @@ pub(crate) async fn find_ids(
         }
     };
 
-    const DB_TXN_NAME: &str = "find_extension_service_ids";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_extension_service_ids").await?;
 
     let ids = extension_service::find_ids(
         &mut txn,
@@ -475,9 +453,7 @@ pub(crate) async fn find_ids(
     )
     .await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::DpuExtensionServiceIdList {
         service_ids: ids.into_iter().map(|id| id.to_string()).collect(),
@@ -504,20 +480,13 @@ pub(crate) async fn find_by_ids(
         ids.push(id);
     }
 
-    const DB_TXN_NAME: &str = "find_extension_services_by_ids";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_extension_services_by_ids").await?;
 
     let snapshots = extension_service::find_snapshots_by_ids(&mut txn, &ids)
         .await
         .map_err(Status::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     let services_resp = snapshots
         .into_iter()
@@ -557,12 +526,7 @@ pub(crate) async fn get_versions_info(
         None
     };
 
-    const DB_TXN_NAME: &str = "get_extension_service_version_info";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("get_extension_service_version_info").await?;
 
     let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
         CarbideError::from(RpcDataConversionError::InvalidUuid(
@@ -577,9 +541,7 @@ pub(crate) async fn get_versions_info(
         .await
         .map_err(Status::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(rpc::DpuExtensionServiceVersionInfoList {
         version_infos: versions.into_iter().map(|version| version.into()).collect(),
@@ -619,12 +581,7 @@ pub(crate) async fn find_instances_by_extension_service(
         })
         .transpose()?;
 
-    const DB_TXN_NAME: &str = "find_instances_by_extension_service";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("find_instances_by_extension_service").await?;
 
     // Verify extension service exists
     let extension_service_res =
@@ -678,9 +635,7 @@ pub(crate) async fn find_instances_by_extension_service(
         }
     }
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(Response::new(
         rpc::FindInstancesByDpuExtensionServiceResponse {
