@@ -851,7 +851,7 @@ impl SiteExplorer {
                 // it has been configured properly (DPU vs NIC mode).
                 let mut dpu_added = false;
                 if let Some(expected_machine) = matched_expected_machines.get(&ep.address) {
-                    for dpu_sn in expected_machine.data.fallback_dpu_serial_numbers.clone() {
+                    for dpu_sn in &expected_machine.data.fallback_dpu_serial_numbers {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(dpu_sn.as_str()) {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                             if is_dpu_in_nic_mode(&dpu_ep, &ep)
@@ -970,8 +970,8 @@ impl SiteExplorer {
                 dpus_explored_for_host.sort_by_key(|d| {
                     d.report.systems[0]
                         .serial_number
-                        .clone()
-                        .unwrap_or("".to_string())
+                        .as_deref()
+                        .unwrap_or("")
                         .to_lowercase()
                 });
             }
@@ -1189,8 +1189,7 @@ impl SiteExplorer {
         // Load SKU information for expected machines to record metrics
         let sku_ids: Vec<String> = expected
             .iter()
-            .filter_map(|em| em.data.sku_id.as_ref())
-            .cloned()
+            .filter_map(|em| em.data.sku_id.clone())
             .collect();
         let skus = if !sku_ids.is_empty() {
             db::sku::find(&mut txn, &sku_ids).await?
@@ -2548,7 +2547,7 @@ impl SiteExplorer {
     }
 }
 
-pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
+pub fn get_sys_image_version(services: &[Service]) -> Result<&String, String> {
     let Some(service) = services.iter().find(|s| s.id == "FirmwareInventory") else {
         return Err("Missing FirmwareInventory".to_string());
     };
@@ -2563,7 +2562,7 @@ pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
 
     image
         .version
-        .clone()
+        .as_ref()
         .ok_or("Missing DPU_SYS_IMAGE version".to_string())
 }
 
@@ -2572,7 +2571,7 @@ pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
 /// DPU derives a MAC from a DPU_SYS_IMAGE, but ultimately, a
 /// DPU_SYS_IMAGE of a088:c203:0046:0c68 means you just take out
 /// chars 6-10, and you get a MAC of a0:88:c2:46:0c:68.
-fn get_base_mac_from_sys_image_version(sys_image_version: String) -> Result<String, String> {
+fn get_base_mac_from_sys_image_version(sys_image_version: &String) -> Result<String, String> {
     // The DPU_SYS_IMAGE is always 19 characters long. Well, until
     // it isn't, but for now, the DPU_SYS_IMAGE is 19 characters
     // long.

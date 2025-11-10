@@ -35,7 +35,7 @@ pub struct CredentialClient {
 }
 
 impl CredentialClient {
-    fn valid_password(credentials: Credentials) -> bool {
+    fn valid_password(credentials: &Credentials) -> bool {
         let (_, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
@@ -52,15 +52,15 @@ impl CredentialClient {
     // UEFI credential entry if its not relevant.
     async fn get_credentials(
         &self,
-        credential_key: CredentialKey,
+        credential_key: &CredentialKey,
     ) -> Result<Credentials, EndpointExplorationError> {
         match self
             .credential_provider
-            .get_credentials(&credential_key)
+            .get_credentials(credential_key)
             .await
         {
             Ok(Some(credentials)) => {
-                if !Self::valid_password(credentials.clone()) {
+                if !Self::valid_password(&credentials) {
                     return Err(EndpointExplorationError::Other {
                         details: format!(
                             "vault does not have a valid password entry at {}",
@@ -111,7 +111,7 @@ impl CredentialClient {
     ) -> Result<(), EndpointExplorationError> {
         // Site wide BMC credentials
         let credential_key = SITEWIDE_BMC_ROOT_CREDENTIAL_KEY;
-        if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
+        if let Some(e) = self.get_credentials(&credential_key).await.err() {
             let credential_key_str = credential_key.to_key_str();
             metrics.increment_credential_missing(&credential_key_str);
             return Err(EndpointExplorationError::MissingCredentials {
@@ -124,7 +124,7 @@ impl CredentialClient {
         let credential_key = CredentialKey::DpuUefi {
             credential_type: CredentialType::SiteDefault,
         };
-        if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
+        if let Some(e) = self.get_credentials(&credential_key).await.err() {
             let credential_key_str = credential_key.to_key_str();
             metrics.increment_credential_missing(&credential_key_str);
             return Err(EndpointExplorationError::MissingCredentials {
@@ -137,7 +137,7 @@ impl CredentialClient {
         let credential_key = CredentialKey::HostUefi {
             credential_type: CredentialType::SiteDefault,
         };
-        if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
+        if let Some(e) = self.get_credentials(&credential_key).await.err() {
             let credential_key_str = credential_key.to_key_str();
             metrics.increment_credential_missing(&credential_key_str);
             return Err(EndpointExplorationError::MissingCredentials {
@@ -152,7 +152,8 @@ impl CredentialClient {
     pub async fn get_sitewide_bmc_root_credentials(
         &self,
     ) -> Result<Credentials, EndpointExplorationError> {
-        self.get_credentials(SITEWIDE_BMC_ROOT_CREDENTIAL_KEY).await
+        self.get_credentials(&SITEWIDE_BMC_ROOT_CREDENTIAL_KEY)
+            .await
     }
 
     pub async fn get_default_hardware_dpu_bmc_root_credentials(
@@ -169,7 +170,7 @@ impl CredentialClient {
         bmc_mac_address: MacAddress,
     ) -> Result<Credentials, EndpointExplorationError> {
         let bmc_root_credential_key = get_bmc_root_credential_key(bmc_mac_address);
-        self.get_credentials(bmc_root_credential_key).await
+        self.get_credentials(&bmc_root_credential_key).await
     }
 
     pub async fn set_bmc_root_credentials(
