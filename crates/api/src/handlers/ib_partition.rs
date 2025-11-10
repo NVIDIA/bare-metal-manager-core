@@ -13,6 +13,11 @@
 use ::rpc::forge as rpc;
 use db::ObjectColumnFilter;
 use db::ib_partition::{self, IBPartitionSearchConfig, NewIBPartition};
+use db::resource_pool::ResourcePoolDatabaseError;
+use model::ib::DEFAULT_IB_FABRIC_NAME;
+use model::ib_partition::PartitionKey;
+use model::resource_pool;
+use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -34,7 +39,7 @@ pub(crate) async fn create(
     resp.config.rate_limit = Some(fabric_config.rate_limit.clone());
     resp.config.service_level = Some(fabric_config.service_level.clone());
 
-    resp.config.pkey = api.allocate_pkey(&mut txn, &resp.config.name).await?;
+    resp.config.pkey = allocate_pkey(api, &mut txn, &resp.config.name).await?;
     let resp = db::ib_partition::create(resp, &mut txn, fabric_config.max_partition_per_tenant)
         .await
         .map_err(|e| {
@@ -206,4 +211,35 @@ pub(crate) async fn for_tenant(
     }
 
     Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
+}
+
+/// Allocate a value from the pkey resource pool.
+///
+/// If the pool doesn't exist return error.
+/// If the pool exists but is empty or has en error, return that.
+async fn allocate_pkey(
+    api: &Api,
+    txn: &mut PgConnection,
+    owner_id: &str,
+) -> Result<Option<PartitionKey>, CarbideError> {
+    match db::resource_pool::allocate(api
+            .common_pools
+            .infiniband
+            .pkey_pools
+            .get(DEFAULT_IB_FABRIC_NAME)
+            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?, txn, resource_pool::OwnerType::IBPartition, owner_id)
+            .await
+        {
+            Ok(val) => Ok(Some(
+                PartitionKey::try_from(val)
+                .map_err(|_| CarbideError::internal(format!("Partition key {val} return from pool is not a valid pkey. Pool Definition is invalid")))?)),
+            Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
+                tracing::error!(owner_id, pool = "pkey", "Pool exhausted, cannot allocate");
+                Err(CarbideError::ResourceExhausted("pool pkey".to_string()))
+            }
+            Err(err) => {
+                tracing::error!(owner_id, error = %err, pool = "pkey", "Error allocating from resource pool");
+                Err(err.into())
+            }
+        }
 }

@@ -16,7 +16,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use ::rpc::errors::RpcDataConversionError;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
@@ -24,7 +23,6 @@ use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_
 use chrono::TimeZone;
 use db::machine::{self};
 use db::network_devices::NetworkDeviceSearchConfig;
-use db::resource_pool::ResourcePoolDatabaseError;
 use db::{DatabaseError, ObjectFilter, attestation as db_attest};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
@@ -34,8 +32,6 @@ use libredfish::{RoleId, SystemPowerControl};
 use mac_address::MacAddress;
 use mlxconfig_device::report::MlxDeviceReport;
 use model::firmware::DesiredFirmwareVersions;
-use model::ib::DEFAULT_IB_FABRIC_NAME;
-use model::ib_partition::PartitionKey;
 use model::machine::machine_id::try_parse_machine_id;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
@@ -44,8 +40,6 @@ use model::machine::{
     ValidationState, get_action_for_dpu_state,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
-use model::metadata::Metadata;
-use model::resource_pool;
 use model::resource_pool::common::CommonPools;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -60,17 +54,6 @@ use self::rpc::forge_server::Forge;
 #[cfg(feature = "linux-build")]
 use crate::attestation as attest;
 use crate::cfg::file::CarbideConfig;
-use crate::handlers::instance;
-use crate::handlers::machine_validation::{
-    add_machine_validation_test, add_update_machine_validation_external_config,
-    get_machine_validation_external_config, get_machine_validation_external_configs,
-    get_machine_validation_results, get_machine_validation_runs, get_machine_validation_tests,
-    machine_validation_test_enable_disable_test, machine_validation_test_next_version,
-    machine_validation_test_verfied, mark_machine_validation_complete,
-    on_demand_machine_validation, persist_validation_result,
-    remove_machine_validation_external_config, update_machine_validation_run,
-    update_machine_validation_test,
-};
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
@@ -98,7 +81,7 @@ pub struct Api {
 impl Forge for Api {
     async fn version(
         &self,
-        request: tonic::Request<rpc::VersionRequest>,
+        request: Request<rpc::VersionRequest>,
     ) -> Result<Response<rpc::BuildInfo>, Status> {
         log_request_data(&request);
         let version_request = request.into_inner();
@@ -343,9 +326,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::NetworkSegmentDeletionRequest>,
     ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
-        crate::handlers::network_segment::delete(self, request)
-            .await
-            .map_err(|e| *e)
+        crate::handlers::network_segment::delete(self, request).await
     }
 
     async fn network_segments_for_vpc(
@@ -407,78 +388,78 @@ impl Forge for Api {
 
     async fn update_instance_operating_system(
         &self,
-        request: tonic::Request<rpc::InstanceOperatingSystemUpdateRequest>,
-    ) -> Result<tonic::Response<rpc::Instance>, Status> {
+        request: Request<rpc::InstanceOperatingSystemUpdateRequest>,
+    ) -> Result<Response<rpc::Instance>, Status> {
         crate::handlers::instance::update_operating_system(self, request).await
     }
 
     async fn update_instance_config(
         &self,
-        request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
-    ) -> Result<tonic::Response<rpc::Instance>, Status> {
+        request: Request<rpc::InstanceConfigUpdateRequest>,
+    ) -> Result<Response<rpc::Instance>, Status> {
         crate::handlers::instance::update_instance_config(self, request).await
     }
 
     async fn get_managed_host_network_config(
         &self,
         request: Request<rpc::ManagedHostNetworkConfigRequest>,
-    ) -> Result<tonic::Response<rpc::ManagedHostNetworkConfigResponse>, tonic::Status> {
+    ) -> Result<Response<rpc::ManagedHostNetworkConfigResponse>, Status> {
         crate::handlers::dpu::get_managed_host_network_config(self, request).await
     }
 
     async fn update_agent_reported_inventory(
         &self,
         request: Request<rpc::DpuAgentInventoryReport>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::dpu::update_agent_reported_inventory(self, request).await
     }
 
     async fn record_dpu_network_status(
         &self,
         request: Request<rpc::DpuNetworkStatus>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::dpu::record_dpu_network_status(self, request).await
     }
 
     async fn record_hardware_health_report(
         &self,
         request: Request<rpc::HardwareHealthReport>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::health::record_hardware_health_report(self, request).await
     }
 
     async fn get_hardware_health_report(
         &self,
         request: Request<MachineId>,
-    ) -> Result<Response<rpc::OptionalHealthReport>, tonic::Status> {
+    ) -> Result<Response<rpc::OptionalHealthReport>, Status> {
         crate::handlers::health::get_hardware_health_report(self, request).await
     }
 
     async fn record_log_parser_health_report(
         &self,
         request: Request<rpc::HardwareHealthReport>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::health::record_log_parser_health_report(self, request).await
     }
 
     async fn list_health_report_overrides(
         &self,
         request: Request<MachineId>,
-    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, tonic::Status> {
+    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
         crate::handlers::health::list_health_report_overrides(self, request).await
     }
 
     async fn insert_health_report_override(
         &self,
         request: Request<rpc::InsertHealthReportOverrideRequest>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::health::insert_health_report_override(self, request).await
     }
 
     async fn remove_health_report_override(
         &self,
         request: Request<rpc::RemoveHealthReportOverrideRequest>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::health::remove_health_report_override(self, request).await
     }
 
@@ -687,8 +668,8 @@ impl Forge for Api {
     /// Invoked by forge-scout whenever a certain Machine can not be properly acted on
     async fn report_forge_scout_error(
         &self,
-        request: tonic::Request<rpc::ForgeScoutErrorReport>,
-    ) -> Result<tonic::Response<rpc::ForgeScoutErrorReportResult>, tonic::Status> {
+        request: Request<rpc::ForgeScoutErrorReport>,
+    ) -> Result<Response<rpc::ForgeScoutErrorReportResult>, Status> {
         log_request_data(&request);
         let _machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
@@ -729,15 +710,15 @@ impl Forge for Api {
 
     async fn find_machine_state_histories(
         &self,
-        request: tonic::Request<rpc::MachineStateHistoriesRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::MachineStateHistories>, tonic::Status> {
+        request: Request<rpc::MachineStateHistoriesRequest>,
+    ) -> std::result::Result<Response<rpc::MachineStateHistories>, Status> {
         crate::handlers::machine::find_machine_state_histories(self, request).await
     }
 
     async fn find_machine_health_histories(
         &self,
-        request: tonic::Request<rpc::MachineHealthHistoriesRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::MachineHealthHistories>, tonic::Status> {
+        request: Request<rpc::MachineHealthHistoriesRequest>,
+    ) -> std::result::Result<Response<rpc::MachineHealthHistories>, Status> {
         crate::handlers::machine::find_machine_health_histories(self, request).await
     }
 
@@ -824,49 +805,49 @@ impl Forge for Api {
     async fn clear_site_exploration_error(
         &self,
         request: Request<rpc::ClearSiteExplorationErrorRequest>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::site_explorer::clear_site_exploration_error(self, request).await
     }
 
     async fn is_bmc_in_managed_host(
         &self,
         request: Request<rpc::BmcEndpointRequest>,
-    ) -> Result<Response<rpc::IsBmcInManagedHostResponse>, tonic::Status> {
+    ) -> Result<Response<rpc::IsBmcInManagedHostResponse>, Status> {
         crate::handlers::site_explorer::is_bmc_in_managed_host(self, request).await
     }
 
     async fn bmc_credential_status(
         &self,
         request: Request<rpc::BmcEndpointRequest>,
-    ) -> Result<Response<rpc::BmcCredentialStatusResponse>, tonic::Status> {
+    ) -> Result<Response<rpc::BmcCredentialStatusResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::bmc_credential_status(self, request).await
     }
 
     async fn re_explore_endpoint(
         &self,
         request: Request<rpc::ReExploreEndpointRequest>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::site_explorer::re_explore_endpoint(self, request).await
     }
 
     async fn delete_explored_endpoint(
         &self,
         request: Request<rpc::DeleteExploredEndpointRequest>,
-    ) -> Result<Response<rpc::DeleteExploredEndpointResponse>, tonic::Status> {
+    ) -> Result<Response<rpc::DeleteExploredEndpointResponse>, Status> {
         crate::handlers::site_explorer::delete_explored_endpoint(self, request).await
     }
 
     async fn pause_explored_endpoint_remediation(
         &self,
         request: Request<rpc::PauseExploredEndpointRemediationRequest>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::site_explorer::pause_explored_endpoint_remediation(self, request).await
     }
 
     // DEPRECATED: use find_explored_endpoint_ids, find_explored_endpoints_by_ids and find_explored_managed_host_ids, find_explored_managed_hosts_by_ids instead
     async fn get_site_exploration_report(
         &self,
-        request: tonic::Request<::rpc::forge::GetSiteExplorationRequest>,
+        request: Request<::rpc::forge::GetSiteExplorationRequest>,
     ) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
         crate::handlers::site_explorer::get_site_exploration_report(self, request).await
     }
@@ -902,7 +883,7 @@ impl Forge for Api {
     async fn update_machine_hardware_info(
         &self,
         request: Request<::rpc::forge::UpdateMachineHardwareInfoRequest>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::machine_hardware_info::handle_machine_hardware_info_update(self, request)
             .await
     }
@@ -910,7 +891,7 @@ impl Forge for Api {
     // Ad-hoc BMC exploration
     async fn explore(
         &self,
-        request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+        request: Request<::rpc::forge::BmcEndpointRequest>,
     ) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
         crate::handlers::bmc_endpoint_explorer::explore(self, request).await
     }
@@ -949,9 +930,7 @@ impl Forge for Api {
         };
 
         if !is_dpu {
-            db::machine::update_scout_contact_time(&machine_id, &mut txn)
-                .await
-                .map_err(CarbideError::from)?;
+            db::machine::update_scout_contact_time(&machine_id, &mut txn).await?;
         }
 
         // Respond based on machine current state
@@ -1255,7 +1234,7 @@ impl Forge for Api {
             .await?;
 
         if let Some(instance_id) = instance_id {
-            instance::force_delete_instance(
+            crate::handlers::instance::force_delete_instance(
                 instance_id,
                 &self.ib_fabric_manager,
                 &self.common_pools,
@@ -1435,8 +1414,7 @@ impl Forge for Api {
                     &mut txn,
                     loopback_ip,
                 )
-                .await
-                .map_err(CarbideError::from)?
+                .await?
             }
             db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id)
                 .await?;
@@ -1455,8 +1433,7 @@ impl Forge for Api {
             }
             if let Some(asn) = dpu_machine.asn {
                 db::resource_pool::release(&self.common_pools.ethernet.pool_fnn_asn, &mut txn, asn)
-                    .await
-                    .map_err(CarbideError::from)?;
+                    .await?;
             }
             db::machine::force_cleanup(&mut txn, &dpu_machine.id).await?;
 
@@ -1507,60 +1484,23 @@ impl Forge for Api {
     async fn admin_list_resource_pools(
         &self,
         request: Request<rpc::ListResourcePoolsRequest>,
-    ) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status> {
+    ) -> Result<Response<rpc::ResourcePools>, Status> {
         crate::handlers::resource_pool::list(self, request).await
     }
 
     async fn update_machine_metadata(
         &self,
         request: Request<rpc::MachineMetadataUpdateRequest>,
-    ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-        let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
-
-        // Prepare the metadata
-        let metadata = match request.metadata {
-            Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
-            _ => {
-                return Err(CarbideError::from(RpcDataConversionError::MissingArgument(
-                    "metadata",
-                ))
-                .into());
-            }
-        };
-        metadata.validate(true).map_err(CarbideError::from)?;
-
-        let (machine, mut txn) = self
-            .load_machine(
-                &machine_id,
-                MachineSearchConfig {
-                    include_dpus: true,
-                    include_predicted_host: true,
-                    ..Default::default()
-                },
-                "update_machine_metadata handler",
-            )
-            .await?;
-
-        let expected_version: config_version::ConfigVersion = match request.if_version_match {
-            Some(version) => version.parse().map_err(CarbideError::from)?,
-            None => machine.version,
-        };
-
-        db::machine::update_metadata(&mut txn, &machine_id, expected_version, metadata).await?;
-
-        txn.commit().await?;
-
-        Ok(tonic::Response::new(()))
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::machine::update_machine_metadata(self, request).await
     }
 
     /// Maintenance mode: Put a machine into maintenance mode or take it out.
     /// Switching a host into maintenance mode prevents an instance being assigned to it.
     async fn set_maintenance(
         &self,
-        request: tonic::Request<rpc::MaintenanceRequest>,
-    ) -> Result<tonic::Response<()>, tonic::Status> {
+        request: Request<rpc::MaintenanceRequest>,
+    ) -> Result<Response<()>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
         let machine_id = convert_and_log_machine_id(req.host_id.as_ref())?;
@@ -1598,7 +1538,7 @@ impl Forge for Api {
                 // Maintenance mode is implemented as a host health override
                 crate::handlers::health::insert_health_report_override(
                     self,
-                    tonic::Request::new(rpc::InsertHealthReportOverrideRequest {
+                    Request::new(rpc::InsertHealthReportOverrideRequest {
                         machine_id: req.host_id,
                         r#override: Some(::rpc::forge::HealthReportOverride {
                             report: Some(health_report::HealthReport {
@@ -1636,7 +1576,7 @@ impl Forge for Api {
 
                 match crate::handlers::health::remove_health_report_override(
                     self,
-                    tonic::Request::new(rpc::RemoveHealthReportOverrideRequest {
+                    Request::new(rpc::RemoveHealthReportOverrideRequest {
                         machine_id: req.host_id,
                         source: "maintenance".to_string(),
                     }),
@@ -1657,36 +1597,36 @@ impl Forge for Api {
 
     async fn find_ip_address(
         &self,
-        request: tonic::Request<rpc::FindIpAddressRequest>,
-    ) -> Result<tonic::Response<rpc::FindIpAddressResponse>, tonic::Status> {
+        request: Request<rpc::FindIpAddressRequest>,
+    ) -> Result<Response<rpc::FindIpAddressResponse>, Status> {
         crate::handlers::finder::find_ip_address(self, request).await
     }
 
     async fn identify_uuid(
         &self,
-        request: tonic::Request<rpc::IdentifyUuidRequest>,
-    ) -> Result<tonic::Response<rpc::IdentifyUuidResponse>, tonic::Status> {
+        request: Request<rpc::IdentifyUuidRequest>,
+    ) -> Result<Response<rpc::IdentifyUuidResponse>, Status> {
         crate::handlers::finder::identify_uuid(self, request).await
     }
 
     async fn identify_mac(
         &self,
-        request: tonic::Request<rpc::IdentifyMacRequest>,
-    ) -> Result<tonic::Response<rpc::IdentifyMacResponse>, tonic::Status> {
+        request: Request<rpc::IdentifyMacRequest>,
+    ) -> Result<Response<rpc::IdentifyMacResponse>, Status> {
         crate::handlers::finder::identify_mac(self, request).await
     }
 
     async fn identify_serial(
         &self,
-        request: tonic::Request<rpc::IdentifySerialRequest>,
-    ) -> Result<tonic::Response<rpc::IdentifySerialResponse>, tonic::Status> {
+        request: Request<rpc::IdentifySerialRequest>,
+    ) -> Result<Response<rpc::IdentifySerialResponse>, Status> {
         crate::handlers::finder::identify_serial(self, request).await
     }
 
     async fn get_power_options(
         &self,
-        request: tonic::Request<rpc::PowerOptionRequest>,
-    ) -> Result<tonic::Response<rpc::PowerOptionResponse>, tonic::Status> {
+        request: Request<rpc::PowerOptionRequest>,
+    ) -> Result<Response<rpc::PowerOptionResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -1699,7 +1639,7 @@ impl Forge for Api {
 
         txn.commit().await?;
 
-        Ok(tonic::Response::new(rpc::PowerOptionResponse {
+        Ok(Response::new(rpc::PowerOptionResponse {
             response: power_options
                 .into_iter()
                 .map(|x| x.into())
@@ -1709,8 +1649,8 @@ impl Forge for Api {
 
     async fn update_power_option(
         &self,
-        request: tonic::Request<rpc::PowerOptionUpdateRequest>,
-    ) -> Result<tonic::Response<rpc::PowerOptionResponse>, tonic::Status> {
+        request: Request<rpc::PowerOptionUpdateRequest>,
+    ) -> Result<Response<rpc::PowerOptionResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -1719,9 +1659,7 @@ impl Forge for Api {
             .ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?;
 
         if machine_id.machine_type().is_dpu() {
-            return Err(tonic::Status::invalid_argument(
-                "Only host id is expected!!",
-            ));
+            return Err(Status::invalid_argument("Only host id is expected!!"));
         }
 
         log_machine_id(&machine_id);
@@ -1732,9 +1670,7 @@ impl Forge for Api {
 
         // This should never happen until machine is not forced-deleted or does not exist.
         let Some(current_power_options) = current_power_state.first() else {
-            return Err(tonic::Status::invalid_argument(
-                "Only host id is expected!!",
-            ));
+            return Err(Status::invalid_argument("Only host id is expected!!"));
         };
 
         let desired_power_state = req.power_state();
@@ -1776,7 +1712,7 @@ impl Forge for Api {
         // To avoid unnecessary version increment.
         let desired_power_state = desired_power_state.into();
         if desired_power_state == current_power_options.desired_power_state {
-            return Err(tonic::Status::invalid_argument(format!(
+            return Err(Status::invalid_argument(format!(
                 "Power State is already set as {desired_power_state:?}. No change is performed."
             )));
         }
@@ -1791,7 +1727,7 @@ impl Forge for Api {
 
         txn.commit().await?;
 
-        Ok(tonic::Response::new(rpc::PowerOptionResponse {
+        Ok(Response::new(rpc::PowerOptionResponse {
             response: vec![updated_value.into()],
         }))
     }
@@ -1799,16 +1735,16 @@ impl Forge for Api {
     /// Trigger DPU reprovisioning
     async fn trigger_dpu_reprovisioning(
         &self,
-        request: tonic::Request<rpc::DpuReprovisioningRequest>,
-    ) -> Result<tonic::Response<()>, tonic::Status> {
+        request: Request<rpc::DpuReprovisioningRequest>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::dpu::trigger_dpu_reprovisioning(self, request).await
     }
 
     /// List DPUs waiting for reprovisioning
     async fn list_dpu_waiting_for_reprovisioning(
         &self,
-        request: tonic::Request<rpc::DpuReprovisioningListRequest>,
-    ) -> Result<tonic::Response<rpc::DpuReprovisioningListResponse>, tonic::Status> {
+        request: Request<rpc::DpuReprovisioningListRequest>,
+    ) -> Result<Response<rpc::DpuReprovisioningListResponse>, Status> {
         log_request_data(&request);
 
         let mut txn = self
@@ -1856,7 +1792,7 @@ impl Forge for Api {
     async fn trigger_host_reprovisioning(
         &self,
         request: Request<rpc::HostReprovisioningRequest>,
-    ) -> Result<tonic::Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         use ::rpc::forge::host_reprovisioning_request::Mode;
 
         log_request_data(&request);
@@ -1904,8 +1840,8 @@ impl Forge for Api {
 
     async fn list_hosts_waiting_for_reprovisioning(
         &self,
-        request: tonic::Request<rpc::HostReprovisioningListRequest>,
-    ) -> Result<tonic::Response<rpc::HostReprovisioningListResponse>, tonic::Status> {
+        request: Request<rpc::HostReprovisioningListRequest>,
+    ) -> Result<Response<rpc::HostReprovisioningListResponse>, Status> {
         log_request_data(&request);
 
         let mut txn = self
@@ -1964,29 +1900,29 @@ impl Forge for Api {
 
     async fn get_machine_boot_override(
         &self,
-        request: tonic::Request<MachineInterfaceId>,
-    ) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
+        request: Request<MachineInterfaceId>,
+    ) -> Result<Response<rpc::MachineBootOverride>, Status> {
         crate::handlers::boot_override::get(self, request).await
     }
 
     async fn set_machine_boot_override(
         &self,
-        request: tonic::Request<rpc::MachineBootOverride>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::MachineBootOverride>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::boot_override::set(self, request).await
     }
 
     async fn clear_machine_boot_override(
         &self,
-        request: tonic::Request<MachineInterfaceId>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<MachineInterfaceId>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::boot_override::clear(self, request).await
     }
 
     async fn get_network_topology(
         &self,
-        request: tonic::Request<rpc::NetworkTopologyRequest>,
-    ) -> Result<tonic::Response<rpc::NetworkTopologyData>, tonic::Status> {
+        request: Request<rpc::NetworkTopologyRequest>,
+    ) -> Result<Response<rpc::NetworkTopologyData>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -1997,9 +1933,7 @@ impl Forge for Api {
             None => ObjectFilter::All,
         };
 
-        let data = db::network_devices::get_topology(&mut txn, query)
-            .await
-            .map_err(CarbideError::from)?;
+        let data = db::network_devices::get_topology(&mut txn, query).await?;
 
         txn.commit().await?;
 
@@ -2008,8 +1942,8 @@ impl Forge for Api {
 
     async fn admin_bmc_reset(
         &self,
-        request: tonic::Request<rpc::AdminBmcResetRequest>,
-    ) -> Result<tonic::Response<rpc::AdminBmcResetResponse>, tonic::Status> {
+        request: Request<rpc::AdminBmcResetRequest>,
+    ) -> Result<Response<rpc::AdminBmcResetResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -2058,8 +1992,8 @@ impl Forge for Api {
 
     async fn disable_secure_boot(
         &self,
-        request: tonic::Request<rpc::BmcEndpointRequest>,
-    ) -> Result<Response<::rpc::forge::DisableSecureBootResponse>, tonic::Status> {
+        request: Request<rpc::BmcEndpointRequest>,
+    ) -> Result<Response<::rpc::forge::DisableSecureBootResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -2087,8 +2021,8 @@ impl Forge for Api {
 
     async fn lockdown(
         &self,
-        request: tonic::Request<rpc::LockdownRequest>,
-    ) -> Result<Response<::rpc::forge::LockdownResponse>, tonic::Status> {
+        request: Request<rpc::LockdownRequest>,
+    ) -> Result<Response<::rpc::forge::LockdownResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
         let action = req.action();
@@ -2127,8 +2061,8 @@ impl Forge for Api {
 
     async fn lockdown_status(
         &self,
-        request: tonic::Request<rpc::LockdownStatusRequest>,
-    ) -> Result<Response<::rpc::site_explorer::LockdownStatus>, tonic::Status> {
+        request: Request<rpc::LockdownStatusRequest>,
+    ) -> Result<Response<::rpc::site_explorer::LockdownStatus>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -2154,8 +2088,8 @@ impl Forge for Api {
 
     async fn enable_infinite_boot(
         &self,
-        request: tonic::Request<rpc::EnableInfiniteBootRequest>,
-    ) -> Result<Response<::rpc::forge::EnableInfiniteBootResponse>, tonic::Status> {
+        request: Request<rpc::EnableInfiniteBootRequest>,
+    ) -> Result<Response<::rpc::forge::EnableInfiniteBootResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -2194,8 +2128,8 @@ impl Forge for Api {
 
     async fn is_infinite_boot_enabled(
         &self,
-        request: tonic::Request<rpc::IsInfiniteBootEnabledRequest>,
-    ) -> Result<Response<::rpc::forge::IsInfiniteBootEnabledResponse>, tonic::Status> {
+        request: Request<rpc::IsInfiniteBootEnabledRequest>,
+    ) -> Result<Response<::rpc::forge::IsInfiniteBootEnabledResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -2237,8 +2171,8 @@ impl Forge for Api {
 
     async fn forge_setup(
         &self,
-        request: tonic::Request<rpc::ForgeSetupRequest>,
-    ) -> Result<Response<::rpc::forge::ForgeSetupResponse>, tonic::Status> {
+        request: Request<rpc::ForgeSetupRequest>,
+    ) -> Result<Response<::rpc::forge::ForgeSetupResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -2281,8 +2215,8 @@ impl Forge for Api {
 
     async fn set_dpu_first_boot_order(
         &self,
-        request: tonic::Request<rpc::SetDpuFirstBootOrderRequest>,
-    ) -> Result<Response<::rpc::forge::SetDpuFirstBootOrderResponse>, tonic::Status> {
+        request: Request<rpc::SetDpuFirstBootOrderRequest>,
+    ) -> Result<Response<::rpc::forge::SetDpuFirstBootOrderResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -2334,30 +2268,30 @@ impl Forge for Api {
     /// version and write the DB to say our upgrade is complete.
     async fn dpu_agent_upgrade_check(
         &self,
-        request: tonic::Request<rpc::DpuAgentUpgradeCheckRequest>,
-    ) -> Result<tonic::Response<rpc::DpuAgentUpgradeCheckResponse>, Status> {
+        request: Request<rpc::DpuAgentUpgradeCheckRequest>,
+    ) -> Result<Response<rpc::DpuAgentUpgradeCheckResponse>, Status> {
         crate::handlers::dpu::dpu_agent_upgrade_check(self, request).await
     }
 
     /// Get or set the forge-dpu-agent upgrade policy.
     async fn dpu_agent_upgrade_policy_action(
         &self,
-        request: tonic::Request<rpc::DpuAgentUpgradePolicyRequest>,
-    ) -> Result<tonic::Response<rpc::DpuAgentUpgradePolicyResponse>, Status> {
+        request: Request<rpc::DpuAgentUpgradePolicyRequest>,
+    ) -> Result<Response<rpc::DpuAgentUpgradePolicyResponse>, Status> {
         crate::handlers::dpu::dpu_agent_upgrade_policy_action(self, request).await
     }
 
     async fn create_credential(
         &self,
-        request: tonic::Request<rpc::CredentialCreationRequest>,
-    ) -> Result<tonic::Response<rpc::CredentialCreationResult>, tonic::Status> {
+        request: Request<rpc::CredentialCreationRequest>,
+    ) -> Result<Response<rpc::CredentialCreationResult>, Status> {
         crate::handlers::credential::create_credential(self, request).await
     }
 
     async fn delete_credential(
         &self,
-        request: tonic::Request<rpc::CredentialDeletionRequest>,
-    ) -> Result<tonic::Response<rpc::CredentialDeletionResult>, tonic::Status> {
+        request: Request<rpc::CredentialDeletionRequest>,
+    ) -> Result<Response<rpc::CredentialDeletionResult>, Status> {
         crate::handlers::credential::delete_credential(self, request).await
     }
 
@@ -2365,8 +2299,8 @@ impl Forge for Api {
     /// entries for all source types.
     async fn get_route_servers(
         &self,
-        request: tonic::Request<()>,
-    ) -> Result<tonic::Response<rpc::RouteServerEntries>, Status> {
+        request: Request<()>,
+    ) -> Result<Response<rpc::RouteServerEntries>, Status> {
         crate::handlers::route_server::get(self, request).await
     }
 
@@ -2376,8 +2310,8 @@ impl Forge for Api {
     /// cases where deemed appropriate).
     async fn add_route_servers(
         &self,
-        request: tonic::Request<rpc::RouteServers>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::RouteServers>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::route_server::add(self, request).await
     }
 
@@ -2387,8 +2321,8 @@ impl Forge for Api {
     /// cases where deemed appropriate).
     async fn remove_route_servers(
         &self,
-        request: tonic::Request<rpc::RouteServers>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::RouteServers>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::route_server::remove(self, request).await
     }
 
@@ -2398,16 +2332,16 @@ impl Forge for Api {
     /// be overridden in cases where deemed appropriate).
     async fn replace_route_servers(
         &self,
-        request: tonic::Request<rpc::RouteServers>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::RouteServers>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::route_server::replace(self, request).await
     }
 
     // Override RUST_LOG or site-explorer create_machines
     async fn set_dynamic_config(
         &self,
-        request: tonic::Request<rpc::SetDynamicConfigRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::SetDynamicConfigRequest>,
+    ) -> Result<Response<()>, Status> {
         log_request_data(&request);
 
         let req = request.into_inner();
@@ -2496,13 +2430,13 @@ impl Forge for Api {
                     .store(enable, Ordering::Relaxed);
             }
         }
-        Ok(tonic::Response::new(()))
+        Ok(Response::new(()))
     }
 
     async fn clear_host_uefi_password(
         &self,
-        request: tonic::Request<rpc::ClearHostUefiPasswordRequest>,
-    ) -> Result<tonic::Response<rpc::ClearHostUefiPasswordResponse>, tonic::Status> {
+        request: Request<rpc::ClearHostUefiPasswordRequest>,
+    ) -> Result<Response<rpc::ClearHostUefiPasswordResponse>, Status> {
         log_request_data(&request);
 
         let mut txn = self.txn_begin("clear_host_uefi_password").await?;
@@ -2537,7 +2471,7 @@ impl Forge for Api {
             .await
             .map_err(|e| {
                 tracing::error!("unable to create redfish client: {}", e);
-                tonic::Status::internal(format!(
+                Status::internal(format!(
                     "Could not create connection to Redfish API to {machine_id}, check logs"
                 ))
             })?;
@@ -2553,8 +2487,8 @@ impl Forge for Api {
 
     async fn set_host_uefi_password(
         &self,
-        request: tonic::Request<rpc::SetHostUefiPasswordRequest>,
-    ) -> Result<tonic::Response<rpc::SetHostUefiPasswordResponse>, tonic::Status> {
+        request: Request<rpc::SetHostUefiPasswordRequest>,
+    ) -> Result<Response<rpc::SetHostUefiPasswordResponse>, Status> {
         log_request_data(&request);
         let request = request.into_inner();
         let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
@@ -2588,7 +2522,7 @@ impl Forge for Api {
             .await
             .map_err(|e| {
                 tracing::error!("unable to create redfish client: {}", e);
-                tonic::Status::internal(format!(
+                Status::internal(format!(
                     "Could not create connection to Redfish API to {machine_id}, check logs"
                 ))
             })?;
@@ -2603,7 +2537,7 @@ impl Forge for Api {
             .await
             .map_err(|e| {
                 tracing::error!("Failed to update bios_password_set_time: {}", e);
-                tonic::Status::internal(format!("Failed to update BIOS password timestamp: {e}"))
+                Status::internal(format!("Failed to update BIOS password timestamp: {e}"))
             })?;
 
         txn.commit().await?;
@@ -2613,64 +2547,64 @@ impl Forge for Api {
 
     async fn get_expected_machine(
         &self,
-        request: tonic::Request<rpc::ExpectedMachineRequest>,
-    ) -> Result<Response<rpc::ExpectedMachine>, tonic::Status> {
+        request: Request<rpc::ExpectedMachineRequest>,
+    ) -> Result<Response<rpc::ExpectedMachine>, Status> {
         crate::handlers::expected_machine::get(self, request).await
     }
 
     async fn add_expected_machine(
         &self,
-        request: tonic::Request<rpc::ExpectedMachine>,
-    ) -> Result<Response<()>, tonic::Status> {
+        request: Request<rpc::ExpectedMachine>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::expected_machine::add(self, request).await
     }
 
     async fn delete_expected_machine(
         &self,
-        request: tonic::Request<rpc::ExpectedMachineRequest>,
-    ) -> Result<Response<()>, tonic::Status> {
+        request: Request<rpc::ExpectedMachineRequest>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::expected_machine::delete(self, request).await
     }
 
     async fn update_expected_machine(
         &self,
-        request: tonic::Request<rpc::ExpectedMachine>,
-    ) -> Result<Response<()>, tonic::Status> {
+        request: Request<rpc::ExpectedMachine>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::expected_machine::update(self, request).await
     }
 
     async fn replace_all_expected_machines(
         &self,
-        request: tonic::Request<rpc::ExpectedMachineList>,
-    ) -> Result<Response<()>, tonic::Status> {
+        request: Request<rpc::ExpectedMachineList>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::expected_machine::replace_all(self, request).await
     }
 
     async fn get_all_expected_machines(
         &self,
-        request: tonic::Request<()>,
-    ) -> Result<Response<rpc::ExpectedMachineList>, tonic::Status> {
+        request: Request<()>,
+    ) -> Result<Response<rpc::ExpectedMachineList>, Status> {
         crate::handlers::expected_machine::get_all(self, request).await
     }
 
     async fn get_all_expected_machines_linked(
         &self,
-        request: tonic::Request<()>,
-    ) -> Result<Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
+        request: Request<()>,
+    ) -> Result<Response<rpc::LinkedExpectedMachineList>, Status> {
         crate::handlers::expected_machine::get_linked(self, request).await
     }
 
     async fn delete_all_expected_machines(
         &self,
-        request: tonic::Request<()>,
-    ) -> Result<Response<()>, tonic::Status> {
+        request: Request<()>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::expected_machine::delete_all(self, request).await
     }
 
     async fn find_connected_devices_by_dpu_machine_ids(
         &self,
         request: Request<::rpc::common::MachineIdList>,
-    ) -> Result<tonic::Response<rpc::ConnectedDeviceList>, Status> {
+    ) -> Result<Response<rpc::ConnectedDeviceList>, Status> {
         log_request_data(&request);
 
         let mut txn = self
@@ -2683,7 +2617,7 @@ impl Forge for Api {
             db::network_devices::dpu_to_network_device_map::find_by_dpu_ids(&mut txn, &dpu_ids)
                 .await?;
 
-        Ok(tonic::Response::new(rpc::ConnectedDeviceList {
+        Ok(Response::new(rpc::ConnectedDeviceList {
             connected_devices: connected_devices.into_iter().map_into().collect(),
         }))
     }
@@ -2691,7 +2625,7 @@ impl Forge for Api {
     async fn find_network_devices_by_device_ids(
         &self,
         request: Request<rpc::NetworkDeviceIdList>,
-    ) -> Result<tonic::Response<rpc::NetworkTopologyData>, Status> {
+    ) -> Result<Response<rpc::NetworkTopologyData>, Status> {
         log_request_data(&request);
 
         let mut txn = self.txn_begin("find_network_devices_by_device_ids").await?;
@@ -2708,7 +2642,7 @@ impl Forge for Api {
         )
         .await?;
 
-        Ok(tonic::Response::new(rpc::NetworkTopologyData {
+        Ok(Response::new(rpc::NetworkTopologyData {
             network_devices: network_devices.into_iter().map_into().collect(),
         }))
     }
@@ -2716,7 +2650,7 @@ impl Forge for Api {
     async fn find_machine_ids_by_bmc_ips(
         &self,
         request: Request<rpc::BmcIpList>,
-    ) -> Result<tonic::Response<rpc::MachineIdBmcIpPairs>, Status> {
+    ) -> Result<Response<rpc::MachineIdBmcIpPairs>, Status> {
         log_request_data(&request);
 
         let mut txn = self.txn_begin("find_machine_ids_by_bmc_ips").await?;
@@ -2734,13 +2668,13 @@ impl Forge for Api {
                 .collect(),
         };
 
-        Ok(tonic::Response::new(rpc_pairs))
+        Ok(Response::new(rpc_pairs))
     }
 
     async fn find_mac_address_by_bmc_ip(
         &self,
         request: Request<rpc::BmcIp>,
-    ) -> Result<tonic::Response<rpc::MacAddressBmcIp>, Status> {
+    ) -> Result<Response<rpc::MacAddressBmcIp>, Status> {
         log_request_data(&request);
 
         let req = request.into_inner();
@@ -2755,7 +2689,7 @@ impl Forge for Api {
                 id: bmc_ip.clone(),
             })?;
 
-        Ok(tonic::Response::new(rpc::MacAddressBmcIp {
+        Ok(Response::new(rpc::MacAddressBmcIp {
             bmc_ip,
             mac_address: interface.mac_address.to_string(),
         }))
@@ -2764,8 +2698,8 @@ impl Forge for Api {
     #[cfg(feature = "linux-build")]
     async fn attest_quote(
         &self,
-        request: tonic::Request<rpc::AttestQuoteRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::AttestQuoteResponse>, tonic::Status> {
+        request: Request<rpc::AttestQuoteRequest>,
+    ) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
         log_request_data(&request);
 
         let mut request = request.into_inner();
@@ -2869,7 +2803,7 @@ impl Forge for Api {
                 "Attestation failed for machine with id {} - not vending any certs",
                 machine_id
             );
-            return Ok(tonic::Response::new(rpc::AttestQuoteResponse {
+            return Ok(Response::new(rpc::AttestQuoteResponse {
                 success: false,
                 machine_certificate: None,
             }));
@@ -2890,7 +2824,7 @@ impl Forge for Api {
             machine_id,
             self.runtime_config.attestation_enabled
         );
-        Ok(tonic::Response::new(rpc::AttestQuoteResponse {
+        Ok(Response::new(rpc::AttestQuoteResponse {
             success: true,
             machine_certificate: Some(certificate.into()),
         }))
@@ -2899,8 +2833,8 @@ impl Forge for Api {
     #[cfg(not(feature = "linux-build"))]
     async fn attest_quote(
         &self,
-        request: tonic::Request<rpc::AttestQuoteRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::AttestQuoteResponse>, tonic::Status> {
+        request: Request<rpc::AttestQuoteRequest>,
+    ) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
         log_request_data(&request);
         unimplemented!()
     }
@@ -3455,48 +3389,54 @@ impl Forge for Api {
         &self,
         request: Request<rpc::MachineValidationCompletedRequest>,
     ) -> Result<Response<rpc::MachineValidationCompletedResponse>, Status> {
-        mark_machine_validation_complete(self, request).await
+        crate::handlers::machine_validation::mark_machine_validation_complete(self, request).await
     }
 
     async fn persist_validation_result(
         &self,
-        request: tonic::Request<rpc::MachineValidationResultPostRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
-        persist_validation_result(self, request).await
+        request: Request<rpc::MachineValidationResultPostRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::machine_validation::persist_validation_result(self, request).await
     }
 
     async fn get_machine_validation_results(
         &self,
-        request: tonic::Request<rpc::MachineValidationGetRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationResultList>, Status> {
-        get_machine_validation_results(self, request).await
+        request: Request<rpc::MachineValidationGetRequest>,
+    ) -> Result<Response<rpc::MachineValidationResultList>, Status> {
+        crate::handlers::machine_validation::get_machine_validation_results(self, request).await
     }
 
     async fn machine_set_auto_update(
         &self,
-        request: tonic::Request<rpc::MachineSetAutoUpdateRequest>,
-    ) -> Result<tonic::Response<rpc::MachineSetAutoUpdateResponse>, Status> {
+        request: Request<rpc::MachineSetAutoUpdateRequest>,
+    ) -> Result<Response<rpc::MachineSetAutoUpdateResponse>, Status> {
         crate::handlers::machine::machine_set_auto_update(self, request).await
     }
 
     async fn get_machine_validation_external_config(
         &self,
-        request: tonic::Request<rpc::GetMachineValidationExternalConfigRequest>,
-    ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigResponse>, Status> {
-        get_machine_validation_external_config(self, request).await
+        request: Request<rpc::GetMachineValidationExternalConfigRequest>,
+    ) -> Result<Response<rpc::GetMachineValidationExternalConfigResponse>, Status> {
+        crate::handlers::machine_validation::get_machine_validation_external_config(self, request)
+            .await
     }
 
     async fn get_machine_validation_external_configs(
         &self,
-        request: tonic::Request<rpc::GetMachineValidationExternalConfigsRequest>,
-    ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
-        get_machine_validation_external_configs(self, request).await
+        request: Request<rpc::GetMachineValidationExternalConfigsRequest>,
+    ) -> Result<Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
+        crate::handlers::machine_validation::get_machine_validation_external_configs(self, request)
+            .await
     }
+
     async fn add_update_machine_validation_external_config(
         &self,
-        request: tonic::Request<rpc::AddUpdateMachineValidationExternalConfigRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
-        add_update_machine_validation_external_config(self, request).await
+        request: Request<rpc::AddUpdateMachineValidationExternalConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::machine_validation::add_update_machine_validation_external_config(
+            self, request,
+        )
+        .await
     }
 
     async fn create_os_image(
@@ -3535,14 +3475,14 @@ impl Forge for Api {
     }
     async fn get_machine_validation_runs(
         &self,
-        request: tonic::Request<rpc::MachineValidationRunListGetRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationRunList>, Status> {
-        get_machine_validation_runs(self, request).await
+        request: Request<rpc::MachineValidationRunListGetRequest>,
+    ) -> Result<Response<rpc::MachineValidationRunList>, Status> {
+        crate::handlers::machine_validation::get_machine_validation_runs(self, request).await
     }
 
     async fn admin_power_control(
         &self,
-        request: tonic::Request<rpc::AdminPowerControlRequest>,
+        request: Request<rpc::AdminPowerControlRequest>,
     ) -> Result<Response<rpc::AdminPowerControlResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
@@ -3633,222 +3573,228 @@ impl Forge for Api {
 
     async fn on_demand_machine_validation(
         &self,
-        request: tonic::Request<rpc::MachineValidationOnDemandRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationOnDemandResponse>, Status> {
-        on_demand_machine_validation(self, request).await
+        request: Request<rpc::MachineValidationOnDemandRequest>,
+    ) -> Result<Response<rpc::MachineValidationOnDemandResponse>, Status> {
+        crate::handlers::machine_validation::on_demand_machine_validation(self, request).await
     }
 
     async fn tpm_add_ca_cert(
         &self,
         request: Request<rpc::TpmCaCert>,
-    ) -> Result<Response<rpc::TpmCaAddedCaStatus>, tonic::Status> {
+    ) -> Result<Response<rpc::TpmCaAddedCaStatus>, Status> {
         crate::handlers::tpm_ca::tpm_add_ca_cert(self, request).await
     }
 
     async fn tpm_show_ca_certs(
         &self,
         request: Request<()>,
-    ) -> Result<Response<rpc::TpmCaCertDetailCollection>, tonic::Status> {
+    ) -> Result<Response<rpc::TpmCaCertDetailCollection>, Status> {
         crate::handlers::tpm_ca::tpm_show_ca_certs(self, &request).await
     }
 
     async fn tpm_show_unmatched_ek_certs(
         &self,
         request: Request<()>,
-    ) -> Result<Response<rpc::TpmEkCertStatusCollection>, tonic::Status> {
+    ) -> Result<Response<rpc::TpmEkCertStatusCollection>, Status> {
         crate::handlers::tpm_ca::tpm_show_unmatched_ek_certs(self, &request).await
     }
 
     async fn tpm_delete_ca_cert(
         &self,
         request: Request<rpc::TpmCaCertId>,
-    ) -> Result<Response<()>, tonic::Status> {
+    ) -> Result<Response<()>, Status> {
         crate::handlers::tpm_ca::tpm_delete_ca_cert(self, request).await
     }
 
     async fn remove_machine_validation_external_config(
         &self,
-        request: tonic::Request<rpc::RemoveMachineValidationExternalConfigRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
-        remove_machine_validation_external_config(self, request).await
+        request: Request<rpc::RemoveMachineValidationExternalConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::machine_validation::remove_machine_validation_external_config(
+            self, request,
+        )
+        .await
     }
     async fn get_machine_validation_tests(
         &self,
-        request: tonic::Request<rpc::MachineValidationTestsGetRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationTestsGetResponse>, Status> {
-        get_machine_validation_tests(self, request).await
+        request: Request<rpc::MachineValidationTestsGetRequest>,
+    ) -> Result<Response<rpc::MachineValidationTestsGetResponse>, Status> {
+        crate::handlers::machine_validation::get_machine_validation_tests(self, request).await
     }
 
     async fn update_machine_validation_test(
         &self,
-        request: tonic::Request<rpc::MachineValidationTestUpdateRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
-        update_machine_validation_test(self, request).await
+        request: Request<rpc::MachineValidationTestUpdateRequest>,
+    ) -> Result<Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
+        crate::handlers::machine_validation::update_machine_validation_test(self, request).await
     }
     async fn add_machine_validation_test(
         &self,
-        request: tonic::Request<rpc::MachineValidationTestAddRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
-        add_machine_validation_test(self, request).await
+        request: Request<rpc::MachineValidationTestAddRequest>,
+    ) -> Result<Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
+        crate::handlers::machine_validation::add_machine_validation_test(self, request).await
     }
 
     async fn machine_validation_test_verfied(
         &self,
-        request: tonic::Request<rpc::MachineValidationTestVerfiedRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationTestVerfiedResponse>, Status> {
-        machine_validation_test_verfied(self, request).await
+        request: Request<rpc::MachineValidationTestVerfiedRequest>,
+    ) -> Result<Response<rpc::MachineValidationTestVerfiedResponse>, Status> {
+        crate::handlers::machine_validation::machine_validation_test_verfied(self, request).await
     }
     async fn machine_validation_test_next_version(
         &self,
-        request: tonic::Request<rpc::MachineValidationTestNextVersionRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationTestNextVersionResponse>, Status> {
-        machine_validation_test_next_version(self, request).await
+        request: Request<rpc::MachineValidationTestNextVersionRequest>,
+    ) -> Result<Response<rpc::MachineValidationTestNextVersionResponse>, Status> {
+        crate::handlers::machine_validation::machine_validation_test_next_version(self, request)
+            .await
     }
     async fn machine_validation_test_enable_disable_test(
         &self,
-        request: tonic::Request<rpc::MachineValidationTestEnableDisableTestRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationTestEnableDisableTestResponse>, Status> {
-        machine_validation_test_enable_disable_test(self, request).await
+        request: Request<rpc::MachineValidationTestEnableDisableTestRequest>,
+    ) -> Result<Response<rpc::MachineValidationTestEnableDisableTestResponse>, Status> {
+        crate::handlers::machine_validation::machine_validation_test_enable_disable_test(
+            self, request,
+        )
+        .await
     }
     async fn update_machine_validation_run(
         &self,
-        request: tonic::Request<rpc::MachineValidationRunRequest>,
-    ) -> Result<tonic::Response<rpc::MachineValidationRunResponse>, Status> {
-        update_machine_validation_run(self, request).await
+        request: Request<rpc::MachineValidationRunRequest>,
+    ) -> Result<Response<rpc::MachineValidationRunResponse>, Status> {
+        crate::handlers::machine_validation::update_machine_validation_run(self, request).await
     }
 
     async fn create_instance_type(
         &self,
-        request: tonic::Request<rpc::CreateInstanceTypeRequest>,
-    ) -> Result<tonic::Response<rpc::CreateInstanceTypeResponse>, Status> {
+        request: Request<rpc::CreateInstanceTypeRequest>,
+    ) -> Result<Response<rpc::CreateInstanceTypeResponse>, Status> {
         crate::handlers::instance_type::create(self, request).await
     }
     async fn find_instance_type_ids(
         &self,
-        request: tonic::Request<rpc::FindInstanceTypeIdsRequest>,
-    ) -> Result<tonic::Response<rpc::FindInstanceTypeIdsResponse>, Status> {
+        request: Request<rpc::FindInstanceTypeIdsRequest>,
+    ) -> Result<Response<rpc::FindInstanceTypeIdsResponse>, Status> {
         crate::handlers::instance_type::find_ids(self, request).await
     }
     async fn find_instance_types_by_ids(
         &self,
-        request: tonic::Request<rpc::FindInstanceTypesByIdsRequest>,
-    ) -> Result<tonic::Response<rpc::FindInstanceTypesByIdsResponse>, Status> {
+        request: Request<rpc::FindInstanceTypesByIdsRequest>,
+    ) -> Result<Response<rpc::FindInstanceTypesByIdsResponse>, Status> {
         crate::handlers::instance_type::find_by_ids(self, request).await
     }
     async fn delete_instance_type(
         &self,
-        request: tonic::Request<rpc::DeleteInstanceTypeRequest>,
-    ) -> Result<tonic::Response<rpc::DeleteInstanceTypeResponse>, Status> {
+        request: Request<rpc::DeleteInstanceTypeRequest>,
+    ) -> Result<Response<rpc::DeleteInstanceTypeResponse>, Status> {
         crate::handlers::instance_type::delete(self, request).await
     }
     async fn update_instance_type(
         &self,
-        request: tonic::Request<rpc::UpdateInstanceTypeRequest>,
-    ) -> Result<tonic::Response<rpc::UpdateInstanceTypeResponse>, Status> {
+        request: Request<rpc::UpdateInstanceTypeRequest>,
+    ) -> Result<Response<rpc::UpdateInstanceTypeResponse>, Status> {
         crate::handlers::instance_type::update(self, request).await
     }
     async fn associate_machines_with_instance_type(
         &self,
-        request: tonic::Request<rpc::AssociateMachinesWithInstanceTypeRequest>,
-    ) -> Result<tonic::Response<rpc::AssociateMachinesWithInstanceTypeResponse>, Status> {
+        request: Request<rpc::AssociateMachinesWithInstanceTypeRequest>,
+    ) -> Result<Response<rpc::AssociateMachinesWithInstanceTypeResponse>, Status> {
         crate::handlers::instance_type::associate_machines(self, request).await
     }
     async fn remove_machine_instance_type_association(
         &self,
-        request: tonic::Request<rpc::RemoveMachineInstanceTypeAssociationRequest>,
-    ) -> Result<tonic::Response<rpc::RemoveMachineInstanceTypeAssociationResponse>, Status> {
+        request: Request<rpc::RemoveMachineInstanceTypeAssociationRequest>,
+    ) -> Result<Response<rpc::RemoveMachineInstanceTypeAssociationResponse>, Status> {
         crate::handlers::instance_type::remove_machine_association(self, request).await
     }
     async fn redfish_browse(
         &self,
-        request: tonic::Request<rpc::RedfishBrowseRequest>,
-    ) -> Result<tonic::Response<rpc::RedfishBrowseResponse>, Status> {
+        request: Request<rpc::RedfishBrowseRequest>,
+    ) -> Result<Response<rpc::RedfishBrowseResponse>, Status> {
         crate::handlers::redfish::redfish_browse(self, request).await
     }
     async fn redfish_list_actions(
         &self,
-        request: tonic::Request<rpc::RedfishListActionsRequest>,
-    ) -> Result<tonic::Response<rpc::RedfishListActionsResponse>, Status> {
+        request: Request<rpc::RedfishListActionsRequest>,
+    ) -> Result<Response<rpc::RedfishListActionsResponse>, Status> {
         crate::handlers::redfish::redfish_list_actions(self, request).await
     }
     async fn redfish_create_action(
         &self,
-        request: tonic::Request<rpc::RedfishCreateActionRequest>,
-    ) -> Result<tonic::Response<rpc::RedfishCreateActionResponse>, Status> {
+        request: Request<rpc::RedfishCreateActionRequest>,
+    ) -> Result<Response<rpc::RedfishCreateActionResponse>, Status> {
         crate::handlers::redfish::redfish_create_action(self, request).await
     }
     async fn redfish_approve_action(
         &self,
-        request: tonic::Request<rpc::RedfishActionId>,
-    ) -> Result<tonic::Response<rpc::RedfishApproveActionResponse>, Status> {
+        request: Request<rpc::RedfishActionId>,
+    ) -> Result<Response<rpc::RedfishApproveActionResponse>, Status> {
         crate::handlers::redfish::redfish_approve_action(self, request).await
     }
     async fn redfish_apply_action(
         &self,
-        request: tonic::Request<rpc::RedfishActionId>,
-    ) -> Result<tonic::Response<rpc::RedfishApplyActionResponse>, Status> {
+        request: Request<rpc::RedfishActionId>,
+    ) -> Result<Response<rpc::RedfishApplyActionResponse>, Status> {
         crate::handlers::redfish::redfish_apply_action(self, request).await
     }
     async fn redfish_cancel_action(
         &self,
-        request: tonic::Request<rpc::RedfishActionId>,
-    ) -> Result<tonic::Response<rpc::RedfishCancelActionResponse>, Status> {
+        request: Request<rpc::RedfishActionId>,
+    ) -> Result<Response<rpc::RedfishCancelActionResponse>, Status> {
         crate::handlers::redfish::redfish_cancel_action(self, request).await
     }
     async fn ufm_browse(
         &self,
-        request: tonic::Request<rpc::UfmBrowseRequest>,
-    ) -> Result<tonic::Response<rpc::UfmBrowseResponse>, Status> {
+        request: Request<rpc::UfmBrowseRequest>,
+    ) -> Result<Response<rpc::UfmBrowseResponse>, Status> {
         crate::handlers::ib_fabric::ufm_browse(self, request).await
     }
     async fn create_network_security_group(
         &self,
-        request: tonic::Request<rpc::CreateNetworkSecurityGroupRequest>,
-    ) -> Result<tonic::Response<rpc::CreateNetworkSecurityGroupResponse>, Status> {
+        request: Request<rpc::CreateNetworkSecurityGroupRequest>,
+    ) -> Result<Response<rpc::CreateNetworkSecurityGroupResponse>, Status> {
         crate::handlers::network_security_group::create(self, request).await
     }
     async fn find_network_security_group_ids(
         &self,
-        request: tonic::Request<rpc::FindNetworkSecurityGroupIdsRequest>,
-    ) -> Result<tonic::Response<rpc::FindNetworkSecurityGroupIdsResponse>, Status> {
+        request: Request<rpc::FindNetworkSecurityGroupIdsRequest>,
+    ) -> Result<Response<rpc::FindNetworkSecurityGroupIdsResponse>, Status> {
         crate::handlers::network_security_group::find_ids(self, request).await
     }
     async fn find_network_security_groups_by_ids(
         &self,
-        request: tonic::Request<rpc::FindNetworkSecurityGroupsByIdsRequest>,
-    ) -> Result<tonic::Response<rpc::FindNetworkSecurityGroupsByIdsResponse>, Status> {
+        request: Request<rpc::FindNetworkSecurityGroupsByIdsRequest>,
+    ) -> Result<Response<rpc::FindNetworkSecurityGroupsByIdsResponse>, Status> {
         crate::handlers::network_security_group::find_by_ids(self, request).await
     }
     async fn delete_network_security_group(
         &self,
-        request: tonic::Request<rpc::DeleteNetworkSecurityGroupRequest>,
-    ) -> Result<tonic::Response<rpc::DeleteNetworkSecurityGroupResponse>, Status> {
+        request: Request<rpc::DeleteNetworkSecurityGroupRequest>,
+    ) -> Result<Response<rpc::DeleteNetworkSecurityGroupResponse>, Status> {
         crate::handlers::network_security_group::delete(self, request).await
     }
     async fn update_network_security_group(
         &self,
-        request: tonic::Request<rpc::UpdateNetworkSecurityGroupRequest>,
-    ) -> Result<tonic::Response<rpc::UpdateNetworkSecurityGroupResponse>, Status> {
+        request: Request<rpc::UpdateNetworkSecurityGroupRequest>,
+    ) -> Result<Response<rpc::UpdateNetworkSecurityGroupResponse>, Status> {
         crate::handlers::network_security_group::update(self, request).await
     }
     async fn get_network_security_group_propagation_status(
         &self,
-        request: tonic::Request<rpc::GetNetworkSecurityGroupPropagationStatusRequest>,
-    ) -> Result<tonic::Response<rpc::GetNetworkSecurityGroupPropagationStatusResponse>, Status>
-    {
+        request: Request<rpc::GetNetworkSecurityGroupPropagationStatusRequest>,
+    ) -> Result<Response<rpc::GetNetworkSecurityGroupPropagationStatusResponse>, Status> {
         crate::handlers::network_security_group::get_propagation_status(self, request).await
     }
     async fn get_network_security_group_attachments(
         &self,
-        request: tonic::Request<rpc::GetNetworkSecurityGroupAttachmentsRequest>,
-    ) -> Result<tonic::Response<rpc::GetNetworkSecurityGroupAttachmentsResponse>, Status> {
+        request: Request<rpc::GetNetworkSecurityGroupAttachmentsRequest>,
+    ) -> Result<Response<rpc::GetNetworkSecurityGroupAttachmentsResponse>, Status> {
         crate::handlers::network_security_group::get_attachments(self, request).await
     }
 
     async fn get_desired_firmware_versions(
         &self,
-        request: tonic::Request<rpc::GetDesiredFirmwareVersionsRequest>,
-    ) -> Result<tonic::Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
+        request: Request<rpc::GetDesiredFirmwareVersionsRequest>,
+    ) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
         log_request_data(&request);
 
         let entries = self
@@ -3873,108 +3819,89 @@ impl Forge for Api {
             })
             .try_collect()
             .map_err(CarbideError::from)?;
-        Ok(tonic::Response::new(
-            rpc::GetDesiredFirmwareVersionsResponse { entries },
-        ))
+        Ok(Response::new(rpc::GetDesiredFirmwareVersionsResponse {
+            entries,
+        }))
     }
 
     async fn create_sku(
         &self,
         request: Request<rpc::SkuList>,
     ) -> Result<Response<rpc::SkuIdList>, Status> {
-        crate::handlers::sku::create(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::create(self, request).await?)
     }
+
     async fn delete_sku(&self, request: Request<SkuIdList>) -> Result<Response<()>, Status> {
-        crate::handlers::sku::delete(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::delete(self, request).await?)
     }
     async fn generate_sku_from_machine(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<rpc::Sku>, Status> {
-        crate::handlers::sku::generate_from_machine(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::generate_from_machine(self, request).await?)
     }
     async fn verify_sku_for_machine(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::sku::verify_for_machine(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::verify_for_machine(self, request).await?)
     }
     async fn assign_sku_to_machine(
         &self,
         request: Request<::rpc::forge::SkuMachinePair>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::sku::assign_to_machine(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::assign_to_machine(self, request).await?)
     }
 
     async fn remove_sku_association(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::sku::remove_sku_association(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::remove_sku_association(self, request).await?)
     }
 
     async fn get_all_sku_ids(
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::SkuIdList>, Status> {
-        crate::handlers::sku::get_all_ids(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::get_all_ids(self, request).await?)
     }
 
     async fn find_skus_by_ids(
         &self,
         request: Request<rpc::SkusByIdsRequest>,
     ) -> Result<Response<rpc::SkuList>, Status> {
-        crate::handlers::sku::find_skus_by_ids(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::find_skus_by_ids(self, request).await?)
     }
 
     async fn update_sku_metadata(
         &self,
         request: Request<rpc::SkuUpdateMetadataRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::sku::update_sku_metadata(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::update_sku_metadata(self, request).await?)
     }
 
     async fn replace_sku(&self, request: Request<rpc::Sku>) -> Result<Response<rpc::Sku>, Status> {
-        crate::handlers::sku::replace_sku(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::sku::replace_sku(self, request).await?)
     }
 
     async fn set_managed_host_quarantine_state(
         &self,
-        request: tonic::Request<rpc::SetManagedHostQuarantineStateRequest>,
+        request: Request<rpc::SetManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::SetManagedHostQuarantineStateResponse>, Status> {
         crate::handlers::machine_quarantine::set_managed_host_quarantine_state(self, request).await
     }
 
     async fn get_managed_host_quarantine_state(
         &self,
-        request: tonic::Request<rpc::GetManagedHostQuarantineStateRequest>,
+        request: Request<rpc::GetManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::GetManagedHostQuarantineStateResponse>, Status> {
         crate::handlers::machine_quarantine::get_managed_host_quarantine_state(self, request).await
     }
 
     async fn clear_managed_host_quarantine_state(
         &self,
-        request: tonic::Request<rpc::ClearManagedHostQuarantineStateRequest>,
+        request: Request<rpc::ClearManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::ClearManagedHostQuarantineStateResponse>, Status> {
         crate::handlers::machine_quarantine::clear_managed_host_quarantine_state(self, request)
             .await
@@ -3998,7 +3925,7 @@ impl Forge for Api {
 
     async fn copy_bfb_to_dpu_rshim(
         &self,
-        request: tonic::Request<rpc::CopyBfbToDpuRshimRequest>,
+        request: Request<rpc::CopyBfbToDpuRshimRequest>,
     ) -> Result<Response<()>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
@@ -4045,9 +3972,7 @@ impl Forge for Api {
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::DpaInterfaceIdList>, Status> {
-        crate::handlers::dpa::get_all_ids(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::dpa::get_all_ids(self, request).await?)
     }
 
     // Given a Vector of DPA Interface IDs, return the corresponding
@@ -4056,9 +3981,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::DpaInterfacesByIdsRequest>,
     ) -> Result<Response<rpc::DpaInterfaceList>, Status> {
-        crate::handlers::dpa::find_dpa_interfaces_by_ids(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::dpa::find_dpa_interfaces_by_ids(self, request).await?)
     }
 
     // create_dpa_interface is mainly for debugging purposes. In practice,
@@ -4074,9 +3997,7 @@ impl Forge for Api {
             )
             .into());
         }
-        crate::handlers::dpa::create(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::dpa::create(self, request).await?)
     }
 
     // delete_dpa_interface is mainly for debugging purposes.
@@ -4090,9 +4011,7 @@ impl Forge for Api {
             )
             .into());
         }
-        crate::handlers::dpa::delete(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::dpa::delete(self, request).await?)
     }
 
     // set_dpa_network_observaction_status is for debugging purposes.
@@ -4102,15 +4021,13 @@ impl Forge for Api {
         &self,
         request: Request<rpc::DpaNetworkObservationSetRequest>,
     ) -> Result<Response<rpc::DpaInterface>, Status> {
-        crate::handlers::dpa::set_dpa_network_observation_status(self, request)
-            .await
-            .map_err(|e| e.into())
+        Ok(crate::handlers::dpa::set_dpa_network_observation_status(self, request).await?)
     }
 
     async fn create_bmc_user(
         &self,
-        request: tonic::Request<rpc::CreateBmcUserRequest>,
-    ) -> Result<tonic::Response<rpc::CreateBmcUserResponse>, tonic::Status> {
+        request: Request<rpc::CreateBmcUserRequest>,
+    ) -> Result<Response<rpc::CreateBmcUserResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -4171,8 +4088,8 @@ impl Forge for Api {
 
     async fn delete_bmc_user(
         &self,
-        request: tonic::Request<rpc::DeleteBmcUserRequest>,
-    ) -> Result<tonic::Response<rpc::DeleteBmcUserResponse>, tonic::Status> {
+        request: Request<rpc::DeleteBmcUserRequest>,
+    ) -> Result<Response<rpc::DeleteBmcUserResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
 
@@ -4217,8 +4134,8 @@ impl Forge for Api {
 
     async fn set_firmware_update_time_window(
         &self,
-        request: tonic::Request<rpc::SetFirmwareUpdateTimeWindowRequest>,
-    ) -> Result<tonic::Response<rpc::SetFirmwareUpdateTimeWindowResponse>, tonic::Status> {
+        request: Request<rpc::SetFirmwareUpdateTimeWindowRequest>,
+    ) -> Result<Response<rpc::SetFirmwareUpdateTimeWindowResponse>, Status> {
         let request = request.into_inner();
         let start = request.start_timestamp.unwrap_or_default().seconds;
         let end = request.end_timestamp.unwrap_or_default().seconds;
@@ -4263,8 +4180,7 @@ impl Forge for Api {
                 .unwrap_or(chrono::Utc::now()),
             &mut txn,
         )
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
 
         txn.commit().await?;
 
@@ -4273,8 +4189,8 @@ impl Forge for Api {
 
     async fn list_host_firmware(
         &self,
-        _request: tonic::Request<rpc::ListHostFirmwareRequest>,
-    ) -> Result<tonic::Response<rpc::ListHostFirmwareResponse>, tonic::Status> {
+        _request: Request<rpc::ListHostFirmwareRequest>,
+    ) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
         let mut ret = vec![];
         for (_, entry) in self.runtime_config.get_firmware_config().map() {
             for (component, component_info) in entry.components {
@@ -4303,7 +4219,7 @@ impl Forge for Api {
 
     async fn publish_mlx_device_report(
         &self,
-        request: tonic::Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
+        request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
         // TODO(chet): Integrate this once it's time. For now, just log
         // that a report was received, that we can successfully convert
@@ -4329,8 +4245,8 @@ impl Forge for Api {
 
     async fn trim_table(
         &self,
-        request: tonic::Request<rpc::TrimTableRequest>,
-    ) -> Result<tonic::Response<rpc::TrimTableResponse>, tonic::Status> {
+        request: Request<rpc::TrimTableRequest>,
+    ) -> Result<Response<rpc::TrimTableResponse>, Status> {
         log_request_data(&request);
 
         let mut txn = self.txn_begin("trim_table").await?;
@@ -4340,8 +4256,7 @@ impl Forge for Api {
             request.get_ref().target(),
             request.get_ref().keep_entries,
         )
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
 
         txn.commit().await?;
 
@@ -4351,75 +4266,75 @@ impl Forge for Api {
     }
     async fn create_remediation(
         &self,
-        request: tonic::Request<rpc::CreateRemediationRequest>,
-    ) -> Result<tonic::Response<rpc::CreateRemediationResponse>, Status> {
+        request: Request<rpc::CreateRemediationRequest>,
+    ) -> Result<Response<rpc::CreateRemediationResponse>, Status> {
         crate::handlers::dpu_remediation::create(self, request).await
     }
 
     async fn approve_remediation(
         &self,
-        request: tonic::Request<rpc::ApproveRemediationRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::ApproveRemediationRequest>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::dpu_remediation::approve(self, request).await
     }
 
     async fn revoke_remediation(
         &self,
-        request: tonic::Request<rpc::RevokeRemediationRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::RevokeRemediationRequest>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::dpu_remediation::revoke(self, request).await
     }
 
     async fn enable_remediation(
         &self,
-        request: tonic::Request<rpc::EnableRemediationRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::EnableRemediationRequest>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::dpu_remediation::enable(self, request).await
     }
 
     async fn disable_remediation(
         &self,
-        request: tonic::Request<rpc::DisableRemediationRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::DisableRemediationRequest>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::dpu_remediation::disable(self, request).await
     }
 
     async fn find_remediation_ids(
         &self,
-        request: tonic::Request<()>,
-    ) -> Result<tonic::Response<rpc::RemediationIdList>, Status> {
+        request: Request<()>,
+    ) -> Result<Response<rpc::RemediationIdList>, Status> {
         crate::handlers::dpu_remediation::find_remediation_ids(self, request).await
     }
 
     async fn find_remediations_by_ids(
         &self,
-        request: tonic::Request<rpc::RemediationIdList>,
-    ) -> Result<tonic::Response<rpc::RemediationList>, Status> {
+        request: Request<rpc::RemediationIdList>,
+    ) -> Result<Response<rpc::RemediationList>, Status> {
         crate::handlers::dpu_remediation::find_remediations_by_ids(self, request).await
     }
     async fn find_applied_remediation_ids(
         &self,
-        request: tonic::Request<rpc::FindAppliedRemediationIdsRequest>,
-    ) -> Result<tonic::Response<rpc::AppliedRemediationIdList>, Status> {
+        request: Request<rpc::FindAppliedRemediationIdsRequest>,
+    ) -> Result<Response<rpc::AppliedRemediationIdList>, Status> {
         crate::handlers::dpu_remediation::find_applied_remediation_ids(self, request).await
     }
     async fn find_applied_remediations(
         &self,
-        request: tonic::Request<rpc::FindAppliedRemediationsRequest>,
-    ) -> Result<tonic::Response<rpc::AppliedRemediationList>, Status> {
+        request: Request<rpc::FindAppliedRemediationsRequest>,
+    ) -> Result<Response<rpc::AppliedRemediationList>, Status> {
         crate::handlers::dpu_remediation::find_applied_remediations(self, request).await
     }
     async fn get_next_remediation_for_machine(
         &self,
-        request: tonic::Request<rpc::GetNextRemediationForMachineRequest>,
-    ) -> Result<tonic::Response<rpc::GetNextRemediationForMachineResponse>, Status> {
+        request: Request<rpc::GetNextRemediationForMachineRequest>,
+    ) -> Result<Response<rpc::GetNextRemediationForMachineResponse>, Status> {
         crate::handlers::dpu_remediation::get_next_remediation_for_machine(self, request).await
     }
 
     async fn remediation_applied(
         &self,
-        request: tonic::Request<rpc::RemediationAppliedRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::RemediationAppliedRequest>,
+    ) -> Result<Response<()>, Status> {
         crate::handlers::dpu_remediation::remediation_applied(self, request).await
     }
 
@@ -4438,8 +4353,8 @@ impl Forge for Api {
     //
     async fn set_primary_dpu(
         &self,
-        request: tonic::Request<rpc::SetPrimaryDpuRequest>,
-    ) -> Result<tonic::Response<()>, Status> {
+        request: Request<rpc::SetPrimaryDpuRequest>,
+    ) -> Result<Response<()>, Status> {
         log_request_data(&request);
 
         let request = request.into_inner();
@@ -4609,7 +4524,7 @@ impl Forge for Api {
                 .await
                 .map_err(|e| CarbideError::internal(e.to_string()))?;
         }
-        Ok(tonic::Response::new(()))
+        Ok(Response::new(()))
     }
 
     async fn create_dpu_extension_service(
@@ -4697,7 +4612,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<MachineId>,
-) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), tonic::Status> {
+) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), Status> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
             let interface = db::machine_interface::find_by_ip(
@@ -4814,71 +4729,6 @@ impl Api {
             Ok(Some(m)) => m,
         };
         Ok((machine, txn))
-    }
-
-    /// Allocate a value from the vpc vni resource pool.
-    ///
-    /// If the pool exists but is empty or has en error, return that.
-    pub(crate) async fn allocate_vpc_vni(
-        &self,
-        txn: &mut PgConnection,
-        owner_id: &str,
-    ) -> Result<i32, CarbideError> {
-        match db::resource_pool::allocate(
-            &self.common_pools.ethernet.pool_vpc_vni,
-            txn,
-            resource_pool::OwnerType::Vpc,
-            owner_id,
-        )
-        .await
-        {
-            Ok(val) => Ok(val),
-            Err(ResourcePoolDatabaseError::ResourcePool(
-                resource_pool::ResourcePoolError::Empty,
-            )) => {
-                tracing::error!(
-                    owner_id,
-                    pool = "vpc_vni",
-                    "Pool exhausted, cannot allocate"
-                );
-                Err(CarbideError::ResourceExhausted("pool vpc_vni".to_string()))
-            }
-            Err(err) => {
-                tracing::error!(owner_id, error = %err, pool = "vpc_vni", "Error allocating from resource pool");
-                Err(err.into())
-            }
-        }
-    }
-
-    /// Allocate a value from the pkey resource pool.
-    ///
-    /// If the pool doesn't exist return error.
-    /// If the pool exists but is empty or has en error, return that.
-    pub(crate) async fn allocate_pkey(
-        &self,
-        txn: &mut PgConnection,
-        owner_id: &str,
-    ) -> Result<Option<PartitionKey>, CarbideError> {
-        match db::resource_pool::allocate(self
-            .common_pools
-            .infiniband
-            .pkey_pools
-            .get(DEFAULT_IB_FABRIC_NAME)
-            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?, txn, resource_pool::OwnerType::IBPartition, owner_id)
-            .await
-        {
-            Ok(val) => Ok(Some(
-                PartitionKey::try_from(val)
-                .map_err(|_| CarbideError::internal(format!("Partition key {val} return from pool is not a valid pkey. Pool Definition is invalid")))?)),
-            Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
-                tracing::error!(owner_id, pool = "pkey", "Pool exhausted, cannot allocate");
-                Err(CarbideError::ResourceExhausted("pool pkey".to_string()))
-            }
-            Err(err) => {
-                tracing::error!(owner_id, error = %err, pool = "pkey", "Error allocating from resource pool");
-                Err(err.into())
-            }
-        }
     }
 
     pub fn log_filter_string(&self) -> String {

@@ -12,12 +12,15 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use db::resource_pool::ResourcePoolDatabaseError;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter, network_security_group};
 use forge_uuid::network_security_group::NetworkSecurityGroupId;
 use forge_uuid::vpc::VpcId;
+use model::resource_pool;
 use model::tenant::InvalidTenantOrg;
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization};
+use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -78,7 +81,7 @@ pub(crate) async fn create(
 
     let mut vpc = db::vpc::persist(NewVpc::try_from(request.into_inner())?, &mut txn).await?;
 
-    vpc.vni = Some(api.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
+    vpc.vni = Some(allocate_vpc_vni(api, &mut txn, &vpc.id.to_string()).await?);
 
     // We will allocate an dpa_vni for this VPC when the first instance with DPA NICs gets added
     // to this VPC.
@@ -318,4 +321,36 @@ pub(crate) async fn find(
         .map(Response::new)?;
 
     Ok(result)
+}
+
+/// Allocate a value from the vpc vni resource pool.
+///
+/// If the pool exists but is empty or has en error, return that.
+async fn allocate_vpc_vni(
+    api: &Api,
+    txn: &mut PgConnection,
+    owner_id: &str,
+) -> Result<i32, CarbideError> {
+    match db::resource_pool::allocate(
+        &api.common_pools.ethernet.pool_vpc_vni,
+        txn,
+        resource_pool::OwnerType::Vpc,
+        owner_id,
+    )
+    .await
+    {
+        Ok(val) => Ok(val),
+        Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
+            tracing::error!(
+                owner_id,
+                pool = "vpc_vni",
+                "Pool exhausted, cannot allocate"
+            );
+            Err(CarbideError::ResourceExhausted("pool vpc_vni".to_string()))
+        }
+        Err(err) => {
+            tracing::error!(owner_id, error = %err, pool = "vpc_vni", "Error allocating from resource pool");
+            Err(err.into())
+        }
+    }
 }
