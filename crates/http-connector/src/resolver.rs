@@ -11,12 +11,12 @@
  */
 use std::future::Future;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::os::fd::{FromRawFd, IntoRawFd};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::vec;
 
-use dsocket::Dsocket;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::error::ResolveError;
 use hickory_resolver::name_server::{ConnectionProvider, GenericConnector, RuntimeProvider};
@@ -27,6 +27,8 @@ use hyper::service::Service;
 use socket2::SockAddr;
 use tokio::net::{TcpSocket, TcpStream as TokioTcpStream, UdpSocket as TokioUdpSocket};
 use tracing::trace;
+
+const MGMT_VRF_NAME: &[u8] = "mgmt".as_bytes();
 
 type HickoryResolverFuture =
     Pin<Box<dyn Future<Output = Result<SocketAddrs, ResolveError>> + Send>>;
@@ -50,19 +52,27 @@ impl ForgeRuntimeProvider {
         self
     }
 
-    pub fn create_ipv4_tcp_socket(use_mgmt_vrf: bool) -> std::io::Result<Dsocket> {
-        let socket = Dsocket::new_ipv4_tcp()?;
-        if use_mgmt_vrf {
-            socket.use_mgmt_vrf()?;
+    pub fn create_ipv4_tcp_socket(use_mgmt: bool) -> std::io::Result<socket2::Socket> {
+        let socket = socket2::Socket::new(
+            socket2::Domain::IPV4,
+            socket2::Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )?;
+        socket.set_reuse_address(true)?;
+        if use_mgmt {
+            socket.bind_device(Some(MGMT_VRF_NAME))?;
         }
         Ok(socket)
     }
-    pub fn create_ipv4_udp_socket(use_mgmt_vrf: bool) -> std::io::Result<Dsocket> {
-        let socket = Dsocket::new_ipv4_udp()?;
-        if use_mgmt_vrf {
-            socket.use_mgmt_vrf()?;
+    pub fn create_ipv4_udp_socket(use_mgmt: bool) -> std::io::Result<socket2::Socket> {
+        let socket = socket2::Socket::new(
+            socket2::Domain::IPV4,
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        )?;
+        if use_mgmt {
+            socket.bind_device(Some(MGMT_VRF_NAME))?;
         }
-
         Ok(socket)
     }
 }
@@ -90,14 +100,18 @@ impl RuntimeProvider for ForgeRuntimeProvider {
             };
 
             Box::pin(async move {
-                let tokio_socket: TcpSocket = socket.try_into()?;
-                tokio_socket
-                    .connect(server_addr)
-                    .await
-                    .map(AsyncIoTokioAsStd)
+                //  Set non_blocking which is required for Tokio::TcpSocket
+                socket.set_nonblocking(true)?;
+                let raw_fd = socket.into_raw_fd();
+                // This is safe because we own the raw_fd from socket.into_raw_fd()
+                // Convert socket into a TokioTcpSocket
+                let tcp_socket: TcpSocket = unsafe { TcpSocket::from_raw_fd(raw_fd) };
+
+                tcp_socket.connect(server_addr).await.map(AsyncIoTokioAsStd)
             })
         } else {
             Box::pin(async move {
+                // Without management VRF, we can just use the default TCP socket
                 TokioTcpStream::connect(server_addr)
                     .await
                     .map(AsyncIoTokioAsStd)
@@ -118,17 +132,19 @@ impl RuntimeProvider for ForgeRuntimeProvider {
                 }
             };
 
-            let new_sock_addr = SockAddr::from(local_addr);
-            let sock = socket.into_inner();
+            let sock_addr = SockAddr::from(local_addr);
 
-            match sock.bind(&new_sock_addr) {
+            match socket.bind(&sock_addr) {
                 Ok(_) => (),
                 Err(io_err) => {
                     return Box::pin(async move { Err(io_err) });
                 }
             }
 
-            let tokio_socket = match TokioUdpSocket::from_std(sock.into()) {
+            // Convert socket2::Socket -> UdpSocket
+            let std_socket: std::net::UdpSocket = socket.into();
+            // Convert std::net::UdpSocket to TokioUdpSocket
+            let tokio_socket = match TokioUdpSocket::from_std(std_socket) {
                 Ok(socket) => socket,
                 Err(io_err) => {
                     return Box::pin(async move { Err(io_err) });
@@ -137,6 +153,7 @@ impl RuntimeProvider for ForgeRuntimeProvider {
 
             Box::pin(async move { Ok(tokio_socket) })
         } else {
+            // Without management VRF, we can just use the default UDP socket
             Box::pin(tokio::net::UdpSocket::bind(local_addr))
         }
     }

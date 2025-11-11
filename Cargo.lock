@@ -1550,7 +1550,7 @@ dependencies = [
  "lru 0.13.0",
  "serde",
  "serde_yaml",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "thiserror 2.0.16",
  "tokio",
  "tonic 0.14.2",
@@ -1719,12 +1719,11 @@ dependencies = [
 name = "carbide-http-connector"
 version = "0.0.0"
 dependencies = [
- "dsocket",
  "futures-util",
  "hickory-resolver",
  "hyper",
  "hyper-util",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tokio",
  "tokio-socks",
  "tower-service",
@@ -3318,15 +3317,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d105028bd2b5dfcb33318fd79a445001ead36004dd8dffef1bdd7e493d8bc1e"
 dependencies = [
  "tokio",
-]
-
-[[package]]
-name = "dsocket"
-version = "0.1.0"
-dependencies = [
- "socket2 0.5.10",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -8049,12 +8039,12 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "233504af464074f9d066d7b5416c5f9b894a5862a6506e306f7b816cdd6f1807"
+checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8718,7 +8708,7 @@ dependencies = [
  "pin-project-lite",
  "signal-hook-registry",
  "slab",
- "socket2 0.6.0",
+ "socket2 0.6.1",
  "tokio-macros",
  "tracing",
  "windows-sys 0.59.0",
@@ -8966,7 +8956,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "socket2 0.6.0",
+ "socket2 0.6.1",
  "sync_wrapper",
  "tokio",
  "tokio-rustls 0.26.3",
