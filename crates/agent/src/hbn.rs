@@ -42,8 +42,6 @@ pub struct RunCommandPredicate<'a> {
 impl<'a> RunCommandPredicate<'a> {
     /// Create a new `RunCommandPredicate` with the appropriate `Command` and `args`
     /// ENV::VAR `IGNORE_MGMT_VRF` dictates which command predicate to use
-    /// much in the same way as it dictates how `use_mgmt_vrf` is used in `DpulyfeResolver`
-    /// and `DpulyfeHttpConnector`
     pub fn new(container_id: &'a str) -> Self {
         let ignore_mgmt_vrf = std::env::var("IGNORE_MGMT_VRF").is_ok();
         tracing::trace!("RunCommandPredicate: IGNORE_MGMT_VRF is {ignore_mgmt_vrf}");

@@ -24,9 +24,6 @@ tower-service = { workspace = true }
 tokio-socks = { workspace = true }
 tryhard = { workspace = true }
 
-# [local-dependencies]
-dsocket = { path = "../dsocket" }
-
 [dev-dependencies]
 hyper = { workspace = true, features = ["client", "http1", "http2"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
