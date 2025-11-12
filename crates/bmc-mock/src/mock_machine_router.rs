@@ -24,7 +24,8 @@ use http_body_util::BodyExt;
 use lazy_static::lazy_static;
 use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::{BootOption, ComputerSystem, ODataId};
-use libredfish::{Chassis, EthernetInterface, NetworkAdapter, OData, PCIeDevice};
+use libredfish::{Chassis, NetworkAdapter, OData, PCIeDevice};
+use mac_address::MacAddress;
 use regex::{Captures, Regex};
 use tokio::sync::{mpsc, oneshot};
 
@@ -289,25 +290,18 @@ async fn get_managers_ethernet_interface(
     request: Request<Body>,
 ) -> MockWrapperResult {
     let inner_response = state.call_inner_router(request).await?;
-    let mut iface = serde_json::from_slice::<EthernetInterface>(&inner_response)?;
-
+    let mut iface = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
     match state.machine_info {
         MachineInfo::Dpu(dpu) => {
-            if manager_id.eq("Bluefield_BMC")
-                && iface
-                    .id
-                    .as_ref()
-                    .map(|name| name.eq("eth0"))
-                    .unwrap_or(false)
-            {
-                iface.mac_address = Some(dpu.bmc_mac_address.to_string());
+            if manager_id.eq("Bluefield_BMC") && redfish_resource_id(&iface) == Some("eth0") {
+                json_patch(&mut iface, mac_address_patch(dpu.bmc_mac_address));
             }
         }
         MachineInfo::Host(host) => {
-            iface.mac_address = Some(host.bmc_mac_address.to_string());
+            json_patch(&mut iface, mac_address_patch(host.bmc_mac_address));
         }
     }
-    Ok(Bytes::from(serde_json::to_string(&iface)?))
+    Ok(Bytes::from(iface.to_string()))
 }
 
 async fn get_systems_ethernet_interface(
@@ -316,19 +310,21 @@ async fn get_systems_ethernet_interface(
     request: Request<Body>,
 ) -> MockWrapperResult {
     let inner_response = state.call_inner_router(request).await?;
-    let mut iface = serde_json::from_slice::<EthernetInterface>(&inner_response)?;
+    let mut iface = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
 
     match state.machine_info {
         MachineInfo::Dpu(dpu) => {
             if system_id.eq("Bluefield") {
-                iface.mac_address = Some(dpu.host_mac_address.to_string());
+                json_patch(&mut iface, mac_address_patch(dpu.host_mac_address));
             }
         }
         MachineInfo::Host(host) => {
-            iface.mac_address = host.system_mac_address().map(|m| m.to_string());
+            if let Some(m) = host.system_mac_address() {
+                json_patch(&mut iface, mac_address_patch(m));
+            }
         }
     }
-    Ok(Bytes::from(serde_json::to_string(&iface)?))
+    Ok(Bytes::from(iface.to_string()))
 }
 
 async fn get_chassis(
@@ -1221,5 +1217,33 @@ impl ResourceName {
         } else {
             v
         }
+    }
+}
+
+fn redfish_resource_id(json: &serde_json::Value) -> Option<&str> {
+    json.as_object()
+        .and_then(|obj| obj.get("Id"))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn mac_address_patch(m: MacAddress) -> serde_json::Value {
+    serde_json::json!({
+        "MACAddress": m.to_string()
+    })
+}
+
+fn json_patch(target: &mut serde_json::Value, patch: serde_json::Value) {
+    match (target, patch) {
+        (serde_json::Value::Object(target_obj), serde_json::Value::Object(patch_obj)) => {
+            for (k, v_patch) in patch_obj {
+                match target_obj.get_mut(&k) {
+                    Some(v_target) => json_patch(v_target, v_patch),
+                    None => {
+                        target_obj.insert(k, v_patch);
+                    }
+                }
+            }
+        }
+        (target_slot, v_patch) => *target_slot = v_patch,
     }
 }
