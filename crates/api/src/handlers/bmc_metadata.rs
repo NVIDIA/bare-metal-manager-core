@@ -14,6 +14,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::handlers::bmc_endpoint_explorer::validate_and_complete_bmc_endpoint_request;
 
 pub(crate) async fn get(
     api: &Api,
@@ -24,7 +25,7 @@ pub(crate) async fn get(
 
     let mut txn = api.txn_begin("get_bmc_meta_data").await?;
 
-    let (bmc_endpoint_request, _) = crate::api::validate_and_complete_bmc_endpoint_request(
+    let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
         &mut txn,
         request.bmc_endpoint_request,
         request.machine_id,

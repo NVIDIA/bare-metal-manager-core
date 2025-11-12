@@ -28,11 +28,9 @@ use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use itertools::Itertools;
-use libredfish::{RoleId, SystemPowerControl};
-use mac_address::MacAddress;
+use libredfish::SystemPowerControl;
 use mlxconfig_device::report::MlxDeviceReport;
 use model::firmware::DesiredFirmwareVersions;
-use model::machine::machine_id::try_parse_machine_id;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, LoadSnapshotOptions,
@@ -41,7 +39,6 @@ use model::machine::{
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use model::resource_pool::common::CommonPools;
-use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 #[cfg(feature = "linux-build")]
 use tss_esapi::{
@@ -1957,323 +1954,56 @@ impl Forge for Api {
         &self,
         request: Request<rpc::AdminBmcResetRequest>,
     ) -> Result<Response<rpc::AdminBmcResetResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        // Note: AdminBmcResetRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-        let machine_id = req
-            .machine_id
-            .as_ref()
-            .map(|id| try_parse_machine_id(id))
-            .transpose()?;
-
-        let mut txn = self.txn_begin("admin_bmc_reset").await?;
-
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-
-        tracing::info!(
-            "Resetting BMC (ipmi tool: {}): {}",
-            req.use_ipmitool,
-            endpoint_address
-        );
-
-        if req.use_ipmitool {
-            crate::handlers::bmc_endpoint_explorer::ipmitool_reset_bmc(self, bmc_endpoint_request)
-                .await?;
-        } else {
-            crate::handlers::bmc_endpoint_explorer::redfish_reset_bmc(self, bmc_endpoint_request)
-                .await?;
-        }
-
-        tracing::info!(
-            "BMC Reset (ipmi tool: {}) request succeeded to {}",
-            req.use_ipmitool,
-            endpoint_address
-        );
-
-        Ok(Response::new(rpc::AdminBmcResetResponse {}))
+        crate::handlers::bmc_endpoint_explorer::admin_bmc_reset(self, request).await
     }
 
     async fn disable_secure_boot(
         &self,
         request: Request<rpc::BmcEndpointRequest>,
     ) -> Result<Response<::rpc::forge::DisableSecureBootResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let mut txn = self.txn_begin("disable_secure_boot").await?;
-
-        let (bmc_endpoint_request, _) =
-            validate_and_complete_bmc_endpoint_request(&mut txn, Some(req), None).await?;
-
-        txn.commit().await?;
-
-        crate::handlers::bmc_endpoint_explorer::disable_secure_boot(
-            self,
-            bmc_endpoint_request.clone(),
-        )
-        .await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-        tracing::info!(
-            "disable_secure_boot request succeeded to {}",
-            endpoint_address
-        );
-
-        Ok(Response::new(rpc::DisableSecureBootResponse {}))
+        crate::handlers::bmc_endpoint_explorer::disable_secure_boot(self, request).await
     }
 
     async fn lockdown(
         &self,
         request: Request<rpc::LockdownRequest>,
     ) -> Result<Response<::rpc::forge::LockdownResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-        let action = req.action();
-        let action = match action {
-            ::rpc::forge::LockdownAction::Enable => libredfish::EnabledDisabled::Enabled,
-            ::rpc::forge::LockdownAction::Disable => libredfish::EnabledDisabled::Disabled,
-        };
-
-        let mut txn = self.txn_begin("lockdown").await?;
-
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            req.machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        crate::handlers::bmc_endpoint_explorer::lockdown(
-            self,
-            bmc_endpoint_request.clone(),
-            action,
-        )
-        .await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-        tracing::info!(
-            "lockdown {} request succeeded to {}",
-            action.to_string().to_lowercase(),
-            endpoint_address
-        );
-
-        Ok(Response::new(rpc::LockdownResponse {}))
+        crate::handlers::bmc_endpoint_explorer::lockdown(self, request).await
     }
 
     async fn lockdown_status(
         &self,
         request: Request<rpc::LockdownStatusRequest>,
     ) -> Result<Response<::rpc::site_explorer::LockdownStatus>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let mut txn = self.txn_begin("lockdown_status").await?;
-
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            req.machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        let response = crate::handlers::bmc_endpoint_explorer::lockdown_status(
-            self,
-            bmc_endpoint_request.clone(),
-        )
-        .await?;
-
-        Ok(response)
+        crate::handlers::bmc_endpoint_explorer::lockdown_status(self, request).await
     }
 
     async fn enable_infinite_boot(
         &self,
         request: Request<rpc::EnableInfiniteBootRequest>,
     ) -> Result<Response<::rpc::forge::EnableInfiniteBootResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        // Note: EnableInfiniteBootRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-        let machine_id = req
-            .machine_id
-            .as_ref()
-            .map(|id| try_parse_machine_id(id))
-            .transpose()?;
-
-        let mut txn = self.txn_begin("enable_infinite_boot").await?;
-
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        crate::handlers::bmc_endpoint_explorer::enable_infinite_boot(
-            self,
-            bmc_endpoint_request.clone(),
-        )
-        .await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-        tracing::info!(
-            "enable_infinite_boot request succeeded to {}",
-            endpoint_address
-        );
-
-        Ok(Response::new(rpc::EnableInfiniteBootResponse {}))
+        crate::handlers::bmc_endpoint_explorer::enable_infinite_boot(self, request).await
     }
 
     async fn is_infinite_boot_enabled(
         &self,
         request: Request<rpc::IsInfiniteBootEnabledRequest>,
     ) -> Result<Response<::rpc::forge::IsInfiniteBootEnabledResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        // Note: IsInfiniteBootEnabledRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-        let machine_id = req
-            .machine_id
-            .as_ref()
-            .map(|id| try_parse_machine_id(id))
-            .transpose()?;
-
-        let mut txn = self.txn_begin("is_infinite_boot_enabled").await?;
-
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        let response = crate::handlers::bmc_endpoint_explorer::is_infinite_boot_enabled(
-            self,
-            bmc_endpoint_request.clone(),
-        )
-        .await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-        tracing::info!(
-            "is_infinite_boot_enabled request succeeded to {}, result: {:?}",
-            endpoint_address,
-            response.get_ref()
-        );
-
-        Ok(Response::new(rpc::IsInfiniteBootEnabledResponse {
-            is_enabled: response.into_inner(),
-        }))
+        crate::handlers::bmc_endpoint_explorer::is_infinite_boot_enabled(self, request).await
     }
 
     async fn forge_setup(
         &self,
         request: Request<rpc::ForgeSetupRequest>,
     ) -> Result<Response<::rpc::forge::ForgeSetupResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        // Note: ForgeSetupRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-        let machine_id = req
-            .machine_id
-            .as_ref()
-            .map(|id| try_parse_machine_id(id))
-            .transpose()?;
-
-        let mut txn = self.txn_begin("forge_setup").await?;
-
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-
-        tracing::info!("Starting Forge Setup for BMC: {}", endpoint_address);
-
-        crate::handlers::bmc_endpoint_explorer::forge_setup(
-            self,
-            rpc::ForgeSetupRequest {
-                bmc_endpoint_request: Some(bmc_endpoint_request.clone()),
-                machine_id: req.machine_id,
-                boot_interface_mac: req.boot_interface_mac,
-            },
-        )
-        .await?;
-
-        tracing::info!("Forge Setup request succeeded to {}", endpoint_address);
-
-        Ok(Response::new(rpc::ForgeSetupResponse {}))
+        crate::handlers::bmc_endpoint_explorer::forge_setup(self, request).await
     }
 
     async fn set_dpu_first_boot_order(
         &self,
         request: Request<rpc::SetDpuFirstBootOrderRequest>,
     ) -> Result<Response<::rpc::forge::SetDpuFirstBootOrderResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        // Note: SetDpuFirstBootOrderRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-        let machine_id = req
-            .machine_id
-            .as_ref()
-            .map(|id| try_parse_machine_id(id))
-            .transpose()?;
-
-        let mut txn = self.txn_begin("set_dpu_first_boot_order").await?;
-
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-
-        tracing::info!(
-            "Setting DPU first in boot order for BMC: {}",
-            endpoint_address
-        );
-
-        crate::handlers::bmc_endpoint_explorer::set_dpu_first_boot_order(
-            self,
-            rpc::SetDpuFirstBootOrderRequest {
-                bmc_endpoint_request: Some(bmc_endpoint_request.clone()),
-                machine_id: req.machine_id,
-                boot_interface_mac: req.boot_interface_mac,
-            },
-        )
-        .await?;
-
-        tracing::info!(
-            "Set DPU first in boot order request succeeded to {}",
-            endpoint_address
-        );
-
-        Ok(Response::new(rpc::SetDpuFirstBootOrderResponse {}))
+        crate::handlers::bmc_endpoint_explorer::set_dpu_first_boot_order(self, request).await
     }
 
     /// Should this DPU upgrade it's forge-dpu-agent?
@@ -3497,91 +3227,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::AdminPowerControlRequest>,
     ) -> Result<Response<rpc::AdminPowerControlResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        // Note: AdminPowerControlRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-        let machine_id = req
-            .machine_id
-            .as_ref()
-            .map(|id| try_parse_machine_id(id))
-            .transpose()?;
-
-        let action = req.action();
-
-        let mut txn = self.txn_begin("admin_power_control").await?;
-
-        let (bmc_endpoint_request, machine_id) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            machine_id,
-        )
-        .await?;
-
-        let action = match action {
-            ::rpc::forge::admin_power_control_request::SystemPowerControl::On => {
-                libredfish::SystemPowerControl::On
-            }
-            ::rpc::forge::admin_power_control_request::SystemPowerControl::GracefulShutdown => {
-                libredfish::SystemPowerControl::GracefulShutdown
-            }
-            ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff => {
-                libredfish::SystemPowerControl::ForceOff
-            }
-            ::rpc::forge::admin_power_control_request::SystemPowerControl::GracefulRestart => {
-                libredfish::SystemPowerControl::GracefulRestart
-            }
-            ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart => {
-                libredfish::SystemPowerControl::ForceRestart
-            }
-            ::rpc::forge::admin_power_control_request::SystemPowerControl::AcPowercycle => {
-                libredfish::SystemPowerControl::ACPowercycle
-            }
-        };
-
-        let mut msg: Option<String> = None;
-        if let Some(machine_id) = machine_id {
-            let power_manager_enabled = self.runtime_config.power_manager_options.enabled;
-            if power_manager_enabled {
-                let snapshot = db::managed_host::load_snapshot(
-                    &mut txn,
-                    &machine_id,
-                    LoadSnapshotOptions {
-                        include_history: true,
-                        include_instance_data: false,
-                        host_health_config: self.runtime_config.host_health,
-                    },
-                )
-                .await?
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "machine",
-                    id: machine_id.to_string(),
-                })?;
-
-                if let Some(power_state) = snapshot
-                    .host_snapshot
-                    .power_options
-                    .map(|x| x.desired_power_state)
-                    && power_state == model::power_manager::PowerState::On
-                    && action == libredfish::SystemPowerControl::ForceOff
-                {
-                    msg = Some(
-                        "!!WARNING!! Desired power state for the host is set as On while the requested action is Off. Carbide will attempt to bring the host online after some time.".to_string(),
-                    )
-                }
-            }
-        }
-
-        txn.commit().await?;
-
-        crate::handlers::bmc_endpoint_explorer::redfish_power_control(
-            self,
-            bmc_endpoint_request,
-            action,
-        )
-        .await?;
-
-        Ok(Response::new(rpc::AdminPowerControlResponse { msg }))
+        crate::handlers::bmc_endpoint_explorer::admin_power_control(self, request).await
     }
 
     async fn on_demand_machine_validation(
@@ -4041,108 +3687,14 @@ impl Forge for Api {
         &self,
         request: Request<rpc::CreateBmcUserRequest>,
     ) -> Result<Response<rpc::CreateBmcUserResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        // Note: CreateBmcUserRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-        let machine_id = req
-            .machine_id
-            .as_ref()
-            .map(|id| try_parse_machine_id(id))
-            .transpose()?;
-
-        let mut txn = self.txn_begin("create_bmc_user").await?;
-
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-
-        let role: RoleId = match req
-            .create_role_id
-            .unwrap_or("Administrator".to_string())
-            .to_lowercase()
-            .as_str()
-        {
-            "administrator" => RoleId::Administrator,
-            "operator" => RoleId::Operator,
-            "readonly" => RoleId::ReadOnly,
-            "noaccess" => RoleId::NoAccess,
-            _ => RoleId::Administrator,
-        };
-
-        tracing::info!(
-            "Creating BMC User {} ({role}) on {endpoint_address}",
-            req.create_username,
-        );
-
-        crate::handlers::bmc_endpoint_explorer::create_bmc_user(
-            self,
-            &bmc_endpoint_request,
-            &req.create_username,
-            &req.create_password,
-            role,
-        )
-        .await?;
-
-        tracing::info!(
-            "Successfully created BMC User {} ({role}) on {endpoint_address}",
-            req.create_username
-        );
-
-        Ok(Response::new(rpc::CreateBmcUserResponse {}))
+        crate::handlers::bmc_endpoint_explorer::create_bmc_user(self, request).await
     }
 
     async fn delete_bmc_user(
         &self,
         request: Request<rpc::DeleteBmcUserRequest>,
     ) -> Result<Response<rpc::DeleteBmcUserResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        // Note: DeleteBmcUserRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-        let machine_id = req
-            .machine_id
-            .as_ref()
-            .map(|id| try_parse_machine_id(id))
-            .transpose()?;
-
-        let mut txn = self.txn_begin("delete_bmc_user").await?;
-        let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            machine_id,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-
-        tracing::info!(
-            "Deleting BMC User {} on {endpoint_address}",
-            req.delete_username,
-        );
-
-        crate::handlers::bmc_endpoint_explorer::delete_bmc_user(
-            self,
-            &bmc_endpoint_request,
-            &req.delete_username,
-        )
-        .await?;
-
-        tracing::info!(
-            "Successfully deleted BMC User {} on {endpoint_address}",
-            req.delete_username
-        );
-
-        Ok(Response::new(rpc::DeleteBmcUserResponse {}))
+        crate::handlers::bmc_endpoint_explorer::delete_bmc_user(self, request).await
     }
 
     async fn set_firmware_update_time_window(
@@ -4614,99 +4166,6 @@ fn truncate(mut s: String, len: usize) -> String {
         s.replace_range(len - 2..len, "..");
     }
     s
-}
-
-/// Accepts an optional partial or complete BmcEndpointRequest and optional machine ID and returns a complete and valid BmcEndpointRequest.
-///
-/// * `txn`                  - Active database transaction
-/// * `bmc_endpoint_request` - Optional BmcEndpointRequest.  Can supply _only_ ip_address or all fields.
-/// * `machine_id`           - Optional machine ID that can be used to build a new BmcEndpointRequest.
-pub(crate) async fn validate_and_complete_bmc_endpoint_request(
-    txn: &mut PgConnection,
-    bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
-    machine_id: Option<MachineId>,
-) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), Status> {
-    match (bmc_endpoint_request, machine_id) {
-        (Some(bmc_endpoint_request), _) => {
-            let interface = db::machine_interface::find_by_ip(
-                txn,
-                bmc_endpoint_request.ip_address.parse().unwrap(),
-            )
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine_interface",
-                id: bmc_endpoint_request.ip_address.clone(),
-            })?;
-
-            let bmc_mac = match bmc_endpoint_request.mac_address {
-                // No MAC in the request, use the interface MAC
-                None => interface.mac_address.to_string(),
-
-                // MAC passed in the request, check if it matches the interface MAC
-                Some(request_mac) => {
-                    let parsed_mac = request_mac
-                        .parse::<MacAddress>()
-                        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-
-                    if parsed_mac != interface.mac_address {
-                        return Err(CarbideError::BmcMacIpMismatch {
-                            requested_ip: bmc_endpoint_request.ip_address.clone(),
-                            requested_mac: request_mac,
-                            found_mac: interface.mac_address.to_string(),
-                        }
-                        .into());
-                    }
-
-                    request_mac
-                }
-            };
-
-            Ok((
-                BmcEndpointRequest {
-                    ip_address: bmc_endpoint_request.ip_address,
-                    mac_address: Some(bmc_mac),
-                },
-                interface.machine_id,
-            ))
-        }
-        // User provided machine_id
-        (_, Some(machine_id)) => {
-            log_machine_id(&machine_id);
-
-            let mut topologies =
-                db::machine_topology::find_latest_by_machine_ids(txn, &[machine_id]).await?;
-
-            let topology =
-                topologies
-                    .remove(&machine_id)
-                    .ok_or_else(|| CarbideError::NotFoundError {
-                        kind: "machine",
-                        id: machine_id.to_string(),
-                    })?;
-
-            let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
-                CarbideError::internal(format!(
-                    "Machine found for {machine_id} but BMC IP is missing"
-                ))
-            })?;
-
-            let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
-                CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
-            })?;
-
-            Ok((
-                BmcEndpointRequest {
-                    ip_address: bmc_ip.to_owned(),
-                    mac_address: Some(bmc_mac_address.to_string()),
-                },
-                Some(machine_id),
-            ))
-        }
-
-        _ => Err(Status::invalid_argument(
-            "Provide either machine_id or BmcEndpointRequest with at least ip_address",
-        )),
-    }
 }
 
 impl Api {
