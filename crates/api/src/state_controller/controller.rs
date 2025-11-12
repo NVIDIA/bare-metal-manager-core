@@ -320,7 +320,6 @@ impl<IO: StateControllerIO> StateController<IO> {
                             let mut ctx = StateHandlerContext {
                                 services: services.as_ref(),
                                 metrics: &mut metrics.specific,
-                                power_options: None
                             };
 
                             let handler_outcome = handler
@@ -388,14 +387,6 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 let mut txn = pool.begin().await?;
                                 let db_outcome = PersistentStateHandlerOutcome::from_result(handler_outcome.as_ref());
                                 io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
-                                txn.commit()
-                                    .await
-                                    .map_err(StateHandlerError::TransactionError)?;
-                            }
-
-                            if let Some(power_options) = ctx.power_options {
-                                let mut txn = pool.begin().await?;
-                                db::power_options::persist(&power_options, &mut txn).await?;
                                 txn.commit()
                                     .await
                                     .map_err(StateHandlerError::TransactionError)?;
