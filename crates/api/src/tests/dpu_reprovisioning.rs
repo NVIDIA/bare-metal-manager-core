@@ -409,11 +409,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     _ = forge_agent_control(&env, rpc_instance.machine_id()).await;
@@ -453,11 +449,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
@@ -490,11 +482,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
     txn.commit().await.unwrap();
 
@@ -525,11 +513,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
     txn.commit().await.unwrap();
 
@@ -551,11 +535,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
     txn.commit().await.unwrap();
 
@@ -577,11 +557,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
     txn.commit().await.unwrap();
 
@@ -614,11 +590,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     env.run_machine_state_controller_iteration().await;
@@ -640,11 +612,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     env.run_machine_state_controller_iteration().await;
