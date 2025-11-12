@@ -1220,11 +1220,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     assert!(host.host_reprovision_requested.is_some());
@@ -1267,11 +1263,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
     txn.commit().await.unwrap();
 
@@ -1311,11 +1303,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     txn.commit().await.unwrap();
@@ -1345,11 +1333,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     txn.commit().await.unwrap();
@@ -1401,11 +1385,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     txn.commit().await.unwrap();
@@ -1435,11 +1415,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
     txn.commit().await.unwrap();
 
@@ -1476,11 +1452,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     txn.commit().await.unwrap();
@@ -1515,11 +1487,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     // "Site explorer" pass to indicate that we're at the desired version
@@ -1577,11 +1545,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     // Another state machine pass
@@ -1611,11 +1575,7 @@ async fn test_instance_upgrading_actual_part_2(
             .tenant
             .unwrap()
             .state,
-        // TODO:  This should become `Updating` after we finish
-        // deprecating Dpu/Host reprov states. DpuReprovisioning
-        // is just being used as a temporary alias for a generic
-        // `Updating`.
-        TenantState::DpuReprovisioning
+        TenantState::Updating
     );
 
     txn.commit().await.unwrap();

@@ -132,15 +132,9 @@ impl InstanceStatus {
                 | InstanceState::HostPlatformConfiguration { .. } => {
                     tenant::TenantState::Terminating
                 }
-                // We're deprecating TenantState::DpuReprovisioning and
-                // TenantState::HostReprovisioning in favor of TenantState::Updating.
-                // Because forge-cloud already translates DpuReprovisioning to Updating,
-                // we can use that while we prepare it to accept TenantState::Updating.
-                // TODO: Replace TenantState::DpuReprovisioning with TenantState::Updating
-                // after cloud components for all sites have been updated.
                 InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::DPUReprovision { .. }
-                | InstanceState::HostReprovision { .. } => tenant::TenantState::DpuReprovisioning,
+                | InstanceState::HostReprovision { .. } => tenant::TenantState::Updating,
                 InstanceState::Failed { .. } => tenant::TenantState::Failed,
             },
             ManagedHostState::ForceDeletion => tenant::TenantState::Terminating,
