@@ -13,25 +13,396 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use ::rpc::forge as rpc;
 use db::machine_interface::find_by_ip;
 use forge_ssh::ssh::{
     DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
     DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
 };
+use forge_uuid::machine::MachineId;
 use libredfish::RoleId;
 use mac_address::MacAddress;
-use model::machine::MachineInterfaceSnapshot;
-use rpc::forge::BmcCredentialStatusResponse;
+use model::machine::machine_id::try_parse_machine_id;
+use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
+use sqlx::PgConnection;
 use tokio::net::lookup_host;
-use tonic::{Response, Status};
+use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, log_machine_id, log_request_data};
+
+pub(crate) async fn admin_bmc_reset(
+    api: &Api,
+    request: Request<rpc::AdminBmcResetRequest>,
+) -> Result<Response<rpc::AdminBmcResetResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    // Note: AdminBmcResetRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin("admin_bmc_reset").await?;
+
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+
+    txn.commit().await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+
+    tracing::info!(
+        "Resetting BMC (ipmi tool: {}): {}",
+        req.use_ipmitool,
+        endpoint_address
+    );
+
+    if req.use_ipmitool {
+        ipmitool_reset_bmc(api, bmc_endpoint_request).await?;
+    } else {
+        redfish_reset_bmc(api, bmc_endpoint_request).await?;
+    }
+
+    tracing::info!(
+        "BMC Reset (ipmi tool: {}) request succeeded to {}",
+        req.use_ipmitool,
+        endpoint_address
+    );
+
+    Ok(Response::new(rpc::AdminBmcResetResponse {}))
+}
+
+pub(crate) async fn disable_secure_boot(
+    api: &Api,
+    request: Request<rpc::BmcEndpointRequest>,
+) -> Result<Response<rpc::DisableSecureBootResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let mut txn = api.txn_begin("disable_secure_boot").await?;
+
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, Some(req), None).await?;
+
+    txn.commit().await?;
+
+    do_disable_secure_boot(api, bmc_endpoint_request.clone()).await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    tracing::info!(
+        "disable_secure_boot request succeeded to {}",
+        endpoint_address
+    );
+
+    Ok(Response::new(rpc::DisableSecureBootResponse {}))
+}
+
+pub(crate) async fn lockdown(
+    api: &Api,
+    request: Request<rpc::LockdownRequest>,
+) -> Result<Response<rpc::LockdownResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+    let action = req.action();
+    let action = match action {
+        rpc::LockdownAction::Enable => libredfish::EnabledDisabled::Enabled,
+        rpc::LockdownAction::Disable => libredfish::EnabledDisabled::Disabled,
+    };
+
+    let mut txn = api.txn_begin("lockdown").await?;
+
+    let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
+        &mut txn,
+        req.bmc_endpoint_request,
+        req.machine_id,
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    do_lockdown(api, bmc_endpoint_request.clone(), action).await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    tracing::info!(
+        "lockdown {} request succeeded to {}",
+        action.to_string().to_lowercase(),
+        endpoint_address
+    );
+
+    Ok(Response::new(rpc::LockdownResponse {}))
+}
+
+pub(crate) async fn lockdown_status(
+    api: &Api,
+    request: Request<rpc::LockdownStatusRequest>,
+) -> Result<Response<::rpc::site_explorer::LockdownStatus>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let mut txn = api.txn_begin("lockdown_status").await?;
+
+    let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
+        &mut txn,
+        req.bmc_endpoint_request,
+        req.machine_id,
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    let response = do_lockdown_status(api, bmc_endpoint_request.clone()).await?;
+
+    Ok(response)
+}
+
+pub(crate) async fn enable_infinite_boot(
+    api: &Api,
+    request: Request<rpc::EnableInfiniteBootRequest>,
+) -> Result<Response<rpc::EnableInfiniteBootResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    // Note: EnableInfiniteBootRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin("enable_infinite_boot").await?;
+
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+
+    txn.commit().await?;
+
+    do_enable_infinite_boot(api, bmc_endpoint_request.clone()).await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    tracing::info!(
+        "enable_infinite_boot request succeeded to {}",
+        endpoint_address
+    );
+
+    Ok(Response::new(rpc::EnableInfiniteBootResponse {}))
+}
+
+pub(crate) async fn is_infinite_boot_enabled(
+    api: &Api,
+    request: Request<rpc::IsInfiniteBootEnabledRequest>,
+) -> Result<Response<rpc::IsInfiniteBootEnabledResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    // Note: IsInfiniteBootEnabledRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin("is_infinite_boot_enabled").await?;
+
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+
+    txn.commit().await?;
+
+    let response = do_is_infinite_boot_enabled(api, bmc_endpoint_request.clone()).await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    tracing::info!(
+        "is_infinite_boot_enabled request succeeded to {}, result: {:?}",
+        endpoint_address,
+        response.get_ref()
+    );
+
+    Ok(Response::new(rpc::IsInfiniteBootEnabledResponse {
+        is_enabled: response.into_inner(),
+    }))
+}
+
+pub(crate) async fn forge_setup(
+    api: &Api,
+    request: Request<rpc::ForgeSetupRequest>,
+) -> Result<Response<rpc::ForgeSetupResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    // Note: ForgeSetupRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin("forge_setup").await?;
+
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+
+    txn.commit().await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+
+    tracing::info!("Starting Forge Setup for BMC: {}", endpoint_address);
+
+    do_forge_setup(
+        api,
+        rpc::ForgeSetupRequest {
+            bmc_endpoint_request: Some(bmc_endpoint_request.clone()),
+            machine_id: req.machine_id,
+            boot_interface_mac: req.boot_interface_mac,
+        },
+    )
+    .await?;
+
+    tracing::info!("Forge Setup request succeeded to {}", endpoint_address);
+
+    Ok(Response::new(rpc::ForgeSetupResponse {}))
+}
+
+pub(crate) async fn set_dpu_first_boot_order(
+    api: &Api,
+    request: Request<rpc::SetDpuFirstBootOrderRequest>,
+) -> Result<Response<rpc::SetDpuFirstBootOrderResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    // Note: SetDpuFirstBootOrderRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin("set_dpu_first_boot_order").await?;
+
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+
+    txn.commit().await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+
+    tracing::info!(
+        "Setting DPU first in boot order for BMC: {}",
+        endpoint_address
+    );
+
+    do_set_dpu_first_boot_order(
+        api,
+        rpc::SetDpuFirstBootOrderRequest {
+            bmc_endpoint_request: Some(bmc_endpoint_request.clone()),
+            machine_id: req.machine_id,
+            boot_interface_mac: req.boot_interface_mac,
+        },
+    )
+    .await?;
+
+    tracing::info!(
+        "Set DPU first in boot order request succeeded to {}",
+        endpoint_address
+    );
+
+    Ok(Response::new(rpc::SetDpuFirstBootOrderResponse {}))
+}
+
+pub(crate) async fn admin_power_control(
+    api: &Api,
+    request: Request<rpc::AdminPowerControlRequest>,
+) -> Result<Response<rpc::AdminPowerControlResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    // Note: AdminPowerControlRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let action = req.action();
+
+    let mut txn = api.txn_begin("admin_power_control").await?;
+
+    let (bmc_endpoint_request, machine_id) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+
+    let action = match action {
+        rpc::admin_power_control_request::SystemPowerControl::On => {
+            libredfish::SystemPowerControl::On
+        }
+        rpc::admin_power_control_request::SystemPowerControl::GracefulShutdown => {
+            libredfish::SystemPowerControl::GracefulShutdown
+        }
+        rpc::admin_power_control_request::SystemPowerControl::ForceOff => {
+            libredfish::SystemPowerControl::ForceOff
+        }
+        rpc::admin_power_control_request::SystemPowerControl::GracefulRestart => {
+            libredfish::SystemPowerControl::GracefulRestart
+        }
+        rpc::admin_power_control_request::SystemPowerControl::ForceRestart => {
+            libredfish::SystemPowerControl::ForceRestart
+        }
+        rpc::admin_power_control_request::SystemPowerControl::AcPowercycle => {
+            libredfish::SystemPowerControl::ACPowercycle
+        }
+    };
+
+    let mut msg: Option<String> = None;
+    if let Some(machine_id) = machine_id {
+        let power_manager_enabled = api.runtime_config.power_manager_options.enabled;
+        if power_manager_enabled {
+            let snapshot = db::managed_host::load_snapshot(
+                &mut txn,
+                &machine_id,
+                LoadSnapshotOptions {
+                    include_history: true,
+                    include_instance_data: false,
+                    host_health_config: api.runtime_config.host_health,
+                },
+            )
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
+
+            if let Some(power_state) = snapshot
+                .host_snapshot
+                .power_options
+                .map(|x| x.desired_power_state)
+                && power_state == model::power_manager::PowerState::On
+                && action == libredfish::SystemPowerControl::ForceOff
+            {
+                msg = Some(
+                        "!!WARNING!! Desired power state for the host is set as On while the requested action is Off. Carbide will attempt to bring the host online after some time.".to_string(),
+                    )
+            }
+        }
+    }
+
+    txn.commit().await?;
+
+    redfish_power_control(api, bmc_endpoint_request, action).await?;
+
+    Ok(Response::new(rpc::AdminPowerControlResponse { msg }))
+}
 
 // Ad-hoc BMC exploration
 pub(crate) async fn explore(
     api: &Api,
-    request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+    request: tonic::Request<rpc::BmcEndpointRequest>,
 ) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
@@ -54,10 +425,10 @@ pub(crate) async fn explore(
     Ok(tonic::Response::new(report.into()))
 }
 
-pub(crate) async fn redfish_reset_bmc(
+async fn redfish_reset_bmc(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
-) -> Result<Response<()>, tonic::Status> {
+    request: rpc::BmcEndpointRequest,
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -69,10 +440,10 @@ pub(crate) async fn redfish_reset_bmc(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn ipmitool_reset_bmc(
+async fn ipmitool_reset_bmc(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
-) -> Result<Response<()>, tonic::Status> {
+    request: rpc::BmcEndpointRequest,
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -84,11 +455,11 @@ pub(crate) async fn ipmitool_reset_bmc(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn redfish_power_control(
+async fn redfish_power_control(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
+    request: rpc::BmcEndpointRequest,
     action: libredfish::SystemPowerControl,
-) -> Result<Response<()>, tonic::Status> {
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -102,8 +473,8 @@ pub(crate) async fn redfish_power_control(
 
 pub(crate) async fn bmc_credential_status(
     api: &Api,
-    request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
-) -> Result<Response<BmcCredentialStatusResponse>, tonic::Status> {
+    request: tonic::Request<rpc::BmcEndpointRequest>,
+) -> Result<Response<rpc::BmcCredentialStatusResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
     let (_bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &req).await?;
@@ -114,15 +485,15 @@ pub(crate) async fn bmc_credential_status(
         .have_credentials(&machine_interface)
         .await;
 
-    Ok(Response::new(BmcCredentialStatusResponse {
+    Ok(Response::new(rpc::BmcCredentialStatusResponse {
         have_credentials,
     }))
 }
 
-pub(crate) async fn disable_secure_boot(
+async fn do_disable_secure_boot(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
-) -> Result<Response<()>, tonic::Status> {
+    request: rpc::BmcEndpointRequest,
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -134,11 +505,11 @@ pub(crate) async fn disable_secure_boot(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn lockdown(
+async fn do_lockdown(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
+    request: rpc::BmcEndpointRequest,
     action: libredfish::EnabledDisabled,
-) -> Result<Response<()>, tonic::Status> {
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -150,10 +521,10 @@ pub(crate) async fn lockdown(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn lockdown_status(
+async fn do_lockdown_status(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
-) -> Result<Response<::rpc::site_explorer::LockdownStatus>, tonic::Status> {
+    request: rpc::BmcEndpointRequest,
+) -> Result<Response<::rpc::site_explorer::LockdownStatus>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -166,10 +537,10 @@ pub(crate) async fn lockdown_status(
     Ok(Response::new(response.into()))
 }
 
-pub(crate) async fn enable_infinite_boot(
+async fn do_enable_infinite_boot(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
-) -> Result<Response<()>, tonic::Status> {
+    request: rpc::BmcEndpointRequest,
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -181,10 +552,10 @@ pub(crate) async fn enable_infinite_boot(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn is_infinite_boot_enabled(
+async fn do_is_infinite_boot_enabled(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
-) -> Result<Response<Option<bool>>, tonic::Status> {
+    request: rpc::BmcEndpointRequest,
+) -> Result<Response<Option<bool>>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -197,13 +568,13 @@ pub(crate) async fn is_infinite_boot_enabled(
     Ok(Response::new(is_enabled))
 }
 
-pub(crate) async fn forge_setup(
+async fn do_forge_setup(
     api: &Api,
-    request: ::rpc::forge::ForgeSetupRequest,
-) -> Result<Response<()>, tonic::Status> {
+    request: rpc::ForgeSetupRequest,
+) -> Result<Response<()>, Status> {
     let bmc_endpoint_request = request
         .bmc_endpoint_request
-        .ok_or_else(|| tonic::Status::invalid_argument("bmc_endpoint_request is required"))?;
+        .ok_or_else(|| Status::invalid_argument("bmc_endpoint_request is required"))?;
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -219,19 +590,19 @@ pub(crate) async fn forge_setup(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn set_dpu_first_boot_order(
+async fn do_set_dpu_first_boot_order(
     api: &Api,
-    request: ::rpc::forge::SetDpuFirstBootOrderRequest,
-) -> Result<Response<()>, tonic::Status> {
+    request: rpc::SetDpuFirstBootOrderRequest,
+) -> Result<Response<()>, Status> {
     let bmc_endpoint_request = request
         .bmc_endpoint_request
-        .ok_or_else(|| tonic::Status::invalid_argument("bmc_endpoint_request is required"))?;
+        .ok_or_else(|| Status::invalid_argument("bmc_endpoint_request is required"))?;
 
     let boot_interface_mac = request
         .boot_interface_mac
         .as_ref()
         .filter(|mac| !mac.trim().is_empty())
-        .ok_or_else(|| tonic::Status::invalid_argument("boot_interface_mac is required"))?;
+        .ok_or_else(|| Status::invalid_argument("boot_interface_mac is required"))?;
 
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -246,8 +617,8 @@ pub(crate) async fn set_dpu_first_boot_order(
 
 async fn resolve_bmc_interface(
     api: &Api,
-    request: &::rpc::forge::BmcEndpointRequest,
-) -> Result<(SocketAddr, MacAddress), tonic::Status> {
+    request: &rpc::BmcEndpointRequest,
+) -> Result<(SocketAddr, MacAddress), Status> {
     let address = if request.ip_address.contains(':') {
         request.ip_address.clone()
     } else {
@@ -256,7 +627,7 @@ async fn resolve_bmc_interface(
 
     let mut addrs = lookup_host(address).await?;
     let Some(bmc_addr) = addrs.next() else {
-        return Err(tonic::Status::invalid_argument(format!(
+        return Err(Status::invalid_argument(format!(
             "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
             request.ip_address
         )));
@@ -271,7 +642,7 @@ async fn resolve_bmc_interface(
         if let Some(bmc_machine_interface) = find_by_ip(&mut txn, bmc_addr.ip()).await? {
             bmc_mac_address = bmc_machine_interface.mac_address;
         } else {
-            return Err(tonic::Status::invalid_argument(format!(
+            return Err(Status::invalid_argument(format!(
                 "could not find a mac address for the specified IP: {request:#?}"
             )));
         }
@@ -282,9 +653,9 @@ async fn resolve_bmc_interface(
 
 pub(crate) async fn copy_bfb_to_dpu_rshim(
     api: &Api,
-    request: &::rpc::forge::BmcEndpointRequest,
-    ssh_config: Option<::rpc::forge::SshTimeoutConfig>,
-) -> Result<Response<()>, tonic::Status> {
+    request: &rpc::BmcEndpointRequest,
+    ssh_config: Option<rpc::SshTimeoutConfig>,
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -306,7 +677,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
                 break;
             }
             Err(_) if attempt == MAX_PROBE_ATTEMPTS - 1 => {
-                return Err(tonic::Status::deadline_exceeded(
+                return Err(Status::deadline_exceeded(
                     "DPU BMC did not come back online after host powercycle",
                 ));
             }
@@ -355,11 +726,108 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
 
 pub(crate) async fn create_bmc_user(
     api: &Api,
-    request: &::rpc::forge::BmcEndpointRequest,
+    request: Request<rpc::CreateBmcUserRequest>,
+) -> Result<Response<rpc::CreateBmcUserResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    // Note: CreateBmcUserRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin("create_bmc_user").await?;
+
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+
+    txn.commit().await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+
+    let role: RoleId = match req
+        .create_role_id
+        .unwrap_or("Administrator".to_string())
+        .to_lowercase()
+        .as_str()
+    {
+        "administrator" => RoleId::Administrator,
+        "operator" => RoleId::Operator,
+        "readonly" => RoleId::ReadOnly,
+        "noaccess" => RoleId::NoAccess,
+        _ => RoleId::Administrator,
+    };
+
+    tracing::info!(
+        "Creating BMC User {} ({role}) on {endpoint_address}",
+        req.create_username,
+    );
+
+    do_create_bmc_user(
+        api,
+        &bmc_endpoint_request,
+        &req.create_username,
+        &req.create_password,
+        role,
+    )
+    .await?;
+
+    tracing::info!(
+        "Successfully created BMC User {} ({role}) on {endpoint_address}",
+        req.create_username
+    );
+
+    Ok(Response::new(rpc::CreateBmcUserResponse {}))
+}
+
+pub(crate) async fn delete_bmc_user(
+    api: &Api,
+    request: Request<rpc::DeleteBmcUserRequest>,
+) -> Result<Response<rpc::DeleteBmcUserResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    // Note: DeleteBmcUserRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin("delete_bmc_user").await?;
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+
+    txn.commit().await?;
+
+    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+
+    tracing::info!(
+        "Deleting BMC User {} on {endpoint_address}",
+        req.delete_username,
+    );
+
+    do_delete_bmc_user(api, &bmc_endpoint_request, &req.delete_username).await?;
+
+    tracing::info!(
+        "Successfully deleted BMC User {} on {endpoint_address}",
+        req.delete_username
+    );
+
+    Ok(Response::new(rpc::DeleteBmcUserResponse {}))
+}
+
+async fn do_create_bmc_user(
+    api: &Api,
+    request: &rpc::BmcEndpointRequest,
     create_username: &str,
     create_password: &str,
     create_role_id: RoleId,
-) -> Result<Response<()>, tonic::Status> {
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -377,11 +845,11 @@ pub(crate) async fn create_bmc_user(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn delete_bmc_user(
+async fn do_delete_bmc_user(
     api: &Api,
-    request: &::rpc::forge::BmcEndpointRequest,
+    request: &rpc::BmcEndpointRequest,
     delete_user: &str,
-) -> Result<Response<()>, tonic::Status> {
+) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
@@ -391,4 +859,97 @@ pub(crate) async fn delete_bmc_user(
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
+}
+
+/// Accepts an optional partial or complete BmcEndpointRequest and optional machine ID and returns a complete and valid BmcEndpointRequest.
+///
+/// * `txn`                  - Active database transaction
+/// * `bmc_endpoint_request` - Optional BmcEndpointRequest.  Can supply _only_ ip_address or all fields.
+/// * `machine_id`           - Optional machine ID that can be used to build a new BmcEndpointRequest.
+pub(crate) async fn validate_and_complete_bmc_endpoint_request(
+    txn: &mut PgConnection,
+    bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
+    machine_id: Option<MachineId>,
+) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), Status> {
+    match (bmc_endpoint_request, machine_id) {
+        (Some(bmc_endpoint_request), _) => {
+            let interface = db::machine_interface::find_by_ip(
+                txn,
+                bmc_endpoint_request.ip_address.parse().unwrap(),
+            )
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine_interface",
+                id: bmc_endpoint_request.ip_address.clone(),
+            })?;
+
+            let bmc_mac = match bmc_endpoint_request.mac_address {
+                // No MAC in the request, use the interface MAC
+                None => interface.mac_address.to_string(),
+
+                // MAC passed in the request, check if it matches the interface MAC
+                Some(request_mac) => {
+                    let parsed_mac = request_mac
+                        .parse::<MacAddress>()
+                        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+
+                    if parsed_mac != interface.mac_address {
+                        return Err(CarbideError::BmcMacIpMismatch {
+                            requested_ip: bmc_endpoint_request.ip_address.clone(),
+                            requested_mac: request_mac,
+                            found_mac: interface.mac_address.to_string(),
+                        }
+                        .into());
+                    }
+
+                    request_mac
+                }
+            };
+
+            Ok((
+                rpc::BmcEndpointRequest {
+                    ip_address: bmc_endpoint_request.ip_address,
+                    mac_address: Some(bmc_mac),
+                },
+                interface.machine_id,
+            ))
+        }
+        // User provided machine_id
+        (_, Some(machine_id)) => {
+            log_machine_id(&machine_id);
+
+            let mut topologies =
+                db::machine_topology::find_latest_by_machine_ids(txn, &[machine_id]).await?;
+
+            let topology =
+                topologies
+                    .remove(&machine_id)
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "machine",
+                        id: machine_id.to_string(),
+                    })?;
+
+            let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
+                CarbideError::internal(format!(
+                    "Machine found for {machine_id} but BMC IP is missing"
+                ))
+            })?;
+
+            let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
+                CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
+            })?;
+
+            Ok((
+                rpc::BmcEndpointRequest {
+                    ip_address: bmc_ip.to_owned(),
+                    mac_address: Some(bmc_mac_address.to_string()),
+                },
+                Some(machine_id),
+            ))
+        }
+
+        _ => Err(Status::invalid_argument(
+            "Provide either machine_id or BmcEndpointRequest with at least ip_address",
+        )),
+    }
 }
