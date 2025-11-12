@@ -1975,18 +1975,28 @@ impl StateHandler for MachineStateHandler {
             }
         };
 
-        ctx.power_options = power_options;
-        let outcome = if continue_state_machine {
+        let result = if continue_state_machine {
             self.attempt_state_transition(host_machine_id, mh_snapshot, txn, ctx)
-                .await?
+                .await
         } else {
-            StateHandlerOutcome::wait(format!(
+            Ok(StateHandlerOutcome::wait(format!(
                 "State machine can't proceed due to power manager. {}",
                 msg.unwrap_or_default()
-            ))
+            )))
         };
 
-        Ok(outcome)
+        // Persist power options before returning
+        // They are persisted in an individual DB transaction in order to be unaffected
+        // by the main state handling outcome
+        if let Some(power_options) = power_options {
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db::power_options::persist(&power_options, &mut txn).await?;
+            txn.commit()
+                .await
+                .map_err(StateHandlerError::TransactionError)?;
+        }
+
+        result
     }
 }
 

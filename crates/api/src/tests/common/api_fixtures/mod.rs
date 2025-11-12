@@ -255,6 +255,7 @@ impl TestEnv {
     /// test environment
     pub fn state_handler_services(&self) -> CommonStateHandlerServices {
         CommonStateHandlerServices {
+            db_pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             ib_pools: self.common_pools.infiniband.clone(),
@@ -1125,6 +1126,7 @@ pub async fn create_test_env_with_overrides(
     };
 
     let handler_services = Arc::new(CommonStateHandlerServices {
+        db_pool: db_pool.clone(),
         redfish_client_pool: redfish_sim.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),

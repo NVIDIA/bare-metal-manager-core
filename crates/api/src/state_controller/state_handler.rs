@@ -16,7 +16,6 @@ use forge_uuid::machine::MachineId;
 use libredfish::RedfishError;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::ManagedHostState;
-use model::power_manager::PowerOptions;
 use model::resource_pool::ResourcePoolError;
 use sqlx::PgConnection;
 
@@ -43,8 +42,6 @@ pub struct StateHandlerContext<'a, T: StateHandlerContextObjects> {
     pub services: &'a T::Services,
     /// Metrics that are produced as a result of acting on an object
     pub metrics: &'a mut T::ObjectMetrics,
-    /// Power Options.
-    pub power_options: Option<PowerOptions>,
 }
 
 /// Defines a function that will be called to determine the next step in

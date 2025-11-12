@@ -104,6 +104,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let expected_total_count = expected_iterations * host_configs.len() as f64;
 
     let handler_services = Arc::new(CommonStateHandlerServices {
+        db_pool: env.pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),

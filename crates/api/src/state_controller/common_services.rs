@@ -22,6 +22,9 @@ use crate::redfish::RedfishClientPool;
 
 /// Services that are accessible to all statehandlers within carbide-core
 pub struct CommonStateHandlerServices {
+    /// Postgres database pool
+    pub db_pool: sqlx::PgPool,
+
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
 
