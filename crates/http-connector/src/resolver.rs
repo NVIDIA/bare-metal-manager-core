@@ -59,6 +59,7 @@ impl ForgeRuntimeProvider {
             Some(socket2::Protocol::TCP),
         )?;
         socket.set_reuse_address(true)?;
+        socket.set_nonblocking(true)?;
         if use_mgmt {
             socket.bind_device(Some(MGMT_VRF_NAME))?;
         }
@@ -70,6 +71,7 @@ impl ForgeRuntimeProvider {
             socket2::Type::DGRAM,
             Some(socket2::Protocol::UDP),
         )?;
+        socket.set_nonblocking(true)?;
         if use_mgmt {
             socket.bind_device(Some(MGMT_VRF_NAME))?;
         }
@@ -101,7 +103,6 @@ impl RuntimeProvider for ForgeRuntimeProvider {
 
             Box::pin(async move {
                 //  Set non_blocking which is required for Tokio::TcpSocket
-                socket.set_nonblocking(true)?;
                 let raw_fd = socket.into_raw_fd();
                 // This is safe because we own the raw_fd from socket.into_raw_fd()
                 // Convert socket into a TokioTcpSocket
