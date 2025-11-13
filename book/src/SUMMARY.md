@@ -2,7 +2,6 @@
 
 - [Introduction](README.md)
 - [Architecture](architecture.md)
-- [Usage]()
 
 # Architecture
 
@@ -12,20 +11,11 @@
 - [Infiniband support]()
     - [NIC and Port selection](architecture/infiniband/nic_selection.md)
 - [State Machines]()
-    - [ManagedHost](architecture/state_machines/managedhost.md)
+    - [Managed Host](architecture/state_machines/managedhost.md)
 
 # Sites and site access
 
 - [forge-admin-cli access](sites/forge_admin_cli.md)
-
-# Components
-
-- [gRPC API]()
-- [Boot Controller]()
-- [DHCP Service]()
-- [DNS Service]()
-- [BMC Proxy]()
-- [Desired Firmware Version](desired_firmware.md)
 
 # Development
 
@@ -70,6 +60,7 @@
     - [Lenovo SR655 V3](playbooks/hardware/sr655v3.md)
     - [OneCLI](playbooks/hardware/onecli.md)
     - [Getting Support](playbooks/hardware/getsupport.md)
+    - [Desired Firmware Version](desired_firmware.md)
 
 # Machine Validation
 

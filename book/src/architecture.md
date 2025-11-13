@@ -29,7 +29,7 @@ Carbide deploys a set of binaries on these hosts during various points of their 
 
 ### Scout
 
-[scout](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/scout) is an agent that Carbide runs on the host and DPU of managed hosts for a variety of tasks:
+[scout](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/scout) is an agent that Carbide runs on the host and DPU of managed hosts for a variety of tasks:
 - "Inventory" collection: Scout collects and transmits hardware properties of the host to [carbide-core](#carbide-core) which can not be determined through out-of-band tooling.
 - Execution of cleanup tasks whenever the bare metal instance using the host is released by a user
 - Execution of machine validation tests
@@ -48,24 +48,24 @@ DPU agent performs the following tasks:
 
 ### DHCP Server
 
-Carbide runs a custom DHCP server on the DPU, which handles all DHCP requests of the actual host. This means DHCP requests on the hosts primary networking interfaces will never leave the DPU and show up on the underlay network - which provides enhanced security and reliability.
+Carbide runs a [custom DHCP server](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/dhcp-server) on the DPU, which handles all DHCP requests of the actual host. This means DHCP requests on the hosts primary networking interfaces will never leave the DPU and show up on the underlay network - which provides enhanced security and reliability.
 The DHCP server is configured by dpu-agent.
 
 ## Carbide Control plane services
 
 The carbide control plane consists of a number of services which work together to orchestrate the lifecycle of a managed host:
 
-- [carbide-core](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/api): The Carbide core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all Carbide managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances). The [Carbide Core](#carbide_core_architecture) section describes it further in detail.
-- [carbide-dhcp (DHCP)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/dhcp): The DHCP server responds to DHCP requests for all
+- [carbide-core](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/api): The Carbide core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all Carbide managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances). The [Carbide Core](#carbide_core_architecture) section describes it further in detail.
+- [carbide-dhcp (DHCP)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/dhcp): The DHCP server responds to DHCP requests for all
   devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. carbide-dhcp can be thought of as a stateless proxy: It does not acutally perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC based DHCP requests to carbide core.
-- [carbide-pxe (iPXE)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from carbide core - therefore the PXE server is also stateless.
+- [carbide-pxe (iPXE)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from carbide core - therefore the PXE server is also stateless.
   Currently, managed hosts are configured to always boot from PXE. If a local
   bootable device is found, the host will boot it. Hosts can also be configured to always boot from a
   particular image for stateless configurations.
-- [carbide-hw-health (Hardware health)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/health): This service scrapes all host and DPU BMCs known by Carbide for system health information. It extracts measurements like fan speeds, temperaturs and leak indicators. These measurements are emitted as prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the carbide-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within carbide-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare metal instances for tenants.
-- [ssh-console](https://gitlab-master.nvidia.com/nvmetal/ssh-console): The SSH console provides bare metal-tenants and site-administrators virtual serial console access to hosts managed by Carbide. The ssh-console service also sends the output of each hosts serial console to
+- [carbide-hw-health (Hardware health)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/health): This service scrapes all host and DPU BMCs known by Carbide for system health information. It extracts measurements like fan speeds, temperaturs and leak indicators. These measurements are emitted as prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the carbide-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within carbide-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare metal instances for tenants.
+- [ssh-console](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/ssh-console): The SSH console provides bare metal-tenants and site-administrators virtual serial console access to hosts managed by Carbide. The ssh-console service also sends the output of each hosts serial console to
   the logging system (Loki), from where it can be queried using Grafana and logcli. In order to provide this functionality, the ssh-console service *continuously* connects to all host BMCs. The ssh-console service only forwards logs to users ("bare metal tenants") if they connect to the service and get authenticated. 
-- [carbide-dns (DNS)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/dns): Domain name service (DNS) functionality
+- [carbide-dns (DNS)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/dns): Domain name service (DNS) functionality
   is handled by two services. The `carbide-dns` service handles DNS queries from the site controller and managed nodes
   and is authoritative for all `<name>.<site>.frg.nvidia.com` records.
 - unbound: This off-the-shelf DNS service resolves DNS requests for hosts outside the Carbide deployment as well as for services that are part of the carbide control plane.
@@ -198,7 +198,7 @@ pods. There are three different K8s statefulsets that run on the controller node
 
 The point of having a site controller is to administer a site that has been populated with tenant managed hosts.
 Each managed host is a pairing of a Bluefield (BF) 2/3 DPUs and a host server (only two DPUs have been tested).
-During initial deployment [scout](https://github.com/NVIDIA/carbide-core-snapshot/tree/main/crates/scout) runs and
+During initial deployment [scout](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/scout) runs and
 informs carbide-api of any discovered DPUs. Carbide completes the installation of services on the DPU and boots
 into regular operation mode. Thereafter the forge-dpu-agent starts as a daemon.
 
