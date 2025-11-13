@@ -90,7 +90,13 @@ pub(crate) async fn disable_secure_boot(
 
     txn.commit().await?;
 
-    do_disable_secure_boot(api, bmc_endpoint_request.clone()).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .disable_secure_boot(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
@@ -124,7 +130,13 @@ pub(crate) async fn lockdown(
 
     txn.commit().await?;
 
-    do_lockdown(api, bmc_endpoint_request.clone(), action).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .lockdown(bmc_addr, &machine_interface, action)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
@@ -154,9 +166,16 @@ pub(crate) async fn lockdown_status(
 
     txn.commit().await?;
 
-    let response = do_lockdown_status(api, bmc_endpoint_request.clone()).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
-    Ok(response)
+    let response = api
+        .endpoint_explorer
+        .lockdown_status(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(response.into()))
 }
 
 pub(crate) async fn enable_infinite_boot(
@@ -181,7 +200,13 @@ pub(crate) async fn enable_infinite_boot(
 
     txn.commit().await?;
 
-    do_enable_infinite_boot(api, bmc_endpoint_request.clone()).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .enable_infinite_boot(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
@@ -214,17 +239,23 @@ pub(crate) async fn is_infinite_boot_enabled(
 
     txn.commit().await?;
 
-    let response = do_is_infinite_boot_enabled(api, bmc_endpoint_request.clone()).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
-    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    let is_enabled = api
+        .endpoint_explorer
+        .is_infinite_boot_enabled(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
     tracing::info!(
         "is_infinite_boot_enabled request succeeded to {}, result: {:?}",
-        endpoint_address,
-        response.get_ref()
+        bmc_endpoint_request.ip_address,
+        is_enabled
     );
 
     Ok(Response::new(rpc::IsInfiniteBootEnabledResponse {
-        is_enabled: response.into_inner(),
+        is_enabled,
     }))
 }
 
@@ -250,19 +281,21 @@ pub(crate) async fn forge_setup(
 
     txn.commit().await?;
 
-    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    let endpoint_address = &bmc_endpoint_request.ip_address;
 
     tracing::info!("Starting Forge Setup for BMC: {}", endpoint_address);
 
-    do_forge_setup(
-        api,
-        rpc::ForgeSetupRequest {
-            bmc_endpoint_request: Some(bmc_endpoint_request.clone()),
-            machine_id: req.machine_id,
-            boot_interface_mac: req.boot_interface_mac,
-        },
-    )
-    .await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .forge_setup(
+            bmc_addr,
+            &machine_interface,
+            req.boot_interface_mac.as_deref(),
+        )
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     tracing::info!("Forge Setup request succeeded to {}", endpoint_address);
 
@@ -291,22 +324,26 @@ pub(crate) async fn set_dpu_first_boot_order(
 
     txn.commit().await?;
 
-    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    let endpoint_address = &bmc_endpoint_request.ip_address;
 
     tracing::info!(
         "Setting DPU first in boot order for BMC: {}",
         endpoint_address
     );
 
-    do_set_dpu_first_boot_order(
-        api,
-        rpc::SetDpuFirstBootOrderRequest {
-            bmc_endpoint_request: Some(bmc_endpoint_request.clone()),
-            machine_id: req.machine_id,
-            boot_interface_mac: req.boot_interface_mac,
-        },
-    )
-    .await?;
+    let boot_interface_mac = req
+        .boot_interface_mac
+        .as_ref()
+        .filter(|mac| !mac.trim().is_empty())
+        .ok_or_else(|| Status::invalid_argument("boot_interface_mac is required"))?;
+
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .set_boot_order_dpu_first(bmc_addr, &machine_interface, boot_interface_mac)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     tracing::info!(
         "Set DPU first in boot order request succeeded to {}",
@@ -490,131 +527,6 @@ pub(crate) async fn bmc_credential_status(
     }))
 }
 
-async fn do_disable_secure_boot(
-    api: &Api,
-    request: rpc::BmcEndpointRequest,
-) -> Result<Response<()>, Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    api.endpoint_explorer
-        .disable_secure_boot(bmc_addr, &machine_interface)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(()))
-}
-
-async fn do_lockdown(
-    api: &Api,
-    request: rpc::BmcEndpointRequest,
-    action: libredfish::EnabledDisabled,
-) -> Result<Response<()>, Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    api.endpoint_explorer
-        .lockdown(bmc_addr, &machine_interface, action)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(()))
-}
-
-async fn do_lockdown_status(
-    api: &Api,
-    request: rpc::BmcEndpointRequest,
-) -> Result<Response<::rpc::site_explorer::LockdownStatus>, Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    let response = api
-        .endpoint_explorer
-        .lockdown_status(bmc_addr, &machine_interface)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(response.into()))
-}
-
-async fn do_enable_infinite_boot(
-    api: &Api,
-    request: rpc::BmcEndpointRequest,
-) -> Result<Response<()>, Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    api.endpoint_explorer
-        .enable_infinite_boot(bmc_addr, &machine_interface)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(()))
-}
-
-async fn do_is_infinite_boot_enabled(
-    api: &Api,
-    request: rpc::BmcEndpointRequest,
-) -> Result<Response<Option<bool>>, Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    let is_enabled = api
-        .endpoint_explorer
-        .is_infinite_boot_enabled(bmc_addr, &machine_interface)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(is_enabled))
-}
-
-async fn do_forge_setup(
-    api: &Api,
-    request: rpc::ForgeSetupRequest,
-) -> Result<Response<()>, Status> {
-    let bmc_endpoint_request = request
-        .bmc_endpoint_request
-        .ok_or_else(|| Status::invalid_argument("bmc_endpoint_request is required"))?;
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    api.endpoint_explorer
-        .forge_setup(
-            bmc_addr,
-            &machine_interface,
-            request.boot_interface_mac.as_deref(),
-        )
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(()))
-}
-
-async fn do_set_dpu_first_boot_order(
-    api: &Api,
-    request: rpc::SetDpuFirstBootOrderRequest,
-) -> Result<Response<()>, Status> {
-    let bmc_endpoint_request = request
-        .bmc_endpoint_request
-        .ok_or_else(|| Status::invalid_argument("bmc_endpoint_request is required"))?;
-
-    let boot_interface_mac = request
-        .boot_interface_mac
-        .as_ref()
-        .filter(|mac| !mac.trim().is_empty())
-        .ok_or_else(|| Status::invalid_argument("boot_interface_mac is required"))?;
-
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    api.endpoint_explorer
-        .set_boot_order_dpu_first(bmc_addr, &machine_interface, boot_interface_mac)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(()))
-}
-
 async fn resolve_bmc_interface(
     api: &Api,
     request: &rpc::BmcEndpointRequest,
@@ -746,7 +658,7 @@ pub(crate) async fn create_bmc_user(
 
     txn.commit().await?;
 
-    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    let endpoint_address = &bmc_endpoint_request.ip_address;
 
     let role: RoleId = match req
         .create_role_id
@@ -804,7 +716,7 @@ pub(crate) async fn delete_bmc_user(
 
     txn.commit().await?;
 
-    let endpoint_address = bmc_endpoint_request.ip_address.clone();
+    let endpoint_address = &bmc_endpoint_request.ip_address;
 
     tracing::info!(
         "Deleting BMC User {} on {endpoint_address}",
