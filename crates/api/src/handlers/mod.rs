@@ -32,6 +32,7 @@ pub mod machine_discovery;
 pub mod machine_hardware_info;
 pub mod machine_interface;
 pub mod machine_quarantine;
+pub mod machine_scout;
 pub mod machine_validation;
 #[cfg(feature = "linux-build")]
 pub mod measured_boot;
