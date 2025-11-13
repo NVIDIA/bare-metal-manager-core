@@ -197,7 +197,7 @@ pub(crate) async fn handle_bom_validation_requested(
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
     if !host_handler_params.bom_validation.enabled {
-        tracing::info!("BOM validation disabled");
+        tracing::debug!("BOM validation disabled");
         return Ok(None);
     }
 
