@@ -1,6 +1,6 @@
-# Machine FSM State Diagrams
+# Managed Host State Diagrams
 
-This document contains the complete Machine FSM (Finite State Machine) diagrams showing the lifecycle of machines from discovery through instance assignment and management.
+This document contains the complete Finite State Machine (FSM) that illustrates the lifecycle of Carbide managed hosts from discovery through ingestion through instance assignment and management.
 
 ## High-Level Overview
 
