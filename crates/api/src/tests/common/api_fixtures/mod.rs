@@ -960,7 +960,7 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
         .log_statements("INFO".parse().unwrap());
 
     sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(15)
         .acquire_timeout(std::time::Duration::from_secs(15))
         .connect_with(connect_options)
         .await
