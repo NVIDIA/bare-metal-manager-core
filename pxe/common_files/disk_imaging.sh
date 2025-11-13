@@ -157,18 +157,71 @@ function get_root_dev() {
 	fi
 }
 
+function is_port_in_list() {
+	my_test_port=$1
+	my_port_list=$2
+	my_serial_port=""
+
+	for port in $my_port_list
+	do
+		if [ "$port" == "$my_test_port" ]; then
+			my_serial_port=$port
+			break
+		fi
+	done
+	echo $my_serial_port
+}
+
 function get_serial_port() {
-	serial_port="ttyS0"
-	serial_port_num="0"
-	if [ -f "/sys/class/dmi/id/sys_vendor" ]; then
-		sys_vendor=$(</sys/class/dmi/id/sys_vendor)
-		if [[ "$sys_vendor" =~ Lenovo || "$sys_vendor" =~ Supermicro ]]; then
-			serial_port="ttyS1"
-			serial_port_num="1"
+	serial_port=""
+	candidate_serial_ports="ttyS0 ttyS1 ttyAMA0"
+	working_serial_ports=""
+	preferred_port_arm="ttyAMA0"
+	preferred_port_lenovo_supermicro="ttyS1"
+	default_port="ttyS0"
+	my_arch=$(uname -m)
+
+	# See which ports we can write to
+	for test_port in $candidate_serial_ports
+	do
+		echo "" >/dev/$test_port 2>/dev/null
+		if [ $? -eq 0 ]; then
+			working_serial_ports="$working_serial_ports $test_port"
+		fi
+	done
+	working_serial_ports=$(echo "$working_serial_ports" | sed -e 's/^ *//g' -e 's/ *$//g')
+	echo "Working serial ports = [${working_serial_ports}]"
+	
+	preferred_port=$default_port
+	if [ "$my_arch" == "aarch64" ]; then
+		preferred_port=$preferred_port_arm
+	else
+		if [ -f "/sys/class/dmi/id/sys_vendor" ]; then
+			sys_vendor=$(</sys/class/dmi/id/sys_vendor)
+			if [[ "$sys_vendor" =~ Lenovo || "$sys_vendor" =~ Supermicro ]]; then
+				preferred_port=$preferred_port_lenovo_supermicro
+			fi
 		fi
 	fi
+	serial_port=$(is_port_in_list $preferred_port "$working_serial_ports")
+
+	# If we couldn't find a preferred serial port, drop back to the first working one
+	if [ "$serial_port" == "" ]; then
+		serial_port=$(echo $working_serial_ports | awk '{print $1}')
+		# If we still don't have one, default to console
+		if [ "$serial_port" == "" ]; then
+			serial_port="console"
+		fi
+	fi
+
+	if [ "$serial_port" == "console" ]; then
+		serial_port_num=0
+	else
+		serial_port_num=$(echo $serial_port | sed 's/[^0-9]//g' )
+	fi
+
 	log_output="/dev/$serial_port"
-	echo "Using serial port: $serial_port" | tee $log_output
+	echo "Using serial port: [$serial_port] ($serial_port_num)" | tee $log_output
 }
 
 function modify_grub_cfg() {
@@ -483,11 +536,11 @@ function main() {
 		if [ -b "$root_dev" ]; then
 			mount "$root_dev" /mnt 2>&1 | tee $log_output
 			if [ "${update_grub_template}" == "yes" ]; then
-				echo "Updating grub template" tee $log_output
+				echo "Updating grub template" | tee $log_output
 				modify_grub_template
 			fi
 			if [ "${update_grub_cfg}" == "yes" ]; then
-				echo "Updating grub cfg" tee $log_output
+				echo "Updating grub cfg" | tee $log_output
 				modify_grub_cfg
 			fi
 			if [ ! -z "$cloud_init_url" ]; then
