@@ -20,7 +20,7 @@ use forge_uuid::machine::MachineId;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::ManagedHostState;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{IbPartitionSearchConfig, IbPartitionStatus, TenantState};
+use rpc::forge::{IbPartitionStatus, TenantState};
 use tonic::Request;
 
 use crate::api::Api;
@@ -31,11 +31,9 @@ use crate::tests::common::api_fixtures::TestEnvOverrides;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api
-        .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: Some(ib_partition_id),
-            search_config: Some(IbPartitionSearchConfig {
-                include_history: false,
-            }),
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![ib_partition_id],
+            include_history: false,
         }))
         .await
         .unwrap()

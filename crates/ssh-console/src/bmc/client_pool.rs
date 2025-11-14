@@ -131,9 +131,8 @@ impl BmcConnectionStore {
                 machine_id
             } else {
                 forge_api_client
-                    .find_instances(forge::InstanceSearchQuery {
-                        id: Some(instance_id),
-                        label: None,
+                    .find_instances_by_ids(forge::InstancesByIdsRequest {
+                        instance_ids: vec![instance_id],
                     })
                     .await
                     .map_err(|e| GetConnectionError::InstanceIdLookupFailure {

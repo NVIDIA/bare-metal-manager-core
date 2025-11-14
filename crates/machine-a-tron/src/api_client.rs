@@ -275,16 +275,6 @@ impl ApiClient {
             .map_err(ClientApiError::InvocationError)
     }
 
-    pub async fn find_network_segments(&self) -> ClientApiResult<rpc::forge::NetworkSegmentList> {
-        self.0
-            .find_network_segments(rpc::forge::NetworkSegmentQuery {
-                id: None,
-                search_config: None,
-            })
-            .await
-            .map_err(ClientApiError::InvocationError)
-    }
-
     pub async fn allocate_instance(
         &self,
         host_machine_id: MachineId,

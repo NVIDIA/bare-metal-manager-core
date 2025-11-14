@@ -11,7 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use db::ObjectFilter;
 use model::tenant::{
     TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
@@ -96,44 +95,6 @@ pub(crate) async fn find_by_ids(
         .map(Response::new)?;
 
     Ok(result)
-}
-
-// DEPRECATED: use find_ids and find_by_ids instead
-pub(crate) async fn find(
-    api: &Api,
-    request: Request<rpc::FindTenantKeysetRequest>,
-) -> Result<Response<rpc::TenantKeySetList>, Status> {
-    crate::api::log_request_data(&request);
-
-    let rpc::FindTenantKeysetRequest {
-        organization_id,
-        keyset_id,
-        include_key_data,
-    } = request.into_inner();
-
-    if organization_id.is_none() && keyset_id.is_some() {
-        return Err(CarbideError::InvalidArgument(
-            "Keyset id is given but Organization id is missing.".to_string(),
-        )
-        .into());
-    }
-
-    let mut txn = api.txn_begin("find_tenant_keyset").await?;
-
-    let keyset_ids = if let Some(keyset_id) = keyset_id {
-        ObjectFilter::One(keyset_id)
-    } else {
-        ObjectFilter::All
-    };
-
-    let keyset =
-        db::tenant_keyset::find(organization_id, keyset_ids, include_key_data, &mut txn).await?;
-
-    txn.commit().await?;
-
-    Ok(Response::new(rpc::TenantKeySetList {
-        keyset: keyset.into_iter().map(|x| x.into()).collect(),
-    }))
 }
 
 pub(crate) async fn update(

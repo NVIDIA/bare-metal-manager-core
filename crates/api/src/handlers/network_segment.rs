@@ -86,38 +86,6 @@ pub(crate) async fn find_by_ids(
     }))
 }
 
-// DEPRECATED: use find_ids and find_by_ids instead
-pub(crate) async fn find(
-    api: &Api,
-    request: Request<rpc::NetworkSegmentQuery>,
-) -> Result<Response<rpc::NetworkSegmentList>, Status> {
-    crate::api::log_request_data(&request);
-
-    let mut txn = api.txn_begin("find_network_segments").await?;
-
-    let rpc::NetworkSegmentQuery {
-        id, search_config, ..
-    } = request.into_inner();
-
-    let segment_id_filter = match id.as_ref() {
-        Some(network_segment_id) => {
-            ObjectColumnFilter::One(network_segment::IdColumn, network_segment_id)
-        }
-        None => ObjectColumnFilter::All,
-    };
-
-    let search_config = search_config
-        .map(NetworkSegmentSearchConfig::from)
-        .unwrap_or(NetworkSegmentSearchConfig::default());
-    let results = db::network_segment::find_by(&mut txn, segment_id_filter, search_config).await?;
-    let mut network_segments = Vec::with_capacity(results.len());
-
-    for result in results {
-        network_segments.push(result.try_into()?);
-    }
-    Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
-}
-
 pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::NetworkSegmentCreationRequest>,

@@ -36,7 +36,6 @@ use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
 use model::vpc::UpdateVpcVirtualization;
 use prometheus_text_parser::ParsedPrometheusMetrics;
-use rpc::forge::NetworkSegmentSearchConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
@@ -265,27 +264,35 @@ async fn test_network_segment_max_history_length(
 
     let segment = get_segments(
         &env.api,
-        segment_id,
-        Some(NetworkSegmentSearchConfig {
+        rpc::forge::NetworkSegmentsByIdsRequest {
+            network_segments_ids: vec![segment_id],
             include_history: true,
             include_num_free_ips: false,
-        }),
+        },
     )
     .await;
     assert!(!segment.network_segments[0].history.is_empty());
 
     let segment = get_segments(
         &env.api,
-        segment_id,
-        Some(NetworkSegmentSearchConfig {
+        rpc::forge::NetworkSegmentsByIdsRequest {
+            network_segments_ids: vec![segment_id],
             include_history: false,
             include_num_free_ips: false,
-        }),
+        },
     )
     .await;
     assert!(segment.network_segments[0].history.is_empty());
 
-    let segment = get_segments(&env.api, segment_id, None).await;
+    let segment = get_segments(
+        &env.api,
+        rpc::forge::NetworkSegmentsByIdsRequest {
+            network_segments_ids: vec![segment_id],
+            include_history: false,
+            include_num_free_ips: false,
+        },
+    )
+    .await;
     assert!(segment.network_segments[0].history.is_empty());
 
     // Now insert a lot of state changes, and see if the history limit is kept

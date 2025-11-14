@@ -12,7 +12,7 @@
 
 use ::rpc::forge as rpc;
 use db::ObjectColumnFilter;
-use db::ib_partition::{self, IBPartitionSearchConfig, NewIBPartition};
+use db::ib_partition::{self, NewIBPartition};
 use db::resource_pool::ResourcePoolDatabaseError;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::ib_partition::PartitionKey;
@@ -100,7 +100,6 @@ pub(crate) async fn find_by_ids(
     let partitions = db::ib_partition::find_by(
         &mut txn,
         ObjectColumnFilter::List(ib_partition::IdColumn, &ib_partition_ids),
-        IBPartitionSearchConfig {},
     )
     .await?;
 
@@ -111,36 +110,6 @@ pub(crate) async fn find_by_ids(
     Ok(Response::new(rpc::IbPartitionList {
         ib_partitions: result,
     }))
-}
-
-// DEPRECATED: use find_ids and find_by_ids instead
-pub(crate) async fn find(
-    api: &Api,
-    request: Request<rpc::IbPartitionQuery>,
-) -> Result<Response<rpc::IbPartitionList>, Status> {
-    log_request_data(&request);
-
-    let mut txn = api.txn_begin("find_ib_partitions").await?;
-
-    let rpc::IbPartitionQuery {
-        id, search_config, ..
-    } = request.into_inner();
-
-    let uuid_filter = match id.as_ref() {
-        Some(id) => ObjectColumnFilter::One(ib_partition::IdColumn, id),
-        None => ObjectColumnFilter::All,
-    };
-
-    let search_config = search_config
-        .map(IBPartitionSearchConfig::from)
-        .unwrap_or(IBPartitionSearchConfig::default());
-    let results = db::ib_partition::find_by(&mut txn, uuid_filter, search_config).await?;
-    let mut ib_partitions = Vec::with_capacity(results.len());
-    for result in results {
-        ib_partitions.push(result.try_into()?);
-    }
-
-    Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
 }
 
 pub(crate) async fn delete(
@@ -158,7 +127,6 @@ pub(crate) async fn delete(
     let mut segments = db::ib_partition::find_by(
         &mut txn,
         ObjectColumnFilter::One(ib_partition::IdColumn, &uuid),
-        IBPartitionSearchConfig::default(),
     )
     .await?;
 

@@ -295,34 +295,6 @@ pub(crate) async fn find_by_ids(
     Ok(result)
 }
 
-// DEPRECATED: use find_ids and find_by_ids instead
-pub(crate) async fn find(
-    api: &Api,
-    request: Request<rpc::VpcSearchQuery>,
-) -> Result<Response<rpc::VpcList>, Status> {
-    log_request_data(&request);
-
-    let mut txn = api.txn_begin("find_vpcs").await?;
-
-    let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
-
-    let vpcs = match (id, name) {
-        (Some(id), _) => {
-            db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &id)).await
-        }
-        (None, Some(name)) => db::vpc::find_by_name(&mut txn, &name).await,
-        (None, None) => db::vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await,
-    };
-
-    let result = vpcs
-        .map(|vpc| rpc::VpcList {
-            vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
-        })
-        .map(Response::new)?;
-
-    Ok(result)
-}
-
 /// Allocate a value from the vpc vni resource pool.
 ///
 /// If the pool exists but is empty or has en error, return that.

@@ -21,7 +21,6 @@ static KEEP_RPCS: &[&str] = &[
     "FindMachineIds",
     "FindMachinesByIds",
     "GetBMCMetaData",
-    "FindInstances",
 ];
 
 static RPC_CRATE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../rpc");

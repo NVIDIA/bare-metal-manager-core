@@ -62,7 +62,6 @@ impl InternalRBACRules {
         x.perm("DeleteVpc", vec![Machineatron, SiteAgent]);
         x.perm("FindVpcIds", vec![SiteAgent, ForgeAdminCLI, Machineatron]);
         x.perm("FindVpcsByIds", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("FindVpcs", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SearchVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
@@ -81,16 +80,11 @@ impl InternalRBACRules {
             "FindNetworkSegmentsByIds",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
-        x.perm(
-            "FindNetworkSegments",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent],
-        );
         x.perm("CreateNetworkSegment", vec![Machineatron, SiteAgent]);
         x.perm("DeleteNetworkSegment", vec![Machineatron, SiteAgent]);
         x.perm("NetworkSegmentsForVpc", vec![]);
         x.perm("FindIBPartitionIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindIBPartitionsByIds", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("FindIBPartitions", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateIBPartition", vec![SiteAgent]);
         x.perm("DeleteIBPartition", vec![SiteAgent]);
         x.perm("IBPartitionsForTenant", vec![]);
@@ -104,7 +98,6 @@ impl InternalRBACRules {
         x.perm("UpdateInstanceConfig", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstanceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstancesByIds", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("FindInstances", vec![ForgeAdminCLI, SiteAgent, Ssh, SshRs]);
         x.perm(
             "FindInstanceByMachineID",
             vec![ForgeAdminCLI, Agent, SiteAgent],
@@ -182,7 +175,6 @@ impl InternalRBACRules {
         x.perm("CreateTenantKeyset", vec![SiteAgent]);
         x.perm("FindTenantKeysetIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindTenantKeysetsByIds", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("FindTenantKeyset", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateTenantKeyset", vec![SiteAgent]);
         x.perm("DeleteTenantKeyset", vec![SiteAgent]);
         x.perm("ValidateTenantPublicKey", vec![SiteAgent, Ssh, SshRs]);
@@ -715,7 +707,7 @@ mod rbac_rule_tests {
             )]
         ));
         assert!(InternalRBACRules::allowed_from_static(
-            "FindNetworkSegments",
+            "FindNetworkSegmentsByIds",
             &[
                 Principal::SpiffeServiceIdentifier("machine-a-tron".to_string()),
                 Principal::TrustedCertificate

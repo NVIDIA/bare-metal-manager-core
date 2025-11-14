@@ -14,9 +14,8 @@ use std::collections::{HashMap, HashSet};
 
 use ::rpc::errors::RpcDataConversionError;
 use config_version::ConfigVersion;
-use db::ib_partition::{self, IBPartitionSearchConfig};
 use db::{
-    self, ObjectColumnFilter, ObjectFilter, dpa_interface, extension_service,
+    self, ObjectColumnFilter, ObjectFilter, dpa_interface, extension_service, ib_partition,
     network_security_group,
 };
 use forge_uuid::instance::InstanceId;
@@ -659,7 +658,6 @@ pub async fn validate_ib_partition_ownership(
         let ib_partitions = db::ib_partition::find_by(
             txn,
             ObjectColumnFilter::One(ib_partition::IdColumn, partition_id),
-            IBPartitionSearchConfig::default(),
         )
         .await?;
         let ib_partition = ib_partitions
