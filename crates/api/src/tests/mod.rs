@@ -80,6 +80,7 @@ mod route_servers;
 mod service_health_metrics;
 mod site_explorer;
 mod sku;
+mod spdm;
 mod storage;
 mod tenant_keyset_find;
 mod tenants;

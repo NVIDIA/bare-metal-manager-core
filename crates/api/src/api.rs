@@ -3899,6 +3899,34 @@ impl Forge for Api {
     ) -> Result<Response<rpc::FindInstancesByDpuExtensionServiceResponse>, Status> {
         crate::handlers::extension_service::find_instances_by_extension_service(self, request).await
     }
+
+    async fn trigger_machine_attestation(
+        &self,
+        request: tonic::Request<rpc::AttestationData>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::handlers::attestation::trigger_machine_attestation(self, request).await
+    }
+
+    async fn cancel_machine_attestation(
+        &self,
+        request: tonic::Request<rpc::AttestationData>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::handlers::attestation::cancel_machine_attestation(self, request).await
+    }
+
+    async fn find_machines_under_attestation(
+        &self,
+        request: tonic::Request<rpc::AttestationMachineList>,
+    ) -> Result<tonic::Response<rpc::AttestationResponse>, Status> {
+        crate::handlers::attestation::list_machines_under_attestation(self, request).await
+    }
+
+    async fn find_machine_ids_under_attestation(
+        &self,
+        request: tonic::Request<rpc::AttestationIdsRequest>,
+    ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
+        crate::handlers::attestation::list_machine_ids_under_attestation(self, request).await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

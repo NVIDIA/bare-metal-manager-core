@@ -504,6 +504,16 @@ impl InternalRBACRules {
             "FindInstancesByDpuExtensionService",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm("TriggerMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CancelMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindMachineIdsUnderAttestation",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "FindMachinesUnderAttestation",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {
