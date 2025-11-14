@@ -568,6 +568,46 @@ service Forge {
   rpc FindDpuExtensionServicesByIds(DpuExtensionServicesByIdsRequest) returns (DpuExtensionServiceList);
   rpc GetDpuExtensionServiceVersionsInfo(GetDpuExtensionServiceVersionsInfoRequest) returns (DpuExtensionServiceVersionInfoList);
   rpc FindInstancesByDpuExtensionService(FindInstancesByDpuExtensionServiceRequest) returns (FindInstancesByDpuExtensionServiceResponse);
+  // SPDM attestation APIs start
+  rpc TriggerMachineAttestation(AttestationData) returns (google.protobuf.Empty);
+  rpc CancelMachineAttestation(AttestationData) returns (google.protobuf.Empty);
+  rpc FindMachineIdsUnderAttestation(AttestationIdsRequest) returns (common.MachineIdList);
+  rpc FindMachinesUnderAttestation(AttestationMachineList) returns (AttestationResponse);
+  // SPDM attestation APIs end
+}
+
+message AttestationIdsRequest {
+
+}
+
+message AttestationData {
+  common.MachineId machine_id = 1;
+}
+
+message AttestationMachineList {
+  repeated common.MachineId machine_ids = 1;
+}
+
+message AttestationResponse {
+  message AttestationDeviceData {
+    string device_id = 1;
+    common.UUID nonce = 2;
+    string state = 3;
+    optional string last_known_metadata = 4;
+    optional string current_metadata = 5;
+  }
+  message AttestationMachineData {
+    common.MachineId machine_id = 1;
+    google.protobuf.Timestamp requested_at = 2;
+    optional google.protobuf.Timestamp started_at = 3;
+    optional google.protobuf.Timestamp canceled_at = 4;
+    string state = 5;
+    string state_version = 6;
+    optional string state_outcome = 7;
+    string status = 8;
+    repeated AttestationDeviceData device_data = 9;
+  }
+  repeated AttestationMachineData machines = 1;
 }
 
 message TpmCaAddedCaStatus{
