@@ -38,17 +38,6 @@ impl ColumnInfo<'_> for IdColumn {
     }
 }
 
-impl From<rpc::IbPartitionSearchConfig> for IBPartitionSearchConfig {
-    fn from(_: rpc::IbPartitionSearchConfig) -> Self {
-        IBPartitionSearchConfig {}
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct IBPartitionSearchConfig {
-    // pub include_history: bool, // unused
-}
-
 #[derive(Debug, Clone)]
 pub struct NewIBPartition {
     pub id: IBPartitionId,
@@ -380,7 +369,6 @@ pub async fn find_ids(
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = IBPartition>>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
-    _search_config: IBPartitionSearchConfig,
 ) -> Result<Vec<IBPartition>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM ib_partitions").filter(&filter);
 

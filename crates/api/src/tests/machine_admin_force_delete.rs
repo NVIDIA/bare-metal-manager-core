@@ -16,8 +16,7 @@ use std::str::FromStr;
 
 use ::rpc::forge::forge_server::Forge;
 use ::rpc::forge::{
-    AdminForceDeleteMachineRequest, IbPartitionSearchConfig, IbPartitionStatus,
-    InstancesByIdsRequest, TenantState,
+    AdminForceDeleteMachineRequest, IbPartitionStatus, InstancesByIdsRequest, TenantState,
 };
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::host_discover_dhcp;
@@ -45,11 +44,9 @@ use crate::tests::common;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api
-        .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: Some(ib_partition_id),
-            search_config: Some(IbPartitionSearchConfig {
-                include_history: false,
-            }),
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![ib_partition_id],
+            include_history: false,
         }))
         .await
         .unwrap()

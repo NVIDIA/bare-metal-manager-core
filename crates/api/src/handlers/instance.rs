@@ -119,54 +119,6 @@ pub(crate) async fn find_by_ids(
     Ok(Response::new(rpc::InstanceList { instances }))
 }
 
-// DEPRECATED: use find_ids and find_by_ids instead
-pub(crate) async fn find(
-    api: &Api,
-    request: Request<rpc::InstanceSearchQuery>,
-) -> Result<Response<rpc::InstanceList>, Status> {
-    log_request_data(&request);
-
-    let mut txn = api.txn_begin("find_instances").await?;
-
-    let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
-    let instance_ids = match (id, label) {
-        (Some(id), None) => vec![id],
-        (None, None) => db::instance::find_ids(&mut txn, Default::default()).await?,
-        (None, Some(label)) => {
-            db::instance::find_ids(
-                &mut txn,
-                rpc::InstanceSearchFilter {
-                    label: Some(label),
-                    ..Default::default()
-                },
-            )
-            .await?
-        }
-
-        (Some(_id), Some(_label)) => {
-            return Err(CarbideError::InvalidArgument(
-                "Searching instances based on both id and labels is not supported.".to_string(),
-            )
-            .into());
-        }
-    };
-
-    let snapshots = db::managed_host::load_by_instance_ids(
-        &mut txn,
-        &instance_ids,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
-    )
-    .await?;
-
-    // Convert snapshots to instances via [`snapshot_to_instance`]
-    let instances = snapshots
-        .into_iter()
-        .map(snapshot_to_instance)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(Response::new(rpc::InstanceList { instances }))
-}
-
 pub(crate) async fn find_by_machine_id(
     api: &Api,
     request: Request<MachineId>,

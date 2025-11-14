@@ -118,9 +118,8 @@ pub async fn lookup(
         id
     } else if let Ok(instance_id) = InstanceId::from_str(machine_or_instance_id) {
         forge_api_client
-            .find_instances(forge::InstanceSearchQuery {
-                id: Some(instance_id),
-                label: None,
+            .find_instances_by_ids(forge::InstancesByIdsRequest {
+                instance_ids: vec![instance_id],
             })
             .await
             .map_err(|e| LookupError::InstanceIdLookup {

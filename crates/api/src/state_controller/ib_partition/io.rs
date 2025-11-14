@@ -13,7 +13,7 @@
 //! State Controller IO implementation for Infiniband Partitions
 
 use config_version::{ConfigVersion, Versioned};
-use db::ib_partition::{IBPartition, IBPartitionSearchConfig};
+use db::ib_partition::IBPartition;
 use db::{self, DatabaseError, ObjectColumnFilter};
 use forge_uuid::infiniband::IBPartitionId;
 use model::StateSla;
@@ -57,7 +57,6 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         let mut partitions = db::ib_partition::find_by(
             txn,
             ObjectColumnFilter::One(db::ib_partition::IdColumn, partition_id),
-            IBPartitionSearchConfig::default(),
         )
         .await?;
         if partitions.is_empty() {

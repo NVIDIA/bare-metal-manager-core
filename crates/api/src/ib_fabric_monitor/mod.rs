@@ -17,7 +17,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use chrono::Utc;
-use db::ib_partition::{IBPartition, IBPartitionSearchConfig};
+use db::ib_partition::IBPartition;
 use db::{self, DatabaseError};
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
@@ -613,7 +613,6 @@ async fn get_tenant_partitions(
         let partition_data = db::ib_partition::find_by(
             txn,
             db::ObjectColumnFilter::List(db::ib_partition::IdColumn, next_ids),
-            IBPartitionSearchConfig {},
         )
         .await?;
 

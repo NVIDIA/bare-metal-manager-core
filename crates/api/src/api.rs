@@ -164,14 +164,6 @@ impl Forge for Api {
         crate::handlers::vpc::find_by_ids(self, request).await
     }
 
-    // DEPRECATED: use find_vpc_ids and find_vpcs_by_ids instead
-    async fn find_vpcs(
-        &self,
-        request: Request<rpc::VpcSearchQuery>,
-    ) -> Result<Response<rpc::VpcList>, Status> {
-        crate::handlers::vpc::find(self, request).await
-    }
-
     async fn create_vpc_prefix(
         &self,
         request: Request<rpc::VpcPrefixCreationRequest>,
@@ -248,14 +240,6 @@ impl Forge for Api {
         crate::handlers::ib_partition::find_by_ids(self, request).await
     }
 
-    // DEPRECATED: use find_ib_partition_ids and find_ib_partitions_by_ids instead
-    async fn find_ib_partitions(
-        &self,
-        request: Request<rpc::IbPartitionQuery>,
-    ) -> Result<Response<rpc::IbPartitionList>, Status> {
-        crate::handlers::ib_partition::find(self, request).await
-    }
-
     async fn create_ib_partition(
         &self,
         request: Request<rpc::IbPartitionCreationRequest>,
@@ -298,14 +282,6 @@ impl Forge for Api {
         crate::handlers::network_segment::find_by_ids(self, request).await
     }
 
-    // DEPRECATED: use find_network_segment_ids and find_network_segments_by_ids instead
-    async fn find_network_segments(
-        &self,
-        request: Request<rpc::NetworkSegmentQuery>,
-    ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
-        crate::handlers::network_segment::find(self, request).await
-    }
-
     async fn create_network_segment(
         &self,
         request: Request<rpc::NetworkSegmentCreationRequest>,
@@ -346,14 +322,6 @@ impl Forge for Api {
         request: Request<rpc::InstancesByIdsRequest>,
     ) -> Result<Response<rpc::InstanceList>, Status> {
         crate::handlers::instance::find_by_ids(self, request).await
-    }
-
-    // DEPRECATED: use find_instance_ids and find_instances_by_ids instead
-    async fn find_instances(
-        &self,
-        request: Request<rpc::InstanceSearchQuery>,
-    ) -> Result<Response<rpc::InstanceList>, Status> {
-        crate::handlers::instance::find(self, request).await
     }
 
     async fn find_instance_by_machine_id(
@@ -535,14 +503,6 @@ impl Forge for Api {
         request: Request<rpc::TenantKeysetsByIdsRequest>,
     ) -> Result<Response<rpc::TenantKeySetList>, Status> {
         crate::handlers::tenant_keyset::find_by_ids(self, request).await
-    }
-
-    // DEPRECATED: use find_tenant_keyset_ids and find_tenant_keysets_by_ids instead
-    async fn find_tenant_keyset(
-        &self,
-        request: Request<rpc::FindTenantKeysetRequest>,
-    ) -> Result<Response<rpc::TenantKeySetList>, Status> {
-        crate::handlers::tenant_keyset::find(self, request).await
     }
 
     async fn update_tenant_keyset(

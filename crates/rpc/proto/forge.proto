@@ -33,8 +33,6 @@ service Forge {
   rpc DeleteVpc(VpcDeletionRequest) returns (VpcDeletionResult);
   rpc FindVpcIds(VpcSearchFilter) returns (VpcIdList);
   rpc FindVpcsByIds(VpcsByIdsRequest) returns (VpcList);
-  // DEPRECATED: use FindVpcIds and FindVpcsByIds instead
-  rpc FindVpcs(VpcSearchQuery) returns (VpcList);
 
   // VPC prefixes
   rpc CreateVpcPrefix(VpcPrefixCreationRequest) returns (VpcPrefix);
@@ -52,17 +50,14 @@ service Forge {
   // Segments - i.e. Overlay Networks
   rpc FindNetworkSegmentIds(NetworkSegmentSearchFilter) returns (NetworkSegmentIdList);
   rpc FindNetworkSegmentsByIds(NetworkSegmentsByIdsRequest) returns (NetworkSegmentList);
-  // DEPRECATED: use FindNetworkSegmentIds and FindNetworkSegmentIds instead
-  rpc FindNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
   rpc CreateNetworkSegment(NetworkSegmentCreationRequest) returns (NetworkSegment);
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
+  // TODO: This functionality should get integrated into NetworkSegmentSearchFilter
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
   // InfiniBand Partitions
   rpc FindIBPartitionIds(IBPartitionSearchFilter) returns (IBPartitionIdList);
   rpc FindIBPartitionsByIds(IBPartitionsByIdsRequest) returns (IBPartitionList);
-  // DEPRECATED: use FindIBPartitionIds and FindIBPartitionsByIds instead
-  rpc FindIBPartitions(IBPartitionQuery) returns (IBPartitionList);
   // Create a IB partition
   rpc CreateIBPartition(IBPartitionCreationRequest) returns (IBPartition);
   // Delete a IB partition
@@ -97,8 +92,6 @@ service Forge {
 
   rpc FindInstanceIds(InstanceSearchFilter) returns (InstanceIdList);
   rpc FindInstancesByIds(InstancesByIdsRequest) returns (InstanceList);
-  // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
-  rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
   rpc FindInstanceByMachineID(common.MachineId) returns (InstanceList);
 
   // forge-dpu-agent -> carbide-api
@@ -172,8 +165,6 @@ service Forge {
   rpc CreateTenantKeyset(CreateTenantKeysetRequest) returns (CreateTenantKeysetResponse);
   rpc FindTenantKeysetIds(TenantKeysetSearchFilter) returns (TenantKeysetIdList);
   rpc FindTenantKeysetsByIds(TenantKeysetsByIdsRequest) returns (TenantKeySetList);
-  // DEPRECATED: use FindTenantKeysetIds and FindTenantKeysetsByIds instead
-  rpc FindTenantKeyset(FindTenantKeysetRequest) returns (TenantKeySetList);
   rpc UpdateTenantKeyset(UpdateTenantKeysetRequest) returns (UpdateTenantKeysetResponse);
   rpc DeleteTenantKeyset(DeleteTenantKeysetRequest) returns (DeleteTenantKeysetResponse);
 
@@ -1201,15 +1192,6 @@ message IBPartitionDeletionRequest {
 message IBPartitionDeletionResult {
 }
 
-message IBPartitionSearchConfig {
-  bool include_history = 1;
-}
-
-message IBPartitionQuery {
-  common.IBPartitionId id = 1;
-  optional IBPartitionSearchConfig search_config = 2;
-}
-
 message IBPartitionSearchFilter {
   optional string tenant_org_id = 1;
   optional string name = 2;
@@ -1317,11 +1299,6 @@ message NetworkSegmentSearchConfig {
   bool include_num_free_ips = 2;
 }
 
-message NetworkSegmentQuery {
-  common.NetworkSegmentId id = 1;
-  optional NetworkSegmentSearchConfig search_config = 2;
-}
-
 message NetworkSegmentSearchFilter {
   optional string name = 1;
   optional string tenant_org_id = 2;
@@ -1381,11 +1358,6 @@ message InstancePowerRequest {
 }
 
 message InstancePowerResult {
-}
-
-message InstanceSearchQuery {
-  optional common.InstanceId id = 1;
-  optional Label label = 2;
 }
 
 message InstanceList {
@@ -3464,20 +3436,6 @@ message CreateTenantKeysetResponse {
   TenantKeyset keyset = 1;
 }
 
-message FindTenantKeysetRequest {
-  // The tenant organization for which to list keysets. If this is empty, the call will
-  // return the key sets for all tenant organizations.
-  optional string organization_id = 1;
-  // The keyset ID within the tenant organization. If this is not empty, the call will
-  // return only the content of a single keyset if this exists.
-  // Otherwise all keysets for the selected tenant will be listed.
-  optional string keyset_id = 2;
-  // Whether to include the actual keys in the response. By default only the names
-  // of the keysets will be returned and their versions. The keys will be omitted
-  // since it is assumed that the caller (Forge Cloud API) is already aware of them.
-  bool include_key_data = 3;
-
-}
 message TenantKeySetList {
   repeated TenantKeyset keyset = 1;
 }

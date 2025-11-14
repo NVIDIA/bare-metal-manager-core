@@ -56,12 +56,10 @@ async fn test_network_segment_lifecycle_impl(
     if test_num_free_ips {
         let segments = env
             .api
-            .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-                id: segment.id,
-                search_config: Some(rpc::forge::NetworkSegmentSearchConfig {
-                    include_history: false,
-                    include_num_free_ips: true,
-                }),
+            .find_network_segments_by_ids(Request::new(rpc::forge::NetworkSegmentsByIdsRequest {
+                network_segments_ids: vec![segment_id],
+                include_history: false,
+                include_num_free_ips: true,
             }))
             .await
             .unwrap()
@@ -109,9 +107,10 @@ async fn test_network_segment_lifecycle_impl(
 
     let segments = env
         .api
-        .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-            id: segment.id,
-            search_config: None,
+        .find_network_segments_by_ids(Request::new(rpc::forge::NetworkSegmentsByIdsRequest {
+            network_segments_ids: vec![segment_id],
+            include_num_free_ips: false,
+            include_history: false,
         }))
         .await
         .unwrap()

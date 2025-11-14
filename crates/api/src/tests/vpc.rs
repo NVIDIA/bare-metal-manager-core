@@ -581,22 +581,8 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 
     let vpc_list = env
         .api
-        .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
-            id: Some(vpc_id),
-            name: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(vpc_list.vpcs.len(), 1);
-    assert_eq!(vpc_list.vpcs[0].id, Some(vpc_id));
-    assert_eq!(vpc_list.vpcs[0].name, "test_vpc");
-
-    let vpc_list = env
-        .api
-        .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
-            id: None,
-            name: Some("test_vpc".to_string()),
+        .find_vpcs_by_ids(tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+            vpc_ids: vec![vpc_id],
         }))
         .await
         .unwrap()
@@ -616,9 +602,8 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 
     let vpc_list = env
         .api
-        .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
-            id: Some(vpc_id),
-            name: None,
+        .find_vpcs_by_ids(tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+            vpc_ids: vec![vpc_id],
         }))
         .await
         .unwrap()
@@ -626,14 +611,15 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
     assert!(vpc_list.vpcs.is_empty());
     let vpc_list = env
         .api
-        .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
-            id: None,
+        .find_vpc_ids(tonic::Request::new(rpc::forge::VpcSearchFilter {
             name: Some("test_vpc".to_string()),
+            tenant_org_id: None,
+            label: None,
         }))
         .await
         .unwrap()
         .into_inner();
-    assert!(vpc_list.vpcs.is_empty());
+    assert!(vpc_list.vpc_ids.is_empty());
 
     // With a duplicated delete query, we want to return NotFound
     let delete_result = env

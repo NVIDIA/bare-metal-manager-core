@@ -139,11 +139,11 @@ pub async fn release(
 
     wait_for_state(addrs, host_machine_id, "WaitingForCleanup/HostCleanup").await?;
     let data = serde_json::json!({
-        "id": {"value": instance_id}
+        "instance_ids": [{"value": instance_id}]
     });
-    let response = grpcurl(addrs, "FindInstances", Some(&data)).await?;
+    let response = grpcurl(addrs, "FindInstancesByIds", Some(&data)).await?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
-    tracing::info!("FindInstances Response: {}", resp);
+    tracing::info!("FindInstancesByIds Response: {}", resp);
     assert!(resp["instances"].as_array().unwrap().is_empty());
 
     tracing::info!("Instance with ID {instance_id} is released");
@@ -165,10 +165,10 @@ pub async fn phone_home(addrs: &[SocketAddr], instance_id: &str) -> eyre::Result
 
 pub async fn get_instance_state(addrs: &[SocketAddr], instance_id: &str) -> eyre::Result<String> {
     let data = serde_json::json!({
-        "id": {"value": instance_id}
+        "instance_ids": [{"value": instance_id}]
     });
 
-    let response = grpcurl(addrs, "FindInstances", Some(&data)).await?;
+    let response = grpcurl(addrs, "FindInstancesByIds", Some(&data)).await?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
     let state = resp["instances"][0]["status"]["tenant"]["state"]
         .as_str()

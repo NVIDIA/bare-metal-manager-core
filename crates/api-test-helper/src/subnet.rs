@@ -50,13 +50,13 @@ pub async fn wait_for_network_segment_state(
     let start = std::time::Instant::now();
 
     let data = serde_json::json!({
-        "id": {"value": segment_id}
+        "network_segments_ids": [{"value": segment_id}]
     });
     let mut latest_state: String;
 
     tracing::info!("Waiting for Network Segment {segment_id} state {target_state}");
     while start.elapsed() < MAX_WAIT {
-        let response = grpcurl(addrs, "FindNetworkSegments", Some(&data)).await?;
+        let response = grpcurl(addrs, "FindNetworkSegmentsByIds", Some(&data)).await?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         latest_state = resp["networkSegments"][0]["state"]
             .as_str()

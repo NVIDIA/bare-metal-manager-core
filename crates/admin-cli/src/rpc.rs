@@ -28,7 +28,8 @@ use ::rpc::forge::{
     NetworkSegmentCreationRequest, NetworkSegmentDeletionRequest, NetworkSegmentDeletionResult,
     NetworkSegmentType, PowerState, Remediation, RemediationIdList, RemediationList,
     RevokeRemediationRequest, SshRequest, UpdateMachineHardwareInfoRequest,
-    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchQuery, VpcVirtualizationType,
+    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
+    VpcsByIdsRequest,
 };
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::{Machine, NetworkSegment};
@@ -918,12 +919,19 @@ impl ApiClient {
     }
 
     pub async fn get_vpc_by_name(&self, name: &str) -> CarbideCliResult<rpc::VpcList> {
-        let vpcs = self
+        let vpc_ids = self
             .0
-            .find_vpcs(VpcSearchQuery {
-                id: None,
+            .find_vpc_ids(VpcSearchFilter {
+                label: None,
+                tenant_org_id: None,
                 name: Some(name.to_string()),
             })
+            .await?
+            .vpc_ids;
+
+        let vpcs = self
+            .0
+            .find_vpcs_by_ids(VpcsByIdsRequest { vpc_ids })
             .await?;
 
         Ok(vpcs)

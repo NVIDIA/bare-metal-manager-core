@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::MockApiServer;
 use crate::generated::forge::forge_server::Forge;
 use crate::generated::forge::{
-    BmcMetaDataGetResponse, BuildInfo, InstanceList, InstanceSearchQuery, InstancesByIdsRequest,
+    BmcMetaDataGetResponse, BuildInfo, InstanceList, InstancesByIdsRequest,
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse, VersionRequest,
 };
 use crate::generated::{common, forge};
@@ -162,28 +162,6 @@ impl Forge for MockApiServer {
                 })
                 .map(Into::into)
                 .collect(),
-        }))
-    }
-
-    async fn find_instances(
-        &self,
-        request: Request<InstanceSearchQuery>,
-    ) -> Result<Response<InstanceList>, Status> {
-        let Some(instance_id) = request.into_inner().id else {
-            return Err(Status::invalid_argument("Missing instance ID"));
-        };
-
-        let Some(mock_host) = self.mock_hosts.iter().find(|mock_host| {
-            mock_host.instance_id.to_string().to_lowercase() == instance_id.value.to_lowercase()
-        }) else {
-            return Err(Status::not_found(format!(
-                "No instance found with id {}",
-                instance_id.value
-            )));
-        };
-
-        Ok(Response::new(InstanceList {
-            instances: vec![mock_host.clone().into()],
         }))
     }
 }

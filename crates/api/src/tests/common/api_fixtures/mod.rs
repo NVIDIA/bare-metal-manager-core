@@ -502,12 +502,11 @@ impl TestEnv {
             .into_inner()
     }
 
-    // Returns all instances using FindInstances call.
-    pub async fn find_instances(&self, id: Option<InstanceId>) -> rpc::forge::InstanceList {
+    // Returns all instances using FindInstancesByIds call.
+    pub async fn find_instances(&self, ids: Vec<InstanceId>) -> rpc::forge::InstanceList {
         self.api
-            .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
-                id,
-                label: None,
+            .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+                instance_ids: ids,
             }))
             .await
             .unwrap()
@@ -517,9 +516,8 @@ impl TestEnv {
     pub async fn one_instance(&self, id: InstanceId) -> RpcInstance {
         let mut result = self
             .api
-            .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
-                id: Some(id),
-                label: None,
+            .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+                instance_ids: vec![id],
             }))
             .await
             .unwrap()

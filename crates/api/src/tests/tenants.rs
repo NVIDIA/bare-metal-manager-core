@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use common::api_fixtures::{TestEnv, create_test_env};
-use rpc::forge::CreateTenantKeysetResponse;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{CreateTenantKeysetResponse, TenantKeysetIdentifier};
 use tonic::Code;
 
 use crate::tests::common;
@@ -315,7 +315,7 @@ async fn test_tenant_create_keyset(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
-async fn test_tenant_find_keyset(pool: sqlx::PgPool) {
+async fn test_tenant_find_keyset_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let _ = create_keyset(
         &env,
@@ -361,35 +361,33 @@ async fn test_tenant_find_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset(tonic::Request::new(rpc::forge::FindTenantKeysetRequest {
-            organization_id: Some("Org3".to_string()),
-            keyset_id: None,
-            include_key_data: false,
+        .find_tenant_keyset_ids(tonic::Request::new(rpc::forge::TenantKeysetSearchFilter {
+            tenant_org_id: Some("Org3".to_string()),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    assert!(find_result.keyset.is_empty());
+    assert!(find_result.keyset_ids.is_empty());
 
     let find_result = env
         .api
-        .find_tenant_keyset(tonic::Request::new(rpc::forge::FindTenantKeysetRequest {
-            organization_id: Some("Org1".to_string()),
-            keyset_id: None,
-            include_key_data: false,
+        .find_tenant_keyset_ids(tonic::Request::new(rpc::forge::TenantKeysetSearchFilter {
+            tenant_org_id: Some("Org1".to_string()),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    assert_eq!(find_result.keyset.len(), 2);
+    assert_eq!(find_result.keyset_ids.len(), 2);
 
     let find_result = env
         .api
-        .find_tenant_keyset(tonic::Request::new(rpc::forge::FindTenantKeysetRequest {
-            organization_id: Some("Org1".to_string()),
-            keyset_id: Some("keyset2".to_string()),
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+            keyset_ids: vec![TenantKeysetIdentifier {
+                organization_id: "Org1".to_string(),
+                keyset_id: "keyset2".to_string(),
+            }],
             include_key_data: false,
         }))
         .await
@@ -426,9 +424,11 @@ async fn test_tenant_find_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset(tonic::Request::new(rpc::forge::FindTenantKeysetRequest {
-            organization_id: Some("Org1".to_string()),
-            keyset_id: Some("keyset2".to_string()),
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+            keyset_ids: vec![TenantKeysetIdentifier {
+                organization_id: "Org1".to_string(),
+                keyset_id: "keyset2".to_string(),
+            }],
             include_key_data: true,
         }))
         .await
@@ -503,16 +503,14 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset(tonic::Request::new(rpc::forge::FindTenantKeysetRequest {
-            organization_id: Some("Org1".to_string()),
-            keyset_id: None,
-            include_key_data: false,
+        .find_tenant_keyset_ids(tonic::Request::new(rpc::forge::TenantKeysetSearchFilter {
+            tenant_org_id: Some("Org1".to_string()),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    assert!(find_result.keyset.is_empty());
+    assert!(find_result.keyset_ids.is_empty());
 }
 
 #[crate::sqlx_test]
@@ -531,9 +529,11 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset(tonic::Request::new(rpc::forge::FindTenantKeysetRequest {
-            organization_id: Some("Org1".to_string()),
-            keyset_id: None,
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+            keyset_ids: vec![TenantKeysetIdentifier {
+                organization_id: "Org1".to_string(),
+                keyset_id: "keyset1".to_string(),
+            }],
             include_key_data: true,
         }))
         .await
@@ -618,9 +618,11 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset(tonic::Request::new(rpc::forge::FindTenantKeysetRequest {
-            organization_id: Some("Org1".to_string()),
-            keyset_id: None,
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+            keyset_ids: vec![TenantKeysetIdentifier {
+                organization_id: "Org1".to_string(),
+                keyset_id: "keyset1".to_string(),
+            }],
             include_key_data: true,
         }))
         .await
@@ -663,9 +665,11 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
 
     let find_result = env
         .api
-        .find_tenant_keyset(tonic::Request::new(rpc::forge::FindTenantKeysetRequest {
-            organization_id: Some("Org1".to_string()),
-            keyset_id: None,
+        .find_tenant_keysets_by_ids(tonic::Request::new(rpc::forge::TenantKeysetsByIdsRequest {
+            keyset_ids: vec![TenantKeysetIdentifier {
+                organization_id: "Org1".to_string(),
+                keyset_id: "keyset1".to_string(),
+            }],
             include_key_data: true,
         }))
         .await
@@ -853,22 +857,9 @@ async fn test_keyset_in_instance(pool: sqlx::PgPool) {
         .build()
         .await;
 
-    let instance = env
-        .api
-        .find_instances(tonic::Request::new(::rpc::forge::InstanceSearchQuery {
-            id: Some(tinstance.id),
-            label: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    let instance = env.one_instance(tinstance.id).await;
 
-    let tenant = instance.instances[0]
-        .clone()
-        .config
-        .unwrap()
-        .tenant
-        .unwrap();
+    let tenant = instance.config().tenant();
 
     assert_eq!(
         tenant.tenant_keyset_ids,

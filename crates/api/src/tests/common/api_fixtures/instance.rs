@@ -156,9 +156,8 @@ impl<'a, 'b> TestInstance<'a, 'b> {
         let mut result = self
             .env
             .api
-            .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
-                id: Some(self.id),
-                label: None,
+            .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+                instance_ids: vec![self.id],
             }))
             .await
             .unwrap()
@@ -409,7 +408,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
     handle_delete_post_bootingwithdiscoveryimage(env, mh).await;
 
     assert!(
-        env.find_instances(Some(instance_id))
+        env.find_instances(vec![instance_id])
             .await
             .instances
             .is_empty()

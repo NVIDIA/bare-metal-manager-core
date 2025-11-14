@@ -79,6 +79,32 @@ use crate::tests::common::rpc_builder::{
     InstanceAllocationRequest, InstanceConfig, VpcCreationRequest,
 };
 
+pub async fn find_instances_by_label(
+    env: &TestEnv,
+    label: rpc::forge::Label,
+) -> rpc::forge::InstanceList {
+    let instance_ids = env
+        .api
+        .find_instance_ids(tonic::Request::new(rpc::forge::InstanceSearchFilter {
+            label: Some(label),
+            tenant_org_id: None,
+            vpc_id: None,
+            instance_type_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_ids;
+
+    env.api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+}
+
 #[crate::sqlx_test]
 async fn test_allocate_and_release_instance_one_dpu(
     pool_options: PgPoolOptions,
@@ -666,7 +692,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // end of handle_delete_post_bootingwithdiscoveryimage()
 
     assert!(
-        env.find_instances(Some(tinstance.id))
+        env.find_instances(vec![tinstance.id])
             .await
             .instances
             .is_empty()
@@ -756,24 +782,17 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
     );
     assert_eq!(fetched_instance.metadata.labels.get("key2").unwrap(), "");
 
-    let request = tonic::Request::new(rpc::InstanceSearchQuery {
-        id: None,
-        label: {
-            Some(rpc::forge::Label {
-                key: "key1".to_string(),
-                value: None,
-            })
+    let mut instance_matched_by_label = find_instances_by_label(
+        &env,
+        rpc::forge::Label {
+            key: "key1".to_string(),
+            value: None,
         },
-    });
+    )
+    .await
+    .instances
+    .remove(0);
 
-    let mut instance_matched_by_label = env
-        .api
-        .find_instances(request)
-        .await
-        .map(|response| response.into_inner())
-        .unwrap()
-        .instances
-        .remove(0);
     instance_matched_by_label.metadata =
         instance_matched_by_label
             .metadata
@@ -1026,23 +1045,16 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     }
 
     // Test searching based on value.
-    let request = tonic::Request::new(rpc::InstanceSearchQuery {
-        id: None,
-        label: {
-            Some(rpc::forge::Label {
-                key: "".to_string(),
-                value: Some("value_A_444".to_string()),
-            })
+    let instance_matched_by_label = find_instances_by_label(
+        &env,
+        rpc::forge::Label {
+            key: "".to_string(),
+            value: Some("value_A_444".to_string()),
         },
-    });
-    let instance_matched_by_label = env
-        .api
-        .find_instances(request)
-        .await
-        .map(|response| response.into_inner())
-        .unwrap()
-        .instances
-        .remove(0);
+    )
+    .await
+    .instances
+    .remove(0);
 
     assert_eq!(
         instance_matched_by_label.metadata.unwrap().name,
@@ -1050,23 +1062,16 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     );
 
     // Test searching based on key.
-    let request = tonic::Request::new(rpc::InstanceSearchQuery {
-        id: None,
-        label: {
-            Some(rpc::forge::Label {
-                key: "key_A_111".to_string(),
-                value: None,
-            })
+    let instance_matched_by_label = find_instances_by_label(
+        &env,
+        rpc::forge::Label {
+            key: "key_A_111".to_string(),
+            value: None,
         },
-    });
-    let instance_matched_by_label = env
-        .api
-        .find_instances(request)
-        .await
-        .map(|response| response.into_inner())
-        .unwrap()
-        .instances
-        .remove(0);
+    )
+    .await
+    .instances
+    .remove(0);
 
     assert_eq!(
         instance_matched_by_label.metadata.unwrap().name,
@@ -1074,23 +1079,16 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     );
 
     // Test searching based on key and value.
-    let request = tonic::Request::new(rpc::InstanceSearchQuery {
-        id: None,
-        label: {
-            Some(rpc::forge::Label {
-                key: "key_A_888".to_string(),
-                value: Some("value_A_888".to_string()),
-            })
+    let instance_matched_by_label = find_instances_by_label(
+        &env,
+        rpc::forge::Label {
+            key: "key_A_888".to_string(),
+            value: Some("value_A_888".to_string()),
         },
-    });
-    let instance_matched_by_label = env
-        .api
-        .find_instances(request)
-        .await
-        .map(|response| response.into_inner())
-        .unwrap()
-        .instances
-        .remove(0);
+    )
+    .await
+    .instances
+    .remove(0);
 
     assert_eq!(
         instance_matched_by_label.metadata.unwrap().name,
@@ -1901,8 +1899,8 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
 
     assert_eq!(instance.id, Some(instance_id));
 
-    let instance = env.find_instances(instance.id).await.instances.remove(0);
-    assert_eq!(instance.id, Some(instance_id));
+    let instance = env.one_instance(instance_id).await;
+    assert_eq!(instance.id(), instance_id);
 }
 
 #[crate::sqlx_test]

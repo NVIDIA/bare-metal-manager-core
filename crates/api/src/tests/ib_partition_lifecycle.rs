@@ -10,9 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use db::ib_partition::{
-    IBPartition, IBPartitionConfig, IBPartitionSearchConfig, IBPartitionStatus, NewIBPartition,
-};
+use db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use db::{self, ObjectColumnFilter};
 use forge_uuid::infiniband::IBPartitionId;
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
@@ -21,7 +19,7 @@ use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::api::Api;
-use crate::api::rpc::{IbPartitionConfig, IbPartitionSearchConfig};
+use crate::api::rpc::IbPartitionConfig;
 use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
@@ -46,17 +44,16 @@ async fn create_ib_partition_with_api(
 
 async fn get_partition_state(api: &Api, ib_partition_id: IBPartitionId) -> TenantState {
     let segment = api
-        .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: Some(ib_partition_id),
-            search_config: Some(IbPartitionSearchConfig {
-                include_history: false,
-            }),
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![ib_partition_id],
+            include_history: false,
         }))
         .await
         .unwrap()
         .into_inner()
         .ib_partitions
         .remove(0);
+
     let status = segment.status.unwrap();
 
     TenantState::try_from(status.state).unwrap()
@@ -131,18 +128,18 @@ async fn test_ib_partition_lifecycle_impl(
     env.run_ib_partition_controller_iteration().await;
     env.run_ib_partition_controller_iteration().await;
 
-    let segments = env
+    let partitions = env
         .api
-        .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: partition.id,
-            search_config: None,
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![partition.id.unwrap()],
+            include_history: false,
         }))
         .await
         .unwrap()
         .into_inner()
         .ib_partitions;
 
-    assert!(segments.is_empty());
+    assert!(partitions.is_empty());
 
     // After the partition is fully gone, deleting it again should return NotFound
     // Calling the API again in this state should be a noop
@@ -335,7 +332,6 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let partition2 = db::ib_partition::find_by(
         &mut txn,
         ObjectColumnFilter::One(db::ib_partition::IdColumn, &partition.id),
-        IBPartitionSearchConfig::default(),
     )
     .await?
     .remove(0);

@@ -12,9 +12,7 @@
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{
-    NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,
-};
+use rpc::forge::{NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentType};
 use sqlx::PgConnection;
 use tonic::Request;
 
@@ -108,12 +106,10 @@ pub async fn create_network_segment_with_api(
 
 pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::forge::TenantState {
     let segment = api
-        .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-            id: Some(segment_id),
-            search_config: Some(NetworkSegmentSearchConfig {
-                include_history: false,
-                include_num_free_ips: false,
-            }),
+        .find_network_segments_by_ids(Request::new(rpc::forge::NetworkSegmentsByIdsRequest {
+            network_segments_ids: vec![segment_id],
+            include_history: false,
+            include_num_free_ips: false,
         }))
         .await
         .unwrap()
@@ -125,16 +121,12 @@ pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::
 
 pub async fn get_segments(
     api: &Api,
-    segment_id: NetworkSegmentId,
-    search_config: Option<NetworkSegmentSearchConfig>,
+    request: rpc::forge::NetworkSegmentsByIdsRequest,
 ) -> rpc::forge::NetworkSegmentList {
-    api.find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-        id: Some(segment_id),
-        search_config,
-    }))
-    .await
-    .unwrap()
-    .into_inner()
+    api.find_network_segments_by_ids(Request::new(request))
+        .await
+        .unwrap()
+        .into_inner()
 }
 
 #[cfg(test)]
