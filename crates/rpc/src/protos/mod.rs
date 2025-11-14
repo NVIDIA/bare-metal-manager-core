@@ -49,3 +49,28 @@ pub mod convenience_converters;
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
 pub mod dpa_rpc;
+
+
+#[allow(clippy::all)]
+#[rustfmt::skip]
+pub mod rack_manager;
+
+#[allow(clippy::all)]
+#[rustfmt::skip]
+pub mod rack_manager_client;
+
+#[allow(clippy::all)]
+#[rustfmt::skip]
+pub mod rack_manager_converters;
+
+#[allow(clippy::all)]
+#[rustfmt::skip]
+pub mod nmx_c;
+
+#[allow(clippy::all)]
+#[rustfmt::skip]
+pub mod nmx_c_client;
+
+#[allow(clippy::all)]
+#[rustfmt::skip]
+pub mod nmx_c_converters;

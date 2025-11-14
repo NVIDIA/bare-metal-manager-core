@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -17,44 +17,29 @@ use chrono::{DateTime, Utc};
 use nonempty::NonEmpty;
 use tonic::Status;
 
+use crate::forge_api_client::FailOverOn;
 use crate::forge_tls_client::{
-    ApiConfig, ForgeClientConfig, ForgeClientT, ForgeTlsClient, RetryConfig,
+    ApiConfig, ForgeClientConfig, ForgeTlsClient, NmxCClientT, RetryConfig,
 };
-pub use crate::protos::forge_api_client::ForgeApiClient;
+use crate::protos::nmx_c_client::NmxCApiClient;
 
-impl ForgeApiClient {
-    pub fn new(api_config: &ApiConfig<'_>) -> Self {
-        Self::build(ForgeTlsConnectionProvider {
+impl NmxCApiClient {
+    pub fn new(nmx_c_config: &ApiConfig<'_>) -> Self {
+        Self::build(NmxCTlsConnectionProvider {
             urls: NonEmpty::from((
-                api_config.url.to_string(),
-                api_config.additional_urls.to_vec(),
+                nmx_c_config.url.to_string(),
+                nmx_c_config.additional_urls.to_vec(),
             )),
-            client_config: api_config.client_config.clone(),
-            retry_config: api_config.retry_config,
+            client_config: nmx_c_config.client_config.clone(),
+            retry_config: nmx_c_config.retry_config,
             last_connection_index: 0.into(),
             fail_over_on: FailOverOn::ConnectionError,
-        })
-    }
-
-    pub fn new_with_failover_behavior(
-        api_config: &ApiConfig<'_>,
-        fail_over_on: FailOverOn,
-    ) -> Self {
-        Self::build(ForgeTlsConnectionProvider {
-            urls: NonEmpty::from((
-                api_config.url.to_string(),
-                api_config.additional_urls.to_vec(),
-            )),
-            client_config: api_config.client_config.clone(),
-            retry_config: api_config.retry_config,
-            last_connection_index: 0.into(),
-            fail_over_on,
         })
     }
 }
 
 #[derive(Debug)]
-pub struct ForgeTlsConnectionProvider {
+pub struct NmxCTlsConnectionProvider {
     pub urls: NonEmpty<String>,
     pub client_config: ForgeClientConfig,
     pub retry_config: RetryConfig,
@@ -62,20 +47,7 @@ pub struct ForgeTlsConnectionProvider {
     pub last_connection_index: AtomicUsize,
 }
 
-#[derive(Debug, Clone, Copy)]
-/// Determines when ForgeTlsConnectionProvider should select the next server in the list, if
-/// configured for multiple carbide-api servers.
-pub enum FailOverOn {
-    /// Fail over whenever there is a failure connecting to carbide-api. Note that fail-back is not
-    /// (yet) supported.
-    ConnectionError,
-    /// Select a new carbide-api instance on every call to carbide-api. This is currently only
-    /// needed by tests, where we intentionally want to vary the connection to emulate what a load
-    /// balancer would do.
-    EveryApiCall,
-}
-
-impl ForgeTlsConnectionProvider {
+impl NmxCTlsConnectionProvider {
     fn current_endpoint_url(&self) -> &str {
         // SAFETY: last_connection_index is always modulo urls.len()
         self.urls
@@ -96,8 +68,8 @@ impl ForgeTlsConnectionProvider {
 }
 
 #[async_trait::async_trait]
-impl tonic_client_wrapper::ConnectionProvider<ForgeClientT> for ForgeTlsConnectionProvider {
-    async fn provide_connection(&self) -> Result<ForgeClientT, Status> {
+impl tonic_client_wrapper::ConnectionProvider<NmxCClientT> for NmxCTlsConnectionProvider {
+    async fn provide_connection(&self) -> Result<NmxCClientT, Status> {
         let mut url = if self.urls.len() <= 1 {
             self.urls.first()
         } else {
@@ -109,7 +81,7 @@ impl tonic_client_wrapper::ConnectionProvider<ForgeClientT> for ForgeTlsConnecti
 
         let mut retries = 0;
         loop {
-            match ForgeTlsClient::retry_build(
+            match ForgeTlsClient::retry_build_nmx_c(
                 &ApiConfig::new(url, &self.client_config).with_retry_config(RetryConfig {
                     // We do our own retry counting
                     retries: 1,

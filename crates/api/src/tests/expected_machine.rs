@@ -632,6 +632,8 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         metadata: Some(rpc::Metadata::default()),
         sku_id: None,
         id: None,
+        host_nics: vec![],
+        rack_id: None,
     };
 
     env.api
@@ -670,6 +672,8 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             metadata: Some(invalid_metadata.clone()),
             sku_id: None,
             id: None,
+            host_nics: vec![],
+            rack_id: None,
         };
 
         let err = env
@@ -699,6 +703,8 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
         metadata: None,
         sku_id: None,
         id: None,
+        host_nics: vec![],
+        rack_id: None,
     };
 
     env.api
@@ -716,6 +722,8 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             metadata: Some(invalid_metadata.clone()),
             sku_id: None,
             id: None,
+            host_nics: vec![],
+            rack_id: None,
         };
 
         let err = env
@@ -787,6 +795,8 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         metadata: None,
         sku_id: None,
         id: None,
+        host_nics: vec![],
+        rack_id: None,
     };
 
     assert!(

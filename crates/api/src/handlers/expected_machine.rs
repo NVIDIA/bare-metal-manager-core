@@ -177,6 +177,8 @@ pub(crate) async fn update(
             id: Some(Uuid::new_v4()),
             bmc_mac_address: parsed_mac,
             data: data.clone(),
+            host_nics: vec![],
+            rack_id: None,
         };
         db::expected_machine::update(&mut expected_machine, &mut txn, data).await?;
     }

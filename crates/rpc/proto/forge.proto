@@ -70,6 +70,12 @@ service Forge {
   // Find all IB partitions under a specified tenant
   rpc IBPartitionsForTenant(TenantSearchQuery) returns (IBPartitionList);
 
+  rpc FindPowerShelves(PowerShelfQuery) returns (PowerShelfList);
+  rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
+
+  rpc FindSwitches(SwitchQuery) returns (SwitchList);
+  rpc DeleteSwitch(SwitchDeletionRequest) returns (SwitchDeletionResult);
+
   // InfiniBand Fabrics
   // Returns the list of all InfiniBand fabrics available within the site
   rpc FindIBFabricIds(IBFabricSearchFilter) returns (IBFabricIdList);
@@ -148,6 +154,8 @@ service Forge {
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
   rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (MachineHealthHistories);
+  rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (PowerShelfStateHistories);
+  rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (SwitchStateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -305,6 +313,42 @@ service Forge {
   rpc DeleteAllExpectedMachines(google.protobuf.Empty) returns (google.protobuf.Empty);
   // Expected machines connected to Explored Endpoints and Machines
   rpc GetAllExpectedMachinesLinked(google.protobuf.Empty) returns (LinkedExpectedMachineList);
+
+  // Expected Power Shelf Management
+  // Add expected power shelf
+  rpc AddExpectedPowerShelf(ExpectedPowerShelf) returns (google.protobuf.Empty);
+  // Delete expected power shelf
+  rpc DeleteExpectedPowerShelf(ExpectedPowerShelfRequest) returns (google.protobuf.Empty);
+  // Update the BMC credentials for a specific username/password
+  rpc UpdateExpectedPowerShelf(ExpectedPowerShelf) returns (google.protobuf.Empty);
+  // Get the BMC credentials for a specific expected power shelf
+  rpc GetExpectedPowerShelf(ExpectedPowerShelfRequest) returns (ExpectedPowerShelf);
+  // Get the BMC credentials for all expected power shelves
+  rpc GetAllExpectedPowerShelves(google.protobuf.Empty) returns (ExpectedPowerShelfList);
+  // Replace all expected power shelves in site
+  rpc ReplaceAllExpectedPowerShelves(ExpectedPowerShelfList) returns (google.protobuf.Empty);
+  // Delete all expected power shelves in site
+  rpc DeleteAllExpectedPowerShelves(google.protobuf.Empty) returns (google.protobuf.Empty);
+  // Expected power shelves connected to Explored Endpoints and Power Shelves
+  rpc GetAllExpectedPowerShelvesLinked(google.protobuf.Empty) returns (LinkedExpectedPowerShelfList);
+
+  // Expected Switch Management
+  // Add expected switch
+  rpc AddExpectedSwitch(ExpectedSwitch) returns (google.protobuf.Empty);
+  // Delete expected switch
+  rpc DeleteExpectedSwitch(ExpectedSwitchRequest) returns (google.protobuf.Empty);
+  // Update the BMC credentials for a specific username/password
+  rpc UpdateExpectedSwitch(ExpectedSwitch) returns (google.protobuf.Empty);
+  // Get the BMC credentials for a specific expected switch
+  rpc GetExpectedSwitch(ExpectedSwitchRequest) returns (ExpectedSwitch);
+  // Get the BMC credentials for all expected switches
+  rpc GetAllExpectedSwitches(google.protobuf.Empty) returns (ExpectedSwitchList);
+  // Replace all expected switches in site
+  rpc ReplaceAllExpectedSwitches(ExpectedSwitchList) returns (google.protobuf.Empty);
+  // Delete all expected switches in site
+  rpc DeleteAllExpectedSwitches(google.protobuf.Empty) returns (google.protobuf.Empty);
+  // Expected switches connected to Explored Endpoints and switches
+  rpc GetAllExpectedSwitchesLinked(google.protobuf.Empty) returns (LinkedExpectedSwitchList);
 
   // Perform Attestation Procedure for Measured Boot
   rpc AttestQuote	(AttestQuoteRequest) returns (AttestQuoteResponse);
@@ -527,6 +571,12 @@ service Forge {
   // Power Options
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
   rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
+
+  // Rack
+  rpc GetRack(GetRackRequest) returns (GetRackResponse);
+  rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+  // Rack Manager passthrough
+  rpc RackManagerCall(RackManagerForgeRequest) returns (RackManagerForgeResponse);
 
   rpc SetFirmwareUpdateTimeWindow(SetFirmwareUpdateTimeWindowRequest) returns (SetFirmwareUpdateTimeWindowResponse);
   rpc ListHostFirmware(ListHostFirmwareRequest) returns (ListHostFirmwareResponse);
@@ -1225,6 +1275,234 @@ message IBPartitionsByIdsRequest {
 
 message IBPartitionIdList {
   repeated common.IBPartitionId ib_partition_ids = 1;
+}
+
+// Describe the desired configuration of a PowerShelf
+message PowerShelfConfig {
+  // The name of PowerShelf.
+  string name = 1;
+  // Power capacity in watts
+  optional int32 capacity = 2;
+  // Voltage in volts
+  optional int32 voltage = 3;
+  // Physical location
+  optional string location = 4;
+}
+
+// Describe the status and applied configuration of a PowerShelf
+message PowerShelfStatus {
+  // The result of last state controller run - its outcome and an optional reason for that outcome
+  optional ControllerStateReason state_reason = 1;
+  // The SLA for the current state - and whether the SLA has been breached
+  StateSla state_sla = 2;
+
+  // The shelf name of PowerShelf
+  optional string shelf_name = 3;
+  // Power state: "on", "off", "standby"
+  optional string power_state = 4;
+  // Health status: "ok", "warning", "critical"
+  optional string health_status = 5;
+}
+
+// Describe a PowerShelf configuration and status
+message PowerShelf {
+  common.PowerShelfId id = 1;
+
+  PowerShelfConfig config = 2;
+
+  PowerShelfStatus status = 3;
+
+  // Timestamp when the power shelf was marked as deleted
+  optional google.protobuf.Timestamp deleted = 4;
+
+  string controller_state = 5;
+}
+
+message PowerShelfList {
+  repeated PowerShelf power_shelves = 1;
+}
+
+message PowerShelfCreationRequest {
+  PowerShelfConfig config = 1;
+  // Desired ID for this PowerShelf. If the ID is not provided, Forge will generate
+  // a random ID.
+  // The PowerShelf ID must be unique within the Forge site.
+  optional common.PowerShelfId id = 2;
+}
+
+message PowerShelfDeletionRequest {
+  common.PowerShelfId id = 1;
+}
+
+message PowerShelfDeletionResult {
+}
+
+message PowerShelfEvent {
+  string event = 1;
+  string version = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
+message PowerShelfStateHistoriesRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+}
+
+message PowerShelfStateHistories {
+  map<string, PowerShelfStateHistoryRecords> histories = 1;
+}
+
+message PowerShelfStateHistoryRecords {
+  repeated PowerShelfEvent records = 1;
+}
+
+message PowerShelfQuery {
+  optional string name = 1;
+  common.PowerShelfId power_shelf_id = 2;
+}
+
+message ExpectedPowerShelf {
+  string bmc_mac_address = 1;
+  string bmc_username = 2;
+  string bmc_password = 3;
+  string shelf_serial_number = 4;
+  string ip_address = 5;
+  // Metadata that will automatically get associated with a newly created PowerShelf
+  Metadata metadata = 6;
+  optional string rack_id = 7;
+}
+
+message ExpectedPowerShelfRequest {
+  string bmc_mac_address = 1;
+}
+
+message ExpectedPowerShelfList {
+  repeated ExpectedPowerShelf expected_power_shelves = 1;
+}
+
+message LinkedExpectedPowerShelfList {
+  repeated LinkedExpectedPowerShelf expected_power_shelves = 1;
+}
+
+message LinkedExpectedPowerShelf {
+  string shelf_serial_number = 1;
+  string bmc_mac_address = 2; // from expected_power_shelves table
+  optional common.PowerShelfId power_shelf_id = 3; // The power shelf
+}
+
+// Describe the desired configuration of a Switch
+message SwitchConfig {
+  // The name of Switch.
+  string name = 1;
+  bool enable_nmxc = 2;
+  FabricManagerConfig fabric_manager_config = 3;
+  // Physical location
+  optional string location = 4;
+}
+
+// Describe the desired configuration of Fabric Manager
+message FabricManagerConfig {
+  map<string, string> config_map = 1;
+}
+
+// Describe the status and applied configuration of a Switch
+message SwitchStatus {
+  // The result of last state controller run - its outcome and an optional reason for that outcome
+  optional ControllerStateReason state_reason = 1;
+  // The SLA for the current state - and whether the SLA has been breached
+  StateSla state_sla = 2;
+
+  // The name of Switch
+  optional string switch_name = 3;
+  // Power state: "on", "off", "standby"
+  optional string power_state = 4;
+  // Health status: "ok", "warning", "critical"
+  optional string health_status = 5;
+}
+
+// Describe a Switch configuration and status
+message Switch {
+  common.SwitchId id = 1;
+
+  SwitchConfig config = 2;
+
+  SwitchStatus status = 3;
+
+  // Timestamp when the switch was marked as deleted
+  optional google.protobuf.Timestamp deleted = 4;
+
+  string controller_state = 5;
+}
+
+message SwitchList {
+  repeated Switch switches = 1;
+}
+
+message SwitchCreationRequest {
+  SwitchConfig config = 1;
+  // Desired ID for this Switch. If the ID is not provided, Forge will generate
+  // a random ID.
+  // The Switch ID must be unique within the Forge site.
+  optional common.UUID id = 2;
+}
+
+message SwitchDeletionRequest {
+  common.SwitchId id = 1;
+}
+
+message SwitchDeletionResult {
+}
+
+
+message SwitchEvent {
+  string event = 1;
+  string version = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
+message SwitchStateHistoriesRequest {
+  repeated common.SwitchId switch_ids = 1;
+}
+
+message SwitchStateHistories {
+  map<string, SwitchStateHistoryRecords> histories = 1;
+}
+
+message SwitchStateHistoryRecords {
+  repeated SwitchEvent records = 1;
+}
+
+
+message SwitchQuery {
+  optional string name = 1;
+  common.SwitchId switch_id = 2;
+}
+
+message ExpectedSwitch {
+  string bmc_mac_address = 1;
+  string bmc_username = 2;
+  string bmc_password = 3;
+  string switch_serial_number = 4;
+  // Metadata that will automatically get associated with a newly created Switch
+  Metadata metadata = 5;
+  optional string rack_id = 6;
+}
+
+message ExpectedSwitchRequest {
+  string bmc_mac_address = 1;
+}
+
+message ExpectedSwitchList {
+  repeated ExpectedSwitch expected_switches = 1;
+}
+
+message LinkedExpectedSwitchList {
+  repeated LinkedExpectedSwitch expected_switches = 1;
+}
+
+message LinkedExpectedSwitch {
+  string switch_serial_number = 1;
+  string bmc_mac_address = 2; // from expected_switches table
+  optional common.SwitchId switch_id = 3; // The switch
 }
 
 message IBFabricSearchFilter {
@@ -2063,6 +2341,7 @@ enum MachineType {
   UNKNOWN = 0;
   DPU = 1;
   HOST = 2;
+  POWER_SHELF = 3;
 }
 
 message BmcInfo {
@@ -2313,6 +2592,7 @@ message MachineInterface {
   optional google.protobuf.Timestamp last_dhcp = 12;
 
   optional bool is_bmc = 13;
+  optional common.MachineId power_shelf_id = 14;
 }
 
 // Infiniband interface status description
@@ -3942,6 +4222,15 @@ message DeleteOsImageRequest {
 message DeleteOsImageResponse {
 }
 
+
+message ExpectedHostNic {
+  string mac_address = 1;
+  optional string nic_type = 2;
+  optional string fixed_ip = 3;
+  optional string fixed_mask = 4;
+  optional string fixed_gateway = 5;
+}
+
 message ExpectedMachine {
   string bmc_mac_address = 1;
   string bmc_username = 2;
@@ -3953,6 +4242,8 @@ message ExpectedMachine {
   optional string sku_id =  7;
   // Unique identifier for the expected machine. When omitted, server generates one.
   optional common.UUID id = 8;
+  repeated ExpectedHostNic host_nics = 9;
+  optional string rack_id = 10;
 }
 
 message ExpectedMachineRequest {
@@ -5022,6 +5313,53 @@ message PowerOptions {
 
 message PowerOptionResponse {
   repeated PowerOptions response = 1;
+}
+
+message GetRackRequest {
+  optional string id = 1;
+}
+
+message GetRackResponse {
+  repeated Rack rack = 1;
+}
+
+message Rack {
+  string id = 1;
+  string rack_state = 2;
+  repeated string expected_compute_trays = 3;
+  repeated string expected_power_shelves = 4;
+  repeated string expected_nvlink_switches = 5;
+  repeated common.MachineId compute_trays = 6;
+  repeated common.PowerShelfId power_shelves = 7;
+  // repeated common.NvlinkSwitchId nvlink_switches = 8;
+  google.protobuf.Timestamp created = 9;
+  google.protobuf.Timestamp updated = 10;
+  google.protobuf.Timestamp deleted = 11;
+}
+
+message DeleteRackRequest {
+  string id = 1;
+}
+
+// put some sample rack manager commands in for now
+enum RackManagerForgeCmd {
+  InventoryGet = 0;
+  RemoveNode = 1;
+  GetPoweronOrder = 2;
+  GetPowerState = 3;
+  GetFirmwareInventory = 4;
+  GetAvailableFwImages = 5;
+  GetBkcFiles = 6;
+  CheckBkcCompliance = 7;
+}
+
+message RackManagerForgeRequest {
+  RackManagerForgeCmd cmd = 1;
+  optional string node_id = 2;
+}
+
+message RackManagerForgeResponse {
+  optional string json_result = 1;
 }
 
 // Must provide either machine_id or ip/mac pair

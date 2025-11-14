@@ -14,12 +14,22 @@ use std::collections::HashMap;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
 use rpc::errors::RpcDataConversionError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
 use crate::metadata::Metadata;
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ExpectedHostNic {
+    pub mac_address: MacAddress,
+    // something to help the dhcp code select the right ip subnet, eg: bf3, onboard, cx8, oob, etc.
+    pub nic_type: Option<String>,
+    pub fixed_ip: Option<String>,
+    pub fixed_mask: Option<String>,
+    pub fixed_gateway: Option<String>,
+}
 
 // Important : new fields for expected machine should be Optional _and_ #[serde(default)],
 // unless you want to go update all the files in each production deployment that autoload
@@ -31,6 +41,9 @@ pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     #[serde(flatten)]
     pub data: ExpectedMachineData,
+
+    pub host_nics: Vec<ExpectedHostNic>,
+    pub rack_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -60,6 +73,9 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
             labels: labels.0,
         };
 
+        let json: sqlx::types::Json<Vec<ExpectedHostNic>> = row.try_get("host_nics")?;
+        let host_nics: Vec<ExpectedHostNic> = json.0;
+
         Ok(ExpectedMachine {
             id: row.try_get("id")?,
             bmc_mac_address: row.try_get("bmc_mac_address")?,
@@ -72,12 +88,46 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 sku_id: row.try_get("sku_id")?,
                 override_id: None,
             },
+            host_nics,
+            rack_id: row.try_get("rack_id")?,
         })
+    }
+}
+
+impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
+    fn from(expected_host_mac_addr: ExpectedHostNic) -> Self {
+        rpc::forge::ExpectedHostNic {
+            mac_address: expected_host_mac_addr.mac_address.to_string(),
+            nic_type: expected_host_mac_addr.nic_type,
+            fixed_ip: expected_host_mac_addr.fixed_ip,
+            fixed_mask: expected_host_mac_addr.fixed_mask,
+            fixed_gateway: expected_host_mac_addr.fixed_gateway,
+        }
+    }
+}
+
+impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
+    fn from(expected_host_mac_addr: rpc::forge::ExpectedHostNic) -> Self {
+        ExpectedHostNic {
+            mac_address: expected_host_mac_addr
+                .mac_address
+                .parse()
+                .unwrap_or_default(),
+            nic_type: expected_host_mac_addr.nic_type,
+            fixed_ip: expected_host_mac_addr.fixed_ip,
+            fixed_mask: expected_host_mac_addr.fixed_mask,
+            fixed_gateway: expected_host_mac_addr.fixed_gateway,
+        }
     }
 }
 
 impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
     fn from(expected_machine: ExpectedMachine) -> Self {
+        let host_nics = expected_machine
+            .host_nics
+            .iter()
+            .map(|x| x.clone().into())
+            .collect();
         rpc::forge::ExpectedMachine {
             id: expected_machine.id.map(|u| ::rpc::common::Uuid {
                 value: u.to_string(),
@@ -89,6 +139,8 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             fallback_dpu_serial_numbers: expected_machine.data.fallback_dpu_serial_numbers,
             metadata: Some(expected_machine.data.metadata.into()),
             sku_id: expected_machine.data.sku_id,
+            host_nics,
+            rack_id: expected_machine.rack_id,
         }
     }
 }

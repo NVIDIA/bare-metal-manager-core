@@ -71,6 +71,10 @@ pub enum RpcDataConversionError {
     InvalidVpcPeeringId(String),
     #[error("IB Partition ID {0} is not valid")]
     InvalidIbPartitionId(String),
+    #[error("PowerShelf ID {0} is not valid")]
+    InvalidPowerShelfId(String),
+    #[error("Switch ID {0} is not valid")]
+    InvalidSwitchId(String),
     #[error("Network Segment ID {0} is not valid")]
     InvalidNetworkSegmentId(String),
     #[error("CIDR {0} is not valid")]

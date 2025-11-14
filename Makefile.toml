@@ -346,7 +346,12 @@ description = "Tasks that run on workspace level (not crate level) in pre-commit
 category = "CI"
 # clippy-flow, check-format-flow are default targets provided by cargo-make.
 # NOTE: If you add something here, and you also want it to be checked by CI, make sure to call it from dev/docker/Dockerfile.release-container-x86_64 too.
-dependencies = ["clippy-flow", "check-format-flow", "check-format-nightly", "check-workspace-deps"]
+dependencies = [
+  "clippy-flow",
+  "check-format-flow",
+  "check-format-nightly",
+  "check-workspace-deps",
+]
 
 [tasks.clippy]
 workspace = false
@@ -481,5 +486,5 @@ script = [
 workspace = false
 description = "Check Cargo.toml files for dependency versions declared in crates instead of the workspace root"
 script = [
-    "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)"
+  "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)",
 ]

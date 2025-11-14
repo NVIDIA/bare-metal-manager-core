@@ -514,6 +514,66 @@ impl InternalRBACRules {
             "FindMachinesUnderAttestation",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm("FindPowerShelves", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("AddExpectedPowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DeleteExpectedPowerShelf",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "UpdateExpectedPowerShelf",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm("GetExpectedPowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "GetAllExpectedPowerShelves",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "ReplaceAllExpectedPowerShelves",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "DeleteAllExpectedPowerShelves",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "GetAllExpectedPowerShelvesLinked",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "FindPowerShelfStateHistories",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm("FindSwitches", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("CreateSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("DeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("AddExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("DeleteExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("UpdateExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("GetExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("GetAllExpectedSwitches", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "ReplaceAllExpectedSwitches",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "DeleteAllExpectedSwitches",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "GetAllExpectedSwitchesLinked",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm(
+            "FindSwitchStateHistories",
+            vec![ForgeAdminCLI, Machineatron],
+        );
+        x.perm("GetRack", vec![ForgeAdminCLI]);
+        x.perm("DeleteRack", vec![ForgeAdminCLI]);
+        x.perm("RackManagerCall", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {
