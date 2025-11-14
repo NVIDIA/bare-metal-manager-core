@@ -20,7 +20,6 @@ static KEEP_RPCS: &[&str] = &[
     "FindInstancesByIds",
     "FindMachineIds",
     "FindMachinesByIds",
-    "GetMachine",
     "GetBMCMetaData",
     "FindInstances",
 ];

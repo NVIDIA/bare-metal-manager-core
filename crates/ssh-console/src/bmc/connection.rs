@@ -139,12 +139,23 @@ pub async fn lookup(
         });
     };
 
-    let machine = forge_api_client
-        .get_machine(machine_id)
+    let machines = forge_api_client
+        .find_machines_by_ids(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![machine_id],
+            include_history: false,
+        })
         .await
         .map_err(|tonic_status| LookupError::MachineIdLookup {
             machine_id: machine_id.to_string(),
             tonic_status,
+        })?
+        .machines;
+    let machine = machines
+        .into_iter()
+        .next()
+        .ok_or_else(|| LookupError::MachineIdLookup {
+            machine_id: machine_id.to_string(),
+            tonic_status: tonic::Status::not_found("Response did not contain machine"),
         })?;
 
     let machine_id = machine

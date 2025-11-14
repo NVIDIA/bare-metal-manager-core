@@ -85,24 +85,8 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         txn.commit().await?;
 
         // Check that RPC APIs returns the History if asked for
-        // - GetMachine always returns history
         // - FindMachines and FindMachinesById should do so if asked for it
         // - FindMachineStateHistories returns the expected history
-        let rpc_machine = env
-            .api
-            .get_machine(tonic::Request::new(*machine_id))
-            .await?
-            .into_inner();
-        let rpc_history: Vec<serde_json::Value> = rpc_machine
-            .events
-            .into_iter()
-            .map(|ev| serde_json::from_str::<serde_json::Value>(&ev.event))
-            .collect::<Result<_, _>>()?;
-        assert_eq!(
-            rpc_history[..expected_initial_states.len()].to_vec(),
-            expected_initial_states,
-        );
-
         let rpc_machine = env
             .api
             .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {

@@ -135,9 +135,6 @@ service Forge {
   rpc ReportForgeScoutError(ForgeScoutErrorReport) returns (ForgeScoutErrorReportResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
-  // PRIVILEGED: Get a single machine
-  rpc GetMachine(common.MachineId) returns (Machine);
-
   // PRIVILEGED: Find things
   // DEPRECATED: use FindMachineIds and FindMachinesByIds instead
   rpc FindMachines(MachineSearchQuery) returns (MachineList);

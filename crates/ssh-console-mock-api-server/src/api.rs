@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use forge_uuid::machine::MachineId;
+
 use forge_version::v;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -18,7 +18,7 @@ use crate::MockApiServer;
 use crate::generated::forge::forge_server::Forge;
 use crate::generated::forge::{
     BmcMetaDataGetResponse, BuildInfo, InstanceList, InstanceSearchQuery, InstancesByIdsRequest,
-    Machine, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse, VersionRequest,
+    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse, VersionRequest,
 };
 use crate::generated::{common, forge};
 
@@ -103,21 +103,6 @@ impl Forge for MockApiServer {
             .collect::<Vec<_>>();
 
         Ok(Response::new(forge::InstanceList { instances }))
-    }
-
-    async fn get_machine(&self, request: Request<MachineId>) -> Result<Response<Machine>, Status> {
-        let machine_id = request.into_inner();
-        let Some(mock_host) = self
-            .mock_hosts
-            .iter()
-            .find(|mock_host| mock_host.machine_id == machine_id)
-        else {
-            return Err(Status::not_found(format!(
-                "No machine found with ID {machine_id}"
-            )));
-        };
-
-        Ok(Response::new(mock_host.clone().into()))
     }
 
     async fn get_bmc_meta_data(

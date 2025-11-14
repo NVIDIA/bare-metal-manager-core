@@ -117,7 +117,7 @@ async fn test_machine_health_reporting(
         health_report::HealthReport::empty("".to_string()),
     );
 
-    let m = get_machine(&env, &host_machine_id).await;
+    let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(m.health_overrides, vec![]);
     let aggregate_health = aggregate(m).unwrap();
     assert_eq!(aggregate_health.source, "aggregate-host-health");
@@ -144,15 +144,7 @@ async fn test_machine_health_reporting(
         dpu_health.clone(),
     );
 
-    let aggregate_health = aggregate(get_machine(&env, &host_machine_id).await).unwrap();
-    check_time(&aggregate_health);
-    check_reports_equal(
-        "aggregate-host-health",
-        aggregate_health,
-        dpu_health.clone(),
-    );
-
-    // We can also use the FindMachinesByIds API to verify Health of Host and DPU
+    // Use the FindMachinesByIds API to verify Health of Host and DPU
     let current_dpu_health = load_health_via_find_machines_by_ids(&env, &dpu_machine_id)
         .await
         .unwrap();
@@ -228,7 +220,9 @@ async fn test_machine_health_aggregation(
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // The aggregate health should have no alerts.
-    let aggregate_health = aggregate(get_machine(&env, &host_machine_id).await).unwrap();
+    let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
     assert_eq!(aggregate_health.source, "aggregate-host-health");
     check_time(&aggregate_health);
     assert_eq!(aggregate_health.alerts, vec![]);
@@ -257,7 +251,9 @@ async fn test_machine_health_aggregation(
     network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone().into())).await;
 
     // Aggregate health in snapshot indicates the DPU issue
-    let aggregate_health = aggregate(get_machine(&env, &host_machine_id).await).unwrap();
+    let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
     check_time(&aggregate_health);
     check_reports_equal(
         "aggregate-host-health",
@@ -274,7 +270,9 @@ async fn test_machine_health_aggregation(
     simulate_hardware_health_report(&env, &host_machine_id, hardware_health.clone()).await;
 
     // Aggregate health in snapshot reflects merge
-    let aggregate_health = aggregate(get_machine(&env, &host_machine_id).await).unwrap();
+    let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
     check_time(&aggregate_health);
     check_reports_equal(
         "aggregate-host-health",
@@ -310,7 +308,7 @@ async fn test_machine_health_aggregation(
         ]
     );
 
-    let m = get_machine(&env, &host_machine_id).await;
+    let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
         m.health_overrides,
         vec![HealthOverrideOrigin {
@@ -360,7 +358,7 @@ async fn test_machine_health_aggregation(
         ]
     );
 
-    let m = get_machine(&env, &host_machine_id).await;
+    let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
         m.health_overrides,
         vec![
@@ -389,7 +387,9 @@ async fn test_machine_health_aggregation(
 
     // Remove the blank report override
     remove_health_report_override(&env, &host_machine_id, "replace-host-report".to_string()).await;
-    let aggregate_health = aggregate(get_machine(&env, &host_machine_id).await).unwrap();
+    let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
     // The report should be back to as it was.
     check_reports_equal("aggregate-host-health", aggregate_health, merged_hr);
 
@@ -542,7 +542,9 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .await
         .unwrap();
 
-    let aggregate_health = aggregate(get_machine(&env, &host_machine_id).await).unwrap();
+    let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
     check_reports_equal(
         "aggregate-host-health",
         aggregate_health,
@@ -563,7 +565,7 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         ))
         .await
         .unwrap();
-    let m = get_machine(&env, &host_machine_id).await;
+    let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
         m.health_overrides,
         vec![HealthOverrideOrigin {
@@ -725,12 +727,20 @@ async fn load_snapshot(
 }
 
 /// Calls get_machine api
-async fn get_machine(env: &TestEnv, machine_id: &::forge_uuid::machine::MachineId) -> rpc::Machine {
+async fn find_machine(
+    env: &TestEnv,
+    machine_id: &::forge_uuid::machine::MachineId,
+) -> rpc::Machine {
     env.api
-        .get_machine(Request::new(*machine_id))
+        .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![*machine_id],
+            include_history: true,
+        }))
         .await
         .unwrap()
         .into_inner()
+        .machines
+        .remove(0)
 }
 
 async fn load_host_health_history(
@@ -875,7 +885,7 @@ async fn test_tenant_reported_issue_health_override_template(
     .await;
 
     // Verify the override is applied
-    let machine = get_machine(&env, &host_machine_id).await;
+    let machine = find_machine(&env, &host_machine_id).await;
 
     // Check that the override was stored
     assert_eq!(machine.health_overrides.len(), 1);
@@ -949,7 +959,7 @@ async fn test_request_repair_health_override_template(
     .await;
 
     // Verify the override is applied
-    let machine = get_machine(&env, &host_machine_id).await;
+    let machine = find_machine(&env, &host_machine_id).await;
 
     // Check that the override was stored
     assert_eq!(machine.health_overrides.len(), 1);
@@ -1043,7 +1053,7 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     .await;
 
     // Verify both overrides are stored
-    let machine = get_machine(&env, &host_machine_id).await;
+    let machine = find_machine(&env, &host_machine_id).await;
 
     // Get aggregate health first to avoid partial move issues
     let aggregate_health = aggregate(machine.clone()).unwrap();
