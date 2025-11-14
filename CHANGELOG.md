@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- [MR-4861](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4861): Fixed an issue where using `boot_once(Pxe)` on Lenovo machines in Assigned/Ready state would cause the DPU to restart unexpectedly due to Lenovo's PCIe power reset when all PXE boot attempts fail; changed to `boot_first(Pxe)` which allows fallthrough to installed OS after PXE boot failure.
+
 ### Removed
 
 ### Internal Changes
