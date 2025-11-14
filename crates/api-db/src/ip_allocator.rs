@@ -252,23 +252,48 @@ pub async fn next_machine_interface_v4_ip(
     txn: &mut PgConnection,
     prefix: &NetworkPrefix,
 ) -> DatabaseResult<Option<IpAddr>> {
-    let query = r#"
+    if prefix.gateway.is_none() {
+        let nr = prefix.num_reserved.max(2); // Reserve network and gateway addresses at least
+        let query = r#"
 SELECT ($1::inet + ip_series.n)::inet AS ip
 FROM generate_series($3, (1 << (32 - $2)) - 2) AS ip_series(n)
 LEFT JOIN machine_interface_addresses AS mia
   ON mia.address = ($1::inet + ip_series.n)::inet
 WHERE mia.address IS NULL
 ORDER BY ip
-LIMIT 1
+LIMIT 1;
     "#;
 
-    sqlx::query_scalar(query)
-        .bind(prefix.prefix.ip())
-        .bind(prefix.prefix.prefix() as i32)
-        .bind(prefix.num_reserved)
-        .fetch_optional(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))
+        sqlx::query_scalar(query)
+            .bind(prefix.prefix.ip())
+            .bind(prefix.prefix.prefix() as i32)
+            .bind(nr)
+            .fetch_optional(txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))
+    } else {
+        let nr = prefix.num_reserved.max(1); // Reserve network address at least
+        let gw = prefix.gateway.unwrap();
+        let query = r#"
+SELECT ($1::inet + ip_series.n)::inet AS ip
+FROM generate_series($3, (1 << (32 - $2)) - 2) AS ip_series(n)
+LEFT JOIN machine_interface_addresses AS mia
+  ON mia.address = ($1::inet + ip_series.n)::inet
+WHERE mia.address IS NULL
+  AND ($1::inet + ip_series.n)::inet <> $4::inet
+ORDER BY ip
+LIMIT 1;
+    "#;
+
+        sqlx::query_scalar(query)
+            .bind(prefix.prefix.ip())
+            .bind(prefix.prefix.prefix() as i32)
+            .bind(nr)
+            .bind(gw)
+            .fetch_optional(txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))
+    }
 }
 
 /// build_allocated_networks builds a list of IpNetworks that have
