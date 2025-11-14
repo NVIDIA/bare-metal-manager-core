@@ -22,33 +22,25 @@ use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_
 use chrono::TimeZone;
 use db::machine::{self};
 use db::network_devices::NetworkDeviceSearchConfig;
-use db::{DatabaseError, ObjectFilter, attestation as db_attest};
+use db::{DatabaseError, ObjectFilter};
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
+use forge_secrets::credentials::CredentialProvider;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use itertools::Itertools;
-use libredfish::SystemPowerControl;
 use mlxconfig_device::report::MlxDeviceReport;
 use model::firmware::DesiredFirmwareVersions;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState};
+use model::machine::{LoadSnapshotOptions, Machine};
 use model::resource_pool::common::CommonPools;
 use tonic::{Request, Response, Status};
-#[cfg(feature = "linux-build")]
-use tss_esapi::{
-    structures::{Attest, Public as TssPublic, Signature},
-    traits::UnMarshall,
-};
 use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
-#[cfg(feature = "linux-build")]
-use crate::attestation as attest;
 use crate::cfg::file::CarbideConfig;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
-use crate::redfish::{RedfishAuth, RedfishClientPool};
+use crate::redfish::RedfishClientPool;
 use crate::site_explorer::EndpointExplorer;
 use crate::{
     CarbideError, CarbideResult, auth, dynamic_settings, ethernet_virtualization, measured_boot,
@@ -866,378 +858,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::AdminForceDeleteMachineRequest>,
     ) -> Result<Response<rpc::AdminForceDeleteMachineResponse>, Status> {
-        log_request_data(&request);
-
-        let request = request.into_inner();
-        let query = request.host_query;
-
-        let mut response = rpc::AdminForceDeleteMachineResponse {
-            all_done: true,
-            ..Default::default()
-        };
-        // This is the default
-        // If we can't delete something in one go - we will reset it
-        response.all_done = true;
-        response.initial_lockdown_state = "".to_string();
-        response.machine_unlocked = false;
-
-        tracing::info!("admin_force_delete_machine query='{query}'");
-
-        let mut txn = self.txn_begin("admin_force_delete_machine").await?;
-
-        let machine = match db::machine::find_by_query(&mut txn, &query).await? {
-            Some(machine) => machine,
-            None => {
-                // If the machine was already deleted, then there is nothing to do
-                // and this is a success
-                return Ok(Response::new(response));
-            }
-        };
-        log_machine_id(&machine.id);
-
-        if machine.instance_type_id.is_some() {
-            return Err(CarbideError::FailedPrecondition(format!(
-                "association with instance type must be removed before deleting machine {}",
-                &machine.id
-            ))
-            .into());
-        }
-
-        // TODO: This should maybe just use the snapshot loading functionality that the
-        // state controller will use - which already contains the combined state
-        let host_machine;
-        let dpu_machines;
-        if machine.is_dpu() {
-            if let Some(host) =
-                db::machine::find_host_by_dpu_machine_id(&mut txn, &machine.id).await?
-            {
-                tracing::info!("Found host Machine {:?}", machine.id.to_string());
-                // Get all DPUs attached to this host, in case there are more than one.
-                dpu_machines =
-                    db::machine::find_dpus_by_host_machine_id(&mut txn, &host.id).await?;
-                host_machine = Some(host);
-            } else {
-                host_machine = None;
-                dpu_machines = vec![machine];
-            }
-        } else {
-            dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine.id).await?;
-            tracing::info!(
-                "Found dpu Machines {:?}",
-                dpu_machines.iter().map(|m| m.id.to_string()).join(", ")
-            );
-            host_machine = Some(machine);
-        }
-
-        let mut instance_id = None;
-        if let Some(host_machine) = &host_machine {
-            instance_id = db::instance::find_id_by_machine_id(&mut txn, &host_machine.id).await?;
-        }
-
-        if let Some(host_machine) = &host_machine {
-            response.managed_host_machine_id = host_machine.id.to_string();
-            if let Some(iface) = host_machine.interfaces.first() {
-                response.managed_host_machine_interface_id = iface.id.to_string();
-            }
-            if let Some(ip) = host_machine.bmc_info.ip.as_ref() {
-                response.managed_host_bmc_ip = ip.to_string();
-            }
-        }
-        if let Some(dpu_machine) = dpu_machines.first() {
-            response.dpu_machine_ids = dpu_machines.iter().map(|m| m.id.to_string()).collect();
-            // deprecated field:
-            response.dpu_machine_id = dpu_machine.id.to_string();
-
-            let dpu_interfaces = dpu_machines
-                .iter()
-                .flat_map(|m| m.interfaces.clone())
-                .collect::<Vec<_>>();
-            if let Some(iface) = dpu_interfaces.first() {
-                response.dpu_machine_interface_ids =
-                    dpu_interfaces.iter().map(|i| i.id.to_string()).collect();
-                // deprecated field:
-                response.dpu_machine_interface_id = iface.id.to_string();
-            }
-            if let Some(ip) = dpu_machine.bmc_info.ip.as_ref() {
-                response.dpu_bmc_ip = ip.to_string();
-            }
-        }
-        if let Some(instance_id) = &instance_id {
-            response.instance_id = instance_id.to_string();
-        }
-
-        // So far we only inspected state - now we start the deletion process
-        // TODO: In the new model we might just need to move one Machine to this state
-        if let Some(host_machine) = &host_machine {
-            db::machine::advance(
-                host_machine,
-                &mut txn,
-                &ManagedHostState::ForceDeletion,
-                None,
-            )
-            .await?;
-        }
-        for dpu_machine in dpu_machines.iter() {
-            db::machine::advance(
-                dpu_machine,
-                &mut txn,
-                &ManagedHostState::ForceDeletion,
-                None,
-            )
-            .await?;
-        }
-
-        txn.commit().await?;
-
-        // We start a new transaction
-        // This makeas the ForceDeletion state visible to other consumers
-
-        // Note: The following deletion steps are all ordered in an idempotent fashion
-
-        let mut txn = self
-            .txn_begin("delete host and instance in admin_force_delete_machine")
-            .await?;
-
-        if let Some(instance_id) = instance_id {
-            crate::handlers::instance::force_delete_instance(
-                instance_id,
-                &self.ib_fabric_manager,
-                &self.common_pools,
-                &mut response,
-                &mut txn,
-            )
-            .await?;
-        }
-
-        if let Some(machine) = &host_machine {
-            if let Some(ip) = machine.bmc_info.ip.as_deref() {
-                if let Some(bmc_mac_address) = machine.bmc_info.mac {
-                    tracing::info!(
-                        ip,
-                        machine_id = %machine.id,
-                        "BMC IP and MAC address for machine was found. Trying to perform Bios unlock",
-                    );
-
-                    match self
-                        .redfish_pool
-                        .create_client(
-                            ip,
-                            machine.bmc_info.port,
-                            RedfishAuth::Key(CredentialKey::BmcCredentials {
-                                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-                            }),
-                            true,
-                        )
-                        .await
-                    {
-                        Ok(client) => {
-                            let machine_id = machine.id;
-                            let mut host_restart_needed = false;
-                            match client.lockdown_status().await {
-                                Ok(status) if status.is_fully_disabled() => {
-                                    tracing::info!(%machine_id, "Bios is not locked down");
-                                    response.initial_lockdown_state = status.to_string();
-                                    response.machine_unlocked = false;
-                                }
-                                Ok(status) => {
-                                    tracing::info!(%machine_id, ?status, "Unlocking BIOS");
-                                    if let Err(e) =
-                                        client.lockdown(libredfish::EnabledDisabled::Disabled).await
-                                    {
-                                        tracing::warn!(%machine_id, error = %e, "Failed to unlock");
-                                        response.initial_lockdown_state = status.to_string();
-                                        response.machine_unlocked = false;
-                                    } else {
-                                        response.initial_lockdown_state = status.to_string();
-                                        response.machine_unlocked = true;
-                                    }
-                                    // Dell, at least, needs a reboot after disabling lockdown.  Safest to just do this for everything.
-                                    host_restart_needed = true;
-                                }
-                                Err(e) => {
-                                    tracing::warn!(%machine_id, error = %e, "Failed to fetch lockdown status");
-                                    response.initial_lockdown_state = "".to_string();
-                                    response.machine_unlocked = false;
-                                }
-                            }
-
-                            if machine.bios_password_set_time.is_some() {
-                                if let Err(e) = crate::redfish::clear_host_uefi_password(
-                                    client.as_ref(),
-                                    self.redfish_pool.clone(),
-                                )
-                                .await
-                                {
-                                    tracing::warn!(%machine_id, error = %e, "Failed to clear host UEFI password while force deleting machine");
-                                }
-
-                                // TODO (spyda): have libredfish return whether the client needs to reboot the host after clearing the host uefi password
-                                if machine.bmc_vendor().is_lenovo() {
-                                    host_restart_needed = true;
-                                }
-                            }
-
-                            if host_restart_needed
-                                && let Err(e) = client.power(SystemPowerControl::ForceRestart).await
-                            {
-                                tracing::warn!(%machine_id, error = %e, "Failed to reboot host while force deleting machine");
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                machine_id = %machine.id,
-                                error = %e,
-                                "Failed to create Redfish client. Skipping bios unlock",
-                            );
-                        }
-                    }
-                } else {
-                    tracing::warn!(
-                        "Failed to unlock this host because Forge could not retrieve the BMC MAC address for machine {}",
-                        machine.id
-                    );
-                }
-            } else {
-                tracing::warn!(
-                    "Failed to unlock this host because Forge could not retrieve the BMC IP address for machine {}",
-                    machine.id
-                );
-            }
-        }
-
-        if let Some(machine) = &host_machine {
-            if request.delete_bmc_interfaces
-                && let Some(bmc_ip) = &machine.bmc_info.ip
-            {
-                response.host_bmc_interface_associated = true;
-                if let Ok(ip_addr) = IpAddr::from_str(bmc_ip)
-                    && db::machine_interface::delete_by_ip(&mut txn, ip_addr)
-                        .await?
-                        .is_some()
-                {
-                    response.host_bmc_interface_deleted = true;
-                }
-            }
-            db::machine::force_cleanup(&mut txn, &machine.id).await?;
-
-            if request.delete_interfaces {
-                for interface in &machine.interfaces {
-                    db::machine_interface::delete(&interface.id, &mut txn).await?;
-                }
-                response.host_interfaces_deleted = true;
-            }
-
-            if let Some(addr) = &machine.bmc_info.ip
-                && let Ok(addr) = IpAddr::from_str(addr)
-            {
-                tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id);
-
-                db::explored_endpoints::delete(&mut txn, addr).await?;
-
-                db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
-            }
-
-            if request.delete_bmc_credentials {
-                self.clear_bmc_credentials(machine).await?;
-            }
-
-            if let Err(e) =
-                db_attest::ek_cert_verification_status::delete_ca_verification_status_by_machine_id(
-                    &mut txn,
-                    &machine.id,
-                )
-                .await
-            {
-                // just log the error and carry on
-                tracing::error!(
-                    "Could not remove EK cert status for machine with id {}: {}",
-                    machine.id,
-                    e
-                );
-            }
-        }
-
-        txn.commit().await?;
-
-        for dpu_machine in dpu_machines.iter() {
-            let mut txn = self
-                .txn_begin("delete dpu in admin_force_delete_machine")
-                .await?;
-
-            // Free up all loopback IPs allocated for this DPU.
-            db::vpc_dpu_loopback::delete_and_deallocate(
-                &self.common_pools,
-                &dpu_machine.id,
-                &mut txn,
-                true,
-            )
-            .await?;
-
-            if let Some(loopback_ip) = dpu_machine.network_config.loopback_ip {
-                db::resource_pool::release(
-                    &self.common_pools.ethernet.pool_loopback_ip,
-                    &mut txn,
-                    loopback_ip,
-                )
-                .await?
-            }
-
-            if let Some(secondary_overlay_vtep_ip) =
-                dpu_machine.network_config.secondary_overlay_vtep_ip
-            {
-                db::resource_pool::release(
-                    &self.common_pools.ethernet.pool_secondary_vtep_ip,
-                    &mut txn,
-                    secondary_overlay_vtep_ip,
-                )
-                .await
-                .map_err(CarbideError::from)?
-            }
-
-            db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id)
-                .await?;
-
-            if request.delete_bmc_interfaces
-                && let Some(bmc_ip) = &dpu_machine.bmc_info.ip
-            {
-                response.dpu_bmc_interface_associated = true;
-                if let Ok(ip_addr) = IpAddr::from_str(bmc_ip)
-                    && db::machine_interface::delete_by_ip(&mut txn, ip_addr)
-                        .await?
-                        .is_some()
-                {
-                    response.dpu_bmc_interface_deleted = true;
-                }
-            }
-            if let Some(asn) = dpu_machine.asn {
-                db::resource_pool::release(&self.common_pools.ethernet.pool_fnn_asn, &mut txn, asn)
-                    .await?;
-            }
-            db::machine::force_cleanup(&mut txn, &dpu_machine.id).await?;
-
-            if request.delete_interfaces {
-                for interface in &dpu_machine.interfaces {
-                    db::machine_interface::delete(&interface.id, &mut txn).await?;
-                }
-                response.dpu_interfaces_deleted = true;
-            }
-
-            if let Some(addr) = &dpu_machine.bmc_info.ip
-                && let Ok(addr) = IpAddr::from_str(addr)
-            {
-                tracing::info!("Cleaning up explored endpoint at {addr} {}", dpu_machine.id);
-
-                db::explored_endpoints::delete(&mut txn, addr).await?;
-            }
-
-            if request.delete_bmc_credentials {
-                self.clear_bmc_credentials(dpu_machine).await?;
-            }
-
-            txn.commit().await?;
-        }
-
-        Ok(Response::new(response))
+        crate::handlers::machine::admin_force_delete_machine(self, request).await
     }
 
     /// Example TOML data in request.text:
@@ -1545,53 +1166,11 @@ impl Forge for Api {
         crate::handlers::dpu::trigger_dpu_reprovisioning(self, request).await
     }
 
-    /// List DPUs waiting for reprovisioning
     async fn list_dpu_waiting_for_reprovisioning(
         &self,
         request: Request<rpc::DpuReprovisioningListRequest>,
     ) -> Result<Response<rpc::DpuReprovisioningListResponse>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self
-            .txn_begin("list_dpu_waiting_for_reprovisioning")
-            .await?;
-
-        let dpus = db::machine::list_machines_requested_for_reprovisioning(&mut txn)
-            .await?
-            .into_iter()
-            .map(
-                |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
-                    id: Some(x.id),
-                    state: x.current_state().to_string(),
-                    requested_at: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.requested_at.into()),
-                    initiator: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.initiator.clone())
-                        .unwrap_or_default(),
-                    update_firmware: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.update_firmware)
-                        .unwrap_or_default(),
-                    initiated_at: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.started_at.map(|x| x.into()))
-                        .unwrap_or_default(),
-                    user_approval_received: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|x| x.user_approval_received)
-                        .unwrap_or_default(),
-                },
-            )
-            .collect_vec();
-
-        Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
+        crate::handlers::dpu::list_dpu_waiting_for_reprovisioning(self, request).await
     }
 
     async fn trigger_host_reprovisioning(
@@ -2377,149 +1956,13 @@ impl Forge for Api {
         }))
     }
 
-    #[cfg(feature = "linux-build")]
     async fn attest_quote(
         &self,
         request: Request<rpc::AttestQuoteRequest>,
     ) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
-        log_request_data(&request);
-
-        let mut request = request.into_inner();
-
-        // TODO: consider if this code can be turned into a templated function and reused
-        // in bind_attest_key
-        let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
-
-        let mut txn = self.txn_begin("machine attestation verify quote").await?;
-
-        let ak_pub_bytes =
-            match db_attest::secret_ak_pub::get_by_secret(&mut txn, &request.credential).await? {
-                Some(entry) => entry.ak_pub,
-                None => {
-                    return Err(Status::from(CarbideError::AttestQuoteError(
-                        "Could not form SQL query to fetch AK Pub".into(),
-                    )));
-                }
-            };
-
-        let ak_pub = TssPublic::unmarshall(ak_pub_bytes.as_slice()).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {e}"))
-        })?;
-
-        let attest = Attest::unmarshall(&request.attestation).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {e}"))
-        })?;
-
-        let signature = Signature::unmarshall(&request.signature).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {e}"))
-        })?;
-
-        // Make sure sure the signature can at least be verified
-        // as valid or invalid. If it can't be verified in any
-        // way at all, return an error.
-        let signature_valid = attest::verify_signature(&ak_pub, &request.attestation, &signature)
-            .inspect_err(|_| {
-            tracing::warn!(
-                "PCR signature verification failed (event log: {})",
-                attest::event_log_to_string(&request.event_log)
-            );
-        })?;
-
-        // Make sure we can verify the the PCR hash one way
-        // or another. If it can't be, return an error.
-        let pcr_hash_matches =
-            attest::verify_pcr_hash(&attest, &request.pcr_values).inspect_err(|_| {
-                tracing::warn!(
-                    "PCR hash verification failed (event log: {})",
-                    attest::event_log_to_string(&request.event_log)
-                );
-            })?;
-
-        // And now pass on through the computed signature
-        // validity and PCR hash match to see if execution can
-        // continue (the event log goes with, since it will be
-        // logged in the event of an invalid signature or PCR
-        // hash mismatch).
-        attest::verify_quote_state(signature_valid, pcr_hash_matches, &request.event_log)?;
-
-        // If we've reached this point, we can now clean up
-        // now ephemeral secret data from the database, and send
-        // off the PCR values as a MeasurementReport.
-        db_attest::secret_ak_pub::delete(&mut txn, &request.credential).await?;
-
-        let pcr_values: ::measured_boot::pcr::PcrRegisterValueVec = request
-            .pcr_values
-            .drain(..)
-            .map(hex::encode)
-            .collect::<Vec<String>>()
-            .into();
-
-        // In this case, we're not doing anything with
-        // the resulting report (at least not yet), so just
-        // throw it away.
-        let report = db::measured_boot::report::new_with_txn(
-            &mut txn,
-            machine_id,
-            pcr_values.into_inner().as_slice(),
-        )
-        .await
-        .map_err(|e| {
-            Status::internal(format!(
-                "Failed storing measurement report: (machine_id: {}, err: {})",
-                &machine_id, e
-            ))
-        })?;
-
-        txn.commit().await?;
-
-        // if the attestation was successful and enabled, we can now vend the certs
-        // - get attestation result
-        // - if enabled and not successful, send response without certs
-        // - else send response with certs
-        let mut txn = self.txn_begin("machine attestation verify quote").await?;
-
-        if self.runtime_config.attestation_enabled
-            && !attest::has_passed_attestation(&mut txn, &machine_id, &report.report_id).await?
-        {
-            tracing::info!(
-                "Attestation failed for machine with id {} - not vending any certs",
-                machine_id
-            );
-            return Ok(Response::new(rpc::AttestQuoteResponse {
-                success: false,
-                machine_certificate: None,
-            }));
-        }
-
-        let id_str = machine_id.to_string();
-        let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
-            forge_secrets::certificates::Certificate::default()
-        } else {
-            self.certificate_provider
-                .get_certificate(id_str.as_str(), None, None)
-                .await
-                .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
-        };
-
-        tracing::info!(
-            "Attestation succeeded for machine with id {} - sending a cert back. Attestion_enabled is {}",
-            machine_id,
-            self.runtime_config.attestation_enabled
-        );
-        Ok(Response::new(rpc::AttestQuoteResponse {
-            success: true,
-            machine_certificate: Some(certificate.into()),
-        }))
+        crate::handlers::attestation::attest_quote(self, request).await
     }
 
-    #[cfg(not(feature = "linux-build"))]
-    async fn attest_quote(
-        &self,
-        request: Request<rpc::AttestQuoteRequest>,
-    ) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
-        log_request_data(&request);
-        unimplemented!()
-    }
     async fn create_measurement_system_profile(
         &self,
         request: Request<measured_boot_pb::CreateMeasurementSystemProfileRequest>,
@@ -3047,23 +2490,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::MachineRebootCompletedRequest>,
     ) -> Result<Response<rpc::MachineRebootCompletedResponse>, Status> {
-        log_request_data(&request);
-
-        let req = request.into_inner();
-        let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
-
-        let (machine, mut txn) = self
-            .load_machine(
-                &machine_id,
-                MachineSearchConfig::default(),
-                "reboot_completed",
-            )
-            .await?;
-        db::machine::update_reboot_time(&machine, &mut txn).await?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(rpc::MachineRebootCompletedResponse {}))
+        crate::handlers::machine_scout::reboot_completed(self, request).await
     }
 
     // machine has completed validation
@@ -4172,20 +3599,6 @@ impl Api {
 
     pub fn log_filter_string(&self) -> String {
         self.dynamic_settings.log_filter.to_string()
-    }
-
-    async fn clear_bmc_credentials(&self, machine: &Machine) -> Result<(), CarbideError> {
-        if let Some(mac_address) = machine.bmc_info.mac {
-            tracing::info!(
-                "Cleaning up BMC credentials in vault at {} for machine {}",
-                mac_address,
-                machine.id
-            );
-            crate::handlers::credential::delete_bmc_root_credentials_by_mac(self, mac_address)
-                .await?;
-        }
-
-        Ok(())
     }
 }
 
