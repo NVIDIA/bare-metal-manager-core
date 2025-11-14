@@ -635,13 +635,6 @@ impl Forge for Api {
         Ok(crate::dhcp::discover::discover_dhcp(self, request).await?)
     }
 
-    async fn get_machine(
-        &self,
-        request: Request<MachineId>,
-    ) -> Result<Response<rpc::Machine>, Status> {
-        crate::handlers::machine::get_machine(self, request).await
-    }
-
     async fn find_machine_ids(
         &self,
         request: Request<rpc::MachineSearchConfig>,

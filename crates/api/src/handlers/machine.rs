@@ -24,44 +24,6 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
-pub(crate) async fn get_machine(
-    api: &Api,
-    request: Request<MachineId>,
-) -> Result<Response<rpc::Machine>, Status> {
-    log_request_data(&request);
-    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
-
-    let mut txn = api.txn_begin("get_machine").await?;
-
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &machine_id,
-        LoadSnapshotOptions {
-            include_history: true,
-            include_instance_data: false,
-            host_health_config: api.runtime_config.host_health,
-        },
-    )
-    .await?
-    .ok_or_else(|| CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
-
-    txn.commit().await?;
-
-    let rpc_machine = snapshot
-        .rpc_machine_state(match machine_id.machine_type().is_dpu() {
-            true => Some(&machine_id),
-            false => None,
-        })
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
-    Ok(Response::new(rpc_machine))
-}
-
 pub(crate) async fn find_machine_ids(
     api: &Api,
     request: Request<rpc::MachineSearchConfig>,
