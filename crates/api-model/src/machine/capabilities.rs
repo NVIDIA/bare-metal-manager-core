@@ -1059,6 +1059,7 @@ mod tests {
                     last_dhcp: None,
                     addresses: Vec::new(),
                     network_segment_type: None,
+                    power_shelf_id: None,
                 },
                 MachineInterfaceSnapshot {
                     id: MachineInterfaceId::from(uuid::Uuid::nil()),
@@ -1079,6 +1080,7 @@ mod tests {
                     last_dhcp: None,
                     addresses: Vec::new(),
                     network_segment_type: None,
+                    power_shelf_id: None,
                 },
             ],
         );
@@ -1172,6 +1174,7 @@ mod tests {
                 last_dhcp: None,
                 addresses: Vec::new(),
                 network_segment_type: None,
+                power_shelf_id: None,
             }],
         );
 

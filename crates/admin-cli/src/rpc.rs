@@ -749,6 +749,8 @@ impl ApiClient {
             metadata: Some(metadata),
             sku_id,
             id: id.map(|s| ::rpc::common::Uuid { value: s }),
+            host_nics: vec![],
+            rack_id: None,
         };
 
         self.0
@@ -824,6 +826,8 @@ impl ApiClient {
             metadata: merged_metadata,
             sku_id,
             id: expected_machine.id,
+            host_nics: vec![],
+            rack_id: None,
         };
 
         self.0
@@ -850,6 +854,8 @@ impl ApiClient {
                         .unwrap_or_default(),
                     metadata: machine.metadata,
                     sku_id: machine.sku_id,
+                    host_nics: vec![],
+                    rack_id: None,
                 })
                 .collect(),
         };

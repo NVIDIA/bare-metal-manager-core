@@ -261,6 +261,44 @@ impl Forge for Api {
         crate::handlers::ib_partition::for_tenant(self, request).await
     }
 
+    // DEPRECATED: use find_power_shelf_ids and find_power_shelves_by_ids instead
+    async fn find_power_shelves(
+        &self,
+        _request: Request<rpc::PowerShelfQuery>,
+    ) -> Result<Response<rpc::PowerShelfList>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn delete_power_shelf(
+        &self,
+        _request: Request<rpc::PowerShelfDeletionRequest>,
+    ) -> Result<Response<rpc::PowerShelfDeletionResult>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    // DEPRECATED: use find_switch_ids and find_switches_by_ids instead
+    async fn find_switches(
+        &self,
+        _request: Request<rpc::SwitchQuery>,
+    ) -> Result<Response<rpc::SwitchList>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn delete_switch(
+        &self,
+        _request: Request<rpc::SwitchDeletionRequest>,
+    ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
     async fn find_ib_fabric_ids(
         &self,
         request: Request<rpc::IbFabricSearchFilter>,
@@ -614,6 +652,24 @@ impl Forge for Api {
         request: Request<rpc::MachineStateHistoriesRequest>,
     ) -> std::result::Result<Response<rpc::MachineStateHistories>, Status> {
         crate::handlers::machine::find_machine_state_histories(self, request).await
+    }
+
+    async fn find_power_shelf_state_histories(
+        &self,
+        _request: Request<rpc::PowerShelfStateHistoriesRequest>,
+    ) -> Result<Response<rpc::PowerShelfStateHistories>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn find_switch_state_histories(
+        &self,
+        _request: Request<rpc::SwitchStateHistoriesRequest>,
+    ) -> Result<Response<rpc::SwitchStateHistories>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
     }
 
     async fn find_machine_health_histories(
@@ -1454,6 +1510,33 @@ impl Forge for Api {
         }))
     }
 
+    async fn get_rack(
+        &self,
+        _request: Request<rpc::GetRackRequest>,
+    ) -> Result<Response<rpc::GetRackResponse>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn delete_rack(
+        &self,
+        _request: Request<rpc::DeleteRackRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn rack_manager_call(
+        &self,
+        _request: Request<rpc::RackManagerForgeRequest>,
+    ) -> Result<Response<rpc::RackManagerForgeResponse>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
     /// Trigger DPU reprovisioning
     async fn trigger_dpu_reprovisioning(
         &self,
@@ -2054,6 +2137,150 @@ impl Forge for Api {
         request: Request<()>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::expected_machine::delete_all(self, request).await
+    }
+
+    async fn get_expected_power_shelf(
+        &self,
+        _request: Request<rpc::ExpectedPowerShelfRequest>,
+    ) -> Result<Response<rpc::ExpectedPowerShelf>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn add_expected_power_shelf(
+        &self,
+        _request: Request<rpc::ExpectedPowerShelf>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn delete_expected_power_shelf(
+        &self,
+        _request: Request<rpc::ExpectedPowerShelfRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn update_expected_power_shelf(
+        &self,
+        _request: Request<rpc::ExpectedPowerShelf>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn replace_all_expected_power_shelves(
+        &self,
+        _request: Request<rpc::ExpectedPowerShelfList>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn get_all_expected_power_shelves(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<rpc::ExpectedPowerShelfList>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn get_all_expected_power_shelves_linked(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<rpc::LinkedExpectedPowerShelfList>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn delete_all_expected_power_shelves(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn get_expected_switch(
+        &self,
+        _request: Request<rpc::ExpectedSwitchRequest>,
+    ) -> Result<Response<rpc::ExpectedSwitch>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn add_expected_switch(
+        &self,
+        _request: Request<rpc::ExpectedSwitch>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn delete_expected_switch(
+        &self,
+        _request: Request<rpc::ExpectedSwitchRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn update_expected_switch(
+        &self,
+        _request: Request<rpc::ExpectedSwitch>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn replace_all_expected_switches(
+        &self,
+        _request: Request<rpc::ExpectedSwitchList>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn get_all_expected_switches(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<rpc::ExpectedSwitchList>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn get_all_expected_switches_linked(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<rpc::LinkedExpectedSwitchList>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
+    }
+
+    async fn delete_all_expected_switches(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "not implemented yet -- under construction",
+        ))
     }
 
     async fn find_connected_devices_by_dpu_machine_ids(

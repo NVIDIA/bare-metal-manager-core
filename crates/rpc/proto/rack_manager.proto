@@ -1,0 +1,459 @@
+syntax = "proto3";
+
+package rack_manager;
+
+import "google/protobuf/empty.proto";
+
+/*****************************
+ * NODE AND CONTROL ENUMS *
+ *****************************/
+enum PowerOperation {
+  POWER_OFF   = 0;
+  POWER_ON    = 1;
+  POWER_RESET = 2;
+}
+
+enum RackPowerOperation {
+  RACK_POWER_ON    = 0;
+  RACK_POWER_OFF   = 1;
+  RACK_POWER_CYCLE = 2;
+}
+
+enum ReturnCode {
+  SUCCESS = 0;
+  FAILURE = 1;
+}
+
+enum PowerComplianceValue {
+  MIN = 0;
+  MAX = 1;
+}
+
+message NewNodeInfo {
+  string node_id = 1;
+  string mac_address = 2;
+  string ip_address = 3;
+  int32 port = 4;
+  optional string username = 5;
+  optional string password = 6;
+  optional int32 type = 7;
+}
+
+message NodeUpdateInfo {
+  optional string ip_address = 1;
+  optional int32 port = 2;
+  optional string username = 3;
+  optional string password = 4;
+}
+
+message NodeInventoryInfo {
+  string node_id = 1;
+  string product = 2;
+  string health = 3;
+  string ip_address = 4;
+  int32 port = 5;
+  int32 type = 6;
+  repeated DeviceInventoryInfo devices = 7;
+  string mac_address = 8;
+}
+
+message DeviceInventoryInfo {
+  string device_id = 1;
+  string health = 2;
+  string state = 3;
+  string model = 4;
+  string serial_number = 5;
+  string description = 6;
+  string hardware_type = 7;
+  int32 type = 8;
+}
+
+message FirmwareInventoryInfo {
+  string name = 1;
+  string version = 2;
+  string updateable = 3;
+  string target = 4;
+  string health = 5;
+  int32  firmware_type = 6;
+}
+
+/*************************************************************
+ * METADATA DEFINITION                                       *
+ * Every request and response will have this metadata field. *
+ * Allows for tracing and debugging of message flow          *
+ *************************************************************/
+message Metadata {
+  int32 sender_id = 1;
+  int64 timestamp = 2;
+  int32 msg_id    = 3;
+}
+
+/********************************
+ * TOP LEVEL SERVICE DEFINITION *
+ ********************************/
+service RackManager {
+  rpc PowerControl(PowerControlRequest) returns (PowerControlResponse) {}
+  rpc InventoryControl(InventoryRequest) returns (InventoryResponse) {}
+  rpc SecurityControl(SecurityRequest) returns (SecurityResponse) {}
+  rpc FirmwareControl(FirmwareRequest) returns (FirmwareResponse) {}
+  rpc UploadFile(FileUploadRequest) returns (FileUploadResponse) {}
+  rpc PowerCompliance(PowerComplianceRequest) returns (PowerComplianceResponse) {}
+  rpc Version(google.protobuf.Empty) returns (google.protobuf.Empty) {}
+}
+
+
+/************************************************
+ * TOP LEVEL PROTO REQUEST/RESPONSE DEFINITIONS *
+ ************************************************/
+//PowerControl request/response
+message PowerControlRequest {
+  Metadata metadata = 1;
+  oneof command {
+    SetPowerStateCommand set_power_state = 2;
+    GetPowerStateCommand get_power_state = 3;
+    RackPowerCommand rack_power = 4;
+  }
+}
+
+message PowerControlResponse {
+  Metadata   metadata = 1;
+  ReturnCode status   = 2;
+  oneof response {
+    SetPowerStateResponse set_power_state = 3;
+    GetPowerStateResponse get_power_state = 4;
+    RackPowerResponse rack_power = 5;
+  }
+}
+
+message InventoryRequest {
+  Metadata metadata = 1;
+  oneof command {
+    GetInventoryCommand get_inventory = 2;
+    AddNodeCommand add_node = 3;
+    UpdateNodeCommand update_node = 4;
+    RemoveNodeCommand remove_node = 5;
+    GetPowerOnOrderCommand get_power_on_order = 6;
+    SetPowerOnOrderCommand set_power_on_order = 7;
+  }
+}
+
+message InventoryResponse {
+  Metadata   metadata = 1;
+  ReturnCode status   = 2;
+  oneof response {
+    GetInventoryResponse get_inventory = 3;
+    AddNodeResponse add_node = 4;
+    UpdateNodeResponse update_node = 5;
+    RemoveNodeResponse remove_node = 6;
+    GetPowerOnOrderResponse get_power_on_order = 7;
+    SetPowerOnOrderResponse set_power_on_order = 8;
+  }
+}
+
+// SecurityControl request/response
+message SecurityRequest {
+  Metadata metadata = 1;
+  oneof command {
+    GetAttestationCommand get_attestation = 2;
+  }
+}
+
+message SecurityResponse {
+  Metadata metadata = 1;
+  ReturnCode status = 2;
+  oneof response {
+    GetAttestationResponse get_attestation = 3;
+  }
+}
+
+message FirmwareRequest {
+  Metadata metadata = 1;
+  oneof command {
+    GetFirmwareInventoryCommand get_firmware_inventory = 2;
+    UpdateFirmwareCommand update_firmware = 3;
+    UpdateFirmwareByNodeTypeCommand update_firmware_by_node_type = 4;
+    GetAvailableFwImagesCommand get_available_fw_images = 5;
+    GetBKCFilesCommand get_bkc_files = 6;
+    SelectActiveBKCFileCommand select_active_bkc_file = 7;
+    CheckBKCComplianceCommand check_bkc_compliance = 8;
+  }
+}
+
+message FirmwareResponse {
+  Metadata metadata = 1;
+  ReturnCode status = 2;
+  oneof response {
+    GetFirmwareInventoryResponse firm_inventory_response = 3;
+    UpdateFirmwareResponse update_firmware = 4;
+    UpdateFirmwareByNodeTypeResponse update_firmware_by_node_type = 5;
+    GetAvailableFwImagesResponse get_available_fw_images = 6;
+    GetBKCFilesResponse get_bkc_files = 7;
+    SelectActiveBKCFileResponse select_active_bkc_file = 8;
+    CheckBKCComplianceResponse check_bkc_compliance = 9;
+  }
+}
+
+message PowerComplianceRequest {
+  Metadata metadata = 1;
+  oneof command {
+    GetRackPowerCommand get_power_limit = 2;
+    SetRackPowerCommand set_power_limit = 3;
+  }
+}
+
+message PowerComplianceResponse {
+  Metadata metadata = 1;
+  ReturnCode status = 2;
+  oneof response {
+    GetRackPowerResponse get_power_limit = 3;
+    SetRackPowerResponse set_power_limit = 4;
+  }
+}
+
+/*****************************
+ * POWER CONTROL SUBMESSAGES *
+ *****************************/
+message SetPowerStateCommand {
+  string         node      = 1;
+  PowerOperation operation = 2;
+}
+
+message GetPowerStateCommand {
+  string node = 1;
+}
+
+message SetPowerStateResponse {
+}
+
+message GetPowerStateResponse {
+  string node   = 1;
+  string pstate = 2;
+}
+
+message RackPowerCommand {
+  RackPowerOperation operation = 1;
+}
+
+message RackPowerResponse {
+  string message = 1;
+}
+
+
+/*********************************
+ * INVENTORY CONTROL SUBMESSAGES *
+ *********************************/
+
+message GetInventoryCommand {
+}
+
+message AddNodeCommand {
+  repeated NewNodeInfo node_info = 1;
+}
+
+message UpdateNodeCommand {
+  string node_id = 1;
+  NodeUpdateInfo update_info = 2;
+}
+
+message RemoveNodeCommand {
+  string node_id = 1;
+}
+
+message GetInventoryResponse {
+  repeated NodeInventoryInfo nodes = 1;
+}
+
+message AddNodeResponse {
+  string message = 1;
+}
+
+message UpdateNodeResponse {
+  string message = 1;
+}
+
+message RemoveNodeResponse {
+  string message = 1;
+}
+
+// Power on order message definitions
+message PowerOnOrderItem {
+  string node = 1;
+  CompletionCheck completion_check = 2;
+}
+
+message CompletionCheck {
+  bool enabled = 1;
+  int32 timeout_seconds = 2;
+}
+
+message GetPowerOnOrderCommand {
+}
+
+message GetPowerOnOrderResponse {
+  repeated PowerOnOrderItem power_on_order = 1;
+  bool is_valid = 2;
+}
+
+message SetPowerOnOrderCommand {
+  repeated PowerOnOrderItem power_on_order = 1;
+}
+
+message SetPowerOnOrderResponse {
+  string message = 1;
+}
+
+/*********************************
+ * SECURITY CONTROL SUBMESSAGES *
+ *********************************/
+message GetAttestationCommand {
+  string node = 1;
+}
+
+message GetAttestationResponse {
+  bool attested = 1; // placeholder
+}
+
+/*********************************
+ * FIRMWARE CONTROL SUBMESSAGES *
+ *********************************/
+
+message GetFirmwareInventoryCommand {
+  string node = 1;
+}
+
+message GetFirmwareInventoryResponse {
+  repeated FirmwareInventoryInfo firmware_list = 1;
+}
+
+message UpdateFirmwareCommand {
+  string node = 1;
+  string filename = 2;
+  string target = 3;
+}
+
+message UpdateFirmwareResponse {
+  string message = 1;
+}
+
+message UpdateFirmwareByNodeTypeCommand {
+  int32 node_type = 1;  // NodeType enum value (0=Compute, 1=Powershelf, 2=Switch, 3=Unknown)
+  string filename = 2;
+  string target = 3;
+}
+
+message UpdateFirmwareByNodeTypeResponse {
+  string message = 1;
+  int32 total_nodes = 2;
+  int32 successful_updates = 3;
+  int32 failed_updates = 4;
+}
+
+message GetAvailableFwImagesCommand {
+  optional string node = 1;
+}
+
+message FirmwareFileInfo {
+  string filename = 1;
+  int64 size = 2;
+  string hash = 3;
+  string firmware_info = 4;
+}
+
+message GetAvailableFwImagesResponse {
+  repeated FirmwareFileInfo firmware_files = 1;
+}
+
+message GetBKCFilesCommand {
+}
+
+message BKCFileInfo {
+  string filename = 1;
+  int64 size = 2;
+  string hash = 3;
+  string description = 4;
+  bool is_active = 5;
+}
+
+message GetBKCFilesResponse {
+  repeated BKCFileInfo bkc_files = 1;
+}
+
+message SelectActiveBKCFileCommand {
+  string filename = 1;
+}
+
+message SelectActiveBKCFileResponse {
+  string message = 1;
+  string active_bkc_file = 2;
+}
+
+message CheckBKCComplianceCommand {
+}
+
+message NonCompliantNode {
+  string node_id = 1;
+  string firmware_name = 2;
+  string current_version = 3;
+  string expected_version = 4;
+  string reason = 5;
+}
+
+message CheckBKCComplianceResponse {
+  bool is_compliant = 1;
+  string message = 2;
+  repeated NonCompliantNode non_compliant_nodes = 3;
+  string active_bkc_file = 4;
+}
+
+/*********************************
+ * FILE UPLOAD MESSAGES *
+ *********************************/
+message FileUploadRequest {
+  Metadata metadata = 1;
+  oneof upload_data {
+    FileUploadMetadata upload_metadata = 2;
+    FileChunk chunk = 3;
+  }
+}
+
+message FileUploadMetadata {
+  string node_id = 1;
+  string file_name = 2;
+  int32 file_type = 3;
+  string target = 4;
+  int64 total_size = 5;
+  string file_hash = 6;  // SHA-256 hash of the file
+  int32 total_chunks = 7;  // Total number of chunks in the file
+}
+
+message FileChunk {
+  bytes data = 1;
+  int32 sequence_number = 2;
+}
+
+message FileUploadResponse {
+  Metadata metadata = 1;
+  ReturnCode status = 2;
+  string message = 3;
+  string file_path = 4;
+}
+
+/*********************************
+ * POWER COMPLIANCE CONTROL SUBMESSAGES *
+ *********************************/
+
+message GetRackPowerCommand {
+  PowerComplianceValue request_type = 1;
+}
+
+message SetRackPowerCommand {
+  PowerComplianceValue request_type = 1;
+  int64 power_value = 2;
+}
+
+message GetRackPowerResponse {
+  int64 power_value = 1;
+}
+
+message SetRackPowerResponse {
+}

@@ -2067,6 +2067,7 @@ pub struct MachineInterfaceSnapshot {
     pub addresses: Vec<IpAddr>,
     // Note: this field is denormalized, brought in from a JOIN when coming from machine_interface::find_by. It is otherwise not set.
     pub network_segment_type: Option<NetworkSegmentType>,
+    pub power_shelf_id: Option<MachineId>,
 }
 
 impl MachineInterfaceSnapshot {
@@ -2085,6 +2086,7 @@ impl MachineInterfaceSnapshot {
             created: chrono::DateTime::default(),
             last_dhcp: None,
             network_segment_type: None,
+            power_shelf_id: None,
         }
     }
 }
@@ -2108,6 +2110,7 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
             vendor: machine_interface.vendors.last().cloned(),
             created: Some(machine_interface.created.into()),
             last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
+            power_shelf_id: machine_interface.power_shelf_id,
             is_bmc: None,
         }
     }
@@ -2417,6 +2420,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             network_segment_type: row.try_get("network_segment_type")?,
             addresses: addrs_json.0.into_iter().flatten().collect(),
             vendors: vendors_json.0.into_iter().flatten().collect(),
+            power_shelf_id: row.try_get("power_shelf_id")?,
         })
     }
 }

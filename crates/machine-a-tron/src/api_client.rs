@@ -540,6 +540,8 @@ impl ApiClient {
                 metadata: None,
                 sku_id: None,
                 id: None,
+                host_nics: vec![],
+                rack_id: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)
