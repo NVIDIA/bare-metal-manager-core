@@ -282,3 +282,27 @@ pub(crate) async fn forge_agent_control(
         data: action_data,
     }))
 }
+
+// Host has rebooted
+pub(crate) async fn reboot_completed(
+    api: &Api,
+    request: Request<rpc::MachineRebootCompletedRequest>,
+) -> Result<Response<rpc::MachineRebootCompletedResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+    let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
+
+    let (machine, mut txn) = api
+        .load_machine(
+            &machine_id,
+            MachineSearchConfig::default(),
+            "reboot_completed",
+        )
+        .await?;
+    db::machine::update_reboot_time(&machine, &mut txn).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::MachineRebootCompletedResponse {}))
+}
