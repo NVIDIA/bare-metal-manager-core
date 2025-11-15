@@ -183,7 +183,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
 // It improperly returns the values of a lot of things - since those are not actually
 // persisted.
 // It would be preferable to migrate carbide-web from reading the status to using
-// a better supported API. E.g. the FindMachines one.
+// a better supported API. E.g. the FindMachinesByIds one.
 impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
     fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {
         rpc::DpuNetworkStatus {

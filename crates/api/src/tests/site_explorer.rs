@@ -2015,16 +2015,8 @@ async fn test_site_explorer_health_report(
     let (host_machine_id, dpu_machine_id) =
         common::api_fixtures::create_managed_host(&env).await.into();
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let host_machine = env
-        .find_machines(host_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0);
-    let dpu_machine = env
-        .find_machines(dpu_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0);
+    let host_machine = env.find_machine(host_machine_id).await.remove(0);
+    let dpu_machine = env.find_machine(dpu_machine_id).await.remove(0);
     let bmc_ip: std::net::IpAddr = host_machine
         .bmc_info
         .as_ref()
@@ -2098,11 +2090,7 @@ async fn test_site_explorer_health_report(
     // Run site explorer and check the health state of the Machine
     explorer.run_single_iteration().await.unwrap();
 
-    let host_machine = env
-        .find_machines(host_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0);
+    let host_machine = env.find_machine(host_machine_id).await.remove(0);
 
     let alerts = &host_machine.health.as_ref().unwrap().alerts;
     assert!(alerts.is_empty());
@@ -2121,11 +2109,7 @@ async fn test_site_explorer_health_report(
 
     explorer.run_single_iteration().await.unwrap();
 
-    let host_machine = env
-        .find_machines(host_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0);
+    let host_machine = env.find_machine(host_machine_id).await.remove(0);
 
     let mut alerts = host_machine.health.as_ref().unwrap().alerts.clone();
     assert_eq!(alerts.len(), 1);

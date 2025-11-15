@@ -345,8 +345,7 @@ async fn test_dpu_machine_dhcp_for_existing_dpu(
     let host_config = env.managed_host_config();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
 
-    let mut machines = env.find_machines(Some(dpu_machine_id), None, true).await;
-    let machine = machines.machines.remove(0);
+    let machine = env.find_machine(dpu_machine_id).await.remove(0);
     let mac = machine.interfaces[0].mac_address.clone();
 
     let response = env

@@ -207,79 +207,45 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
-async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let host_config = env.managed_host_config();
-    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
-
-    let fqdn = format!("{}.dwrt1.com", &dpu_machine.interfaces[0].hostname);
-
-    let mut machines = env
-        .api
-        .find_machines(Request::new(rpc::forge::MachineSearchQuery {
-            id: None,
-            fqdn: Some(fqdn.clone()),
-            search_config: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines;
-    let machine = machines.remove(0);
-    assert!(machines.is_empty());
-    assert_eq!(machine.id.unwrap().to_string(), dpu_machine_id.to_string());
-
-    // We shouldn't find a machine that doesn't exist
-    let fqdn2 = format!("a{fqdn}");
-    let machines = env
-        .api
-        .find_machines(Request::new(rpc::forge::MachineSearchQuery {
-            id: None,
-            fqdn: Some(fqdn2),
-            search_config: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines;
-    assert!(machines.is_empty());
-}
-
-#[crate::sqlx_test]
-async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
+async fn test_find_machine_ids_with_and_without_dpus(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
-    let machines = env.find_machines(None, None, true).await;
-    assert_eq!(machines.machines.len(), 2); // 1 host and 1 DPU
+    // With DPUs
+    let machine_ids = env
+        .api
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            include_dpus: true,
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machine_ids;
+    assert_eq!(machine_ids.len(), 2); // 1 host and 1 DPU
 
-    let machine_types = machines
-        .machines
+    let machine_types = machine_ids
         .into_iter()
-        .map(|x| x.machine_type)
+        .map(|x| x.machine_type())
         .collect_vec();
 
-    assert!(machine_types.contains(&(rpc::forge::MachineType::Host as i32)));
-    assert!(machine_types.contains(&(rpc::forge::MachineType::Dpu as i32)));
-}
+    assert!(machine_types.contains(&MachineType::Host));
+    assert!(machine_types.contains(&MachineType::Dpu));
 
-#[crate::sqlx_test]
-async fn test_find_machine_dpu_excluded(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+    // No DPUs
+    let machine_ids = env
+        .api
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            include_dpus: false,
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machine_ids;
+    assert_eq!(machine_ids.len(), 1); // 1 host
 
-    let machines = env.find_machines(None, None, false).await;
-    assert_eq!(machines.machines.len(), 1); // 1 host
-    assert_eq!(
-        machines.machines[0].machine_type,
-        rpc::forge::MachineType::Host as i32
-    );
+    assert_eq!(machine_ids[0].machine_type(), MachineType::Host);
 }
 
 #[crate::sqlx_test]

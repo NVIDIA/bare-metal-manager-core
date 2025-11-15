@@ -85,37 +85,8 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         txn.commit().await?;
 
         // Check that RPC APIs returns the History if asked for
-        // - FindMachines and FindMachinesById should do so if asked for it
+        // - FindMachinesById should do so if asked for it
         // - FindMachineStateHistories returns the expected history
-        let rpc_machine = env
-            .api
-            .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-                id: Some(*machine_id),
-                fqdn: None,
-                search_config: Some(rpc::forge::MachineSearchConfig {
-                    include_dpus: true,
-                    include_history: true,
-                    include_predicted_host: false,
-                    only_maintenance: false,
-                    exclude_hosts: false,
-                    only_quarantine: false,
-                    instance_type_id: None,
-                }),
-            }))
-            .await?
-            .into_inner()
-            .machines
-            .remove(0);
-        let rpc_history: Vec<serde_json::Value> = rpc_machine
-            .events
-            .into_iter()
-            .map(|ev| serde_json::from_str::<serde_json::Value>(&ev.event))
-            .collect::<Result<_, _>>()?;
-        assert_eq!(
-            rpc_history[..expected_initial_states.len()].to_vec(),
-            expected_initial_states
-        );
-
         let rpc_machine = env
             .api
             .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
@@ -221,12 +192,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .unwrap()
         .into_inner();
 
-    assert!(
-        env.find_machines(host_machine_id.into(), None, true)
-            .await
-            .machines
-            .is_empty()
-    );
+    assert!(env.find_machine(host_machine_id).await.is_empty());
 
     let mut txn = env.pool.begin().await?;
     let power_entry = db::power_options::get_all(&mut txn).await?;

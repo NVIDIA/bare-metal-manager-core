@@ -135,9 +135,8 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 
     let bmc_addrs = vec![
         IpAddr::from_str(
-            env.find_machines(host_machine_id.into(), None, true)
+            env.find_machine(host_machine_id)
                 .await
-                .machines
                 .first()
                 .unwrap()
                 .bmc_info
@@ -149,9 +148,8 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
         )
         .unwrap(),
         IpAddr::from_str(
-            env.find_machines(dpu_machine_id.into(), None, true)
+            env.find_machine(dpu_machine_id)
                 .await
-                .machines
                 .first()
                 .unwrap()
                 .bmc_info
@@ -198,18 +196,8 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
     let response = force_delete(&env, &host_machine_id).await;
     validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
 
-    assert!(
-        env.find_machines(host_machine_id.into(), None, true)
-            .await
-            .machines
-            .is_empty()
-    );
-    assert!(
-        env.find_machines(dpu_machine_id.into(), None, true)
-            .await
-            .machines
-            .is_empty()
-    );
+    assert!(env.find_machine(host_machine_id).await.is_empty());
+    assert!(env.find_machine(dpu_machine_id).await.is_empty());
 
     assert!(response.all_done, "Host and DPU must be deleted");
     assert!(
@@ -345,8 +333,8 @@ async fn validate_machine_deletion(
     bmc_addrs: Option<&Vec<IpAddr>>,
 ) {
     // The machine should be now be gone in the API
-    let response = env.find_machines(Some(*machine_id), None, true).await;
-    assert!(response.machines.is_empty());
+    let response = env.find_machine(*machine_id).await;
+    assert!(response.is_empty());
 
     // And it should also be gone on the DB layer
     let mut txn = env.pool.begin().await.unwrap();
@@ -534,18 +522,8 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
 
-    assert!(
-        env.find_machines(Some(mh.id), None, true)
-            .await
-            .machines
-            .is_empty()
-    );
-    assert!(
-        env.find_machines(Some(mh.dpu().id), None, true)
-            .await
-            .machines
-            .is_empty()
-    );
+    assert!(env.find_machine(mh.id).await.is_empty());
+    assert!(env.find_machine(mh.dpu().id).await.is_empty());
 
     assert_eq!(response.ufm_unregistrations, 1);
     assert!(response.all_done, "Host and DPU must be deleted");

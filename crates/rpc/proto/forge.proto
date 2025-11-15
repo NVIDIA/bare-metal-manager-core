@@ -135,8 +135,6 @@ service Forge {
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
   // PRIVILEGED: Find things
-  // DEPRECATED: use FindMachineIds and FindMachinesByIds instead
-  rpc FindMachines(MachineSearchQuery) returns (MachineList);
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc DeleteInterface(InterfaceDeleteQuery) returns (google.protobuf.Empty);
   rpc FindIpAddress(FindIpAddressRequest) returns (FindIpAddressResponse);
@@ -2281,12 +2279,6 @@ message TenantList {
 
 message TenantOrganizationIdList {
   repeated string tenant_organization_ids = 1;
-}
-
-message MachineSearchQuery {
-  optional common.MachineId id = 1;
-  optional string fqdn = 2;
-  optional MachineSearchConfig search_config = 3;
 }
 
 message InterfaceList {

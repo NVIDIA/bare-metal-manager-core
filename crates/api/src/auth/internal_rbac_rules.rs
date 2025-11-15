@@ -125,10 +125,6 @@ impl InternalRBACRules {
         x.perm("CleanupMachineCompleted", vec![Machineatron, Scout]);
         x.perm("ReportForgeScoutError", vec![Scout]);
         x.perm("DiscoverDhcp", vec![Dhcp, Machineatron]);
-        x.perm(
-            "FindMachines",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Ssh, SshRs, Rla],
-        );
         x.perm("FindInterfaces", vec![ForgeAdminCLI]);
         x.perm("DeleteInterface", vec![ForgeAdminCLI]);
         x.perm("FindIpAddress", vec![ForgeAdminCLI]);

@@ -27,13 +27,12 @@ pub async fn wait_for_state(
     target_state: &str,
 ) -> eyre::Result<()> {
     let data = serde_json::json!({
-        "id": {"id": machine_id},
-        "search_config": {"include_dpus": true}
+        "machine_ids": [{"id": machine_id}],
     });
     tracing::info!("Waiting for Machine {machine_id} state {target_state}");
     let mut i = 0;
     while i < MAX_RETRY {
-        let response = grpcurl(addrs, "FindMachines", Some(&data)).await?;
+        let response = grpcurl(addrs, "FindMachinesByIds", Some(&data)).await?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = resp["machines"][0]["state"].as_str().unwrap();
         if state.contains(target_state) {

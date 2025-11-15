@@ -355,11 +355,7 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
     .await;
 
     // Interface is created. Let's fetch interface id.
-    let machine = env
-        .find_machines(dpu_id.into(), None, true)
-        .await
-        .machines
-        .remove(0);
+    let machine = env.find_machine(dpu_id).await.remove(0);
     assert_eq!(machine.interfaces.len(), 1);
 
     let cloud_init_cfg = env

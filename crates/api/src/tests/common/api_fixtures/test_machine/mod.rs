@@ -37,14 +37,9 @@ impl TestMachine {
 
     pub async fn rpc_machine(&self) -> rpc::Machine {
         self.api
-            .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-                search_config: Some(rpc::forge::MachineSearchConfig {
-                    include_dpus: false,
-                    include_history: true,
-                    ..Default::default()
-                }),
-                id: self.id.into(),
-                fqdn: None,
+            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+                machine_ids: vec![self.id],
+                include_history: true,
             }))
             .await
             .unwrap()

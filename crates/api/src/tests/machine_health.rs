@@ -160,17 +160,6 @@ async fn test_machine_health_reporting(
         dpu_health.clone(),
     );
 
-    let current_dpu_health = load_health_via_find_machines(&env, &dpu_machine_id)
-        .await
-        .unwrap();
-    check_time(&current_dpu_health);
-    check_reports_equal("forge-dpu-agent", current_dpu_health, dpu_health.clone());
-    let aggregate_health = load_health_via_find_machines(&env, &host_machine_id)
-        .await
-        .unwrap();
-    check_time(&aggregate_health);
-    check_reports_equal("aggregate-host-health", aggregate_health, dpu_health);
-
     Ok(())
 }
 
@@ -776,29 +765,6 @@ async fn load_health_via_find_machines_by_ids(
         .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![*machine_id],
             include_history: false,
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines
-        .remove(0)
-        .health
-        .map(|r| r.try_into().unwrap())
-}
-
-/// Loads aggregate health via FindMachines api
-async fn load_health_via_find_machines(
-    env: &TestEnv,
-    machine_id: &::forge_uuid::machine::MachineId,
-) -> Option<health_report::HealthReport> {
-    env.api
-        .find_machines(Request::new(rpc::forge::MachineSearchQuery {
-            id: Some(*machine_id),
-            fqdn: None,
-            search_config: Some(rpc::forge::MachineSearchConfig {
-                include_dpus: true,
-                ..Default::default()
-            }),
         }))
         .await
         .unwrap()

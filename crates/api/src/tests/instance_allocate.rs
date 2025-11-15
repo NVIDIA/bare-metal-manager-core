@@ -222,9 +222,8 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     // not strictly testing instance allocation, it's very related, because cloud-api will be using
     // the static_vpc_id field to determine where allocation should happen.
     let rpc_machine: forge::Machine = env
-        .find_machines(Some(zero_dpu_host.host_snapshot.id), None, false)
+        .find_machine(zero_dpu_host.host_snapshot.id)
         .await
-        .machines
         .remove(0);
 
     let instance_network_restrictions = rpc_machine.instance_network_restrictions.unwrap();

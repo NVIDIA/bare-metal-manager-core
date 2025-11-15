@@ -671,14 +671,6 @@ impl Forge for Api {
         crate::handlers::machine::find_machine_health_histories(self, request).await
     }
 
-    // DEPRECATED: use find_machine_ids and find_machines_by_ids instead
-    async fn find_machines(
-        &self,
-        request: Request<rpc::MachineSearchQuery>,
-    ) -> Result<Response<rpc::MachineList>, Status> {
-        crate::handlers::machine::find_machines(self, request).await
-    }
-
     async fn find_interfaces(
         &self,
         request: Request<rpc::InterfaceSearchQuery>,
