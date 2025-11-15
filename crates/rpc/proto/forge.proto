@@ -604,12 +604,99 @@ service Forge {
   rpc FindDpuExtensionServicesByIds(DpuExtensionServicesByIdsRequest) returns (DpuExtensionServiceList);
   rpc GetDpuExtensionServiceVersionsInfo(GetDpuExtensionServiceVersionsInfoRequest) returns (DpuExtensionServiceVersionInfoList);
   rpc FindInstancesByDpuExtensionService(FindInstancesByDpuExtensionServiceRequest) returns (FindInstancesByDpuExtensionServiceResponse);
+
   // SPDM attestation APIs start
   rpc TriggerMachineAttestation(AttestationData) returns (google.protobuf.Empty);
   rpc CancelMachineAttestation(AttestationData) returns (google.protobuf.Empty);
   rpc FindMachineIdsUnderAttestation(AttestationIdsRequest) returns (common.MachineIdList);
   rpc FindMachinesUnderAttestation(AttestationMachineList) returns (AttestationResponse);
   // SPDM attestation APIs end
+
+  // ScoutStream establishes a bidirectional streaming connection between
+  // scout agents and carbide-api. The initial use-case for this is for
+  // Mellanox device management using forge-admin-cli, but there's an
+  // opportunity to pull the ForgeAgentControl flow into here as well.
+  rpc ScoutStream(stream ScoutStreamApiBoundMessage) returns (stream ScoutStreamScoutBoundMessage);
+
+  // ScoutStreamShowConnections is used to show all established
+  // connections from scout agents to the ScoutStream endpoint.
+  rpc ScoutStreamShowConnections(ScoutStreamShowConnectionsRequest) returns (ScoutStreamShowConnectionsResponse);
+
+  // ScoutStreamDisconnect is used to disconnect a current machines
+  // ScoutStream connection.
+  rpc ScoutStreamDisconnect(ScoutStreamDisconnectRequest) returns (ScoutStreamDisconnectResponse);
+
+  // ScoutStreamPing is used to ping a given machine ID's scout stream
+  // connection to make sure it's responsive.
+  rpc ScoutStreamPing(ScoutStreamAdminPingRequest) returns (ScoutStreamAdminPingResponse);
+
+  // Mellanox administrative endpoints for profile management, which are called by
+  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // interconnect with a scout agent listening via an open ScoutStream connection.
+  //
+  // MlxAdminProfileSync is used to sync an MlxConfigProfile to a given device.
+  rpc MlxAdminProfileSync(mlx_device.MlxAdminProfileSyncRequest) returns (mlx_device.MlxAdminProfileSyncResponse);
+  // MlxAdminProfileShow shows the configuration of a specific MlxConfigProfile
+  // loaded into carbide-api.
+  rpc MlxAdminProfileShow(mlx_device.MlxAdminProfileShowRequest) returns (mlx_device.MlxAdminProfileShowResponse);
+  // MlxAdminProfileCompare compares the running config of a device to
+  // the values of a given MlxConfigProfile.
+  rpc MlxAdminProfileCompare(mlx_device.MlxAdminProfileCompareRequest) returns (mlx_device.MlxAdminProfileCompareResponse);
+  // MlxAdminProfileList lists all configured MlxConfigProfiles in carbide-api.
+  rpc MlxAdminProfileList(mlx_device.MlxAdminProfileListRequest) returns (mlx_device.MlxAdminProfileListResponse);
+
+  // Mellanox administrative endpoints for lockdown management, which are called by
+  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // interconnect with a scout agent listening via an open ScoutStream connection.
+  //
+  // MlxAdminLockdownLock locks a Mellanox device, using whatever key is currently
+  // managed internally within Carbide.
+  rpc MlxAdminLockdownLock(mlx_device.MlxAdminLockdownLockRequest) returns (mlx_device.MlxAdminLockdownLockResponse);
+  // MlxAdminLockdownUnlock unlocks a Mellanox device, using whatever key is currently
+  // managed internally within Carbide.
+  rpc MlxAdminLockdownUnlock(mlx_device.MlxAdminLockdownUnlockRequest) returns (mlx_device.MlxAdminLockdownUnlockResponse);
+  // MlxAdminLockdownStatus returns the live lock status of a Mellanox device
+  // by querying over an open ScoutStream connection.
+  rpc MlxAdminLockdownStatus(mlx_device.MlxAdminLockdownStatusRequest) returns (mlx_device.MlxAdminLockdownStatusResponse);
+
+  // Mellanox administrative endpoints for device info querying, which are called by
+  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // interconnect with a scout agent listening via an open ScoutStream connection.
+  //
+  // MlxAdminShowDevice will show MlxDeviceInfo data for a given device on a machine.
+  rpc MlxAdminShowDevice(mlx_device.MlxAdminDeviceInfoRequest) returns (mlx_device.MlxAdminDeviceInfoResponse);
+  // MlxAdminShowMachine will show an MlxDeviceReport for a given machine.
+  rpc MlxAdminShowMachine(mlx_device.MlxAdminDeviceReportRequest) returns (mlx_device.MlxAdminDeviceReportResponse);
+
+  // Mellanox administrative endpoints for registry querying, which are called by
+  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // interconnect with a scout agent listening via an open ScoutStream connection.
+  //
+  // MlxAdminRegistryList lists all known mlxconfig variable registries
+  // that are currently compiled into scout on the target machine.
+  rpc MlxAdminRegistryList(mlx_device.MlxAdminRegistryListRequest) returns (mlx_device.MlxAdminRegistryListResponse);
+  // MlxAdminRegistryShow returns the given MlxVariableRegistry as
+  // configured on the scout agent on the target machine.
+  rpc MlxAdminRegistryShow(mlx_device.MlxAdminRegistryShowRequest) returns (mlx_device.MlxAdminRegistryShowResponse);
+
+  // Mellanox administrative endpoints for direct mlxconfig management, called by
+  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // interconnect with a scout agent listening via an open ScoutStream connection.
+  //
+  // MlxAdminConfigQuery is used to fetch one or more running mlxconfig
+  // variable values for the provided target machine device.
+  rpc MlxAdminConfigQuery(mlx_device.MlxAdminConfigQueryRequest) returns (mlx_device.MlxAdminConfigQueryResponse);
+  // MlxAdminConfigSet is used to set one or more running mlxconfig
+  // variable values for the provided target machine device.
+  rpc MlxAdminConfigSet(mlx_device.MlxAdminConfigSetRequest) returns (mlx_device.MlxAdminConfigSetResponse);
+  // MlxAdminConfigSync is used to sync one or more running mlxconfig
+  // variable values for the provided target machine device, reporting back
+  // specifics of what changed.
+  rpc MlxAdminConfigSync(mlx_device.MlxAdminConfigSyncRequest) returns (mlx_device.MlxAdminConfigSyncResponse);
+  // MlxAdminConfigSync is used to compare one or more running mlxconfig
+  // variable values for the provided target machine device, reporting back
+  // specifics of what would change.
+  rpc MlxAdminConfigCompare(mlx_device.MlxAdminConfigCompareRequest) returns (mlx_device.MlxAdminConfigCompareResponse);
 }
 
 message AttestationIdsRequest {
@@ -5540,7 +5627,7 @@ message UpdateDpuExtensionServiceRequest {
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional int32 if_version_ctr_match = 6;
-} 
+}
 
 // If versions is empty, request to delete the whole service;
 // otherwise, request to delete the specified versions **but**
@@ -5605,4 +5692,155 @@ message InstanceDpuExtensionServiceInfo {
   string service_id = 2;
   string version = 3;
   optional string removed = 4; // Signals that this service is being removed from instance config and is terminating
+}
+
+// ScoutStreamApiBoundMessage is sent as part of scout initiating a new
+// streaming gRPC connection with carbide-api. The agent will connect
+// and sent an InitRequest, and then wait for control messages from
+// the API. For example, the API will send down a MlxDeviceLockdownStatusRequest,
+// and scout will populate an MlxDeviceLockdownStatusResponse and send
+// it back over the stream.
+message ScoutStreamApiBoundMessage {
+  // flow_uuid is used to track the oneshot channel flow unique to this
+  // specific request/response flow over the streaming connection. The
+  // ScoutStreamScoutBoundMessage populates the initial flow_uuid, and this must
+  // populate the same UUID.
+  common.UUID flow_uuid = 1;
+
+  oneof payload {
+    // ScoutStreamInitRequest is sent as the first message to establish
+    // a connection between a scout agent and carbide-api. After this,
+    // carbide-api will populate a "request" within a ScoutStreamScoutBoundMessage,
+    // send it to the scout agent, and expect the scout agent to respond
+    // with a "response" from the oneof ScoutStreamApiBoundMessage options below.
+    //
+    // For information about all other messages, see the docstrings
+    // associated with each message type.
+    ScoutStreamInitRequest init = 2;
+    mlx_device.MlxDeviceLockdownResponse mlx_device_lockdown_response = 3;
+    mlx_device.MlxDeviceProfileSyncResponse mlx_device_profile_sync_response = 4;
+    mlx_device.MlxDeviceProfileCompareResponse mlx_device_profile_compare_response = 5;
+    mlx_device.MlxDeviceInfoDeviceResponse mlx_device_info_device_response = 6;
+    mlx_device.MlxDeviceInfoReportResponse mlx_device_info_report_response = 7;
+    mlx_device.MlxDeviceRegistryListResponse mlx_device_registry_list_response = 8;
+    mlx_device.MlxDeviceRegistryShowResponse mlx_device_registry_show_response = 9;
+    mlx_device.MlxDeviceConfigQueryResponse mlx_device_config_query_response = 10;
+    mlx_device.MlxDeviceConfigSetResponse mlx_device_config_set_response = 11;
+    mlx_device.MlxDeviceConfigSyncResponse mlx_device_config_sync_response = 12;
+    mlx_device.MlxDeviceConfigCompareResponse mlx_device_config_compare_response = 13;
+    ScoutStreamAgentPingResponse scout_stream_agent_ping_response = 14;
+  }
+}
+
+// ScoutStreamScoutBoundMessage contains the requests from carbide-api
+// that a connected scout agent should process and respond to,
+// populating a response from one of the ScoutStreamApiBoundMessages.
+message ScoutStreamScoutBoundMessage {
+  // flow_uuid is used to track the oneshot channel flow unique to this
+  // specific request/response flow over the streaming connection. The
+  // ScoutStreamApiBoundMessage provided the value which is populated here.
+  common.UUID flow_uuid = 1;
+
+  // For information about each message type, see the docstrings
+  // associated with the corresponding type.
+  oneof payload {
+    mlx_device.MlxDeviceLockdownLockRequest mlx_device_lockdown_lock_request = 2;
+    mlx_device.MlxDeviceLockdownUnlockRequest mlx_device_lockdown_unlock_request = 3;
+    mlx_device.MlxDeviceLockdownStatusRequest mlx_device_lockdown_status_request = 4;
+    mlx_device.MlxDeviceProfileSyncRequest mlx_device_profile_sync_request = 5;
+    mlx_device.MlxDeviceProfileCompareRequest mlx_device_profile_compare_request = 6;
+    mlx_device.MlxDeviceInfoDeviceRequest mlx_device_info_device_request = 7;
+    mlx_device.MlxDeviceInfoReportRequest mlx_device_info_report_request = 8;
+    mlx_device.MlxDeviceRegistryListRequest mlx_device_registry_list_request = 9;
+    mlx_device.MlxDeviceRegistryShowRequest mlx_device_registry_show_request = 10;
+    mlx_device.MlxDeviceConfigQueryRequest mlx_device_config_query_request = 11;
+    mlx_device.MlxDeviceConfigSetRequest mlx_device_config_set_request = 12;
+    mlx_device.MlxDeviceConfigSyncRequest mlx_device_config_sync_request = 13;
+    mlx_device.MlxDeviceConfigCompareRequest mlx_device_config_compare_request = 14;
+    ScoutStreamAgentPingRequest scout_stream_agent_ping_request = 15;
+  }
+}
+
+// ScoutStreamInitRequest is sent by the scout agent to identify itself
+// and establish a connection to carbide-api.
+message ScoutStreamInitRequest {
+  common.MachineId machine_id = 1;
+}
+
+// ScoutStreamShowConnectionsRequest is sent to request information
+// about all established scout agent connections.
+message ScoutStreamShowConnectionsRequest {
+}
+
+// ShowConnectionsResponse is the response containing active
+// scout agent connection information.
+message ScoutStreamShowConnectionsResponse {
+  repeated ScoutStreamConnectionInfo scout_stream_connections = 1;
+}
+
+// ScoutStreamDisconnectRequest is sent to request closing the
+// ScoutStream connection of a given machine ID.
+message ScoutStreamDisconnectRequest {
+  common.MachineId machine_id = 1;
+}
+
+// ScoutStreamDisconnectResponse is a response to an attempt
+// to disconnect a machine's ScoutStream connection.
+message ScoutStreamDisconnectResponse {
+  common.MachineId machine_id = 1;
+  bool success = 2;
+}
+
+// ScoutStreamAdminPingRequest is sent to check the liveliness
+// of the scout agent by attempting to get back a pong. This
+// comes from an administrative caller.
+message ScoutStreamAdminPingRequest {
+  common.MachineId machine_id = 1;
+}
+
+// ScoutStreamAdminPingResponse is hopefully a response from
+// the scout agent to the administrative caller.
+message ScoutStreamAdminPingResponse {
+  string pong = 1;
+}
+
+// ScoutStreamAgentPingRequest is sent to check the liveliness
+// of the scout agent by attempting to get back a pong. This
+// comes from the API -> scout.
+message ScoutStreamAgentPingRequest {
+}
+
+// ScoutStreamAgentPingResponse is hopefully a response from
+// the scout agent. This is from scout -> API.
+message ScoutStreamAgentPingResponse {
+  oneof reply {
+    string pong = 1;
+    ScoutStreamError error = 2;
+  }
+}
+
+// ScoutStreamConnectionInfo contains information about an
+// active scout agent connection.
+message ScoutStreamConnectionInfo {
+  common.MachineId machine_id = 1;
+  // connected_at contains an RFC3339 timestamp
+  // showing when the scout agent first established a connection.
+  string connected_at = 2;
+  // uptime_seconds is just a convenience field with
+  // the number of seconds the scout agent has been connected.
+  uint64 uptime_seconds = 3;
+}
+
+// ScoutStreamError is a mechanism to send an error back over the stream,
+// since you can't send status errors over established bidirectional
+// streams.
+message ScoutStreamError {
+  ScoutStreamErrorStatus status = 1;
+  string message = 2;
+}
+
+// ScoutStreamErrorStatus is an internal code to set to help
+// with troubleshooting and debugging.
+enum ScoutStreamErrorStatus {
+  SCOUT_STREAM_ERROR_STATUS_INTERNAL = 0;
 }

@@ -18,6 +18,10 @@
 
 use std::fmt;
 
+use ::rpc::errors::RpcDataConversionError;
+use ::rpc::protos::mlx_device::{
+    mlx_variable_spec as mlx_variable_spec_pb, MlxVariableSpec as MlxVariableSpecPb,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -269,6 +273,122 @@ impl fmt::Display for MlxVariableSpec {
                 write!(f, "BinaryArray[{size}]")
             }
             MlxVariableSpec::Opaque => write!(f, "Opaque"),
+        }
+    }
+}
+
+impl From<MlxVariableSpec> for MlxVariableSpecPb {
+    fn from(spec: MlxVariableSpec) -> Self {
+        match spec {
+            MlxVariableSpec::Boolean => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::Boolean(
+                    mlx_variable_spec_pb::BooleanSpec {},
+                )),
+            },
+            MlxVariableSpec::Integer => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::Integer(
+                    mlx_variable_spec_pb::IntegerSpec {},
+                )),
+            },
+            MlxVariableSpec::String => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::String(
+                    mlx_variable_spec_pb::StringSpec {},
+                )),
+            },
+            MlxVariableSpec::Binary => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::Binary(
+                    mlx_variable_spec_pb::BinarySpec {},
+                )),
+            },
+            MlxVariableSpec::Bytes => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::Bytes(
+                    mlx_variable_spec_pb::BytesSpec {},
+                )),
+            },
+            MlxVariableSpec::Array => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::Array(
+                    mlx_variable_spec_pb::ArraySpec {},
+                )),
+            },
+            MlxVariableSpec::Enum { options } => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::EnumType(
+                    mlx_variable_spec_pb::EnumSpec { options },
+                )),
+            },
+            MlxVariableSpec::Preset { max_preset } => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::Preset(
+                    mlx_variable_spec_pb::PresetSpec {
+                        max_preset: max_preset as u32,
+                    },
+                )),
+            },
+            MlxVariableSpec::BooleanArray { size } => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::BooleanArray(
+                    mlx_variable_spec_pb::BooleanArraySpec { size: size as u64 },
+                )),
+            },
+            MlxVariableSpec::IntegerArray { size } => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::IntegerArray(
+                    mlx_variable_spec_pb::IntegerArraySpec { size: size as u64 },
+                )),
+            },
+            MlxVariableSpec::EnumArray { options, size } => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::EnumArray(
+                    mlx_variable_spec_pb::EnumArraySpec {
+                        options,
+                        size: size as u64,
+                    },
+                )),
+            },
+            MlxVariableSpec::BinaryArray { size } => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::BinaryArray(
+                    mlx_variable_spec_pb::BinaryArraySpec { size: size as u64 },
+                )),
+            },
+            MlxVariableSpec::Opaque => MlxVariableSpecPb {
+                spec_type: Some(mlx_variable_spec_pb::SpecType::Opaque(
+                    mlx_variable_spec_pb::OpaqueSpec {},
+                )),
+            },
+        }
+    }
+}
+
+impl TryFrom<MlxVariableSpecPb> for MlxVariableSpec {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: MlxVariableSpecPb) -> Result<Self, Self::Error> {
+        let spec_type = pb
+            .spec_type
+            .ok_or(RpcDataConversionError::MissingArgument("spec_type"))?;
+
+        match spec_type {
+            mlx_variable_spec_pb::SpecType::Boolean(_) => Ok(MlxVariableSpec::Boolean),
+            mlx_variable_spec_pb::SpecType::Integer(_) => Ok(MlxVariableSpec::Integer),
+            mlx_variable_spec_pb::SpecType::String(_) => Ok(MlxVariableSpec::String),
+            mlx_variable_spec_pb::SpecType::Binary(_) => Ok(MlxVariableSpec::Binary),
+            mlx_variable_spec_pb::SpecType::Bytes(_) => Ok(MlxVariableSpec::Bytes),
+            mlx_variable_spec_pb::SpecType::Array(_) => Ok(MlxVariableSpec::Array),
+            mlx_variable_spec_pb::SpecType::EnumType(e) => {
+                Ok(MlxVariableSpec::Enum { options: e.options })
+            }
+            mlx_variable_spec_pb::SpecType::Preset(p) => Ok(MlxVariableSpec::Preset {
+                max_preset: p.max_preset as u8,
+            }),
+            mlx_variable_spec_pb::SpecType::BooleanArray(ba) => Ok(MlxVariableSpec::BooleanArray {
+                size: ba.size as usize,
+            }),
+            mlx_variable_spec_pb::SpecType::IntegerArray(ia) => Ok(MlxVariableSpec::IntegerArray {
+                size: ia.size as usize,
+            }),
+            mlx_variable_spec_pb::SpecType::EnumArray(ea) => Ok(MlxVariableSpec::EnumArray {
+                options: ea.options,
+                size: ea.size as usize,
+            }),
+            mlx_variable_spec_pb::SpecType::BinaryArray(ba) => Ok(MlxVariableSpec::BinaryArray {
+                size: ba.size as usize,
+            }),
+            mlx_variable_spec_pb::SpecType::Opaque(_) => Ok(MlxVariableSpec::Opaque),
         }
     }
 }

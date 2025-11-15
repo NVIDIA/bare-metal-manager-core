@@ -31,6 +31,7 @@ use serde::Serialize;
 #[cfg(feature = "sqlx")]
 use sqlx::{Pool, Postgres};
 
+use crate::errors;
 use crate::forge::MachineType;
 use crate::forge_tls_client::ForgeTlsClientError;
 
@@ -137,6 +138,9 @@ pub enum CarbideCliError {
 
     #[error("Invalid Machine ID: {0}")]
     InvalidMachineId(#[from] MachineIdParseError),
+
+    #[error("RPC data conversion error: {0}")]
+    RpcDataConversionError(#[from] errors::RpcDataConversionError),
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;

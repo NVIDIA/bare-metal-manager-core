@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::protos::mlx_device::{LockStatus as LockStatusPb, StatusReport as StatusReportPb};
 use chrono;
 use serde::{Deserialize, Serialize};
 
@@ -179,5 +180,49 @@ impl StatusReport {
     // to_yaml serializes the status report to YAML.
     pub fn to_yaml(&self) -> MlxResult<String> {
         serde_yaml::to_string(self).map_err(|e| MlxError::ParseError(e.to_string()))
+    }
+}
+
+impl From<LockStatus> for LockStatusPb {
+    fn from(status: LockStatus) -> Self {
+        match status {
+            LockStatus::Locked => LockStatusPb::Locked,
+            LockStatus::Unlocked => LockStatusPb::Unlocked,
+            LockStatus::Unknown => LockStatusPb::Unknown,
+        }
+    }
+}
+
+impl From<LockStatusPb> for LockStatus {
+    fn from(pb: LockStatusPb) -> Self {
+        match pb {
+            LockStatusPb::Locked => LockStatus::Locked,
+            LockStatusPb::Unlocked => LockStatus::Unlocked,
+            LockStatusPb::Unknown => LockStatus::Unknown,
+        }
+    }
+}
+
+impl From<StatusReport> for StatusReportPb {
+    fn from(report: StatusReport) -> Self {
+        StatusReportPb {
+            device_id: report.device_id,
+            status: LockStatusPb::from(report.status) as i32,
+            timestamp: report.timestamp,
+        }
+    }
+}
+
+impl From<StatusReportPb> for StatusReport {
+    fn from(pb: StatusReportPb) -> Self {
+        let status = LockStatusPb::try_from(pb.status)
+            .map(LockStatus::from)
+            .unwrap_or(LockStatus::Unknown);
+
+        StatusReport {
+            device_id: pb.device_id,
+            status,
+            timestamp: pb.timestamp,
+        }
     }
 }

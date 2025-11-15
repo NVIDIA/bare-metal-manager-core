@@ -37,12 +37,14 @@ pub mod machine_scout;
 pub mod machine_validation;
 #[cfg(feature = "linux-build")]
 pub mod measured_boot;
+pub mod mlx_admin;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod pxe;
 pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
+pub mod scout_stream;
 pub mod site_explorer;
 pub mod sku;
 pub mod tenant;

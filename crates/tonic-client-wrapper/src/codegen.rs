@@ -394,54 +394,130 @@ impl CodeGenerator {
             .convert_protobuf_type_to_rust_type(method.output_type())?
             .parse()?;
 
-        let token_stream = if input_type_str == "()" {
-            // If the RPC method's input type is void, we don't need to accept any arguments.
-            quote! {
-                pub async fn #method_name(&self) -> Result<#output_type, tonic::Status> {
-                    Ok(self
-                        .connection()
-                        .await?
-                        .#method_name(tonic::Request::new(()))
-                        .await?
-                        .into_inner())
-                }
-            }
-        } else {
-            let has_zero_fields = method
-                .input_type
-                .as_ref()
-                .and_then(|t| self.message_types.get(t))
-                .is_some_and(|t| t.message.field.is_empty());
+        let is_client_streaming = method.client_streaming.unwrap_or(false);
+        let is_server_streaming = method.server_streaming.unwrap_or(false);
 
-            if has_zero_fields {
-                // If the input type has no fields, we don't need to accept any arguments, just
-                // build the input message ourselves.
-                quote! {
-                    pub async fn #method_name(&self) -> Result<#output_type, tonic::Status> {
+        match (is_client_streaming, is_server_streaming) {
+            (true, true) => {
+                // Bidirectional streaming.
+                Ok(quote! {
+                    pub async fn #method_name<S>(&self, request: S) -> Result<tonic::Response<tonic::codec::Streaming<#output_type>>, tonic::Status>
+                    where
+                        S: tonic::IntoStreamingRequest<Message = #input_type>,
+                    {
+                        self.connection().await?.#method_name(request).await
+                    }
+                })
+            }
+            (true, false) => {
+                // Client streaming.
+                Ok(quote! {
+                    pub async fn #method_name<S>(&self, request: S) -> Result<#output_type, tonic::Status>
+                    where
+                        S: tonic::IntoStreamingRequest<Message = #input_type>,
+                    {
                         Ok(self
                             .connection()
                             .await?
-                            .#method_name(tonic::Request::new(#input_type {}))
+                            .#method_name(request)
                             .await?
                             .into_inner())
                     }
-                }
-            } else {
-                // Otherwise, accept anything that converts into the request type
-                quote! {
-                    pub async fn #method_name<T: Into<#input_type>>(&self, request: T) -> Result<#output_type, tonic::Status> {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .#method_name(tonic::Request::new(request.into()))
-                            .await?
-                            .into_inner())
-                    }
-                }
+                })
             }
-        };
+            (false, true) => {
+                // Server streaming.
+                let token_stream = if input_type_str == "()" {
+                    quote! {
+                        pub async fn #method_name(&self) -> Result<tonic::codec::Streaming<#output_type>, tonic::Status> {
+                            Ok(self
+                                .connection()
+                                .await?
+                                .#method_name(tonic::Request::new(()))
+                                .await?
+                                .into_inner())
+                        }
+                    }
+                } else {
+                    let has_zero_fields = method
+                        .input_type
+                        .as_ref()
+                        .and_then(|t| self.message_types.get(t))
+                        .is_some_and(|t| t.message.field.is_empty());
 
-        Ok(token_stream)
+                    if has_zero_fields {
+                        quote! {
+                            pub async fn #method_name(&self) -> Result<tonic::codec::Streaming<#output_type>, tonic::Status> {
+                                Ok(self
+                                    .connection()
+                                    .await?
+                                    .#method_name(tonic::Request::new(#input_type {}))
+                                    .await?
+                                    .into_inner())
+                            }
+                        }
+                    } else {
+                        quote! {
+                            pub async fn #method_name<T: Into<#input_type>>(&self, request: T) -> Result<tonic::codec::Streaming<#output_type>, tonic::Status> {
+                                Ok(self
+                                    .connection()
+                                    .await?
+                                    .#method_name(tonic::Request::new(request.into()))
+                                    .await?
+                                    .into_inner())
+                            }
+                        }
+                    }
+                };
+                Ok(token_stream)
+            }
+            (false, false) => {
+                // Unary - your existing code.
+                let token_stream = if input_type_str == "()" {
+                    quote! {
+                        pub async fn #method_name(&self) -> Result<#output_type, tonic::Status> {
+                            Ok(self
+                                .connection()
+                                .await?
+                                .#method_name(tonic::Request::new(()))
+                                .await?
+                                .into_inner())
+                        }
+                    }
+                } else {
+                    let has_zero_fields = method
+                        .input_type
+                        .as_ref()
+                        .and_then(|t| self.message_types.get(t))
+                        .is_some_and(|t| t.message.field.is_empty());
+
+                    if has_zero_fields {
+                        quote! {
+                            pub async fn #method_name(&self) -> Result<#output_type, tonic::Status> {
+                                Ok(self
+                                    .connection()
+                                    .await?
+                                    .#method_name(tonic::Request::new(#input_type {}))
+                                    .await?
+                                    .into_inner())
+                            }
+                        }
+                    } else {
+                        quote! {
+                            pub async fn #method_name<T: Into<#input_type>>(&self, request: T) -> Result<#output_type, tonic::Status> {
+                                Ok(self
+                                    .connection()
+                                    .await?
+                                    .#method_name(tonic::Request::new(request.into()))
+                                    .await?
+                                    .into_inner())
+                            }
+                        }
+                    }
+                };
+                Ok(token_stream)
+            }
+        }
     }
 
     /// Convert tye protobuf type (which looks like `.forge.VersionRequest` or similar) to the proper

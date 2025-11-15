@@ -19,14 +19,14 @@ use byte_unit::UnitType;
 use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use rpc::common::MachineIdList;
-use rpc::forge::forge_server::Forge;
+// use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     ConnectedDevice, GetSiteExplorationRequest, MachineType, ManagedHostQuarantineState,
     NetworkDevice, NetworkDeviceIdList,
 };
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost};
-use rpc::{DiscoveryInfo, Machine, Timestamp};
+use rpc::{DiscoveryInfo, DynForge, Machine, Timestamp};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -84,7 +84,7 @@ impl ManagedHostMetadata {
     /// via information from the API.
     pub async fn lookup_from_api(
         machines: Vec<Machine>,
-        api: Arc<dyn Forge>,
+        api: Arc<DynForge>,
     ) -> ManagedHostMetadata {
         let request = tonic::Request::new(GetSiteExplorationRequest {});
 

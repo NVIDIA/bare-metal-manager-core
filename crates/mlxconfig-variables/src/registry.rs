@@ -16,6 +16,8 @@
 // as any device filters, as in devices which are allowed to use
 // this registry.
 
+use ::rpc::errors::RpcDataConversionError;
+use ::rpc::protos::mlx_device::MlxVariableRegistry as MlxVariableRegistryPb;
 use mlxconfig_device::filters::{DeviceFilter, DeviceFilterSet};
 use serde::{Deserialize, Serialize};
 
@@ -110,5 +112,43 @@ impl MlxVariableRegistry {
         self.filters
             .as_ref()
             .is_none_or(|filter_set| filter_set.matches(device_info))
+    }
+}
+
+impl From<MlxVariableRegistry> for MlxVariableRegistryPb {
+    fn from(registry: MlxVariableRegistry) -> Self {
+        let variables: Vec<_> = registry.variables.into_iter().map(|v| v.into()).collect();
+
+        MlxVariableRegistryPb {
+            name: registry.name,
+            filters: registry.filters.map(|f| f.into()),
+            variables,
+        }
+    }
+}
+
+impl TryFrom<MlxVariableRegistryPb> for MlxVariableRegistry {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: MlxVariableRegistryPb) -> Result<Self, Self::Error> {
+        let variables: Result<Vec<_>, _> = pb.variables.into_iter().map(|v| v.try_into()).collect();
+
+        let filters: Option<Result<DeviceFilterSet, _>> = pb.filters.map(|f| f.try_into());
+
+        let filters = match filters {
+            Some(Ok(f)) => Some(f),
+            Some(Err(e)) => {
+                return Err(RpcDataConversionError::InvalidArgument(format!(
+                    "failed to convert filters: {e}"
+                )))
+            }
+            None => None,
+        };
+
+        Ok(MlxVariableRegistry {
+            name: pb.name,
+            variables: variables?,
+            filters,
+        })
     }
 }

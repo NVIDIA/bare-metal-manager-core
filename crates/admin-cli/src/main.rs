@@ -86,6 +86,7 @@ mod machine_validation;
 mod managed_host;
 mod measurement;
 mod metadata;
+mod mlx;
 mod network;
 mod network_devices;
 mod network_security_group;
@@ -94,6 +95,7 @@ mod redfish;
 mod resource_pool;
 mod route_server;
 mod rpc;
+mod scout_stream;
 mod site_explorer;
 mod sku;
 mod storage;
@@ -192,11 +194,12 @@ async fn main() -> color_eyre::Result<()> {
 
     let mut output_file = get_output_file_or_stdout(config.output.as_deref()).await?;
 
-    // Command do talk to Carbide API
+    // Command to talk to Carbide API.
     match command {
         CliCommand::Version(version) => {
             version::handle_show_version(version, config.format, &api_client).await?
         }
+        CliCommand::Mlx(cmd) => mlx::dispatch(cmd, &api_client, &config.format).await?,
         CliCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
                 machine::handle_show(
@@ -903,6 +906,9 @@ async fn main() -> color_eyre::Result<()> {
 
             // Handled earlier
             unreachable!();
+        }
+        CliCommand::ScoutStream(cmd) => {
+            scout_stream::dispatch(cmd, &api_client, &config.format).await?
         }
         CliCommand::BootOverride(boot_override_args) => match boot_override_args {
             BootOverrideAction::Get(boot_override) => {

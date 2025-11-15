@@ -11,6 +11,7 @@
  */
 
 use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -32,7 +33,10 @@ use model::firmware::DesiredFirmwareVersions;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
 use model::resource_pool::common::CommonPools;
-use tonic::{Request, Response, Status};
+use tokio::sync::mpsc;
+use tokio_stream::Stream;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::{Request, Response, Status, Streaming};
 use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
@@ -41,9 +45,11 @@ use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::redfish::RedfishClientPool;
+use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
 use crate::{
-    CarbideError, CarbideResult, auth, dynamic_settings, ethernet_virtualization, measured_boot,
+    CarbideError, CarbideResult, auth, dynamic_settings, ethernet_virtualization, handlers,
+    measured_boot,
 };
 
 pub struct Api {
@@ -58,10 +64,15 @@ pub struct Api {
     pub(crate) dpu_health_log_limiter: LogLimiter<MachineId>,
     pub dynamic_settings: dynamic_settings::DynamicSettings,
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
+    pub(crate) scout_stream_registry: ConnectionRegistry,
 }
 
 #[tonic::async_trait]
 impl Forge for Api {
+    // type ScoutStreamStream = ReceiverStream<Result<ScoutStreamScoutBoundMessage, Status>>;
+    type ScoutStreamStream =
+        Pin<Box<dyn Stream<Item = Result<rpc::ScoutStreamScoutBoundMessage, Status>> + Send>>;
+
     async fn version(
         &self,
         request: Request<rpc::VersionRequest>,
@@ -3525,6 +3536,206 @@ impl Forge for Api {
         request: tonic::Request<rpc::AttestationIdsRequest>,
     ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
         crate::handlers::attestation::list_machine_ids_under_attestation(self, request).await
+    }
+
+    // scout_stream handles the bidirectional streaming connection from scout agents.
+    // scout agents call scout_stream and send an Init message, and then carbide-api
+    // will send down "request" messages to connected agent(s) to either instruct them
+    // or ask them for information (sometimes for state changes, other times for
+    // feeding data back to administrative CLI/UI calls).
+    async fn scout_stream(
+        &self,
+        request: Request<Streaming<rpc::ScoutStreamApiBoundMessage>>,
+    ) -> Result<Response<Self::ScoutStreamStream>, Status> {
+        log_request_data(&request);
+
+        let mut stream = request.into_inner();
+
+        let init_message = stream
+            .message()
+            .await?
+            .ok_or_else(|| Status::invalid_argument("invalid message received"))?;
+
+        // As part of "constructing" the new scout stream, we expect
+        // an Init message as the first thing from the client (in this
+        // case, a scout agent).
+        let machine_id = match init_message.payload {
+            Some(rpc::scout_stream_api_bound_message::Payload::Init(init)) => {
+                convert_and_log_machine_id(init.machine_id.as_ref())?
+            }
+            _ => {
+                return Err(Status::invalid_argument(
+                    "first ScoutStream client message must be an Init message",
+                ));
+            }
+        };
+
+        tracing::info!("scout agent connected for machine: {machine_id}");
+
+        // Now we create channels for bidirectional communication. The API
+        // will receive on one side, process whatever is packed into the oneof field
+        // for the stream message, and then pass it off out the other side.
+        let (agent_tx, agent_rx) = mpsc::channel::<rpc::ScoutStreamApiBoundMessage>(100);
+        let (server_tx, server_rx) =
+            mpsc::channel::<Result<rpc::ScoutStreamScoutBoundMessage, Status>>(100);
+
+        // Next, register the connection using the machine ID and our fancy new channels.
+        self.scout_stream_registry
+            .register(machine_id, server_tx.clone(), agent_rx)
+            .await;
+
+        // And now spawn a task to forward agent messages through
+        // the connection registry.
+        let registry_clone = self.scout_stream_registry.clone();
+        tokio::spawn(async move {
+            while let Ok(Some(message)) = stream.message().await {
+                if agent_tx.send(message).await.is_err() {
+                    tracing::error!("failed to forward message received from scout agent");
+                    break;
+                }
+            }
+
+            // If/when the connection breaks, unregister the scout
+            // agent connection from the connection registry.
+            tracing::info!("scout agent disconnected for machine: {machine_id}");
+            registry_clone.unregister(machine_id).await;
+        });
+
+        // Ok(Response::new(ReceiverStream::new(server_rx)))
+        Ok(Response::new(Box::pin(ReceiverStream::new(server_rx))))
+    }
+
+    // scout_stream_show_connections lists all active scout agent
+    // connections by building up some ScoutStreamConnectionInfo
+    // messages using the data from the scout_stream_registry.
+    async fn scout_stream_show_connections(
+        &self,
+        request: Request<rpc::ScoutStreamShowConnectionsRequest>,
+    ) -> Result<Response<rpc::ScoutStreamShowConnectionsResponse>, Status> {
+        handlers::scout_stream::show_connections(self, request).await
+    }
+
+    // scout_stream_disconnect is used to disconnect the
+    // given MachineId's ScoutStream connection.
+    async fn scout_stream_disconnect(
+        &self,
+        request: Request<rpc::ScoutStreamDisconnectRequest>,
+    ) -> Result<Response<rpc::ScoutStreamDisconnectResponse>, Status> {
+        handlers::scout_stream::disconnect(self, request).await
+    }
+
+    // scout_stream_ping is used to ping the
+    // given MachineId's ScoutStream connection.
+    async fn scout_stream_ping(
+        &self,
+        request: Request<rpc::ScoutStreamAdminPingRequest>,
+    ) -> Result<Response<rpc::ScoutStreamAdminPingResponse>, Status> {
+        handlers::scout_stream::ping(self, request).await
+    }
+
+    async fn mlx_admin_profile_sync(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminProfileSyncRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminProfileSyncResponse>, Status> {
+        handlers::mlx_admin::profile_sync(self, request).await
+    }
+
+    async fn mlx_admin_profile_show(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminProfileShowRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminProfileShowResponse>, Status> {
+        handlers::mlx_admin::profile_show(self, request).await
+    }
+
+    async fn mlx_admin_profile_compare(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminProfileCompareRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminProfileCompareResponse>, Status> {
+        handlers::mlx_admin::profile_compare(self, request).await
+    }
+
+    async fn mlx_admin_profile_list(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminProfileListRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminProfileListResponse>, Status> {
+        handlers::mlx_admin::profile_list(self, request).await
+    }
+
+    async fn mlx_admin_lockdown_lock(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminLockdownLockRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminLockdownLockResponse>, Status> {
+        handlers::mlx_admin::lockdown_lock(self, request).await
+    }
+
+    async fn mlx_admin_lockdown_unlock(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminLockdownUnlockRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminLockdownUnlockResponse>, Status> {
+        handlers::mlx_admin::lockdown_unlock(self, request).await
+    }
+
+    async fn mlx_admin_lockdown_status(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminLockdownStatusRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminLockdownStatusResponse>, Status> {
+        handlers::mlx_admin::lockdown_status(self, request).await
+    }
+
+    async fn mlx_admin_show_device(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminDeviceInfoRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminDeviceInfoResponse>, Status> {
+        crate::handlers::mlx_admin::show_device_info(self, request).await
+    }
+
+    async fn mlx_admin_show_machine(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminDeviceReportRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminDeviceReportResponse>, Status> {
+        handlers::mlx_admin::show_device_report(self, request).await
+    }
+
+    async fn mlx_admin_registry_list(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminRegistryListRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminRegistryListResponse>, Status> {
+        handlers::mlx_admin::registry_list(self, request).await
+    }
+
+    async fn mlx_admin_registry_show(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminRegistryShowRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminRegistryShowResponse>, Status> {
+        handlers::mlx_admin::registry_show(self, request).await
+    }
+
+    async fn mlx_admin_config_query(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminConfigQueryRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminConfigQueryResponse>, Status> {
+        handlers::mlx_admin::config_query(self, request).await
+    }
+
+    async fn mlx_admin_config_set(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminConfigSetRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminConfigSetResponse>, Status> {
+        handlers::mlx_admin::config_set(self, request).await
+    }
+
+    async fn mlx_admin_config_sync(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminConfigSyncRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminConfigSyncResponse>, Status> {
+        handlers::mlx_admin::config_sync(self, request).await
+    }
+
+    async fn mlx_admin_config_compare(
+        &self,
+        request: Request<mlx_device_pb::MlxAdminConfigCompareRequest>,
+    ) -> Result<Response<mlx_device_pb::MlxAdminConfigCompareResponse>, Status> {
+        handlers::mlx_admin::config_compare(self, request).await
     }
 }
 

@@ -42,6 +42,7 @@ use utils::has_duplicates;
 use crate::cfg::storage::OsImageActions;
 use crate::cfg::{instance_type, measurement, network_security_group};
 use crate::vpc_prefix::VpcPrefixSelector;
+use crate::{mlx, scout_stream};
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
@@ -266,13 +267,16 @@ pub enum CliCommand {
     TrimTable(TrimTableTarget),
     #[clap(about = "Dpu Remediation handling", subcommand)]
     DpuRemediation(DpuRemediation),
-
     #[clap(
         about = "Extension service management",
         visible_alias = "es",
         subcommand
     )]
     ExtensionService(ExtensionServiceOptions),
+    #[clap(about = "Mellanox Device Handling", subcommand)]
+    Mlx(mlx::MlxAction),
+    #[clap(about = "Scout Stream Connection Handling", subcommand)]
+    ScoutStream(scout_stream::ScoutStreamAction),
 }
 
 #[derive(Parser, Debug)]

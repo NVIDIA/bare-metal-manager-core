@@ -25,11 +25,15 @@ carbide-utils = { path = "../utils" }
 carbide-machine-validation = { path = "../machine-validation" }
 carbide-mlxconfig-device = { path = "../mlxconfig-device" }
 carbide-mlxconfig-lockdown = { path = "../mlxconfig-lockdown" }
+carbide-mlxconfig-profile = { path = "../mlxconfig-profile" }
+carbide-mlxconfig-registry = { path = "../mlxconfig-registry" }
+carbide-mlxconfig-runner = { path = "../mlxconfig-runner" }
 
 chrono = { workspace = true }
 clap = { workspace = true }
 eyre = { workspace = true }
 efivar = { workspace = true }
+http = { workspace = true }
 lazy_static = { workspace = true }
 once_cell = { workspace = true }
 pwhash = { workspace = true }
@@ -40,6 +44,7 @@ smbios-lib = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tryhard = { workspace = true }
 tss-esapi = { workspace = true }

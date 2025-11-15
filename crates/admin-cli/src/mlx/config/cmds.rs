@@ -1,0 +1,178 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use ::rpc::admin_cli::OutputFormat;
+use mlxconfig_runner::{ComparisonResult, QueryResult, SyncResult};
+use prettytable::{Cell, Row, Table};
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::protos::mlx_device as mlx_device_pb;
+
+use super::super::{
+    CliContext, print_comparison_result_csv, print_comparison_result_table, print_sync_result_csv,
+    print_sync_result_table, wrap_text,
+};
+use super::args::{
+    ConfigCommand, ConfigCompareCommand, ConfigQueryCommand, ConfigSetCommand, ConfigSyncCommand,
+};
+
+// dispatch routes config subcommands to its handlers.
+pub async fn dispatch(
+    command: ConfigCommand,
+    ctxt: &mut CliContext<'_, '_>,
+) -> CarbideCliResult<()> {
+    match command {
+        ConfigCommand::Query(cmd) => handle_query(cmd, ctxt).await,
+        ConfigCommand::Set(cmd) => handle_set(cmd, ctxt).await,
+        ConfigCommand::Sync(cmd) => handle_sync(cmd, ctxt).await,
+        ConfigCommand::Compare(cmd) => handle_compare(cmd, ctxt).await,
+    }
+}
+async fn handle_query(
+    cmd: ConfigQueryCommand,
+    ctxt: &mut CliContext<'_, '_>,
+) -> CarbideCliResult<()> {
+    let request: mlx_device_pb::MlxAdminConfigQueryRequest = cmd.into();
+    let response = ctxt.grpc_conn.0.mlx_admin_config_query(request).await?;
+
+    let query_result_pb = response
+        .query_result
+        .ok_or_else(|| CarbideCliError::GenericError("no query result returned".to_string()))?;
+
+    let query_result: QueryResult = query_result_pb.try_into()?;
+
+    match ctxt.format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&query_result)?);
+        }
+        OutputFormat::Yaml => {
+            println!("{}", serde_yaml::to_string(&query_result)?);
+        }
+        OutputFormat::AsciiTable => {
+            print_query_result_table(&query_result);
+        }
+        OutputFormat::Csv => {
+            println!("CSV not supported yet")
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_set(cmd: ConfigSetCommand, ctxt: &mut CliContext<'_, '_>) -> CarbideCliResult<()> {
+    let request: mlx_device_pb::MlxAdminConfigSetRequest = cmd.try_into()?;
+    let response = ctxt.grpc_conn.0.mlx_admin_config_set(request).await?;
+
+    println!(
+        "Successfully applied {} variable assignments.",
+        response.total_applied
+    );
+    Ok(())
+}
+
+async fn handle_sync(
+    cmd: ConfigSyncCommand,
+    ctxt: &mut CliContext<'_, '_>,
+) -> CarbideCliResult<()> {
+    let request: mlx_device_pb::MlxAdminConfigSyncRequest = cmd.try_into()?;
+    let response = ctxt.grpc_conn.0.mlx_admin_config_sync(request).await?;
+
+    let sync_result_pb = response
+        .sync_result
+        .ok_or_else(|| CarbideCliError::GenericError("no sync result returned".to_string()))?;
+
+    let sync_result: SyncResult = sync_result_pb.try_into()?;
+
+    match ctxt.format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&sync_result)?);
+        }
+        OutputFormat::Yaml => {
+            println!("{}", serde_yaml::to_string(&sync_result)?);
+        }
+        OutputFormat::AsciiTable => {
+            print_sync_result_table(&sync_result);
+        }
+        OutputFormat::Csv => {
+            print_sync_result_csv(&sync_result);
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_compare(
+    cmd: ConfigCompareCommand,
+    ctxt: &mut CliContext<'_, '_>,
+) -> CarbideCliResult<()> {
+    let request: mlx_device_pb::MlxAdminConfigCompareRequest = cmd.try_into()?;
+    let response = ctxt.grpc_conn.0.mlx_admin_config_compare(request).await?;
+
+    let comparison_result_pb = response.comparison_result.ok_or_else(|| {
+        CarbideCliError::GenericError("no comparison result returned".to_string())
+    })?;
+
+    let comparison_result: ComparisonResult = comparison_result_pb.try_into()?;
+
+    // Output the comparison result in the requested format.
+    match ctxt.format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&comparison_result)?);
+        }
+        OutputFormat::Yaml => {
+            println!("{}", serde_yaml::to_string(&comparison_result)?);
+        }
+        OutputFormat::AsciiTable => {
+            print_comparison_result_table(&comparison_result);
+        }
+        OutputFormat::Csv => {
+            print_comparison_result_csv(&comparison_result);
+        }
+    }
+
+    Ok(())
+}
+
+// print_query_result_table displays a QueryResult in ASCII table format.
+fn print_query_result_table(result: &QueryResult) {
+    let mut table = Table::new();
+
+    // Add header row.
+    table.add_row(Row::new(vec![
+        Cell::new("Variable"),
+        Cell::new("Current"),
+        Cell::new("Next"),
+        Cell::new("Default"),
+        Cell::new("Modified"),
+        Cell::new("Read-Only"),
+    ]));
+
+    // Add variable rows.
+    for var in &result.variables {
+        let modified_str = if var.modified { "Yes" } else { "No" };
+        let read_only_str = if var.read_only { "Yes" } else { "No" };
+
+        let wrapped_current = wrap_text(&var.current_value.to_string(), 60);
+        let wrapped_next = wrap_text(&var.next_value.to_string(), 60);
+        let wrapped_default = wrap_text(&var.default_value.to_string(), 60);
+
+        table.add_row(Row::new(vec![
+            Cell::new(&var.variable.name),
+            Cell::new(&wrapped_current),
+            Cell::new(&wrapped_next),
+            Cell::new(&wrapped_default),
+            Cell::new(modified_str),
+            Cell::new(read_only_str),
+        ]));
+    }
+
+    table.printstd();
+}

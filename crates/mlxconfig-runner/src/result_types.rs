@@ -11,7 +11,7 @@
  */
 
 // src/result_types.rs
-// Result types defines different types used for working with mlxconfig
+// This module defines different types used for working with mlxconfig
 // and its results (as part of mlxconfig-runner). This provides types
 // for working with queries (QueriedVariable and QueryResult), sync
 // operations (SyncResult), comparisons, and changes. Things like sync
@@ -23,6 +23,12 @@
 
 use std::time::Duration;
 
+use ::rpc::errors::RpcDataConversionError;
+use ::rpc::protos::mlx_device::{
+    ComparisonResult as ComparisonResultPb, PlannedChange as PlannedChangePb,
+    QueriedDeviceInfo as QueriedDeviceInfoPb, QueriedVariable as QueriedVariablePb,
+    QueryResult as QueryResultPb, SyncResult as SyncResultPb, VariableChange as VariableChangePb,
+};
 use mlxconfig_variables::{MlxConfigValue, MlxConfigVariable};
 use serde::{Deserialize, Serialize};
 
@@ -348,5 +354,251 @@ impl VariableChange {
             "{}: {} → {}",
             self.variable_name, self.old_value, self.new_value
         )
+    }
+}
+
+// QueriedDeviceInfo conversions
+impl From<QueriedDeviceInfo> for QueriedDeviceInfoPb {
+    fn from(info: QueriedDeviceInfo) -> Self {
+        QueriedDeviceInfoPb {
+            device_id: info.device_id,
+            device_type: info.device_type,
+            part_number: info.part_number,
+            description: info.description,
+        }
+    }
+}
+
+impl From<QueriedDeviceInfoPb> for QueriedDeviceInfo {
+    fn from(pb: QueriedDeviceInfoPb) -> Self {
+        QueriedDeviceInfo {
+            device_id: pb.device_id,
+            device_type: pb.device_type,
+            part_number: pb.part_number,
+            description: pb.description,
+        }
+    }
+}
+
+// QueriedVariable conversions
+impl TryFrom<QueriedVariable> for QueriedVariablePb {
+    type Error = RpcDataConversionError;
+
+    fn try_from(var: QueriedVariable) -> Result<Self, Self::Error> {
+        Ok(QueriedVariablePb {
+            variable: Some(var.variable.into()),
+            current_value: Some(var.current_value.into()),
+            default_value: Some(var.default_value.into()),
+            next_value: Some(var.next_value.into()),
+            modified: var.modified,
+            read_only: var.read_only,
+        })
+    }
+}
+
+impl TryFrom<QueriedVariablePb> for QueriedVariable {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: QueriedVariablePb) -> Result<Self, Self::Error> {
+        Ok(QueriedVariable {
+            variable: pb
+                .variable
+                .ok_or(RpcDataConversionError::MissingArgument("variable"))?
+                .try_into()?,
+            current_value: pb
+                .current_value
+                .ok_or(RpcDataConversionError::MissingArgument("current_value"))?
+                .try_into()?,
+            default_value: pb
+                .default_value
+                .ok_or(RpcDataConversionError::MissingArgument("default_value"))?
+                .try_into()?,
+            next_value: pb
+                .next_value
+                .ok_or(RpcDataConversionError::MissingArgument("next_value"))?
+                .try_into()?,
+            modified: pb.modified,
+            read_only: pb.read_only,
+        })
+    }
+}
+
+// QueryResult conversions
+impl TryFrom<QueryResult> for QueryResultPb {
+    type Error = RpcDataConversionError;
+
+    fn try_from(result: QueryResult) -> Result<Self, Self::Error> {
+        let variables: Result<Vec<_>, _> =
+            result.variables.into_iter().map(|v| v.try_into()).collect();
+
+        Ok(QueryResultPb {
+            device_info: Some(result.device_info.into()),
+            variables: variables?,
+        })
+    }
+}
+
+impl TryFrom<QueryResultPb> for QueryResult {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: QueryResultPb) -> Result<Self, Self::Error> {
+        let variables: Result<Vec<_>, _> = pb.variables.into_iter().map(|v| v.try_into()).collect();
+
+        Ok(QueryResult {
+            device_info: pb
+                .device_info
+                .ok_or(RpcDataConversionError::MissingArgument("device_info"))?
+                .into(),
+            variables: variables?,
+        })
+    }
+}
+
+// PlannedChange conversions
+impl TryFrom<PlannedChange> for PlannedChangePb {
+    type Error = RpcDataConversionError;
+
+    fn try_from(change: PlannedChange) -> Result<Self, Self::Error> {
+        Ok(PlannedChangePb {
+            variable_name: change.variable_name,
+            current_value: Some(change.current_value.into()),
+            desired_value: Some(change.desired_value.into()),
+        })
+    }
+}
+
+impl TryFrom<PlannedChangePb> for PlannedChange {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: PlannedChangePb) -> Result<Self, Self::Error> {
+        Ok(PlannedChange {
+            variable_name: pb.variable_name,
+            current_value: pb
+                .current_value
+                .ok_or(RpcDataConversionError::MissingArgument("current_value"))?
+                .try_into()?,
+            desired_value: pb
+                .desired_value
+                .ok_or(RpcDataConversionError::MissingArgument("desired_value"))?
+                .try_into()?,
+        })
+    }
+}
+
+// VariableChange conversions
+impl TryFrom<VariableChange> for VariableChangePb {
+    type Error = RpcDataConversionError;
+
+    fn try_from(change: VariableChange) -> Result<Self, Self::Error> {
+        Ok(VariableChangePb {
+            variable_name: change.variable_name,
+            old_value: Some(change.old_value.into()),
+            new_value: Some(change.new_value.into()),
+        })
+    }
+}
+
+impl TryFrom<VariableChangePb> for VariableChange {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: VariableChangePb) -> Result<Self, Self::Error> {
+        Ok(VariableChange {
+            variable_name: pb.variable_name,
+            old_value: pb
+                .old_value
+                .ok_or(RpcDataConversionError::MissingArgument("old_value"))?
+                .try_into()?,
+            new_value: pb
+                .new_value
+                .ok_or(RpcDataConversionError::MissingArgument("new_value"))?
+                .try_into()?,
+        })
+    }
+}
+
+// ComparisonResult conversions
+impl TryFrom<ComparisonResult> for ComparisonResultPb {
+    type Error = RpcDataConversionError;
+
+    fn try_from(result: ComparisonResult) -> Result<Self, Self::Error> {
+        let planned_changes: Result<Vec<_>, _> = result
+            .planned_changes
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect();
+
+        Ok(ComparisonResultPb {
+            variables_checked: result.variables_checked as u64,
+            variables_needing_change: result.variables_needing_change as u64,
+            planned_changes: planned_changes?,
+            query_result: Some(result.query_result.try_into()?),
+        })
+    }
+}
+
+impl TryFrom<ComparisonResultPb> for ComparisonResult {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: ComparisonResultPb) -> Result<Self, Self::Error> {
+        let planned_changes: Result<Vec<_>, _> = pb
+            .planned_changes
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect();
+
+        Ok(ComparisonResult {
+            variables_checked: pb.variables_checked as usize,
+            variables_needing_change: pb.variables_needing_change as usize,
+            planned_changes: planned_changes?,
+            query_result: pb
+                .query_result
+                .ok_or(RpcDataConversionError::MissingArgument("query_result"))?
+                .try_into()?,
+        })
+    }
+}
+
+// SyncResult conversions
+impl TryFrom<SyncResult> for SyncResultPb {
+    type Error = RpcDataConversionError;
+
+    fn try_from(result: SyncResult) -> Result<Self, Self::Error> {
+        let changes_applied: Result<Vec<_>, _> = result
+            .changes_applied
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect();
+
+        Ok(SyncResultPb {
+            variables_checked: result.variables_checked as u64,
+            variables_changed: result.variables_changed as u64,
+            changes_applied: changes_applied?,
+            // Note: execution_time is not serialized (marked with serde(skip))
+            query_result: Some(result.query_result.try_into()?),
+        })
+    }
+}
+
+impl TryFrom<SyncResultPb> for SyncResult {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: SyncResultPb) -> Result<Self, Self::Error> {
+        let changes_applied: Result<Vec<_>, _> = pb
+            .changes_applied
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect();
+
+        Ok(SyncResult {
+            variables_checked: pb.variables_checked as usize,
+            variables_changed: pb.variables_changed as usize,
+            changes_applied: changes_applied?,
+            // execution_time defaults to zero since it's not in protobuf
+            execution_time: Duration::from_secs(0),
+            query_result: pb
+                .query_result
+                .ok_or(RpcDataConversionError::MissingArgument("query_result"))?
+                .try_into()?,
+        })
     }
 }

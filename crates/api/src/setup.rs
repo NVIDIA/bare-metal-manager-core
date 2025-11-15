@@ -55,6 +55,7 @@ use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::preingestion_manager::PreingestionManager;
 use crate::redfish::RedfishClientPool;
+use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::StateController;
@@ -313,6 +314,7 @@ pub async fn start_api(
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
         runtime_config: carbide_config.clone(),
+        scout_stream_registry: ConnectionRegistry::new(),
     });
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
