@@ -28,7 +28,7 @@ impl std::fmt::Display for Mode {
         }
     }
 }
-#[derive(Parser)]
+#[derive(Clone, Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]

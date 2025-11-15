@@ -18,6 +18,11 @@
 // to create a properly-typed value.
 use std::fmt;
 
+use ::rpc::errors::RpcDataConversionError;
+use ::rpc::protos::mlx_device::{
+    mlx_value_type as mlx_value_type_pb, MlxConfigValue as MlxConfigValuePb,
+    MlxValueType as MlxValueTypePb,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::spec::MlxVariableSpec;
@@ -1164,6 +1169,182 @@ impl MlxValueType {
                     .collect();
                 serde_yaml::Value::Sequence(seq)
             }
+        }
+    }
+}
+
+impl From<MlxConfigValue> for MlxConfigValuePb {
+    fn from(val: MlxConfigValue) -> Self {
+        MlxConfigValuePb {
+            variable: Some(val.variable.into()),
+            value: Some(val.value.into()),
+        }
+    }
+}
+
+impl TryFrom<MlxConfigValuePb> for MlxConfigValue {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: MlxConfigValuePb) -> Result<Self, Self::Error> {
+        let variable: MlxConfigVariable = pb
+            .variable
+            .ok_or(RpcDataConversionError::MissingArgument("variable"))?
+            .try_into()?;
+
+        let value: MlxValueType = pb
+            .value
+            .ok_or(RpcDataConversionError::MissingArgument("value"))?
+            .try_into()?;
+
+        MlxConfigValue::new(variable, value)
+            .map_err(|e| RpcDataConversionError::InvalidArgument(format!("{e}")))
+    }
+}
+
+impl From<MlxValueType> for MlxValueTypePb {
+    fn from(value: MlxValueType) -> Self {
+        match value {
+            MlxValueType::Boolean(b) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::Boolean(b)),
+            },
+            MlxValueType::Integer(i) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::Integer(i)),
+            },
+            MlxValueType::String(s) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::StringVal(s)),
+            },
+            MlxValueType::Binary(b) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::Binary(b)),
+            },
+            MlxValueType::Bytes(b) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::BytesVal(b)),
+            },
+            MlxValueType::Array(arr) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::Array(
+                    mlx_value_type_pb::StringArray { values: arr },
+                )),
+            },
+            MlxValueType::Enum(e) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::EnumVal(e)),
+            },
+            MlxValueType::Preset(p) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::Preset(p as u32)),
+            },
+            MlxValueType::BooleanArray(arr) => {
+                let values: Vec<_> = arr
+                    .into_iter()
+                    .map(|opt| mlx_value_type_pb::OptionalBool {
+                        has_value: opt.is_some(),
+                        value: opt.unwrap_or(false),
+                    })
+                    .collect();
+                MlxValueTypePb {
+                    value_type: Some(mlx_value_type_pb::ValueType::BooleanArray(
+                        mlx_value_type_pb::BooleanArray { values },
+                    )),
+                }
+            }
+            MlxValueType::IntegerArray(arr) => {
+                let values: Vec<_> = arr
+                    .into_iter()
+                    .map(|opt| mlx_value_type_pb::OptionalInt64 {
+                        has_value: opt.is_some(),
+                        value: opt.unwrap_or(0),
+                    })
+                    .collect();
+                MlxValueTypePb {
+                    value_type: Some(mlx_value_type_pb::ValueType::IntegerArray(
+                        mlx_value_type_pb::IntegerArray { values },
+                    )),
+                }
+            }
+            MlxValueType::EnumArray(arr) => {
+                let values: Vec<_> = arr
+                    .into_iter()
+                    .map(|opt| mlx_value_type_pb::OptionalString {
+                        has_value: opt.is_some(),
+                        value: opt.unwrap_or_default(),
+                    })
+                    .collect();
+                MlxValueTypePb {
+                    value_type: Some(mlx_value_type_pb::ValueType::EnumArray(
+                        mlx_value_type_pb::StringArray {
+                            values: values.iter().map(|v| v.value.clone()).collect(),
+                        },
+                    )),
+                }
+            }
+            MlxValueType::BinaryArray(arr) => {
+                let values: Vec<_> = arr
+                    .into_iter()
+                    .map(|opt| mlx_value_type_pb::OptionalBytes {
+                        has_value: opt.is_some(),
+                        value: opt.unwrap_or_default(),
+                    })
+                    .collect();
+                MlxValueTypePb {
+                    value_type: Some(mlx_value_type_pb::ValueType::BinaryArray(
+                        mlx_value_type_pb::BytesArray { values },
+                    )),
+                }
+            }
+            MlxValueType::Opaque(b) => MlxValueTypePb {
+                value_type: Some(mlx_value_type_pb::ValueType::Opaque(b)),
+            },
+        }
+    }
+}
+
+impl TryFrom<MlxValueTypePb> for MlxValueType {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: MlxValueTypePb) -> Result<Self, Self::Error> {
+        let value_type = pb
+            .value_type
+            .ok_or(RpcDataConversionError::MissingArgument("value_type"))?;
+
+        match value_type {
+            mlx_value_type_pb::ValueType::Boolean(b) => Ok(MlxValueType::Boolean(b)),
+            mlx_value_type_pb::ValueType::Integer(i) => Ok(MlxValueType::Integer(i)),
+            mlx_value_type_pb::ValueType::StringVal(s) => Ok(MlxValueType::String(s)),
+            mlx_value_type_pb::ValueType::Binary(b) => Ok(MlxValueType::Binary(b)),
+            mlx_value_type_pb::ValueType::BytesVal(b) => Ok(MlxValueType::Bytes(b)),
+            mlx_value_type_pb::ValueType::Array(arr) => Ok(MlxValueType::Array(arr.values)),
+            mlx_value_type_pb::ValueType::EnumVal(e) => Ok(MlxValueType::Enum(e)),
+            mlx_value_type_pb::ValueType::Preset(p) => Ok(MlxValueType::Preset(p as u8)),
+            mlx_value_type_pb::ValueType::BooleanArray(arr) => {
+                let values: Vec<Option<bool>> = arr
+                    .values
+                    .into_iter()
+                    .map(|opt| if opt.has_value { Some(opt.value) } else { None })
+                    .collect();
+                Ok(MlxValueType::BooleanArray(values))
+            }
+            mlx_value_type_pb::ValueType::IntegerArray(arr) => {
+                let values: Vec<Option<i64>> = arr
+                    .values
+                    .into_iter()
+                    .map(|opt| if opt.has_value { Some(opt.value) } else { None })
+                    .collect();
+                Ok(MlxValueType::IntegerArray(values))
+            }
+            mlx_value_type_pb::ValueType::EnumArray(arr) => {
+                let values: Vec<Option<String>> = arr
+                    .values
+                    .into_iter()
+                    .map(|s| if s.is_empty() { None } else { Some(s) })
+                    .collect();
+                Ok(MlxValueType::EnumArray(values))
+            }
+            mlx_value_type_pb::ValueType::BinaryArray(arr) => {
+                let values: Vec<Option<Vec<u8>>> = arr
+                    .values
+                    .into_iter()
+                    .map(|opt| if opt.has_value { Some(opt.value) } else { None })
+                    .collect();
+                Ok(MlxValueType::BinaryArray(values))
+            }
+            mlx_value_type_pb::ValueType::Opaque(b) => Ok(MlxValueType::Opaque(b)),
         }
     }
 }

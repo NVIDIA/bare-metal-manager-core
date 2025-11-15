@@ -17,6 +17,8 @@
 // the spec -- the spec says what type of variable it is, and any
 // corresponding options depending on the type.
 
+use ::rpc::errors::RpcDataConversionError;
+use ::rpc::protos::mlx_device::MlxConfigVariable as MlxConfigVariablePb;
 use serde::{Deserialize, Serialize};
 
 use crate::spec::MlxVariableSpec;
@@ -100,5 +102,33 @@ impl MlxConfigVariable {
     // spec returns the underlying spec for the variable.
     pub fn spec(&self) -> &MlxVariableSpec {
         &self.spec
+    }
+}
+
+// MlxConfigVariable conversions
+impl From<MlxConfigVariable> for MlxConfigVariablePb {
+    fn from(var: MlxConfigVariable) -> Self {
+        MlxConfigVariablePb {
+            name: var.name,
+            description: var.description,
+            read_only: var.read_only,
+            spec: Some(var.spec.into()),
+        }
+    }
+}
+
+impl TryFrom<MlxConfigVariablePb> for MlxConfigVariable {
+    type Error = RpcDataConversionError;
+
+    fn try_from(pb: MlxConfigVariablePb) -> Result<Self, Self::Error> {
+        Ok(MlxConfigVariable {
+            name: pb.name,
+            description: pb.description,
+            read_only: pb.read_only,
+            spec: pb
+                .spec
+                .ok_or(RpcDataConversionError::MissingArgument("spec"))?
+                .try_into()?,
+        })
     }
 }

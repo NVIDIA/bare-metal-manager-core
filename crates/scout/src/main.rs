@@ -43,6 +43,7 @@ mod discovery;
 mod machine_validation;
 mod mlx_device;
 mod register;
+mod stream;
 
 struct DevEnv {
     in_qemu: bool,
@@ -171,6 +172,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
         Err(e) => tracing::warn!("failed to create PublishMlxDeviceReportRequest: {e:?}"),
     };
 
+    let mut scout_stream_started = false;
     loop {
         if is_time_to_check_certs_expiry(next_certs_check_time) {
             next_certs_check_time = get_next_certs_check_datetime()?;
@@ -203,6 +205,16 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
             Ok(_) => tracing::info!("Successfully served {}", action.as_str_name()),
             Err(e) => tracing::info!("Failed to serve {}: Err {}", action.as_str_name(), e),
         };
+
+        // Ensure the first scout API query has run before we establish
+        // a Scout stream connection. There's no technical reason requiring
+        // this, other than it seemed to make sense to do 1 control
+        // request/response action flow before setting up any additional
+        // scaffolding.
+        if !scout_stream_started {
+            scout_stream_started = true;
+            stream::start_scout_stream(machine_id, config);
+        }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
 }

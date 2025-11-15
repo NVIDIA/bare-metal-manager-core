@@ -1114,6 +1114,11 @@ dependencies = [
  "bmc-vendor",
  "carbide-health-report",
  "carbide-measured-boot",
+ "carbide-mlxconfig-device",
+ "carbide-mlxconfig-lockdown",
+ "carbide-mlxconfig-profile",
+ "carbide-mlxconfig-runner",
+ "carbide-mlxconfig-variables",
  "carbide-network",
  "carbide-rpc",
  "carbide-secrets",
@@ -1328,6 +1333,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-rustls 0.26.3",
+ "tokio-stream",
  "toml 0.8.23",
  "tonic 0.14.2",
  "tonic-reflection",
@@ -1884,6 +1890,7 @@ name = "carbide-mlxconfig-lockdown"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "carbide-rpc",
  "chrono",
  "clap",
  "serde",
@@ -1927,6 +1934,7 @@ dependencies = [
  "backon",
  "carbide-mlxconfig-device",
  "carbide-mlxconfig-variables",
+ "carbide-rpc",
  "hex",
  "regex",
  "serde",
@@ -1943,6 +1951,7 @@ name = "carbide-mlxconfig-variables"
 version = "0.0.0"
 dependencies = [
  "carbide-mlxconfig-device",
+ "carbide-rpc",
  "hex",
  "mac_address",
  "serde",
@@ -2061,6 +2070,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.16",
  "tokio",
+ "tokio-stream",
  "tonic 0.14.2",
  "tonic-client-wrapper",
  "tonic-prost",
@@ -2080,6 +2090,9 @@ dependencies = [
  "carbide-machine-validation",
  "carbide-mlxconfig-device",
  "carbide-mlxconfig-lockdown",
+ "carbide-mlxconfig-profile",
+ "carbide-mlxconfig-registry",
+ "carbide-mlxconfig-runner",
  "carbide-rpc",
  "carbide-tls",
  "carbide-utils",
@@ -2090,6 +2103,7 @@ dependencies = [
  "efivar",
  "eyre",
  "futures-util",
+ "http",
  "lazy_static",
  "once_cell",
  "prost-types 0.14.1",
@@ -2101,6 +2115,7 @@ dependencies = [
  "smbios-lib",
  "thiserror 2.0.16",
  "tokio",
+ "tokio-stream",
  "tonic 0.14.2",
  "tracing",
  "tryhard",
@@ -8777,6 +8792,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

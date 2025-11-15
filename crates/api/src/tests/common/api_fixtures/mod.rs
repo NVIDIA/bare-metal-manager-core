@@ -79,6 +79,7 @@ use crate::ipmitool::IPMIToolTestImpl;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
 use crate::redfish::test_support::RedfishSim;
+use crate::scout_stream;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::StateController;
@@ -1104,6 +1105,7 @@ pub async fn create_test_env_with_overrides(
         dynamic_settings: dyn_settings,
         endpoint_explorer: bmc_explorer,
         dpu_health_log_limiter: LogLimiter::default(),
+        scout_stream_registry: scout_stream::ConnectionRegistry::new(),
     });
 
     let attestation_enabled = config.attestation_enabled;

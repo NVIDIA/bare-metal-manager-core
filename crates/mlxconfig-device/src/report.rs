@@ -26,6 +26,7 @@ pub struct MlxDeviceReport {
     // devices contains the discovered devices matching any applied filters.
     pub devices: Vec<MlxDeviceInfo>,
     // filters contains the filter set used to generate this report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filters: Option<DeviceFilterSet>,
 }
 

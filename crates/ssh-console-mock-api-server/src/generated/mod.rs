@@ -26,4 +26,7 @@ pub mod machine_discovery;
 pub mod measured_boot;
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
+pub mod mlx_device;
+#[allow(non_snake_case, unknown_lints, clippy::all)]
+#[rustfmt::skip]
 pub mod site_explorer;

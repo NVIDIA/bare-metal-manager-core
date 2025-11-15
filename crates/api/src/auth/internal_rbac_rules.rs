@@ -562,6 +562,25 @@ impl InternalRBACRules {
         x.perm("GetRack", vec![ForgeAdminCLI]);
         x.perm("DeleteRack", vec![ForgeAdminCLI]);
         x.perm("RackManagerCall", vec![ForgeAdminCLI]);
+        x.perm("ScoutStream", vec![Scout]);
+        x.perm("ScoutStreamShowConnections", vec![ForgeAdminCLI]);
+        x.perm("ScoutStreamDisconnect", vec![ForgeAdminCLI]);
+        x.perm("ScoutStreamPing", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminProfileSync", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminProfileShow", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminProfileCompare", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminProfileList", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminLockdownLock", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminLockdownUnlock", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminLockdownStatus", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminShowDevice", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminShowMachine", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminRegistryList", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminRegistryShow", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminConfigQuery", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminConfigSet", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminConfigSync", vec![ForgeAdminCLI]);
+        x.perm("MlxAdminConfigCompare", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

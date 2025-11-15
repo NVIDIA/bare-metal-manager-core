@@ -20,6 +20,7 @@ extern crate core;
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
+use std::pin::Pin;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -27,6 +28,7 @@ use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
 use prost::{Message, UnknownEnumValue};
 use serde::ser::Error;
+use tokio_stream::Stream;
 
 pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
@@ -63,6 +65,19 @@ pub mod rack_manager_client;
 
 pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("forge");
 pub const MAX_ERR_MSG_SIZE: i32 = 1500;
+
+// DynForge exists because, now that we have >= streaming interface,
+// simply passing around `dyn Forge` doesn't work anymore. As any additional
+// streaming interfaces are added, we just toss in type defs here, and
+// any users of DynForge don't need to worry about it.
+pub type DynForge = dyn forge::forge_server::Forge<
+        ScoutStreamStream = Pin<
+            Box<
+                dyn Stream<Item = Result<forge::ScoutStreamScoutBoundMessage, tonic::Status>>
+                    + Send,
+            >,
+        >,
+    >;
 
 pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     let mut expected = Vec::new();
@@ -703,6 +718,27 @@ impl forge::MachineCapabilityDeviceType {
             forge::MachineCapabilityDeviceType::Dpu => "DPU".to_string(),
             forge::MachineCapabilityDeviceType::Unknown => "UNKNOWN".to_string(),
         })
+    }
+}
+
+impl forge::ScoutStreamScoutBoundMessage {
+    pub fn new_flow(msg: forge::scout_stream_scout_bound_message::Payload) -> Self {
+        Self {
+            flow_uuid: Some(uuid::Uuid::new_v4().into()),
+            payload: Some(msg),
+        }
+    }
+}
+
+impl forge::ScoutStreamApiBoundMessage {
+    pub fn from_flow(
+        flow_uuid: uuid::Uuid,
+        msg: forge::scout_stream_api_bound_message::Payload,
+    ) -> Self {
+        Self {
+            flow_uuid: Some(flow_uuid.into()),
+            payload: Some(msg),
+        }
     }
 }
 

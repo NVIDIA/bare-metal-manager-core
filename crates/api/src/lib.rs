@@ -51,6 +51,7 @@ mod network_segment;
 mod preingestion_manager;
 mod redfish;
 mod run;
+mod scout_stream;
 mod setup;
 mod site_explorer;
 mod state_controller;

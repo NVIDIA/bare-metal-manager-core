@@ -12,6 +12,7 @@ serde = { features = ["derive"], workspace = true }
 serde_yaml = { workspace = true }
 hex = { workspace = true }
 carbide-mlxconfig-device = { path = "../mlxconfig-device" }
+carbide-rpc = { path = "../rpc" }
 
 [dev-dependencies]
 serde_json = { workspace = true }

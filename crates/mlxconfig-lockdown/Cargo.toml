@@ -16,5 +16,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 chrono = { features = ["serde"], workspace = true }
 
+carbide-rpc = { path = "../rpc" }
+
 [dev-dependencies]
 tempfile = { workspace = true }
