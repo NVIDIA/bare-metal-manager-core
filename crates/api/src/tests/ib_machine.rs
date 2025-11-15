@@ -53,11 +53,7 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
         println!("Testing host machine {host_machine_id}");
         let rpc_machine_id: MachineId = host_machine_id;
 
-        let machine = env
-            .find_machines(Some(rpc_machine_id), None, false)
-            .await
-            .machines
-            .remove(0);
+        let machine = env.find_machine(rpc_machine_id).await.remove(0);
 
         let machine_guids = guids.entry(host_machine_id_1).or_default();
 
@@ -278,11 +274,7 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
         println!("Testing host machine {host_machine_id}");
         let rpc_machine_id: MachineId = host_machine_id;
 
-        let machine = env
-            .find_machines(Some(rpc_machine_id), None, false)
-            .await
-            .machines
-            .remove(0);
+        let machine = env.find_machine(rpc_machine_id).await.remove(0);
 
         let discovery_info = machine.discovery_info.as_ref().unwrap();
         let ib_status = machine.ib_status.expect("IB status is missing");

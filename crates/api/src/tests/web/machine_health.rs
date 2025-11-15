@@ -69,12 +69,7 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(
-        env.find_machines(host_machine_id.into(), None, true)
-            .await
-            .machines
-            .is_empty()
-    );
+    assert!(env.find_machine(host_machine_id).await.is_empty());
 
     verify_history(&app, host_machine_id.to_string()).await;
 }

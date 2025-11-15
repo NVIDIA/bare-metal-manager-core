@@ -166,50 +166,6 @@ pub(crate) async fn find_machine_health_histories(
     Ok(Response::new(response))
 }
 
-pub(crate) async fn find_machines(
-    api: &Api,
-    request: Request<rpc::MachineSearchQuery>,
-) -> Result<Response<rpc::MachineList>, Status> {
-    log_request_data(&request);
-    let request = request.into_inner();
-
-    let mut txn = api.txn_begin("find_machines").await?;
-
-    let search_config = request
-        .search_config
-        .map(MachineSearchConfig::try_from)
-        .transpose()
-        .map_err(CarbideError::from)?
-        .unwrap_or_default();
-
-    let machine_ids: Vec<MachineId> = match (request.id, request.fqdn) {
-        (Some(id), _) => {
-            let machine_id = convert_and_log_machine_id(Some(&id))?;
-            vec![machine_id]
-        }
-        (None, Some(fqdn)) => match db::machine::find_id_by_fqdn(&mut txn, &fqdn).await? {
-            Some(id) => vec![id],
-            None => vec![],
-        },
-        (None, None) => db::machine::find_machine_ids(&mut txn, search_config.clone()).await?,
-    };
-
-    let snapshots = db::managed_host::load_by_machine_ids(
-        &mut txn,
-        &machine_ids,
-        LoadSnapshotOptions {
-            include_history: search_config.include_history,
-            include_instance_data: false,
-            host_health_config: api.runtime_config.host_health,
-        },
-    )
-    .await?;
-
-    txn.commit().await?;
-
-    Ok(Response::new(snapshot_map_to_rpc_machines(snapshots)))
-}
-
 pub(crate) async fn machine_set_auto_update(
     api: &Api,
     request: Request<rpc::MachineSetAutoUpdateRequest>,

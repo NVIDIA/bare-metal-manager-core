@@ -126,8 +126,15 @@ async fn test_reject_host_machine_with_disabled_tpm(
     );
 
     // We shouldn't have created any machine
-    let machines = env.find_machines(None, None, false).await;
-    assert!(machines.machines.is_empty());
+    let machine_ids = env
+        .api
+        .find_machine_ids(tonic::Request::new(
+            rpc::forge::MachineSearchConfig::default(),
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(machine_ids.machine_ids.is_empty());
 
     Ok(())
 }
@@ -146,8 +153,17 @@ async fn test_discover_2_managed_hosts(
     assert_ne!(host1_id, host2_id);
     assert_ne!(dpu1_id, dpu2_id);
 
-    let machines = env.find_machines(None, None, true).await.machines;
-    assert_eq!(machines.len(), 4);
+    let machine_ids = env
+        .api
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            include_dpus: true,
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machine_ids;
+    assert_eq!(machine_ids.len(), 4);
 
     Ok(())
 }

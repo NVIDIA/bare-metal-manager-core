@@ -480,26 +480,20 @@ impl TestEnv {
         *self.machine_state_handler.inner.lock().await = handler;
     }
 
-    // Returns all machines using FindMachines call.
-    pub async fn find_machines(
+    // Returns all machines using FindMachinesByIds call.
+    pub async fn find_machine(
         &self,
-        id: Option<forge_uuid::machine::MachineId>,
-        fqdn: Option<String>,
-        include_dpus: bool,
-    ) -> rpc::forge::MachineList {
+        id: forge_uuid::machine::MachineId,
+    ) -> Vec<rpc::forge::Machine> {
         self.api
-            .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-                search_config: Some(rpc::forge::MachineSearchConfig {
-                    include_dpus,
-                    include_history: true,
-                    ..Default::default()
-                }),
-                id,
-                fqdn,
+            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+                machine_ids: vec![id],
+                include_history: true,
             }))
             .await
             .unwrap()
             .into_inner()
+            .machines
     }
 
     // Returns all instances using FindInstancesByIds call.

@@ -109,10 +109,9 @@ pub async fn release(
     wait_until_ready: bool,
 ) -> eyre::Result<()> {
     let data = serde_json::json!({
-        "id": {"id": host_machine_id},
-        "search_config": {"include_dpus": false}
+        "machine_ids": [{"id": host_machine_id}],
     });
-    let resp = grpcurl(addrs, "FindMachines", Some(data)).await?;
+    let resp = grpcurl(addrs, "FindMachinesByIds", Some(data)).await?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let machine_json = &response["machines"][0];
     let ip_address = machine_json["interfaces"][0]["address"][0]

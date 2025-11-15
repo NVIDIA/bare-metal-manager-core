@@ -453,21 +453,6 @@ pub async fn find_by_loopback_ip(
     Ok(machine)
 }
 
-pub async fn find_id_by_fqdn(
-    txn: &mut PgConnection,
-    fqdn: &str,
-) -> Result<Option<MachineId>, DatabaseError> {
-    let query = "SELECT machine_id FROM machine_dhcp_records WHERE fqdn = $1";
-
-    let machine_id: Option<MachineId> = sqlx::query_as(query)
-        .bind(fqdn)
-        .fetch_optional(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    Ok(machine_id)
-}
-
 /// Finds a machine by a query
 ///
 /// - If the query looks like a MachineId, it will try to load the information based on the MachineId

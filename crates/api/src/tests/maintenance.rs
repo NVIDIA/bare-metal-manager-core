@@ -42,11 +42,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .unwrap();
 
     // Check that the expected alert is set on the Machine
-    let mut host_machine = env
-        .find_machines(Some(rpc_host_id), None, false)
-        .await
-        .machines
-        .remove(0);
+    let mut host_machine = env.find_machine(rpc_host_id).await.remove(0);
     assert_eq!(
         host_machine.maintenance_reference.clone().unwrap(),
         "https://jira.example.com/ABC-123"
@@ -107,24 +103,20 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     }
 
     // list: should be included
-    let machines = env
+    let machine_ids = env
         .api
-        .find_machines(tonic::Request::new(rpcf::MachineSearchQuery {
-            id: None,
-            fqdn: None,
-            search_config: Some(rpcf::MachineSearchConfig {
-                include_dpus: true,
-                include_predicted_host: true,
-                only_maintenance: true,
-                ..Default::default()
-            }),
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            include_dpus: true,
+            include_predicted_host: true,
+            only_maintenance: true,
+            ..Default::default()
         }))
-        .await?;
-    let machines = machines.into_inner().machines;
-    assert_eq!(machines.len(), 1); // Host
+        .await?
+        .into_inner()
+        .machine_ids;
+    assert_eq!(machine_ids.len(), 1); // Host
     assert_eq!(
-        *machines[0].id.as_ref().unwrap(),
-        rpc_host_id,
+        machine_ids[0], rpc_host_id,
         "Listing maintenance machines return incorrectly machines"
     );
 
@@ -137,32 +129,25 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     env.api.set_maintenance(req).await.unwrap();
 
     // Maintenance reference is cleared and there's no alarm anymore
-    let host_machine = env
-        .find_machines(Some(rpc_host_id), None, false)
-        .await
-        .machines
-        .remove(0);
+    let host_machine = env.find_machine(rpc_host_id).await.remove(0);
     assert!(host_machine.maintenance_reference.is_none());
     assert!(host_machine.maintenance_start_time.is_none());
     let alerts = &host_machine.health.as_ref().unwrap().alerts;
     assert!(alerts.is_empty());
 
     // There are now no machines in maintenance mode
-    let machines = env
+    let machine_ids = env
         .api
-        .find_machines(tonic::Request::new(rpcf::MachineSearchQuery {
-            id: None,
-            fqdn: None,
-            search_config: Some(rpcf::MachineSearchConfig {
-                include_dpus: true,
-                include_predicted_host: true,
-                only_maintenance: true,
-                ..Default::default()
-            }),
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            include_dpus: true,
+            include_predicted_host: true,
+            only_maintenance: true,
+            ..Default::default()
         }))
-        .await?;
-    let machines = machines.into_inner().machines;
-    assert!(machines.is_empty());
+        .await?
+        .into_inner()
+        .machine_ids;
+    assert!(machine_ids.is_empty());
 
     // allocate: should succeed
     let req = rpcf::InstanceAllocationRequest {
@@ -235,23 +220,21 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     }
 
     // list: should be included
-    let machines = env
+    let machine_ids = env
         .api
-        .find_machines(tonic::Request::new(rpcf::MachineSearchQuery {
-            id: None,
-            fqdn: None,
-            search_config: Some(rpcf::MachineSearchConfig {
-                include_dpus: true,
-                include_predicted_host: true,
-                only_maintenance: true,
-                ..Default::default()
-            }),
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            include_dpus: true,
+            include_predicted_host: true,
+            only_maintenance: true,
+            ..Default::default()
         }))
-        .await?;
-    let machines = machines.into_inner().machines;
-    assert_eq!(machines.len(), 1); // Host
+        .await?
+        .into_inner()
+        .machine_ids;
+
+    assert_eq!(machine_ids.len(), 1); // Host
     assert_eq!(
-        *machines[0].id.as_ref().unwrap(),
+        machine_ids[0],
         mh.host().id,
         "Listing maintenance machines return incorrectly machines"
     );
@@ -265,21 +248,18 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     env.api.set_maintenance(req).await.unwrap();
 
     // There are now no machines in maintenance mode
-    let machines = env
+    let machines_ids = env
         .api
-        .find_machines(tonic::Request::new(rpcf::MachineSearchQuery {
-            id: None,
-            fqdn: None,
-            search_config: Some(rpcf::MachineSearchConfig {
-                include_dpus: true,
-                include_predicted_host: true,
-                only_maintenance: true,
-                ..Default::default()
-            }),
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            include_dpus: true,
+            include_predicted_host: true,
+            only_maintenance: true,
+            ..Default::default()
         }))
-        .await?;
-    let machines = machines.into_inner().machines;
-    assert!(machines.is_empty());
+        .await?
+        .into_inner()
+        .machine_ids;
+    assert!(machines_ids.is_empty());
 
     // allocate: should succeed
     let req = rpcf::InstanceAllocationRequest {
