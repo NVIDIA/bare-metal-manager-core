@@ -1849,6 +1849,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "carbide-rpc",
+ "carbide-uuid",
  "chrono",
  "clap",
  "hostname",

@@ -10,12 +10,25 @@
  * its affiliates is strictly prohibited.
  */
 
-use model::dpa_interface::{DpaInterfaceNetworkStatusObservation, NewDpaInterface};
+use ::rpc::protos::mlx_device as mlx_device_pb;
+use db::dpa_interface;
+use eyre::eyre;
+use forge_host_support::dpa_cmds::{DpaCommand, OpCode};
+use forge_uuid::machine::MachineId;
+use model::dpa_interface::{
+    CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
+    DpaLockMode, NewDpaInterface,
+};
+use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use rpc::protos::mlx_device::MlxDeviceInfo;
+use sqlx::PgConnection;
 use tonic::{Request, Response};
 
 use crate::api::{Api, log_request_data};
 use crate::{CarbideError, CarbideResult};
 
+// This is called from the grpc interface and is mainly for debugging purposes.
 pub(crate) async fn create(
     api: &Api,
     request: Request<::rpc::forge::DpaInterfaceCreationRequest>,
@@ -31,6 +44,25 @@ pub(crate) async fn create(
     let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
 
     txn.commit().await?;
+
+    Ok(Response::new(dpa_out))
+}
+
+// This is the normal code path. When scout reports a DPA NIC, we call this
+// routine to create a dpa_interface object and associate it with the machine.
+pub(crate) async fn create_internal(
+    api: &Api,
+    dpa_info: NewDpaInterface,
+) -> CarbideResult<Response<::rpc::forge::DpaInterface>> {
+    let mut txn = api.txn_begin("create dpa").await?;
+
+    let new_dpa = db::dpa_interface::persist(dpa_info, &mut txn).await?;
+
+    let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
+
+    txn.commit().await?;
+
+    tracing::info!("created dpa: {:#?}", dpa_out);
 
     Ok(Response::new(dpa_out))
 }
@@ -136,7 +168,7 @@ pub(crate) async fn set_dpa_network_observation_status(
         "at least one ID must be provided to find_dpa_interfaces_by_ids".to_string(),
     ))?;
 
-    // Prepare our txn to grab the NetworkSecurityGroups from the DB
+    // Prepare our txn to grab the dpa interfaces from the DB
     let mut txn = api.txn_begin("set_dpa_network_observation_status").await?;
 
     let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
@@ -159,4 +191,205 @@ pub(crate) async fn set_dpa_network_observation_status(
     txn.commit().await?;
 
     Ok(Response::new(dpa_if_int.into()))
+}
+
+// Scout is asking us what it should do. We found the machine in DpaProvisioning state.
+// So look at each DPA interface and make it progress through the statemachine.
+// If there is work to be done, we return Action::MlxReport, and ExtraInfo.
+// The ExtraInfo is an array of key value pairs. The key will be the pci_name of the
+// mlx device to act on. And the value is a DpaCommand structure.
+pub(crate) async fn process_scout_req(
+    api: &Api,
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> CarbideResult<(Action, Option<ForgeAgentControlExtraInfo>)> {
+    if !api.runtime_config.is_dpa_enabled() {
+        return Ok((Action::Noop, None));
+    }
+
+    let dpa_snapshots = db::dpa_interface::find_by_machine_id(txn, &machine_id).await?;
+
+    if dpa_snapshots.is_empty() {
+        tracing::error!(
+            "process_scout_req no dpa_snapshots for machine: {:#?}",
+            machine_id
+        );
+        return Ok((Action::Noop, None));
+    }
+
+    let pair: Vec<KeyValuePair> = dpa_snapshots
+        .iter()
+        .filter_map(|sn| {
+            let cstate = sn.controller_state.value.clone();
+            let dev_name = &sn.pci_name;
+
+            let dpa_cmd = match cstate {
+                DpaInterfaceControllerState::Provisioning
+                | DpaInterfaceControllerState::Ready
+                | DpaInterfaceControllerState::WaitingForSetVNI
+                | DpaInterfaceControllerState::Assigned
+                | DpaInterfaceControllerState::WaitingForResetVNI => return None,
+
+                DpaInterfaceControllerState::Unlocking => DpaCommand {
+                    op: OpCode::Unlock {
+                        key: "12345678".to_string(), // XXX TODO: get actual key
+                    },
+                },
+
+                DpaInterfaceControllerState::ApplyProfile => {
+                    let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
+                    DpaCommand {
+                        op: OpCode::ApplyProfile {
+                            profile_str: profstr,
+                        },
+                    }
+                }
+
+                DpaInterfaceControllerState::Locking => DpaCommand {
+                    op: OpCode::Lock {
+                        key: "12345678".to_string(), // XXX TODO: get actual key
+                    },
+                },
+            };
+
+            match serde_json::to_string(&dpa_cmd) {
+                Ok(cmdstr) => Some(KeyValuePair {
+                    key: dev_name.clone(),
+                    value: cmdstr,
+                }),
+                Err(e) => {
+                    tracing::info!(
+                        "process_scout_req Error encoding DpaCommand {e} for dpa: {:#?}",
+                        sn
+                    );
+                    None
+                }
+            }
+        })
+        .collect();
+
+    let facr = ForgeAgentControlExtraInfo { pair };
+
+    Ok((Action::MlxAction, Some(facr)))
+}
+
+// Find the DPA object in the given vector of DPA objects
+// which matches the mac address in the device device info
+// Just do a linear search for matching mac address given that
+// the Vec<DpaInterface> is not expected to be less than a dozen entries.
+fn get_dpa_by_mac(devinfo: &MlxDeviceInfo, dpas: Vec<DpaInterface>) -> CarbideResult<DpaInterface> {
+    dpas.into_iter()
+        .find(|dpa| dpa.mac_address.to_string() == devinfo.base_mac)
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "mac_addr",
+            id: devinfo.base_mac.to_string(),
+        })
+}
+
+// The scout is sending us an mlx observation report. The report will
+// consist of a vector of observations, one for each mlx device.
+// Based on what is being reported, we update the card_state of the
+// corresponding DB entry. This update is noticed by the DPA statecontroller
+// and will cause it to advance to the next state.
+pub(crate) async fn process_mlx_observation(
+    api: &Api,
+    request: tonic::Request<mlx_device_pb::PublishMlxObservationReportRequest>,
+) -> CarbideResult<()> {
+    // Prepare our txn to grab the dpa interfaces from the DB
+    let mut txn = api.txn_begin("process_mlx_observation").await?;
+
+    let req = request.into_inner();
+
+    let Some(rep) = req.report else {
+        tracing::error!("process_mlx_observation without report req: {:#?}", req);
+        return Err(CarbideError::GenericErrorFromReport(eyre!(
+            "process_mlx_observation without report req: {:#?}",
+            req
+        )));
+    };
+
+    let Some(mid) = rep.machine_id else {
+        tracing::error!(
+            "process_mlx_observation without machine_id report: {:#?}",
+            rep
+        );
+        return Err(CarbideError::GenericErrorFromReport(eyre!(
+            "process_mlx_observation without machine_id report: {:#?}",
+            rep
+        )));
+    };
+
+    let dpa_snapshots = db::dpa_interface::find_by_machine_id(&mut txn, &mid).await?;
+
+    if dpa_snapshots.is_empty() {
+        tracing::error!(
+            "process_mlx_observation no dpa snapshots for machine: {:#?}",
+            mid
+        );
+        return Err(CarbideError::GenericErrorFromReport(eyre!(
+            "process_mlx_observation no dpa snapshots for machine: {:#?}",
+            mid
+        )));
+    }
+
+    for obs in rep.observations {
+        let Some(devinfo) = obs.device_info else {
+            tracing::error!(
+                "process_mlx_observation no device_info observation: {:#?}",
+                obs
+            );
+            continue;
+        };
+
+        let mut dpa = match get_dpa_by_mac(&devinfo, dpa_snapshots.clone()) {
+            Ok(dpa) => dpa,
+            Err(e) => {
+                tracing::error!(
+                    "process_mlx_observation dpa not found for device {:#?} error: {:#?}",
+                    devinfo,
+                    e
+                );
+                continue;
+            }
+        };
+
+        let mut cstate = dpa.card_state.unwrap_or(CardState {
+            lockmode: None,
+            profile: None,
+            profile_synced: None,
+        });
+
+        if obs.lock_status.is_some() {
+            let ls = match DpaLockMode::try_from(obs.lock_status.unwrap()) {
+                Ok(ls) => ls,
+                Err(e) => {
+                    tracing::error!("process_mlx_observation Error from LockStatus::try_from {e}");
+                    continue;
+                }
+            };
+
+            cstate.lockmode = Some(ls);
+        }
+
+        if obs.profile_name.is_some() {
+            cstate.profile = obs.profile_name;
+        }
+
+        if obs.profile_synced.is_some() {
+            cstate.profile_synced = obs.profile_synced;
+        }
+
+        dpa.card_state = Some(cstate);
+
+        match dpa_interface::update_card_state(&mut txn, dpa.clone()).await {
+            Ok(_id) => (),
+            Err(e) => {
+                tracing::error!("process_mlx_observation update_card_state error: {e}");
+            }
+        }
+    }
+
+    txn.commit().await?;
+
+    Ok(())
 }

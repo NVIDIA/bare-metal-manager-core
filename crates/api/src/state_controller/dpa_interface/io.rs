@@ -114,6 +114,9 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
     fn metric_state_names(state: &DpaInterfaceControllerState) -> (&'static str, &'static str) {
         match state {
             DpaInterfaceControllerState::Provisioning => ("provisioning", ""),
+            DpaInterfaceControllerState::Unlocking => ("unlocking", ""),
+            DpaInterfaceControllerState::ApplyProfile => ("locking", ""),
+            DpaInterfaceControllerState::Locking => ("locking", ""),
             DpaInterfaceControllerState::Ready => ("ready", ""),
             DpaInterfaceControllerState::WaitingForSetVNI => ("waitingforsetvni", ""),
             DpaInterfaceControllerState::WaitingForResetVNI => ("waitingforresetvni", ""),

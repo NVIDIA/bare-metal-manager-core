@@ -10,12 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-//! SLAs for Dpa Interface State Machine Controller
+use serde::{Deserialize, Serialize};
 
-use std::time::Duration;
+#[derive(Serialize, Deserialize, Debug)]
+pub enum OpCode {
+    Noop,
+    Unlock { key: String },
+    ApplyProfile { profile_str: String },
+    Lock { key: String },
+}
 
-pub const LOCKING: Duration = Duration::from_secs(15 * 60);
-pub const APPLY_PROFILE: Duration = Duration::from_secs(15 * 60);
-pub const UNLOCKING: Duration = Duration::from_secs(15 * 60);
-pub const WAITINGFORSETVNI: Duration = Duration::from_secs(15 * 60);
-pub const WAITINGFORRESETVNI: Duration = Duration::from_secs(15 * 60);
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DpaCommand {
+    pub op: OpCode,
+}

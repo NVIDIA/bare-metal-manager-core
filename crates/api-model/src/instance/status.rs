@@ -135,6 +135,8 @@ impl InstanceStatus {
                 InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::DPUReprovision { .. }
                 | InstanceState::HostReprovision { .. } => tenant::TenantState::Updating,
+                InstanceState::DpaProvisioning => tenant::TenantState::Updating,
+                InstanceState::WaitingForDpaToBeReady => tenant::TenantState::Updating,
                 InstanceState::Failed { .. } => tenant::TenantState::Failed,
             },
             ManagedHostState::ForceDeletion => tenant::TenantState::Terminating,

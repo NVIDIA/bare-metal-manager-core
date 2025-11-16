@@ -567,6 +567,7 @@ service Forge {
   rpc SetFirmwareUpdateTimeWindow(SetFirmwareUpdateTimeWindowRequest) returns (SetFirmwareUpdateTimeWindowResponse);
   rpc ListHostFirmware(ListHostFirmwareRequest) returns (ListHostFirmwareResponse);
   rpc PublishMlxDeviceReport(mlx_device.PublishMlxDeviceReportRequest) returns (mlx_device.PublishMlxDeviceReportResponse);
+  rpc PublishMlxObservationReport(mlx_device.PublishMlxObservationReportRequest) returns (mlx_device.PublishMlxObservationReportResponse);
 
   // Trim DB Tables
   rpc TrimTable(TrimTableRequest) returns (TrimTableResponse);
@@ -3391,6 +3392,7 @@ message ForgeAgentControlResponse {
     MEASURE = 5;    // Machine needs to send measurements for attestation.
     LOGERROR = 6;   // Log error.
     MACHINE_VALIDATION = 7;   // Machine validation.
+    MLX_ACTION = 8; // MlxAction for DPA NICs
   }
   Action action = 1;
 
@@ -5272,12 +5274,17 @@ message DpaInterface {
   repeated DpaInterfaceStateHistory history = 13;
 
   google.protobuf.Timestamp last_hb_time = 14;
+
+  string card_state = 15;
+  string pci_name = 16;
 }
 
 
 message DpaInterfaceCreationRequest {
   common.MachineId machine_id = 1;
   string mac_addr = 2;
+  string device_type = 3;
+  string pci_name = 4;
 }
 
 message DpaInterfaceIdList {

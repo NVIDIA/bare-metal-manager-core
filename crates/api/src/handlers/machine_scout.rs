@@ -14,8 +14,8 @@ use ::rpc::forge as rpc;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
+    BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, InstanceState,
+    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
     get_action_for_dpu_state,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
@@ -257,6 +257,16 @@ pub(crate) async fn forge_agent_control(
                     (Action::Noop, None)
                 }
             }
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::WaitingForDpaToBeReady,
+            } => match crate::handlers::dpa::process_scout_req(api, &mut txn, machine_id).await {
+                Ok((action, einfo)) => (action, einfo),
+                Err(e) => {
+                    tracing::error!("Error returned from process_scout_req: {e}");
+                    (Action::Noop, None)
+                }
+            },
+
             _ => {
                 // Later this might go to site admin dashboard for manual intervention
                 tracing::info!(

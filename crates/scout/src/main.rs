@@ -18,16 +18,21 @@ use std::time::Duration;
 use cfg::{AutoDetect, Command, MlxAction, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
+use forge_host_support::dpa_cmds::{DpaCommand, OpCode};
 use forge_host_support::registration;
 use forge_uuid::machine::MachineId;
 use mlxconfig_device::cmd::device::args::DeviceArgs;
 use mlxconfig_device::cmd::device::cmds::handle as handle_mlx_device;
+use mlxconfig_device::discovery::discover_device;
 use mlxconfig_lockdown::cmd::cmds::handle_lockdown as handle_mlx_lockdown;
 use once_cell::sync::Lazy;
 use rpc::forge::ForgeAgentControlResponse;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::forge_agent_control_response::ForgeAgentControlExtraInfo;
 use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use rpc::protos::mlx_device::{
+    LockStatus, MlxObservation, MlxObservationReport, PublishMlxObservationReportRequest,
+};
 use rpc::{ForgeScoutErrorReport, forge as rpc_forge};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
@@ -164,7 +169,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
     // place to put it: since this is going to be part of the Action
     // feedback loop, a more accurate place to run this would be after
     // initial_setup (and after registration is complete).
-    match mlx_device::create_device_report_request() {
+    match mlx_device::create_device_report_request(machine_id) {
         Ok(request) => match mlx_device::publish_mlx_device_report(config, request).await {
             Ok(response) => tracing::info!("recevied PublishMlxDeviceReportResponse: {response:?}"),
             Err(e) => tracing::warn!("failed to publish PublishMlxDeviceReportRequest: {e:?}"),
@@ -410,8 +415,158 @@ async fn handle_action(
             machine_validation::completed(config, machine_id, id, None).await?;
             return ret;
         }
+        Action::MlxAction => {
+            handle_mlxreport_action(config, machine_id, controller_response.data).await;
+            return Ok(());
+        }
     }
     Ok(())
+}
+
+// carbide sent us an Action::MlxReport command in response to our
+// ForgeAgentControlRequest. Process the MlxReport action, which
+// will involve doing configuration actions on our CIN NICs.
+// We will send a publish_mlx_report request at the end to reflect
+// the config actions we took.
+async fn handle_mlxreport_action(
+    config: &Options,
+    machine_id: &MachineId,
+    data: Option<ForgeAgentControlExtraInfo>,
+) {
+    if data.is_none() {
+        tracing::error!("handle_mlxreport_action Did not expect extra data to be empty");
+        return;
+    }
+    let ed = data.unwrap();
+
+    // The Extra data is an array of key value pairs.
+    // The key is the pci_name of a DPA NIC.
+    // The value is a json encoded DpaCommand.
+    // The DpaCommand can be Unlock/Lock, which don't have any other
+    // data (currently - may be we will send the lock/unlock key)
+    // The DpaCommand can also be ApplyProfile, in which case it
+    // will have the profile name.
+
+    let mut report = MlxObservationReport {
+        machine_id: Some(*machine_id),
+        timestamp: Some(Utc::now().into()),
+        observations: Vec::new(),
+    };
+
+    for kv in ed.pair {
+        let dev_pci_name = kv.key;
+        let action = kv.value;
+
+        if dev_pci_name.is_empty() {
+            tracing::error!("handle_mlxreport_action dev_pci_name empty");
+            continue;
+        }
+
+        if action.is_empty() {
+            tracing::error!(
+                "handle_mlxreport_action action empty for dev: {:#?}",
+                dev_pci_name
+            );
+            continue;
+        }
+
+        let dev = match discover_device(&dev_pci_name) {
+            Ok(d) => d,
+            Err(s) => {
+                tracing::error!(
+                    "handle_mlxreport_actioni Error from discover_device::from_str {s} for dev: {:#?}",
+                    dev_pci_name
+                );
+                continue;
+            }
+        };
+
+        // The action is a structure with an OpCode (like Lock/Unlock/ApplyProfile)
+        // and an additional optional string (for ApplyProfile)
+
+        let dpa_cmd: DpaCommand = match serde_json::from_str(&action) {
+            Ok(dpc) => dpc,
+            Err(e) => {
+                tracing::error!(
+                    "handle_mlxreport_actioni Error decodeing DpaCommand {e} for dev: {:#?}",
+                    dev_pci_name
+                );
+                continue;
+            }
+        };
+
+        match dpa_cmd.op {
+            OpCode::Noop => (),
+            OpCode::Lock { key } => {
+                // XXX TODO XXX
+                // Call lock_card with the proper key
+                // XXX TODO XXX
+                match mlx_device::lock_device(&dev_pci_name, &key) {
+                    Ok(()) => {
+                        let obs = MlxObservation {
+                            device_info: Some(dev.into()),
+                            lock_status: Some(LockStatus::Locked.into()),
+                            profile_name: None,
+                            profile_synced: None,
+                        };
+                        report.observations.push(obs);
+                    }
+                    Err(e) => {
+                        tracing::info!(
+                            "handle_mlxreport_actioni Error from lock_device: {e} for dev: {:#?}",
+                            dev_pci_name
+                        );
+                    }
+                }
+            }
+            OpCode::ApplyProfile { profile_str } => {
+                // XXX TODO XXX
+                // Call appropriate mlx routine to apply profile and handle errors
+                // XXX TODO XXX
+                let obs = MlxObservation {
+                    device_info: Some(dev.into()),
+                    lock_status: None,
+                    profile_name: Some(profile_str),
+                    profile_synced: Some(true),
+                };
+                report.observations.push(obs);
+            }
+            OpCode::Unlock { key } => {
+                // XXX TODO XXX
+                // Call unlock_card with the proper key
+                // XXX TODO XXX
+                match mlx_device::unlock_device(&dev_pci_name, &key) {
+                    Ok(()) => {
+                        let obs = MlxObservation {
+                            device_info: Some(dev.into()),
+                            lock_status: Some(LockStatus::Unlocked.into()),
+                            profile_name: None,
+                            profile_synced: None,
+                        };
+                        report.observations.push(obs);
+                    }
+                    Err(e) => {
+                        tracing::info!(
+                            "handle_mlxreport_actioni Error from unlock_device: {e} for dev: {:#?}",
+                            dev_pci_name
+                        );
+                    }
+                }
+            }
+        };
+    }
+
+    let req = PublishMlxObservationReportRequest {
+        report: Some(report),
+    };
+
+    // Now send the report back to Carbide
+    match mlx_device::publish_mlx_observation_report(config, req).await {
+        Ok(_resp) => (),
+        Err(e) => {
+            tracing::error!("Error from publish_mlx_observation_report {e}");
+        }
+    }
 }
 
 // Return the last 1500 bytes of the cloud-init-output.log file as a String

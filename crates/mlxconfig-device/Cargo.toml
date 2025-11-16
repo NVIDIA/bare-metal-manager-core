@@ -24,6 +24,7 @@ hostname = { workspace = true }
 mac_address = { features = ["serde"], workspace = true }
 carbide-rpc = { path = "../rpc" }
 prost-types = { workspace = true }
+carbide-uuid = { path = "../uuid" }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

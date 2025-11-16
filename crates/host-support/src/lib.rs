@@ -21,6 +21,7 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub mod agent_config;
+pub mod dpa_cmds;
 #[cfg(feature = "linux-build")]
 pub mod hardware_enumeration;
 pub mod registration;

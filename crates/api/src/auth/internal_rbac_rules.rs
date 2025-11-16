@@ -459,6 +459,10 @@ impl InternalRBACRules {
             "PublishMlxDeviceReport",
             vec![Agent, Scout, Machineatron, ForgeAdminCLI],
         );
+        x.perm(
+            "PublishMlxObservationReport",
+            vec![Agent, Scout, Machineatron, ForgeAdminCLI],
+        );
         x.perm("TrimTable", vec![ForgeAdminCLI]);
         x.perm("CreateRemediation", vec![ForgeAdminCLI]);
         x.perm("ApproveRemediation", vec![ForgeAdminCLI]);

@@ -52,6 +52,7 @@ impl From<MlxDeviceReport> for MlxDeviceReportPb {
             timestamp: Some(datetime_to_timestamp(report.timestamp)),
             devices: report.devices.into_iter().map(|d| d.into()).collect(),
             filters: report.filters.map(|f| f.into()),
+            machine_id: report.machine_id,
         }
     }
 }
@@ -80,6 +81,7 @@ impl TryFrom<MlxDeviceReportPb> for MlxDeviceReport {
             timestamp: timestamp_to_datetime(timestamp)?,
             devices: devices?,
             filters,
+            machine_id: proto.machine_id,
         })
     }
 }
@@ -321,6 +323,7 @@ mod tests {
             timestamp: Utc::now(),
             devices: vec![create_test_device(), create_test_device_with_missing_data()],
             filters: None,
+            machine_id: None,
         };
 
         let proto: MlxDeviceReportPb = original.clone().into();

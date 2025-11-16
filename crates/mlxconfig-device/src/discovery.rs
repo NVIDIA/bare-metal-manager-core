@@ -16,7 +16,7 @@ use std::str::FromStr;
 use mac_address::MacAddress;
 use quick_xml::de::from_str;
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::filters::DeviceFilter;
 use crate::info::MlxDeviceInfo;
@@ -111,8 +111,7 @@ pub fn discover_devices() -> Result<Vec<MlxDeviceInfo>, String> {
     }
 
     let xml_content = String::from_utf8_lossy(&output.stdout);
-    debug!("mlxfwmanager XML output: {}", xml_content);
-
+    warn!("mlxfwmanager XML output: {}", xml_content);
     parse_mlxfwmanager_xml(&xml_content)
 }
 

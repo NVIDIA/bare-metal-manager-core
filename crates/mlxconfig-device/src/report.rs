@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::forge_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +29,8 @@ pub struct MlxDeviceReport {
     // filters contains the filter set used to generate this report.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filters: Option<DeviceFilterSet>,
+
+    pub machine_id: Option<MachineId>,
 }
 
 impl Default for MlxDeviceReport {
@@ -49,6 +52,7 @@ impl MlxDeviceReport {
             timestamp: Utc::now(),
             devices: Vec::new(),
             filters: None,
+            machine_id: None,
         }
     }
 
