@@ -35,8 +35,8 @@ pub async fn persist(
     let state_version = ConfigVersion::initial();
     let state = DpaInterfaceControllerState::Provisioning;
 
-    let query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state)
-            VALUES ($1, $2, $3, $4, $5, $6) RETURNING row_to_json(dpa_interfaces.*)";
+    let query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING row_to_json(dpa_interfaces.*)";
 
     sqlx::query_as(query)
         .bind(value.machine_id.to_string())
@@ -45,6 +45,8 @@ pub async fn persist(
         .bind(sqlx::types::Json(&network_config))
         .bind(state_version)
         .bind(sqlx::types::Json(&state))
+        .bind(value.device_type)
+        .bind(value.pci_name)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -119,6 +121,21 @@ pub async fn find_by_mac_addr(
     Ok(results)
 }
 
+pub async fn update_card_state(
+    txn: &mut PgConnection,
+    value: DpaInterface,
+) -> Result<DpaInterfaceId, DatabaseError> {
+    let query = "UPDATE dpa_interfaces SET card_state = $1::json WHERE id = $2::uuid 
+                RETURNING id";
+
+    sqlx::query_as(query)
+        .bind(sqlx::types::Json(&value.card_state))
+        .bind(value.id.to_string())
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 // Used by the machine statemachine controller to find all DPAs associated with a given machine
 pub async fn find_by_machine_id(
     txn: &mut PgConnection,
@@ -163,6 +180,50 @@ pub async fn find_by_ids(
         .fetch_all(txn)
         .await
         .map_err(|err: sqlx::Error| DatabaseError::query(builder.sql(), err))
+}
+
+// Given a DPA Interface ID, return a vector of the DPA Interface structures
+// of all the DPAs in the same host machine.
+pub async fn get_dpas_in_machine(
+    txn: &mut PgConnection,
+    id: DpaInterfaceId,
+) -> Result<Vec<DpaInterface>, DatabaseError> {
+    // let query = "SELECT * row_to_json(m.*) from (select * from dpa_interfaces e
+    // deleted is NULL AND machine_id = (SELECT machine_id from dpa_interfaces WHERE id = $1)) m";
+    let query = "SELECT row_to_json(m)
+                        FROM dpa_interfaces m
+                        JOIN dpa_interfaces d ON d.id = $1
+                        WHERE m.deleted IS NULL
+                        AND m.machine_id = d.machine_id";
+
+    let results: Vec<DpaInterface> = {
+        sqlx::query_as(query)
+            .bind(id)
+            .fetch_all(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?
+    };
+
+    Ok(results)
+}
+
+// Return true if all the dpas in the same machine as the given dpa (self) are in the
+// same state. Return false otherwise.
+// Use this in places where we need to move the DPAs in lockstep (i.e. all the DPAs have
+// to be in the same state before we move to the next state).
+pub async fn all_dpa_states_in_sync(
+    value: &DpaInterface,
+    txn: &mut PgConnection,
+) -> Result<bool, DatabaseError> {
+    let dpas_vec = get_dpas_in_machine(txn, value.id).await?;
+
+    for dpa in &dpas_vec {
+        if dpa.controller_state.value != value.controller_state.value {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 /// Updates the dpa interface state that is owned by the state controller
@@ -353,6 +414,8 @@ mod test {
         let new_intf = NewDpaInterface {
             mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
             machine_id: id,
+            device_type: "Bluefield 3".to_string(),
+            pci_name: "5e:00.0".to_string(),
         };
 
         let intf = crate::dpa_interface::persist(new_intf, &mut txn).await?;

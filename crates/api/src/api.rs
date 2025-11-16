@@ -29,6 +29,7 @@ use forge_secrets::credentials::CredentialProvider;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use itertools::Itertools;
 use mlxconfig_device::report::MlxDeviceReport;
+use model::dpa_interface::NewDpaInterface;
 use model::firmware::DesiredFirmwareVersions;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
@@ -3151,6 +3152,7 @@ impl Forge for Api {
         }))
     }
 
+    // Scout is telling Carbide the mlx device configuration in its machine
     async fn publish_mlx_device_report(
         &self,
         request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
@@ -3160,6 +3162,13 @@ impl Forge for Api {
         // it from an RPC message back to an MlxDeviceReport, and drop it.
         log_request_data(&request);
         let req = request.into_inner();
+
+        if !self.runtime_config.is_dpa_enabled() {
+            return Ok(Response::new(
+                mlx_device_pb::PublishMlxDeviceReportResponse {},
+            ));
+        }
+
         if let Some(report_pb) = req.report {
             let report: MlxDeviceReport = report_pb
                 .try_into()
@@ -3169,11 +3178,78 @@ impl Forge for Api {
                 report.hostname,
                 report.devices.len(),
             );
+
+            // Without a machine_id, we can't create dpa interfaces
+            if report.machine_id.is_some() {
+                let mut spx_nics: i32 = 0;
+
+                let mid = report.machine_id.unwrap();
+
+                for dev in report.devices {
+                    // XXX TODO XXX
+                    // Change this to base device detection using part numbers rather
+                    // than device description.
+                    // XXX TODO XXX
+                    if dev.device_description.is_some() && dev.base_mac.is_some() {
+                        let descr = dev.device_description.unwrap();
+                        if descr.contains("SuperNIC") {
+                            spx_nics += 1;
+
+                            let mac = dev.base_mac.unwrap();
+                            let dpa_info = NewDpaInterface {
+                                machine_id: mid,
+                                mac_address: mac,
+                                device_type: dev.device_type,
+                                pci_name: dev.pci_name,
+                            };
+
+                            match crate::handlers::dpa::create_internal(self, dpa_info).await {
+                                Ok(dpa_out) => {
+                                    tracing::info!("created dpa: {:#?}", dpa_out);
+                                }
+                                Err(e) => {
+                                    tracing::info!("create dpa error: {:#?}", e);
+                                }
+                            }
+                        }
+                    } else {
+                        tracing::warn!("Missing part, device desc or mac: {:#?}", dev);
+                    }
+                }
+
+                tracing::info!(
+                    "spx nics count: {spx_nics} machine_id: {:#?}",
+                    report.machine_id
+                );
+            } else {
+                tracing::warn!("MlxDeviceReport without machine_id: {:#?}", report);
+            }
         } else {
             tracing::warn!("no embedded MlxDeviceReport published");
         }
         Ok(Response::new(
             mlx_device_pb::PublishMlxDeviceReportResponse {},
+        ))
+    }
+
+    // Scout is telling carbide the observed status (locking status, card mode) of the
+    // mlx devices in its host
+    async fn publish_mlx_observation_report(
+        &self,
+        request: tonic::Request<mlx_device_pb::PublishMlxObservationReportRequest>,
+    ) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
+        log_request_data(&request);
+
+        if !self.runtime_config.is_dpa_enabled() {
+            return Ok(Response::new(
+                mlx_device_pb::PublishMlxObservationReportResponse {},
+            ));
+        }
+
+        crate::handlers::dpa::process_mlx_observation(self, request).await?;
+
+        Ok(Response::new(
+            mlx_device_pb::PublishMlxObservationReportResponse {},
         ))
     }
 

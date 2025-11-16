@@ -12,8 +12,10 @@
 
 use ::rpc::protos::mlx_device::{
     MlxDeviceReport as MlxDeviceReportPb, PublishMlxDeviceReportRequest,
-    PublishMlxDeviceReportResponse,
+    PublishMlxDeviceReportResponse, PublishMlxObservationReportRequest,
+    PublishMlxObservationReportResponse,
 };
+use forge_uuid::machine::MachineId;
 use mlxconfig_device::discovery;
 use mlxconfig_device::report::MlxDeviceReport;
 use mlxconfig_lockdown::{LockStatus, LockdownManager, MlxResult, StatusReport};
@@ -31,9 +33,12 @@ use crate::client;
 // Mellanox device data from the machine, create a report, convert
 // it into the underlying protobuf type, and then return a request
 // instance to publish to carbide-api.
-pub fn create_device_report_request() -> Result<PublishMlxDeviceReportRequest, String> {
+pub fn create_device_report_request(
+    machine_id: MachineId,
+) -> Result<PublishMlxDeviceReportRequest, String> {
     tracing::info!("creating PublishMlxDeviceReportRequest");
-    let report = MlxDeviceReport::new().collect()?;
+    let mut report = MlxDeviceReport::new().collect()?;
+    report.machine_id = Some(machine_id);
     let report_pb: MlxDeviceReportPb = report.into();
     Ok(PublishMlxDeviceReportRequest {
         report: Some(report_pb),
@@ -62,13 +67,26 @@ pub async fn publish_mlx_device_report(
     Ok(response)
 }
 
+pub async fn publish_mlx_observation_report(
+    config: &Options,
+    req: PublishMlxObservationReportRequest,
+) -> CarbideClientResult<PublishMlxObservationReportResponse> {
+    tracing::info!("sending PublishMlxObservationReportRequest: {req:?}");
+    let request = tonic::Request::new(req);
+    let mut client = client::create_forge_client(config).await?;
+    let response = client
+        .publish_mlx_observation_report(request)
+        .await?
+        .into_inner();
+    Ok(response)
+}
+
 // lock_device locks a device with a provided key. The device_address
 // can either be a PCI address, or a /dev/mst/* path. Generally when
 // going through the automation, we'll end up using whatever comes in
 // via the mlx device reports, with the device info coming from
 // mlxfwmanager, so if mst is running, it will probably be an mst path.
 // BUT, even if mst is running, you can still provide a PCI address.
-#[allow(dead_code)]
 pub fn lock_device(device_address: &str, key: &str) -> MlxResult<()> {
     let manager = LockdownManager::new()?;
     manager.lock_device(device_address, key)?;
@@ -77,7 +95,6 @@ pub fn lock_device(device_address: &str, key: &str) -> MlxResult<()> {
 
 // unlock_device unlocks a device with a provided key. See above comments
 // in lock_device about the device_address argument formatting options.
-#[allow(dead_code)]
 pub fn unlock_device(device_address: &str, key: &str) -> MlxResult<()> {
     let manager = LockdownManager::new()?;
     manager.unlock_device(device_address, key)?;

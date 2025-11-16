@@ -218,6 +218,8 @@ message MlxDeviceReport {
   repeated MlxDeviceInfo devices = 3;
   // filters contains the filter set used to generate this report.
   optional DeviceFilterSet filters = 4;
+
+  common.MachineId machine_id = 5;
 }
 
 // MlxDeviceInfo represents detailed information about a Mellanox network device.
@@ -359,6 +361,36 @@ message SerializableMlxConfigProfile {
   // like a lot of extra work for something that is pretty well
   // wrapped and bounded by typing already.
   map<string, string> config = 4;
+}
+
+message MlxObservationReport {
+  common.MachineId machine_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  repeated MlxObservation observations = 3;
+}
+
+message MlxObservation {
+  MlxDeviceInfo device_info = 1;
+  optional LockStatus lock_status = 2;
+  optional string profile_name = 3;
+  optional bool profile_synced = 4;
+}
+
+// PublishMlxObservationReportRequest is sent by scout or the agent
+// into carbide-api so that we can both observe the current
+// state of the Mellanox devices (DPAs and DPUs), and potentially
+// decide to take action on them (instruct scout to update
+// firmware, configuration, etc).
+message PublishMlxObservationReportRequest {
+  MlxObservationReport report = 1;
+}
+
+// PublishMlxObservationReportResponse is returned by carbide-api
+// in response to a PublishMlxDeviceReportRequest. It currently
+// is actually just a placeholder response, but there's a good
+// chance it will soon contain actions to take based on the
+// observations made in the parent request.
+message PublishMlxObservationReportResponse {
 }
 
 // MlxAdminProfileSyncRequest is sent by an administrative

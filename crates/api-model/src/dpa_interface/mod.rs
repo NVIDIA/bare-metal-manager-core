@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::convert::TryFrom;
 use std::fmt::Display;
 use std::str::FromStr;
 
@@ -37,6 +38,12 @@ pub enum DpaInterfaceControllerState {
     Provisioning,
     /// The dpa interface is ready. It has been configured with a zero VNI
     Ready,
+    /// Unlock the card
+    Unlocking,
+    /// Apply mlx profile
+    ApplyProfile,
+    /// Lock the card
+    Locking,
     /// The VNI associated with the DPA interface is being set
     WaitingForSetVNI,
     /// The Dpa Interface has been configured with a non-zero VNI
@@ -94,17 +101,55 @@ impl Display for DpaInterfaceNetworkStatusObservation {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum DpaLockMode {
+    Unlocked,
+    Locked,
+}
+
+impl TryFrom<i32> for DpaLockMode {
+    type Error = &'static str;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(DpaLockMode::Locked),
+            2 => Ok(DpaLockMode::Locked),
+            _ => Err("Invalid value for DpaLockMode"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct CardState {
+    pub lockmode: Option<DpaLockMode>,
+    pub profile: Option<String>,
+    pub profile_synced: Option<bool>,
+}
+
+impl Display for CardState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
 /// Returns the SLA for the current state
+/// We can be in the Provisioning, Ready and Assigned states
+/// for a long time.
 pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVersion) -> StateSla {
     let time_in_state = chrono::Utc::now()
         .signed_duration_since(state_version.timestamp())
         .to_std()
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
     match state {
-        DpaInterfaceControllerState::Provisioning => {
-            StateSla::with_sla(slas::PROVISIONING, time_in_state)
-        }
+        DpaInterfaceControllerState::Provisioning => StateSla::no_sla(),
         DpaInterfaceControllerState::Ready => StateSla::no_sla(),
+        DpaInterfaceControllerState::Locking => StateSla::with_sla(slas::LOCKING, time_in_state),
+        DpaInterfaceControllerState::ApplyProfile => {
+            StateSla::with_sla(slas::APPLY_PROFILE, time_in_state)
+        }
+        DpaInterfaceControllerState::Unlocking => {
+            StateSla::with_sla(slas::UNLOCKING, time_in_state)
+        }
         DpaInterfaceControllerState::WaitingForSetVNI => {
             StateSla::with_sla(slas::WAITINGFORSETVNI, time_in_state)
         }
@@ -145,6 +190,7 @@ pub struct DpaInterface {
     pub machine_id: MachineId,
 
     pub mac_address: MacAddress,
+    pub pci_name: String,
 
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
@@ -161,6 +207,8 @@ pub struct DpaInterface {
     pub network_config: Versioned<DpaInterfaceNetworkConfig>,
     pub network_status_observation: Option<DpaInterfaceNetworkStatusObservation>,
 
+    pub card_state: Option<CardState>,
+
     pub history: Vec<DpaInterfaceStateHistory>,
 }
 
@@ -168,6 +216,8 @@ pub struct DpaInterface {
 pub struct NewDpaInterface {
     pub machine_id: MachineId,
     pub mac_address: MacAddress,
+    pub device_type: String,
+    pub pci_name: String,
 }
 
 impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
@@ -182,6 +232,8 @@ impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
         Ok(NewDpaInterface {
             machine_id,
             mac_address,
+            device_type: value.device_type,
+            pci_name: value.pci_name,
         })
     }
 }
@@ -195,6 +247,12 @@ impl DpaInterface {
         let dpa_expected_version = self.network_config.version;
         let dpa_observation = self.network_status_observation.as_ref();
 
+        if self.use_admin_network()
+            && self.controller_state.value == DpaInterfaceControllerState::Provisioning
+        {
+            return true;
+        }
+
         let dpa_observed_version: ConfigVersion = match dpa_observation {
             Some(network_status) => match network_status.network_config_version {
                 Some(version) => version,
@@ -204,6 +262,10 @@ impl DpaInterface {
         };
 
         dpa_expected_version == dpa_observed_version
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.controller_state.value == DpaInterfaceControllerState::Ready
     }
 }
 
@@ -228,6 +290,11 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
 
         let network_status_observation = match src.network_status_observation {
             Some(nso) => nso.to_string(),
+            None => "None".to_string(),
+        };
+
+        let cstate = match src.card_state {
+            Some(cs) => cs.to_string(),
             None => "None".to_string(),
         };
 
@@ -258,6 +325,8 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             controller_state_outcome: outcome,
             network_status_observation,
             history,
+            card_state: cstate,
+            pci_name: src.pci_name,
         }
     }
 }
@@ -302,6 +371,8 @@ pub struct DpaInterfaceSnapshotPgJson {
     pub network_config: DpaInterfaceNetworkConfig,
     pub network_config_version: String,
     pub network_status_observation: Option<DpaInterfaceNetworkStatusObservation>,
+    pub card_state: Option<CardState>,
+    pub pci_name: String,
     #[serde(default)]
     pub history: Vec<DpaInterfaceStateHistory>,
 }
@@ -338,7 +409,9 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
                 })?,
             },
             network_status_observation: value.network_status_observation,
+            card_state: value.card_state,
             history: value.history,
+            pci_name: value.pci_name,
         })
     }
 }

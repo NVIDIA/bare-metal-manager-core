@@ -18,6 +18,7 @@ use chrono::{Duration, TimeDelta};
 use db::dpa_interface::get_dpa_vni;
 use eyre::eyre;
 use forge_uuid::dpa_interface::DpaInterfaceId;
+use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
 use model::resource_pool::ResourcePool;
 use mqttea::MqtteaClient;
@@ -75,10 +76,18 @@ impl StateHandler for DpaInterfaceStateHandler {
 
         match controller_state {
             DpaInterfaceControllerState::Provisioning => {
+                // New DPA objects start off in the Provisioning state.
+                // They stay in that state until the first time the machine
+                // starts a transition from Ready to Assigned state.
+                if state.use_admin_network() {
+                    return Ok(StateHandlerOutcome::do_nothing());
+                }
+
                 let new_state = DpaInterfaceControllerState::Ready;
                 tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                Ok(StateHandlerOutcome::transition(new_state))
+                return Ok(StateHandlerOutcome::transition(new_state));
             }
+
             DpaInterfaceControllerState::Ready => {
                 // We will stay in Ready state as long use_admin_network is true.
                 // When an instance is created from this host, use_admin_network
@@ -91,16 +100,8 @@ impl StateHandler for DpaInterfaceStateHandler {
                     })?;
 
                 if !state.use_admin_network() {
-                    let new_state = DpaInterfaceControllerState::WaitingForSetVNI;
+                    let new_state = DpaInterfaceControllerState::Unlocking;
                     tracing::info!(state = ?new_state, "Dpa Interface state transition");
-
-                    // send the SetVni command
-                    send_set_vni_command(
-                        state, txn, client, true,  /* needs_vni */
-                        false, /* not a heartbeat */
-                        true,  /* send revision */
-                    )
-                    .await?;
 
                     Ok(StateHandlerOutcome::transition(new_state))
                 } else {
@@ -109,11 +110,79 @@ impl StateHandler for DpaInterfaceStateHandler {
                     Ok(StateHandlerOutcome::do_nothing())
                 }
             }
+
+            DpaInterfaceControllerState::Unlocking => {
+                // Once we reach Unlocking state, we would have replied to
+                // ForgeAgentControl requests from scout with a reply indicating
+                // that it should unlock the card. The scout does the action, and
+                // publishes an observation indicating the lock status. That causes
+                // us to update the card state in the DB. If card_state is none, that
+                // means this sequence has not yet taken place. So we just wait.
+                if state.card_state.is_none() {
+                    tracing::info!("card_state none for dpa: {:#?}", state.id);
+                    return Ok(StateHandlerOutcome::wait(
+                        "Waiting for card to get unlocked".to_string(),
+                    ));
+                }
+                let cs = state.card_state.clone().unwrap();
+                if cs.lockmode.is_some() {
+                    let lm = cs.lockmode.unwrap();
+                    if lm == Unlocked {
+                        let new_state = DpaInterfaceControllerState::ApplyProfile;
+                        tracing::info!(state = ?new_state, "Dpa Interface state transition");
+                        return Ok(StateHandlerOutcome::transition(new_state));
+                    }
+                }
+                Ok(StateHandlerOutcome::wait(
+                    "Waiting for card to get unlocked".to_string(),
+                ))
+            }
+
+            DpaInterfaceControllerState::ApplyProfile => {
+                if state.card_state.is_none() {
+                    // Card should be in unlocked state when we come here. So we do
+                    // expect card_state to be not NONE.
+                    tracing::error!("Unexpected - card_state none for dpa: {:#?}", state.id);
+                    return Ok(StateHandlerOutcome::do_nothing());
+                }
+                let cs = state.card_state.clone().unwrap();
+                if cs.profile.is_some() && cs.profile_synced.is_some() {
+                    let psynced = cs.profile_synced.unwrap();
+                    if psynced {
+                        let new_state = DpaInterfaceControllerState::Locking;
+                        tracing::info!(state = ?new_state, "Dpa Interface state transition");
+                        return Ok(StateHandlerOutcome::transition(new_state));
+                    }
+                }
+                Ok(StateHandlerOutcome::wait(
+                    "Waiting for profile to be applied on card".to_string(),
+                ))
+            }
+            DpaInterfaceControllerState::Locking => {
+                if state.card_state.is_none() {
+                    tracing::error!("Unexpected - card_state none for dpa: {:#?}", state.id);
+                    return Ok(StateHandlerOutcome::do_nothing());
+                }
+                let cs = state.card_state.clone().unwrap();
+                if cs.lockmode.is_some() {
+                    let lm = cs.lockmode.unwrap();
+                    if lm == Locked {
+                        let new_state = DpaInterfaceControllerState::WaitingForSetVNI;
+                        tracing::info!(state = ?new_state, "Dpa Interface state transition");
+                        return Ok(StateHandlerOutcome::transition(new_state));
+                    }
+                }
+                Ok(StateHandlerOutcome::wait(
+                    "Waiting for card to get locked".to_string(),
+                ))
+            }
+
             DpaInterfaceControllerState::WaitingForSetVNI => {
                 // When we are in the WaitingForSetVNI state, we are have sent a SetVNI command
                 // to the DPA Interface Card. We are waiting for an ACK for that command.
                 // When the ack shows up, the network_config_version and the network_status_observation
                 // will match.
+
                 if !state.managed_host_network_config_version_synced() {
                     tracing::debug!("DPA interface found in WaitingForSetVNI state");
 
@@ -163,6 +232,7 @@ impl StateHandler for DpaInterfaceStateHandler {
                 // to the DPA Interface Card. We are waiting for an ACK for that command.
                 // When the ack shows up, the network_config_version and the network_status_observation
                 // will match.
+
                 if !state.managed_host_network_config_version_synced() {
                     tracing::debug!("DPA interface found in WaitingForResetVNI state");
                     let client = ctx.services.mqtt_client.clone().ok_or_else(|| {

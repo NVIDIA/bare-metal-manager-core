@@ -302,9 +302,13 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
     // Run network state machine handler here.
     env.run_network_segment_controller_iteration().await;
 
-    // - zero run: state controller moves state to WaitingForNetworkSegmentToBeReady
+    // - zero run: state controller moves state to DpaProvisioning
     env.run_machine_state_controller_iteration().await;
-    // - first run: state controller moves state to WaitingForNetworkConfig
+    // - first run: state controller moves state to WaitingForDpaToBeReady
+    env.run_machine_state_controller_iteration().await;
+    // - second run: state controller moves state to WaitingForNetworkSegmentToBeReady
+    env.run_machine_state_controller_iteration().await;
+    // - third run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration().await;
     assert_eq!(
         mh.host().rpc_machine().await.state,

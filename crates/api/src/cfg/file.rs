@@ -400,6 +400,15 @@ impl CarbideConfig {
         }
     }
 
+    // Given a device_type, return the profile that needs to be applied
+    // to configure the DPA.
+    pub fn get_dpa_profile(&self, _device_type: String) -> String {
+        // XXX TODO XXX
+        // Figure out profie that needs to be applied to the given device type
+        // XXX TODO XXX
+        "bf3-spx-enabled".to_string()
+    }
+
     pub fn max_concurrent_machine_updates(&self) -> MaxConcurrentUpdates {
         MaxConcurrentUpdates {
             absolute: self.machine_updater.max_concurrent_machine_updates_absolute,
