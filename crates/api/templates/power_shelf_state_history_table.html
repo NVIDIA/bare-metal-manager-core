@@ -1,0 +1,31 @@
+<div class="card">
+    <div class="card-header">
+        <h5 class="card-title mb-0">State History</h5>
+    </div>
+    <div class="card-body">
+        {% if !records.is_empty() %}
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                <tr>
+                    <th>Event</th>
+                    <th>Version</th>
+                    <th>Time</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for record in records %}
+                <tr>
+                    <td>{{ record.event }}</td>
+                    <td>{{ record.version }}</td>
+                    <td>{{ record.time }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No state history available for this power shelf.</p>
+        {% endif %}
+    </div>
+</div>
