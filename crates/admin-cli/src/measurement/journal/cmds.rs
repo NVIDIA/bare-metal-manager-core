@@ -92,11 +92,7 @@ pub async fn delete(
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .delete_measurement_journal(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.delete_measurement_journal(request).await?;
 
     MeasurementJournal::from_grpc(response.journal.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -129,11 +125,7 @@ pub async fn show_by_id(
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .show_measurement_journal(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.show_measurement_journal(request).await?;
 
     MeasurementJournal::from_grpc(response.journal.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -150,8 +142,7 @@ pub async fn show_all(
         grpc_conn
             .0
             .show_measurement_journals()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .journals
             .drain(..)
             .map(|journal| {
@@ -184,8 +175,7 @@ pub async fn list(
         grpc_conn
             .0
             .list_measurement_journal(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .journals
             .drain(..)
             .map(|journal| {

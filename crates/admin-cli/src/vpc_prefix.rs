@@ -121,12 +121,11 @@ async fn create(
         name,
         vpc_id: Some(vpc_id),
     };
-    api_client
+    Ok(api_client
         .0
         .create_vpc_prefix(new_prefix)
         .await
-        .map(ShowOutput::One)
-        .map_err(CarbideCliError::ApiInvocationError)
+        .map(ShowOutput::One)?)
 }
 
 async fn delete(
@@ -137,11 +136,7 @@ async fn delete(
     let delete_prefix = VpcPrefixDeletionRequest {
         id: Some(vpc_prefix_id),
     };
-    api_client
-        .0
-        .delete_vpc_prefix(delete_prefix)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    api_client.0.delete_vpc_prefix(delete_prefix).await?;
     Ok(())
 }
 
@@ -165,12 +160,11 @@ async fn search(
     api_client: &ApiClient,
     query: VpcPrefixSearchQuery,
 ) -> Result<Vec<VpcPrefixId>, CarbideCliError> {
-    api_client
+    Ok(api_client
         .0
         .search_vpc_prefixes(query)
         .await
-        .map(|response| response.vpc_prefix_ids)
-        .map_err(CarbideCliError::ApiInvocationError)
+        .map(|response| response.vpc_prefix_ids)?)
 }
 
 async fn get_by_ids(
@@ -187,8 +181,7 @@ async fn get_by_ids(
             .0
             .get_vpc_prefixes(vpc_id_list)
             .await
-            .map(|response| response.vpc_prefixes)
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map(|response| response.vpc_prefixes)?;
         vpc_prefixes.extend(prefixes_batch);
     }
     Ok(vpc_prefixes)

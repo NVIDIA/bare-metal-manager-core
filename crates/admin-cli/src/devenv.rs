@@ -128,8 +128,7 @@ async fn handle_overlay_vpc_prefix_creation(
             .0
             .search_vpc_prefixes(query)
             .await
-            .map(|response| response.vpc_prefix_ids)
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map(|response| response.vpc_prefix_ids)?;
 
         if let Some(prefix) = vpc_prefix_ids.first() {
             // We found prefix with same config.
@@ -143,11 +142,7 @@ async fn handle_overlay_vpc_prefix_creation(
             name: vpc_prefix_name,
             vpc_id: vpc.id,
         };
-        let vpc_prefix = api_client
-            .0
-            .create_vpc_prefix(new_prefix)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        let vpc_prefix = api_client.0.create_vpc_prefix(new_prefix).await?;
 
         println!(
             "Created Vpc prefix {}, name: {} for network {network}.",

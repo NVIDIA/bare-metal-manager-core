@@ -140,11 +140,7 @@ pub async fn create_for_id(
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .create_measurement_bundle(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.create_measurement_bundle(request).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -160,11 +156,7 @@ pub async fn delete(grpc_conn: &ApiClient, delete: &Delete) -> CarbideCliResult<
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .delete_measurement_bundle(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.delete_measurement_bundle(request).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -201,11 +193,7 @@ pub async fn rename(grpc_conn: &ApiClient, rename: &Rename) -> CarbideCliResult<
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .rename_measurement_bundle(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.rename_measurement_bundle(request).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -249,11 +237,7 @@ pub async fn set_state(
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .update_measurement_bundle(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.update_measurement_bundle(request).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -297,11 +281,7 @@ pub async fn show_by_id_or_name(
     let request = ShowMeasurementBundleRequest { selector };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .show_measurement_bundle(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.show_measurement_bundle(request).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -316,8 +296,7 @@ pub async fn show_all(
         grpc_conn
             .0
             .show_measurement_bundles()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .bundles
             .iter()
             .map(|bundle| {
@@ -334,8 +313,7 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRe
         grpc_conn
             .0
             .list_measurement_bundles()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .bundles
             .iter()
             .map(|rec| {
@@ -386,8 +364,7 @@ pub async fn list_machines(
         grpc_conn
             .0
             .list_measurement_bundle_machines(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .machine_ids
             .iter()
             .map(|rec| {
@@ -411,11 +388,7 @@ pub async fn find_closest_match(
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .find_closest_bundle_match(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.find_closest_bundle_match(request).await?;
 
     if response.bundle.is_none() {
         return Ok(None);
