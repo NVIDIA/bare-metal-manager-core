@@ -23,7 +23,9 @@ use axum::routing::{get, patch, post};
 use http_body_util::BodyExt;
 use lazy_static::lazy_static;
 use libredfish::model::software_inventory::SoftwareInventory;
-use libredfish::model::{BootOption, ComputerSystem, ODataId};
+use libredfish::model::{
+    BootOption, ComputerSystem, ODataId, ResourceHealth, ResourceState, ResourceStatus,
+};
 use libredfish::{Chassis, NetworkAdapter, OData, PCIeDevice};
 use mac_address::MacAddress;
 use regex::{Captures, Regex};
@@ -430,8 +432,8 @@ async fn get_chassis_network_adapter(
             },
             ports: None,
             network_device_functions: None,
-            name: None,
-            status: None,
+            name: Some("Network Adapter".into()),
+            status: Some(resource_status_ok()),
             controllers: None,
         };
         Ok(Bytes::from(serde_json::to_string(&adapter)?))
@@ -463,8 +465,8 @@ async fn get_chassis_network_adapter(
                     &chassis_id, network_adapter_id
                 ),
             }),
-            name: None,
-            status: None,
+            name: Some("Network Adapter".into()),
+            status: Some(resource_status_ok()),
             controllers: None,
         };
         Ok(Bytes::from(serde_json::to_string(&adapter)?))
@@ -1245,5 +1247,13 @@ fn json_patch(target: &mut serde_json::Value, patch: serde_json::Value) {
             }
         }
         (target_slot, v_patch) => *target_slot = v_patch,
+    }
+}
+
+fn resource_status_ok() -> ResourceStatus {
+    ResourceStatus {
+        health: Some(ResourceHealth::Ok),
+        health_rollup: None,
+        state: Some(ResourceState::Enabled),
     }
 }
