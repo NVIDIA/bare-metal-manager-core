@@ -75,3 +75,10 @@ variables:
       config:
         size: 16
         options: [ "DEVICE_DEFAULT", "EMBEDDED_CPU", "HOST_0", "HOST_1", "HOST_2", "HOST_3", "HOST_4", "HOST_5", "HOST_6", "HOST_7" ]
+  - name: "ROCE_CC_STEERING_EXT"
+    description: "Defines CC extension for packet steering"
+    read_only: false
+    spec:
+      type: "enum"
+      config:
+        options: [ "DEVICE_DEFAULT", "DISABLED", "ENABLED" ]
