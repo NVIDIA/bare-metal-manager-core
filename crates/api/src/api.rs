@@ -21,7 +21,6 @@ pub use ::rpc::forge as rpc;
 use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use chrono::TimeZone;
-use db::machine::{self};
 use db::network_devices::NetworkDeviceSearchConfig;
 use db::{DatabaseError, ObjectFilter};
 use forge_secrets::certificates::CertificateProvider;
@@ -1181,92 +1180,15 @@ impl Forge for Api {
         &self,
         request: Request<rpc::HostReprovisioningRequest>,
     ) -> Result<Response<()>, Status> {
-        use ::rpc::forge::host_reprovisioning_request::Mode;
-
-        log_request_data(&request);
-        let req = request.into_inner();
-        let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
-
-        let mut txn = self.txn_begin("trigger_host_reprovisioning").await?;
-
-        let snapshot =
-            db::managed_host::load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
-                .await?
-                .ok_or(CarbideError::NotFoundError {
-                    kind: "machine",
-                    id: machine_id.to_string(),
-                })?;
-
-        if let Some(request) = snapshot.host_snapshot.reprovision_requested
-            && request.started_at.is_some()
-        {
-            return Err(
-                CarbideError::internal("Reprovisioning is already started.".to_string()).into(),
-            );
-        }
-
-        match req.mode() {
-            Mode::Set => {
-                let initiator = req.initiator().as_str_name();
-                db::host_machine_update::trigger_host_reprovisioning_request(
-                    &mut txn,
-                    initiator,
-                    &machine_id,
-                )
-                .await?;
-            }
-            Mode::Clear => {
-                db::host_machine_update::clear_host_reprovisioning_request(&mut txn, &machine_id)
-                    .await?;
-            }
-        }
-
-        txn.commit().await?;
-
-        Ok(Response::new(()))
+        crate::handlers::host_reprovisioning::trigger_host_reprovisioning(self, request).await
     }
 
     async fn list_hosts_waiting_for_reprovisioning(
         &self,
         request: Request<rpc::HostReprovisioningListRequest>,
     ) -> Result<Response<rpc::HostReprovisioningListResponse>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self
-            .txn_begin("list_hosts_waiting_for_reprovisioning")
-            .await?;
-
-        let hosts = db::machine::list_machines_requested_for_host_reprovisioning(&mut txn)
-            .await?
-            .into_iter()
-            .map(
-                |x| rpc::host_reprovisioning_list_response::HostReprovisioningListItem {
-                    id: Some(x.id),
-                    state: x.current_state().to_string(),
-                    requested_at: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.requested_at.into()),
-                    initiator: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.initiator.clone())
-                        .unwrap_or_default(),
-                    initiated_at: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.started_at.map(|x| x.into()))
-                        .unwrap_or_default(),
-                    user_approval_received: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|x| x.user_approval_received)
-                        .unwrap_or_default(),
-                },
-            )
-            .collect_vec();
-
-        Ok(Response::new(rpc::HostReprovisioningListResponse { hosts }))
+        crate::handlers::host_reprovisioning::list_hosts_waiting_for_reprovisioning(self, request)
+            .await
     }
 
     /// Retrieves all DPU information including id and loopback IP
@@ -1558,112 +1480,14 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ClearHostUefiPasswordRequest>,
     ) -> Result<Response<rpc::ClearHostUefiPasswordResponse>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("clear_host_uefi_password").await?;
-
-        let request = request.into_inner();
-        let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
-
-        if !machine_id.machine_type().is_host() {
-            return Err(Status::invalid_argument(
-                "Carbide only supports clearing the UEFI password on discovered hosts",
-            ));
-        }
-
-        let snapshot = db::managed_host::load_snapshot(
-            &mut txn,
-            &machine_id,
-            LoadSnapshotOptions {
-                include_history: false,
-                include_instance_data: false,
-                host_health_config: self.runtime_config.host_health,
-            },
-        )
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
-
-        let redfish_client = self
-            .redfish_pool
-            .create_client_from_machine(&snapshot.host_snapshot, &mut txn)
-            .await
-            .map_err(|e| {
-                tracing::error!("unable to create redfish client: {}", e);
-                Status::internal(format!(
-                    "Could not create connection to Redfish API to {machine_id}, check logs"
-                ))
-            })?;
-
-        let job_id: Option<String> = crate::redfish::clear_host_uefi_password(
-            redfish_client.as_ref(),
-            self.redfish_pool.clone(),
-        )
-        .await?;
-
-        Ok(Response::new(rpc::ClearHostUefiPasswordResponse { job_id }))
+        crate::handlers::uefi::clear_host_uefi_password(self, request).await
     }
 
     async fn set_host_uefi_password(
         &self,
         request: Request<rpc::SetHostUefiPasswordRequest>,
     ) -> Result<Response<rpc::SetHostUefiPasswordResponse>, Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-        let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
-
-        if !machine_id.machine_type().is_host() {
-            return Err(Status::invalid_argument(
-                "Carbide only supports setting the UEFI password on discovered hosts",
-            ));
-        }
-
-        let mut txn = self.txn_begin("set_host_uefi_password").await?;
-
-        let snapshot = db::managed_host::load_snapshot(
-            &mut txn,
-            &machine_id,
-            LoadSnapshotOptions {
-                include_history: false,
-                include_instance_data: false,
-                host_health_config: self.runtime_config.host_health,
-            },
-        )
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
-
-        let redfish_client = self
-            .redfish_pool
-            .create_client_from_machine(&snapshot.host_snapshot, &mut txn)
-            .await
-            .map_err(|e| {
-                tracing::error!("unable to create redfish client: {}", e);
-                Status::internal(format!(
-                    "Could not create connection to Redfish API to {machine_id}, check logs"
-                ))
-            })?;
-
-        let job_id = crate::redfish::set_host_uefi_password(
-            redfish_client.as_ref(),
-            self.redfish_pool.clone(),
-        )
-        .await?;
-
-        machine::update_bios_password_set_time(&machine_id, &mut txn)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to update bios_password_set_time: {}", e);
-                Status::internal(format!("Failed to update BIOS password timestamp: {e}"))
-            })?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
+        crate::handlers::uefi::set_host_uefi_password(self, request).await
     }
 
     async fn get_expected_machine(
@@ -2940,16 +2764,7 @@ impl Forge for Api {
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-        let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
-
-        let mut txn = self.txn_begin("reset_host_reprovisioning").await?;
-
-        db::host_machine_update::reset_host_reprovisioning_request(&mut txn, &machine_id, false)
-            .await?;
-        txn.commit().await?;
-
-        Ok(Response::new(()))
+        crate::handlers::host_reprovisioning::reset_host_reprovisioning(self, request).await
     }
 
     async fn copy_bfb_to_dpu_rshim(
