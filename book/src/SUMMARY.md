@@ -13,6 +13,15 @@
 - [State Machines]()
     - [Managed Host](architecture/state_machines/managedhost.md)
 
+# Manuals
+
+- [Ingesting Machines](manuals/ingesting_machines.md)
+- [Removing Machines](manuals/removing_machines.md)
+- [Updating Machines](manuals/machine_updates.md)
+- [Machine Validation](manuals/machine_validation.md)
+- [SKU Validation](manuals/sku_validation.md)
+- [Release Instance API Enhancements](manuals/breakfix_integration.md)
+
 # Sites and site access
 
 - [forge-admin-cli access](sites/forge_admin_cli.md)
@@ -61,15 +70,6 @@
     - [OneCLI](playbooks/hardware/onecli.md)
     - [Getting Support](playbooks/hardware/getsupport.md)
     - [Desired Firmware Version](desired_firmware.md)
-
-# Machine Validation
-
-- [Machine Validation](machine_validation/machine_validation.md)
-- [SKU Validation](machine_validation/sku_validation.md)
-
-# Breakfix Integration
-
-- [Release Instance API Enhancements](breakfix_integration/breakfix_integration.md)
 
 # Glossary
 
