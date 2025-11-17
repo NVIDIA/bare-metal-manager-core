@@ -739,6 +739,8 @@ impl ApiClient {
         metadata: ::rpc::forge::Metadata,
         sku_id: Option<String>,
         id: Option<String>,
+        host_nics: Vec<::rpc::forge::ExpectedHostNic>,
+        rack_id: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
@@ -749,8 +751,8 @@ impl ApiClient {
             metadata: Some(metadata),
             sku_id,
             id: id.map(|s| ::rpc::common::Uuid { value: s }),
-            host_nics: vec![],
-            rack_id: None,
+            host_nics,
+            rack_id,
         };
 
         self.0
@@ -826,12 +828,124 @@ impl ApiClient {
             metadata: merged_metadata,
             sku_id,
             id: expected_machine.id,
-            host_nics: vec![],
-            rack_id: None,
+            host_nics: expected_machine.host_nics,
+            rack_id: expected_machine.rack_id,
         };
 
         self.0
             .update_expected_machine(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_expected_power_shelf(
+        &self,
+        bmc_mac_address: MacAddress,
+        bmc_username: String,
+        bmc_password: String,
+        shelf_serial_number: String,
+        metadata: ::rpc::forge::Metadata,
+        rack_id: Option<String>,
+        ip_address: Option<String>,
+    ) -> Result<(), CarbideCliError> {
+        let request = rpc::ExpectedPowerShelf {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username,
+            bmc_password,
+            shelf_serial_number,
+            ip_address: ip_address.unwrap_or_default(),
+            metadata: Some(metadata),
+            rack_id,
+        };
+        self.0
+            .add_expected_power_shelf(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_expected_switch(
+        &self,
+        bmc_mac_address: MacAddress,
+        bmc_username: String,
+        bmc_password: String,
+        switch_serial_number: String,
+        metadata: ::rpc::forge::Metadata,
+        rack_id: Option<String>,
+    ) -> Result<(), CarbideCliError> {
+        let request = rpc::ExpectedSwitch {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username,
+            bmc_password,
+            switch_serial_number,
+            metadata: Some(metadata),
+            rack_id,
+        };
+        self.0
+            .add_expected_switch(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_expected_power_shelf(
+        &self,
+        bmc_mac_address: MacAddress,
+        bmc_username: Option<String>,
+        bmc_password: Option<String>,
+        shelf_serial_number: Option<String>,
+        metadata: ::rpc::forge::Metadata,
+        rack_id: Option<String>,
+        ip_address: Option<String>,
+    ) -> Result<(), CarbideCliError> {
+        let expected_power_shelf = self
+            .0
+            .get_expected_power_shelf(bmc_mac_address.to_string())
+            .await?;
+        let request = rpc::ExpectedPowerShelf {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username: bmc_username.unwrap_or(expected_power_shelf.bmc_username),
+            bmc_password: bmc_password.unwrap_or(expected_power_shelf.bmc_password),
+            shelf_serial_number: shelf_serial_number
+                .unwrap_or(expected_power_shelf.shelf_serial_number),
+            metadata: Some(metadata),
+            ip_address: ip_address.unwrap_or(expected_power_shelf.ip_address),
+            rack_id,
+        };
+
+        self.0
+            .update_expected_power_shelf(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_expected_switch(
+        &self,
+        bmc_mac_address: MacAddress,
+        bmc_username: Option<String>,
+        bmc_password: Option<String>,
+        switch_serial_number: Option<String>,
+        metadata: ::rpc::forge::Metadata,
+        rack_id: Option<String>,
+    ) -> Result<(), CarbideCliError> {
+        let expected_switch = self
+            .0
+            .get_expected_switch(bmc_mac_address.to_string())
+            .await?;
+        let request = rpc::ExpectedSwitch {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username: bmc_username.unwrap_or(expected_switch.bmc_username),
+            bmc_password: bmc_password.unwrap_or(expected_switch.bmc_password),
+            switch_serial_number: switch_serial_number
+                .unwrap_or(expected_switch.switch_serial_number),
+            metadata: Some(metadata),
+            rack_id,
+        };
+
+        self.0
+            .update_expected_switch(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }
@@ -854,14 +968,61 @@ impl ApiClient {
                         .unwrap_or_default(),
                     metadata: machine.metadata,
                     sku_id: machine.sku_id,
-                    host_nics: vec![],
-                    rack_id: None,
+                    host_nics: machine.host_nics,
+                    rack_id: machine.rack_id,
                 })
                 .collect(),
         };
 
         self.0
             .replace_all_expected_machines(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn replace_all_expected_power_shelves(
+        &self,
+        expected_power_shelf_list: Vec<cli_options::ExpectedPowerShelfJson>,
+    ) -> Result<(), CarbideCliError> {
+        let request = rpc::ExpectedPowerShelfList {
+            expected_power_shelves: expected_power_shelf_list
+                .into_iter()
+                .map(|power_shelf| rpc::ExpectedPowerShelf {
+                    bmc_mac_address: power_shelf.bmc_mac_address.to_string(),
+                    bmc_username: power_shelf.bmc_username,
+                    bmc_password: power_shelf.bmc_password,
+                    shelf_serial_number: power_shelf.shelf_serial_number,
+                    ip_address: power_shelf.ip_address.unwrap_or_default(),
+                    metadata: power_shelf.metadata,
+                    rack_id: power_shelf.rack_id,
+                })
+                .collect(),
+        };
+        self.0
+            .replace_all_expected_power_shelves(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn replace_all_expected_switches(
+        &self,
+        expected_switch_list: Vec<cli_options::ExpectedSwitchJson>,
+    ) -> Result<(), CarbideCliError> {
+        let request = rpc::ExpectedSwitchList {
+            expected_switches: expected_switch_list
+                .into_iter()
+                .map(|switch| rpc::ExpectedSwitch {
+                    bmc_mac_address: switch.bmc_mac_address.to_string(),
+                    bmc_username: switch.bmc_username,
+                    bmc_password: switch.bmc_password,
+                    switch_serial_number: switch.switch_serial_number,
+                    metadata: switch.metadata,
+                    rack_id: switch.rack_id,
+                })
+                .collect(),
+        };
+        self.0
+            .replace_all_expected_switches(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }

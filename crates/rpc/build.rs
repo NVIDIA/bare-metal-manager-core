@@ -36,7 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.MachineInterfaceId", "::forge_uuid::machine::MachineInterfaceId")
         .extern_path(".common.NetworkPrefixId", "::forge_uuid::network::NetworkPrefixId")
         .extern_path(".common.NetworkSegmentId", "::forge_uuid::network::NetworkSegmentId")
+        .extern_path(".common.PowerShelfId", "::forge_uuid::power_shelf::PowerShelfId")
         .extern_path(".common.RemediationId", "forge_uuid::dpu_remediations::RemediationId")
+        .extern_path(".common.SwitchId", "::forge_uuid::switch::SwitchId")
         .extern_path(".common.VpcId", "::forge_uuid::vpc::VpcId")
         .extern_path(".common.VpcPeeringId", "::forge_uuid::vpc_peering::VpcPeeringId")
         .extern_path(".common.VpcPrefixId", "::forge_uuid::vpc::VpcPrefixId")
@@ -661,6 +663,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(Ord, PartialOrd)]",
         )
         .type_attribute(
+            "common.PowerShelfId",
+            "#[derive(Ord, PartialOrd)]",
+        )
+        .type_attribute(
+            "common.SwitchId",
+            "#[derive(Ord, PartialOrd)]",
+        )
+        .type_attribute(
             "common.RemediationId",
             "#[derive(serde::Serialize, serde::Deserialize, Ord, PartialOrd)]",
         )
@@ -735,6 +745,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 ".common.NetworkPrefixId",
                 "::forge_uuid::network::NetworkPrefixId",
+            ),
+            (".common.SwitchId", "::forge_uuid::switch::SwitchId"),
+            (
+                ".common.PowerShelfId",
+                "::forge_uuid::power_shelf::PowerShelfId",
             ),
             (
                 ".measured_boot.MeasurementSystemProfileId",

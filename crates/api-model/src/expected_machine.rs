@@ -41,7 +41,7 @@ pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     #[serde(flatten)]
     pub data: ExpectedMachineData,
-
+    #[serde(default)]
     pub host_nics: Vec<ExpectedHostNic>,
     pub rack_id: Option<String>,
 }
