@@ -94,10 +94,7 @@ impl ApiClient {
         id: Option<String>,
     ) -> CarbideCliResult<rpc::NetworkTopologyData> {
         let request = rpc::NetworkTopologyRequest { id };
-        self.0
-            .get_network_topology(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.get_network_topology(request).await?)
     }
 
     pub async fn get_all_machines(
@@ -299,10 +296,7 @@ impl ApiClient {
                 })
             },
         };
-        self.0
-            .find_instance_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_instance_ids(request).await?)
     }
 
     pub async fn get_all_segments(
@@ -344,10 +338,7 @@ impl ApiClient {
             tenant_org_id,
             name,
         };
-        self.0
-            .find_network_segment_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_network_segment_ids(request).await?)
     }
 
     async fn get_segments_by_ids(
@@ -359,10 +350,7 @@ impl ApiClient {
             include_history: network_segments_ids.len() == 1, // only request it when getting data for single resource
             include_num_free_ips: true,
         };
-        self.0
-            .find_network_segments_by_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_network_segments_by_ids(request).await?)
     }
 
     pub async fn get_domains(
@@ -370,10 +358,7 @@ impl ApiClient {
         id: Option<::forge_uuid::domain::DomainId>,
     ) -> CarbideCliResult<rpc::DomainList> {
         let request = rpc::DomainSearchQuery { id, name: None };
-        self.0
-            .find_domain(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_domain(request).await?)
     }
 
     pub async fn machine_insert_health_report_override(
@@ -393,10 +378,7 @@ impl ApiClient {
                 } as i32,
             }),
         };
-        self.0
-            .insert_health_report_override(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.insert_health_report_override(request).await?)
     }
 
     pub async fn machine_remove_health_report_override(
@@ -408,10 +390,7 @@ impl ApiClient {
             machine_id: Some(id),
             source,
         };
-        self.0
-            .remove_health_report_override(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.remove_health_report_override(request).await?)
     }
 
     pub async fn machine_admin_force_delete(
@@ -424,10 +403,7 @@ impl ApiClient {
             delete_bmc_interfaces: query.delete_bmc_interfaces,
             delete_bmc_credentials: query.delete_bmc_credentials,
         };
-        self.0
-            .admin_force_delete_machine(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.admin_force_delete_machine(request).await?)
     }
 
     pub async fn trigger_dpu_reprovisioning(
@@ -443,10 +419,7 @@ impl ApiClient {
             initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
             update_firmware,
         };
-        self.0
-            .trigger_dpu_reprovisioning(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.trigger_dpu_reprovisioning(request).await?)
     }
 
     pub async fn trigger_host_reprovisioning(
@@ -486,10 +459,7 @@ impl ApiClient {
             custom_user_data,
         };
 
-        self.0
-            .set_machine_boot_override(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.set_machine_boot_override(request).await?)
     }
 
     pub async fn bmc_reset(
@@ -503,10 +473,7 @@ impl ApiClient {
             machine_id,
             use_ipmitool,
         };
-        self.0
-            .admin_bmc_reset(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.admin_bmc_reset(request).await?)
     }
 
     pub async fn admin_power_control(
@@ -520,10 +487,7 @@ impl ApiClient {
             machine_id,
             action: action.into(),
         };
-        self.0
-            .admin_power_control(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.admin_power_control(request).await?)
     }
 
     pub async fn get_all_machines_interfaces(
@@ -531,10 +495,7 @@ impl ApiClient {
         id: Option<MachineInterfaceId>,
     ) -> CarbideCliResult<rpc::InterfaceList> {
         let request = rpc::InterfaceSearchQuery { id, ip: None };
-        self.0
-            .find_interfaces(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_interfaces(request).await?)
     }
 
     pub async fn get_site_exploration_report(
@@ -576,10 +537,7 @@ impl ApiClient {
         let request = ::rpc::site_explorer::ExploredEndpointsByIdsRequest {
             endpoint_ids: Vec::from(endpoint_ids),
         };
-        self.0
-            .find_explored_endpoints_by_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_explored_endpoints_by_ids(request).await?)
     }
 
     pub async fn get_all_explored_managed_hosts(
@@ -613,10 +571,7 @@ impl ApiClient {
             ip_address: address.to_string(),
             mac_address: mac_address.map(|mac| mac.to_string()),
         };
-        self.0
-            .explore(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.explore(request).await?)
     }
 
     pub async fn re_explore_endpoint(&self, address: &str) -> CarbideCliResult<()> {
@@ -624,10 +579,7 @@ impl ApiClient {
             ip_address: address.to_string(),
             if_version_match: None,
         };
-        self.0
-            .re_explore_endpoint(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.re_explore_endpoint(request).await?)
     }
 
     pub async fn pause_explored_endpoint_remediation(
@@ -639,10 +591,7 @@ impl ApiClient {
             ip_address: address.to_string(),
             pause,
         };
-        self.0
-            .pause_explored_endpoint_remediation(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.pause_explored_endpoint_remediation(request).await?)
     }
 
     pub async fn is_bmc_in_managed_host(
@@ -654,10 +603,7 @@ impl ApiClient {
             ip_address: address.to_string(),
             mac_address: mac_address.map(|mac| mac.to_string()),
         };
-        self.0
-            .is_bmc_in_managed_host(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.is_bmc_in_managed_host(request).await?)
     }
 
     pub async fn bmc_credential_status(
@@ -669,10 +615,7 @@ impl ApiClient {
             ip_address: address.to_string(),
             mac_address: mac_address.map(|mac| mac.to_string()),
         };
-        self.0
-            .bmc_credential_status(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.bmc_credential_status(request).await?)
     }
 
     pub async fn copy_bfb_to_dpu_rshim(
@@ -691,10 +634,7 @@ impl ApiClient {
             }),
         };
 
-        self.0
-            .copy_bfb_to_dpu_rshim(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.copy_bfb_to_dpu_rshim(request).await?)
     }
 
     pub async fn get_machines_by_ids(
@@ -705,10 +645,7 @@ impl ApiClient {
             machine_ids: Vec::from(machine_ids),
             ..Default::default()
         };
-        self.0
-            .find_machines_by_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_machines_by_ids(request).await?)
     }
 
     pub async fn set_dynamic_config(
@@ -722,10 +659,7 @@ impl ApiClient {
             value,
             expiry,
         };
-        self.0
-            .set_dynamic_config(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.set_dynamic_config(request).await?)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -753,10 +687,7 @@ impl ApiClient {
             rack_id: None,
         };
 
-        self.0
-            .add_expected_machine(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.add_expected_machine(request).await?)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -830,10 +761,7 @@ impl ApiClient {
             rack_id: None,
         };
 
-        self.0
-            .update_expected_machine(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.update_expected_machine(request).await?)
     }
 
     pub async fn replace_all_expected_machines(
@@ -860,10 +788,7 @@ impl ApiClient {
                 .collect(),
         };
 
-        self.0
-            .replace_all_expected_machines(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.replace_all_expected_machines(request).await?)
     }
 
     pub async fn get_all_vpcs(
@@ -996,10 +921,7 @@ impl ApiClient {
             segment_type: NetworkSegmentType::Tenant as i32,
             id: Some(id),
         };
-        self.0
-            .create_network_segment(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.create_network_segment(request).await?)
     }
 
     pub async fn delete_network_segment(
@@ -1007,18 +929,12 @@ impl ApiClient {
         id: NetworkSegmentId,
     ) -> CarbideCliResult<NetworkSegmentDeletionResult> {
         let request = NetworkSegmentDeletionRequest { id: Some(id) };
-        self.0
-            .delete_network_segment(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.delete_network_segment(request).await?)
     }
 
     // Fetch from Carbide and return a vector of Dpa interface IDs
     async fn get_dpa_ids(&self) -> CarbideCliResult<rpc::DpaInterfaceIdList> {
-        self.0
-            .get_all_dpa_interface_ids()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.get_all_dpa_interface_ids().await?)
     }
 
     async fn get_vpc_ids(
@@ -1040,10 +956,7 @@ impl ApiClient {
                 })
             },
         };
-        self.0
-            .find_vpc_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_vpc_ids(request).await?)
     }
 
     /// set_vpc_network_virtualization_type sends out a `VpcUpdateVirtualizationRequest`
@@ -1075,10 +988,7 @@ impl ApiClient {
             vpc_id,
             peer_vpc_id,
         };
-        self.0
-            .create_vpc_peering(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.create_vpc_peering(request).await?)
     }
 
     pub async fn find_vpc_peering_ids(
@@ -1086,10 +996,7 @@ impl ApiClient {
         vpc_id: Option<VpcId>,
     ) -> CarbideCliResult<rpc::VpcPeeringIdList> {
         let request = rpc::VpcPeeringSearchFilter { vpc_id };
-        self.0
-            .find_vpc_peering_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_vpc_peering_ids(request).await?)
     }
 
     pub async fn find_vpc_peerings_by_ids(
@@ -1097,10 +1004,7 @@ impl ApiClient {
         vpc_peering_ids: Vec<VpcPeeringId>,
     ) -> CarbideCliResult<rpc::VpcPeeringList> {
         let request = rpc::VpcPeeringsByIdsRequest { vpc_peering_ids };
-        self.0
-            .find_vpc_peerings_by_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_vpc_peerings_by_ids(request).await?)
     }
 
     pub async fn get_all_ib_partitions(
@@ -1142,10 +1046,7 @@ impl ApiClient {
             tenant_org_id,
             name,
         };
-        self.0
-            .find_ib_partition_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_ib_partition_ids(request).await?)
     }
 
     async fn get_ib_partitions_by_ids(
@@ -1156,10 +1057,7 @@ impl ApiClient {
             ib_partition_ids: Vec::from(ids),
             include_history: ids.len() == 1,
         };
-        self.0
-            .find_ib_partitions_by_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_ib_partitions_by_ids(request).await?)
     }
 
     pub async fn get_all_keysets(
@@ -1196,10 +1094,7 @@ impl ApiClient {
         tenant_org_id: Option<String>,
     ) -> CarbideCliResult<rpc::TenantKeysetIdList> {
         let request = rpc::TenantKeysetSearchFilter { tenant_org_id };
-        self.0
-            .find_tenant_keyset_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_tenant_keyset_ids(request).await?)
     }
 
     async fn get_keysets_by_ids(
@@ -1210,10 +1105,7 @@ impl ApiClient {
             keyset_ids: Vec::from(identifiers),
             include_key_data: true,
         };
-        self.0
-            .find_tenant_keysets_by_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_tenant_keysets_by_ids(request).await?)
     }
 
     pub async fn machine_set_auto_update(
@@ -1231,10 +1123,7 @@ impl ApiClient {
             machine_id: Some(req.machine),
             action: action.into(),
         };
-        self.0
-            .machine_set_auto_update(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.machine_set_auto_update(request).await?)
     }
 
     async fn get_subnet_ids_for_names(
@@ -1527,10 +1416,7 @@ impl ApiClient {
         };
 
         tracing::trace!("{}", serde_json::to_string(&instance_request).unwrap());
-        self.0
-            .allocate_instance(instance_request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.allocate_instance(instance_request).await?)
     }
 
     /// Applies patches to a running instances configuration
@@ -1545,11 +1431,7 @@ impl ApiClient {
         modify_metadata: impl FnOnce(&mut rpc::Metadata),
         modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::Instance> {
-        let find_response = self
-            .0
-            .find_instances_by_ids(vec![instance_id])
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        let find_response = self.0.find_instances_by_ids(vec![instance_id]).await?;
 
         let instance = find_response
             .instances
@@ -1590,10 +1472,10 @@ impl ApiClient {
             config,
             metadata,
         };
-        self.0
+        Ok(self
+            .0
             .update_instance_config(update_instance_request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+            .await?)
     }
 
     pub async fn add_update_machine_validation_external_config(
@@ -1607,10 +1489,10 @@ impl ApiClient {
             description: Some(description),
             config,
         };
-        self.0
+        Ok(self
+            .0
             .add_update_machine_validation_external_config(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+            .await?)
     }
 
     pub async fn get_machine_validation_results(
@@ -1628,10 +1510,7 @@ impl ApiClient {
             include_history: history,
             validation_id,
         };
-        self.0
-            .get_machine_validation_results(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.get_machine_validation_results(request).await?)
     }
 
     pub async fn get_machine_validation_runs(
@@ -1643,10 +1522,7 @@ impl ApiClient {
             machine_id,
             include_history,
         };
-        self.0
-            .get_machine_validation_runs(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.get_machine_validation_runs(request).await?)
     }
 
     pub async fn on_demand_machine_validation(
@@ -1665,10 +1541,7 @@ impl ApiClient {
             run_unverfied_tests,
             contexts: contexts.unwrap_or_default(),
         };
-        self.0
-            .on_demand_machine_validation(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.on_demand_machine_validation(request).await?)
     }
 
     pub async fn list_os_image(
@@ -1720,10 +1593,7 @@ impl ApiClient {
         if description.is_some() {
             new_attrs.description = description;
         }
-        self.0
-            .update_os_image(new_attrs)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.update_os_image(new_attrs).await?)
     }
 
     pub async fn update_instance_config(
@@ -1739,10 +1609,7 @@ impl ApiClient {
             config: Some(config),
             metadata,
         };
-        self.0
-            .update_instance_config(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.update_instance_config(request).await?)
     }
 
     pub async fn update_vpc_config(
@@ -1762,8 +1629,7 @@ impl ApiClient {
         };
         self.0
             .update_vpc(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .vpc
             .ok_or(CarbideCliError::Empty)
     }
@@ -1783,10 +1649,7 @@ impl ApiClient {
             verified,
             ..rpc::MachineValidationTestsGetRequest::default()
         };
-        self.0
-            .get_machine_validation_tests(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.get_machine_validation_tests(request).await?)
     }
 
     pub async fn machine_validation_test_verfied(
@@ -1842,10 +1705,7 @@ impl ApiClient {
             if_version_match: Some(current_version),
             metadata: Some(metadata),
         };
-        self.0
-            .update_machine_metadata(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.update_machine_metadata(request).await?)
     }
 
     pub async fn assign_sku_to_machine(
@@ -1859,10 +1719,7 @@ impl ApiClient {
             machine_id: Some(machine_id),
             force,
         };
-        self.0
-            .assign_sku_to_machine(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.assign_sku_to_machine(request).await?)
     }
 
     pub async fn create_network_security_group(
@@ -1895,8 +1752,7 @@ impl ApiClient {
                 tenant_organization_id: None,
                 network_security_group_ids: vec![id],
             })
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .network_security_groups
             .pop()
             .ok_or(CarbideCliError::Empty)
@@ -1910,8 +1766,7 @@ impl ApiClient {
             .get_network_security_group_attachments(GetNetworkSecurityGroupAttachmentsRequest {
                 network_security_group_ids: vec![id],
             })
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .attachments
             .pop()
             .ok_or(CarbideCliError::Empty)
@@ -1952,8 +1807,7 @@ impl ApiClient {
                 name: None,
                 tenant_organization_id: None,
             })
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .network_security_group_ids;
 
         let mut all_nsgs = Vec::with_capacity(all_nsg_ids.len());
@@ -1965,8 +1819,7 @@ impl ApiClient {
                     tenant_organization_id: None,
                     network_security_group_ids: nsg_ids.to_vec(),
                 })
-                .await
-                .map_err(CarbideCliError::ApiInvocationError)?
+                .await?
                 .network_security_groups;
             all_nsgs.extend(nsgs);
         }
@@ -2020,26 +1873,21 @@ impl ApiClient {
         gpus: Vec<::rpc::machine_discovery::Gpu>,
     ) -> CarbideCliResult<()> {
         let hardware_info = MachineHardwareInfo { gpus };
-        self.0
+        Ok(self
+            .0
             .update_machine_hardware_info(UpdateMachineHardwareInfoRequest {
                 machine_id: Some(id),
                 info: Some(hardware_info),
                 update_type: hardware_info_update_type as i32,
             })
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+            .await?)
     }
 
     pub async fn get_all_instance_types(
         &self,
         page_size: usize,
     ) -> CarbideCliResult<Vec<rpc::InstanceType>> {
-        let all_ids = self
-            .0
-            .find_instance_type_ids()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .instance_type_ids;
+        let all_ids = self.0.find_instance_type_ids().await?.instance_type_ids;
 
         let mut all_itypes = Vec::with_capacity(all_ids.len());
 
@@ -2049,8 +1897,7 @@ impl ApiClient {
                 .find_instance_types_by_ids(FindInstanceTypesByIdsRequest {
                     instance_type_ids: ids.to_vec(),
                 })
-                .await
-                .map_err(CarbideCliError::ApiInvocationError)?
+                .await?
                 .instance_types;
             all_itypes.extend(itypes);
         }
@@ -2068,8 +1915,7 @@ impl ApiClient {
                 instance_type_id,
                 machine_ids,
             })
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .await?;
 
         Ok(())
     }
@@ -2085,8 +1931,7 @@ impl ApiClient {
                     machine_id: machine_id.to_string(),
                 },
             )
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .await?;
 
         Ok(())
     }
@@ -2098,8 +1943,7 @@ impl ApiClient {
         let all_options = self
             .0
             .get_power_options(rpc::PowerOptionRequest { machine_id })
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .response;
 
         Ok(all_options)
@@ -2116,8 +1960,7 @@ impl ApiClient {
                 machine_id: Some(machine_id),
                 power_state: power_state as i32,
             })
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .response;
 
         Ok(power_options)
@@ -2148,10 +1991,7 @@ impl ApiClient {
             create_password,
             create_role_id,
         };
-        self.0
-            .create_bmc_user(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.create_bmc_user(request).await?)
     }
     pub async fn delete_bmc_user(
         &self,
@@ -2174,10 +2014,7 @@ impl ApiClient {
             machine_id,
             delete_username,
         };
-        self.0
-            .delete_bmc_user(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.delete_bmc_user(request).await?)
     }
 
     pub async fn enable_infinite_boot(
@@ -2189,10 +2026,7 @@ impl ApiClient {
             bmc_endpoint_request,
             machine_id,
         };
-        self.0
-            .enable_infinite_boot(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.enable_infinite_boot(request).await?)
     }
 
     pub async fn is_infinite_boot_enabled(
@@ -2204,10 +2038,7 @@ impl ApiClient {
             bmc_endpoint_request,
             machine_id,
         };
-        self.0
-            .is_infinite_boot_enabled(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.is_infinite_boot_enabled(request).await?)
     }
 
     pub async fn lockdown(
@@ -2221,10 +2052,7 @@ impl ApiClient {
             machine_id: Some(machine_id),
             action: Some(action as i32),
         };
-        self.0
-            .lockdown(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.lockdown(request).await?)
     }
 
     pub async fn lockdown_status(
@@ -2236,10 +2064,7 @@ impl ApiClient {
             bmc_endpoint_request,
             machine_id: Some(machine_id),
         };
-        self.0
-            .lockdown_status(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.lockdown_status(request).await?)
     }
 
     pub async fn create_dpu_remediation(
@@ -2254,50 +2079,35 @@ impl ApiClient {
             metadata,
             retries,
         };
-        self.0
-            .create_remediation(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.create_remediation(request).await?)
     }
 
     pub async fn approve_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
         let request = ApproveRemediationRequest {
             remediation_id: Some(id),
         };
-        self.0
-            .approve_remediation(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.approve_remediation(request).await?)
     }
 
     pub async fn revoke_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
         let request = RevokeRemediationRequest {
             remediation_id: Some(id),
         };
-        self.0
-            .revoke_remediation(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.revoke_remediation(request).await?)
     }
 
     pub async fn enable_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
         let request = EnableRemediationRequest {
             remediation_id: Some(id),
         };
-        self.0
-            .enable_remediation(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.enable_remediation(request).await?)
     }
 
     pub async fn disable_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
         let request = DisableRemediationRequest {
             remediation_id: Some(id),
         };
-        self.0
-            .disable_remediation(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.disable_remediation(request).await?)
     }
 
     pub async fn find_applied_remediations_by_remediation_id(
@@ -2326,10 +2136,7 @@ impl ApiClient {
             dpu_machine_id,
         };
 
-        self.0
-            .find_applied_remediation_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_applied_remediation_ids(request).await?)
     }
 
     pub async fn find_applied_remediations(
@@ -2342,10 +2149,7 @@ impl ApiClient {
             dpu_machine_id: Some(machine_id),
         };
 
-        self.0
-            .find_applied_remediations(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.find_applied_remediations(request).await?)
     }
 
     pub async fn get_remediation(
@@ -2356,11 +2160,7 @@ impl ApiClient {
             remediation_ids: vec![remediation_id],
         };
 
-        let response = self
-            .0
-            .find_remediations_by_ids(remediation_list)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        let response = self.0.find_remediations_by_ids(remediation_list).await?;
 
         response
             .remediations
@@ -2373,11 +2173,7 @@ impl ApiClient {
         &self,
         page_size: usize,
     ) -> CarbideCliResult<RemediationList> {
-        let all_remediation_ids = self
-            .0
-            .find_remediation_ids()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        let all_remediation_ids = self.0.find_remediation_ids().await?;
 
         use futures::{StreamExt, TryStreamExt, stream};
         let remediations = stream::iter(all_remediation_ids.remediation_ids.chunks(page_size))
@@ -2416,10 +2212,7 @@ impl ApiClient {
             credential,
         };
 
-        self.0
-            .create_dpu_extension_service(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.create_dpu_extension_service(request).await?)
     }
 
     pub async fn update_extension_service(
@@ -2440,10 +2233,7 @@ impl ApiClient {
             if_version_ctr_match,
         };
 
-        self.0
-            .update_dpu_extension_service(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.update_dpu_extension_service(request).await?)
     }
 
     pub async fn delete_extension_service(
@@ -2456,10 +2246,7 @@ impl ApiClient {
             versions,
         };
 
-        self.0
-            .delete_dpu_extension_service(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+        Ok(self.0.delete_dpu_extension_service(request).await?)
     }
 
     pub async fn find_extension_services(
@@ -2525,10 +2312,10 @@ impl ApiClient {
             versions,
         };
 
-        self.0
+        Ok(self
+            .0
             .get_dpu_extension_service_versions_info(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+            .await?)
     }
 
     pub async fn find_instances_by_extension_service(
@@ -2541,9 +2328,9 @@ impl ApiClient {
             version,
         };
 
-        self.0
+        Ok(self
+            .0
             .find_instances_by_dpu_extension_service(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
+            .await?)
     }
 }

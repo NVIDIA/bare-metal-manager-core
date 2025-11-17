@@ -17,7 +17,7 @@
 use std::fs::File;
 use std::io::BufReader;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output, set_summary};
+use ::rpc::admin_cli::{CarbideCliResult, ToTable, cli_output, set_summary};
 use ::rpc::protos::measured_boot::{
     AddMeasurementTrustedMachineRequest, AddMeasurementTrustedProfileRequest,
     ImportSiteMeasurementsRequest, MeasurementApprovedTypePb,
@@ -145,11 +145,7 @@ pub async fn import(grpc_conn: &ApiClient, import: &Import) -> CarbideCliResult<
 
     // Response + process and return.
     Ok(ImportResult::from(
-        &grpc_conn
-            .0
-            .import_site_measurements(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?,
+        &grpc_conn.0.import_site_measurements(request).await?,
     ))
 }
 
@@ -161,11 +157,7 @@ pub async fn export(grpc_conn: &ApiClient, _export: &Export) -> CarbideCliResult
     // accompany the serialized data.
     set_summary(false);
 
-    let response = grpc_conn
-        .0
-        .export_site_measurements()
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.export_site_measurements().await?;
 
     SiteModel::from_grpc(response.model.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -188,11 +180,7 @@ pub async fn approve_machine(
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .add_measurement_trusted_machine(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.add_measurement_trusted_machine(request).await?;
 
     // Process and return.
     MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
@@ -218,8 +206,7 @@ pub async fn remove_machine_by_approval_id(
     let response = grpc_conn
         .0
         .remove_measurement_trusted_machine(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+        .await?;
 
     // Process and return.
     MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
@@ -245,8 +232,7 @@ pub async fn remove_machine_by_machine_id(
     let response = grpc_conn
         .0
         .remove_measurement_trusted_machine(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+        .await?;
 
     // Process and return.
     MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
@@ -261,8 +247,7 @@ pub async fn list_machines(
         grpc_conn
             .0
             .list_measurement_trusted_machines()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .approval_records
             .iter()
             .map(|record| {
@@ -288,11 +273,7 @@ pub async fn approve_profile(
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .add_measurement_trusted_profile(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.add_measurement_trusted_profile(request).await?;
 
     // Process and return.
     MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
@@ -318,8 +299,7 @@ pub async fn remove_profile_by_approval_id(
     let response = grpc_conn
         .0
         .remove_measurement_trusted_profile(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+        .await?;
 
     // Process and return.
     MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
@@ -345,8 +325,7 @@ pub async fn remove_profile_by_profile_id(
     let response = grpc_conn
         .0
         .remove_measurement_trusted_profile(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+        .await?;
 
     // Process and return.
     MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
@@ -361,8 +340,7 @@ pub async fn list_profiles(
         grpc_conn
             .0
             .list_measurement_trusted_profiles()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .approval_records
             .iter()
             .map(|record| {

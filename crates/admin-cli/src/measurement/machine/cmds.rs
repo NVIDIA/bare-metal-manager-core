@@ -78,11 +78,7 @@ pub async fn attest(grpc_conn: &ApiClient, attest: &Attest) -> CarbideCliResult<
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .attest_candidate_machine(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.attest_candidate_machine(request).await?;
 
     MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -110,11 +106,7 @@ pub async fn show_by_id(grpc_conn: &ApiClient, show: &Show) -> CarbideCliResult<
     };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .show_candidate_machine(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.show_candidate_machine(request).await?;
 
     CandidateMachine::from_grpc(response.machine.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -129,8 +121,7 @@ pub async fn show_all(
         grpc_conn
             .0
             .show_candidate_machines()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .machines
             .iter()
             .map(|machine| {
@@ -147,8 +138,7 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<CandidateMachineSum
         grpc_conn
             .0
             .list_candidate_machines()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .machines
             .iter()
             .map(|machine| {

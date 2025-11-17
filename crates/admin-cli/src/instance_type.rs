@@ -128,8 +128,7 @@ pub async fn show(
                 .find_instance_types_by_ids(FindInstanceTypesByIdsRequest {
                     instance_type_ids: vec![id],
                 })
-                .await
-                .map_err(CarbideCliError::ApiInvocationError)?
+                .await?
                 .instance_types
                 .pop()
                 .ok_or(CarbideCliError::Empty)?,
@@ -181,8 +180,7 @@ pub async fn update(
         .find_instance_types_by_ids(FindInstanceTypesByIdsRequest {
             instance_type_ids: vec![id.clone()],
         })
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
+        .await?
         .instance_types
         .pop()
         .ok_or(CarbideCliError::Empty)?;

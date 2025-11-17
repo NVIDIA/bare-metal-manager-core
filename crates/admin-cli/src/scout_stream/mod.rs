@@ -16,7 +16,7 @@ use chrono::{DateTime, Utc};
 use clap::Parser;
 use forge_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 use crate::rpc::ApiClient;
 
@@ -126,12 +126,7 @@ async fn handle_disconnect(
     ctxt: &mut CliContext<'_, '_>,
 ) -> CarbideCliResult<()> {
     let request: ::rpc::forge::ScoutStreamDisconnectRequest = cmd.into();
-    let response = ctxt
-        .grpc_conn
-        .0
-        .scout_stream_disconnect(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = ctxt.grpc_conn.0.scout_stream_disconnect(request).await?;
     let machine_id = match response.machine_id.as_ref() {
         Some(id) => id.to_string(),
         None => "null".to_string(),
@@ -153,12 +148,7 @@ async fn handle_ping(
     ctxt: &mut CliContext<'_, '_>,
 ) -> CarbideCliResult<()> {
     let request: ::rpc::forge::ScoutStreamAdminPingRequest = cmd.into();
-    let response = ctxt
-        .grpc_conn
-        .0
-        .scout_stream_ping(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = ctxt.grpc_conn.0.scout_stream_ping(request).await?;
 
     println!("{}", response.pong);
     Ok(())

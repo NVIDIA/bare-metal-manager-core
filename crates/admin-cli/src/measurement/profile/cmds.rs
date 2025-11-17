@@ -136,8 +136,7 @@ pub async fn create(
     let response = grpc_conn
         .0
         .create_measurement_system_profile(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+        .await?;
 
     MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -183,8 +182,7 @@ pub async fn delete(
     let response = grpc_conn
         .0
         .delete_measurement_system_profile(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+        .await?;
 
     MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -230,8 +228,7 @@ pub async fn rename(
     let response = grpc_conn
         .0
         .rename_measurement_system_profile(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+        .await?;
 
     MeasurementSystemProfile::from_grpc(response.profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -245,8 +242,7 @@ pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementSyst
         grpc_conn
             .0
             .show_measurement_system_profiles()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .system_profiles
             .iter()
             .map(|system_profile| {
@@ -295,11 +291,7 @@ pub async fn show_by_id_or_name(
     let request = ShowMeasurementSystemProfileRequest { selector };
 
     // Response.
-    let response = grpc_conn
-        .0
-        .show_measurement_system_profile(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = grpc_conn.0.show_measurement_system_profile(request).await?;
 
     MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -315,8 +307,7 @@ pub async fn list_all(
         grpc_conn
             .0
             .list_measurement_system_profiles()
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .system_profiles
             .iter()
             .map(|rec| {
@@ -370,8 +361,7 @@ pub async fn list_bundles_for_id_or_name(
         grpc_conn
             .0
             .list_measurement_system_profile_bundles(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .bundle_ids,
     ))
 }
@@ -420,8 +410,7 @@ pub async fn list_machines_for_id_or_name(
         grpc_conn
             .0
             .list_measurement_system_profile_machines(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
+            .await?
             .machine_ids
             .iter()
             .map(|rec| {
