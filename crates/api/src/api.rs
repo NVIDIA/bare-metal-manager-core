@@ -1607,74 +1607,58 @@ impl Forge for Api {
 
     async fn get_expected_switch(
         &self,
-        _request: Request<rpc::ExpectedSwitchRequest>,
+        request: Request<rpc::ExpectedSwitchRequest>,
     ) -> Result<Response<rpc::ExpectedSwitch>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_switch::get_expected_switch(self, request).await
     }
 
     async fn add_expected_switch(
         &self,
-        _request: Request<rpc::ExpectedSwitch>,
+        request: Request<rpc::ExpectedSwitch>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_switch::add_expected_switch(self, request).await
     }
 
     async fn delete_expected_switch(
         &self,
-        _request: Request<rpc::ExpectedSwitchRequest>,
+        request: Request<rpc::ExpectedSwitchRequest>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_switch::delete_expected_switch(self, request).await
     }
 
     async fn update_expected_switch(
         &self,
-        _request: Request<rpc::ExpectedSwitch>,
+        request: Request<rpc::ExpectedSwitch>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_switch::update_expected_switch(self, request).await
     }
 
     async fn replace_all_expected_switches(
         &self,
-        _request: Request<rpc::ExpectedSwitchList>,
+        request: Request<rpc::ExpectedSwitchList>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_switch::replace_all_expected_switches(self, request).await
     }
 
     async fn get_all_expected_switches(
         &self,
-        _request: Request<()>,
+        request: Request<()>,
     ) -> Result<Response<rpc::ExpectedSwitchList>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_switch::get_all_expected_switches(self, request).await
     }
 
     async fn get_all_expected_switches_linked(
         &self,
-        _request: Request<()>,
+        request: Request<()>,
     ) -> Result<Response<rpc::LinkedExpectedSwitchList>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_switch::get_all_expected_switches_linked(self, request).await
     }
 
     async fn delete_all_expected_switches(
         &self,
-        _request: Request<()>,
+        request: Request<()>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_switch::delete_all_expected_switches(self, request).await
     }
 
     async fn find_connected_devices_by_dpu_machine_ids(
