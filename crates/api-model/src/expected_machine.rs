@@ -41,9 +41,6 @@ pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     #[serde(flatten)]
     pub data: ExpectedMachineData,
-    #[serde(default)]
-    pub host_nics: Vec<ExpectedHostNic>,
-    pub rack_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -59,6 +56,9 @@ pub struct ExpectedMachineData {
     pub metadata: Metadata,
     #[serde(skip)]
     pub override_id: Option<Uuid>,
+    #[serde(default)]
+    pub host_nics: Vec<ExpectedHostNic>,
+    pub rack_id: Option<String>,
 }
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
@@ -87,36 +87,33 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 metadata,
                 sku_id: row.try_get("sku_id")?,
                 override_id: None,
+                rack_id: row.try_get("rack_id")?,
+                host_nics,
             },
-            host_nics,
-            rack_id: row.try_get("rack_id")?,
         })
     }
 }
 
 impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
-    fn from(expected_host_mac_addr: ExpectedHostNic) -> Self {
+    fn from(expected_host_nic: ExpectedHostNic) -> Self {
         rpc::forge::ExpectedHostNic {
-            mac_address: expected_host_mac_addr.mac_address.to_string(),
-            nic_type: expected_host_mac_addr.nic_type,
-            fixed_ip: expected_host_mac_addr.fixed_ip,
-            fixed_mask: expected_host_mac_addr.fixed_mask,
-            fixed_gateway: expected_host_mac_addr.fixed_gateway,
+            mac_address: expected_host_nic.mac_address.to_string(),
+            nic_type: expected_host_nic.nic_type,
+            fixed_ip: expected_host_nic.fixed_ip,
+            fixed_mask: expected_host_nic.fixed_mask,
+            fixed_gateway: expected_host_nic.fixed_gateway,
         }
     }
 }
 
 impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
-    fn from(expected_host_mac_addr: rpc::forge::ExpectedHostNic) -> Self {
+    fn from(expected_host_nic: rpc::forge::ExpectedHostNic) -> Self {
         ExpectedHostNic {
-            mac_address: expected_host_mac_addr
-                .mac_address
-                .parse()
-                .unwrap_or_default(),
-            nic_type: expected_host_mac_addr.nic_type,
-            fixed_ip: expected_host_mac_addr.fixed_ip,
-            fixed_mask: expected_host_mac_addr.fixed_mask,
-            fixed_gateway: expected_host_mac_addr.fixed_gateway,
+            mac_address: expected_host_nic.mac_address.parse().unwrap_or_default(),
+            nic_type: expected_host_nic.nic_type,
+            fixed_ip: expected_host_nic.fixed_ip,
+            fixed_mask: expected_host_nic.fixed_mask,
+            fixed_gateway: expected_host_nic.fixed_gateway,
         }
     }
 }
@@ -124,6 +121,7 @@ impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
 impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
     fn from(expected_machine: ExpectedMachine) -> Self {
         let host_nics = expected_machine
+            .data
             .host_nics
             .iter()
             .map(|x| x.clone().into())
@@ -139,8 +137,8 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             fallback_dpu_serial_numbers: expected_machine.data.fallback_dpu_serial_numbers,
             metadata: Some(expected_machine.data.metadata.into()),
             sku_id: expected_machine.data.sku_id,
+            rack_id: expected_machine.data.rack_id,
             host_nics,
-            rack_id: expected_machine.rack_id,
         }
     }
 }
@@ -178,6 +176,8 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             sku_id: em.sku_id,
             metadata: metadata_from_request(em.metadata)?,
             override_id: em.id.and_then(|u| Uuid::parse_str(&u.value).ok()),
+            host_nics: em.host_nics.into_iter().map(|nic| nic.into()).collect(),
+            rack_id: em.rack_id,
         })
     }
 }

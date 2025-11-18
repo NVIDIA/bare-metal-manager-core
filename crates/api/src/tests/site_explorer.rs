@@ -1918,6 +1918,8 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             metadata: Metadata::new_with_default_name(),
             sku_id: Some("Sku1".to_string()),
             override_id: None,
+            host_nics: vec![],
+            rack_id: None,
         },
     )
     .await?;
@@ -1966,6 +1968,8 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             metadata: Metadata::new_with_default_name(),
             sku_id: None,
             override_id: None,
+            host_nics: vec![],
+            rack_id: None,
         },
     )
     .await?;
@@ -3150,6 +3154,8 @@ async fn test_machine_creation_with_sku(
             metadata: Metadata::new_with_default_name(),
             sku_id: Some("Sku1".to_string()),
             override_id: None,
+            host_nics: vec![],
+            rack_id: None,
         },
     )
     .await?;
@@ -3277,6 +3283,8 @@ async fn test_expected_machine_device_type_metrics(
             metadata: Metadata::new_with_default_name(),
             sku_id: Some(test_sku_gpu_id.clone()),
             override_id: None,
+            host_nics: vec![],
+            rack_id: None,
         },
     )
     .await?;
@@ -3292,6 +3300,8 @@ async fn test_expected_machine_device_type_metrics(
             metadata: Metadata::new_with_default_name(),
             sku_id: Some(test_sku_no_type_id.clone()),
             override_id: None,
+            host_nics: vec![],
+            rack_id: None,
         },
     )
     .await?;
@@ -3307,6 +3317,8 @@ async fn test_expected_machine_device_type_metrics(
             metadata: Metadata::new_with_default_name(),
             sku_id: None, // No SKU
             override_id: None,
+            host_nics: vec![],
+            rack_id: None,
         },
     )
     .await?;

@@ -74,6 +74,8 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             metadata: Metadata::new_with_default_name(),
             sku_id: None,
             override_id: None,
+            host_nics: vec![],
+            rack_id: None,
         },
     )
     .await;

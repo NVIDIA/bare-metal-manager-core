@@ -1422,6 +1422,7 @@ async fn main() -> color_eyre::Result<()> {
                         expected_machine_data.meta_description,
                         expected_machine_data.labels,
                         expected_machine_data.sku_id,
+                        expected_machine_data.rack_id,
                     )
                     .await?;
             }
@@ -1457,6 +1458,7 @@ async fn main() -> color_eyre::Result<()> {
                                 .collect(),
                         ),
                         expected_machine.sku_id,
+                        expected_machine.rack_id,
                     )
                     .await?;
             }
