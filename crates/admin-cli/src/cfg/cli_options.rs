@@ -999,6 +999,14 @@ pub struct PatchExpectedMachine {
         help = "A SKU ID that will be added for the newly created Machine."
     )]
     pub sku_id: Option<String>,
+
+    #[clap(
+        long,
+        value_name = "RACK_ID",
+        group = "group",
+        help = "A RACK ID that will be added for the newly created Machine."
+    )]
+    pub rack_id: Option<String>,
 }
 
 impl PatchExpectedMachine {
@@ -1009,6 +1017,7 @@ impl PatchExpectedMachine {
             && self.chassis_serial_number.is_none()
             && self.fallback_dpu_serial_numbers.is_none()
             && self.sku_id.is_none()
+            && self.rack_id.is_none()
         {
             return Err("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string());
         }

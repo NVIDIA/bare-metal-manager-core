@@ -704,6 +704,7 @@ impl ApiClient {
         meta_description: Option<String>,
         labels: Option<Vec<String>>,
         sku_id: Option<String>,
+        rack_id: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let expected_machine = self
             .0
@@ -759,8 +760,9 @@ impl ApiClient {
             metadata: merged_metadata,
             sku_id,
             id: expected_machine.id,
+            // TODO(chet): Add support for patching host_nics at some point.
             host_nics: expected_machine.host_nics,
-            rack_id: expected_machine.rack_id,
+            rack_id: rack_id.or(expected_machine.rack_id),
         };
 
         Ok(self.0.update_expected_machine(request).await?)

@@ -76,6 +76,47 @@ pub async fn find_many_by_bmc_mac_address(
         .collect()
 }
 
+// the expected machines table needs host mac addresses to control dhcp vending of ip's
+// since the carbide dhcp server in some cases is not authoritative on a large network.
+// search in the host_nics field before vending an ip.
+pub async fn find_by_host_mac_address(
+    txn: &mut PgConnection,
+    host_mac_address: MacAddress,
+) -> DatabaseResult<Option<ExpectedMachine>> {
+    let sql = "SELECT * FROM expected_machines WHERE host_nics->>'mac_address'=$1";
+    sqlx::query_as(sql)
+        .bind(host_mac_address.to_string().to_ascii_lowercase())
+        .fetch_optional(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
+pub async fn find_one_linked(
+    txn: &mut PgConnection,
+    bmc_mac_address: MacAddress,
+) -> DatabaseResult<LinkedExpectedMachine> {
+    let sql = r#"
+ SELECT
+ em.serial_number,
+ em.bmc_mac_address,
+ mi.id AS interface_id,
+ host(ee.address) AS address,
+ mt.machine_id
+FROM expected_machines em
+ LEFT JOIN machine_interfaces mi ON em.bmc_mac_address = mi.mac_address
+ LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
+ LEFT JOIN explored_endpoints ee ON mia.address = ee.address
+ LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
+ WHERE em.bmc_mac_address = $1
+ ORDER BY em.bmc_mac_address
+ "#;
+    sqlx::query_as(sql)
+        .bind(bmc_mac_address)
+        .fetch_one(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
 pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedMachine>> {
     let sql = "SELECT * FROM expected_machines";
     sqlx::query_as(sql)
@@ -140,13 +181,13 @@ pub async fn create(
 ) -> DatabaseResult<ExpectedMachine> {
     // If an id was provided in the RPC, we want to use it
     let query_with_id = "INSERT INTO expected_machines
-            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id)
+            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id)
             VALUES
-            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar) RETURNING *";
+            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12) RETURNING *";
     let query_without_id = "INSERT INTO expected_machines
-            (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id)
+            (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id)
             VALUES
-            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::text[], $6, $7, $8::jsonb, $9::varchar) RETURNING *";
+            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::text[], $6, $7, $8::jsonb, $9::varchar, $10::jsonb, $11) RETURNING *";
 
     if let Some(id) = data.override_id {
         sqlx::query_as(query_with_id)
@@ -160,6 +201,8 @@ pub async fn create(
             .bind(data.metadata.description)
             .bind(sqlx::types::Json(data.metadata.labels))
             .bind(data.sku_id)
+            .bind(sqlx::types::Json(data.host_nics))
+            .bind(data.rack_id)
             .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
@@ -179,6 +222,8 @@ pub async fn create(
             .bind(data.metadata.description)
             .bind(sqlx::types::Json(data.metadata.labels))
             .bind(data.sku_id)
+            .bind(sqlx::types::Json(data.host_nics))
+            .bind(data.rack_id)
             .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
@@ -243,7 +288,7 @@ pub async fn update<'a>(
     txn: &mut PgConnection,
     data: ExpectedMachineData,
 ) -> DatabaseResult<&'a mut ExpectedMachine> {
-    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8 WHERE bmc_mac_address=$9 RETURNING bmc_mac_address";
+    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10 WHERE bmc_mac_address=$11 RETURNING bmc_mac_address";
 
     let _: () = sqlx::query_as(query)
         .bind(&data.bmc_username)
@@ -254,6 +299,8 @@ pub async fn update<'a>(
         .bind(&data.metadata.description)
         .bind(sqlx::types::Json(&data.metadata.labels))
         .bind(&data.sku_id)
+        .bind(sqlx::types::Json(&data.host_nics))
+        .bind(&data.rack_id)
         .bind(value.bmc_mac_address)
         .fetch_one(txn)
         .await
@@ -274,7 +321,7 @@ pub async fn update_by_id(
     id: Uuid,
     data: ExpectedMachineData,
 ) -> DatabaseResult<()> {
-    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8 WHERE id=$9 RETURNING id";
+    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10 WHERE id=$11 RETURNING id";
 
     let _: () = sqlx::query_as(query)
         .bind(&data.bmc_username)
@@ -285,6 +332,8 @@ pub async fn update_by_id(
         .bind(&data.metadata.description)
         .bind(sqlx::types::Json(&data.metadata.labels))
         .bind(&data.sku_id)
+        .bind(sqlx::types::Json(&data.host_nics))
+        .bind(&data.rack_id)
         .bind(id)
         .fetch_one(txn)
         .await

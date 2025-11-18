@@ -787,6 +787,8 @@ pub mod tests {
                 metadata: Metadata::new_with_default_name(),
                 sku_id: Some("no-sku".to_string()),
                 override_id: None,
+                host_nics: vec![],
+                rack_id: None,
             },
         )
         .await?;
@@ -872,6 +874,8 @@ pub mod tests {
                 metadata: Metadata::new_with_default_name(),
                 sku_id: Some("no-sku-missing".to_string()),
                 override_id: None,
+                host_nics: vec![],
+                rack_id: None,
             },
         )
         .await?;
@@ -932,6 +936,8 @@ pub mod tests {
                 metadata: Metadata::new_with_default_name(),
                 sku_id: Some("no-sku".to_string()),
                 override_id: None,
+                host_nics: vec![],
+                rack_id: None,
             },
         )
         .await?;
@@ -1009,6 +1015,8 @@ pub mod tests {
                 metadata: Metadata::new_with_default_name(),
                 sku_id: Some("non-existent-sku".to_string()),
                 override_id: None,
+                host_nics: vec![],
+                rack_id: None,
             },
         )
         .await?;
@@ -1437,6 +1445,8 @@ pub mod tests {
                 metadata: Metadata::new_with_default_name(),
                 sku_id: Some(mismatched_sku.id.clone()),
                 override_id: None,
+                host_nics: vec![],
+                rack_id: None,
             },
         )
         .await?;
