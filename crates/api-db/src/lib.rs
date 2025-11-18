@@ -22,6 +22,7 @@ pub mod dpu_machine_update;
 pub mod dpu_remediation;
 pub mod expected_machine;
 pub mod expected_power_shelf;
+pub mod expected_switch;
 pub mod explored_endpoints;
 pub mod explored_managed_host;
 pub mod extension_service;
