@@ -54,6 +54,7 @@ pub mod network_segment;
 pub mod network_segment_state_history;
 pub mod os_image;
 pub mod power_options;
+pub mod power_shelf;
 pub mod predicted_machine_interface;
 pub mod queries;
 pub mod redfish_actions;
