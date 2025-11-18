@@ -66,6 +66,7 @@ pub mod os;
 pub mod power_manager;
 pub mod power_shelf;
 pub mod predicted_machine_interface;
+pub mod rack;
 pub mod redfish;
 pub mod resource_pool;
 pub mod resource_record;
