@@ -7,6 +7,9 @@
 
 - [Reliable state handling](architecture/state_handling.md)
 - [DPU configuration](architecture/dpu_configuration.md)
+- [Health checks and health aggregation](architecture/health_aggregation.md)
+    - [Health probe IDs](architecture/health/health_probe_ids.md)
+    - [Health alert classifications](architecture/health/health_alert_classifications.md)
 - [Key Group Synchronization](architecture/key_group_sync.md)
 - [Infiniband support]()
     - [NIC and Port selection](architecture/infiniband/nic_selection.md)
