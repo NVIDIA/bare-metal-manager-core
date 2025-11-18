@@ -7,5 +7,7 @@ version: 2
 updates:
   - package-ecosystem: "cargo" # See documentation for possible values
     directory: "/" # Location of package manifests
+    ignore:
+      - dependency-name: "libredfish" # This is in a private registry with no access from runners.
     schedule:
       interval: "weekly"
