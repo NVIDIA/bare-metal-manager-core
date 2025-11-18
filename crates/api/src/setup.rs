@@ -54,6 +54,7 @@ use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::preingestion_manager::PreingestionManager;
+use crate::rack::rms_client::{RackManagerClientPool, RmsClientPool};
 use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
@@ -187,6 +188,11 @@ pub async fn start_api(
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
+    let rms_api_url = carbide_config.rms_api_url.clone().unwrap_or_default();
+    let rms_client_pool = RmsClientPool::new(&rms_api_url);
+    let shared_rms_client = rms_client_pool.create_client().await;
+    let rms_client = Arc::new(shared_rms_client);
+
     let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
     let fabric_manager_type = match ib_config.enabled {
         true => ib::IBFabricManagerType::Rest,
@@ -315,6 +321,7 @@ pub async fn start_api(
         redfish_pool: shared_redfish_pool,
         runtime_config: carbide_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
+        rms_client,
     });
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();

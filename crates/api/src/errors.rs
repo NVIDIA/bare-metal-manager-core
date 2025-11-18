@@ -216,6 +216,9 @@ pub enum CarbideError {
 
     #[error("Client certificate presented has missing information: {0}.")]
     ClientCertificateMissingInformation(String),
+
+    #[error("Rack Manager Service error: {0}")]
+    RackManagerError(String),
 }
 
 impl From<ModelError> for CarbideError {

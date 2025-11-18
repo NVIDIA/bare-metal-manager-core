@@ -303,6 +303,9 @@ pub struct CarbideConfig {
         serialize_with = "serialize_option_profile_map"
     )]
     pub mlxconfig_profiles: Option<HashMap<String, MlxConfigProfile>>,
+
+    // rms_api_url is the URL to the Rack Manager Service API.
+    pub rms_api_url: Option<String>,
 }
 
 /// Parameters used by the Power config.
