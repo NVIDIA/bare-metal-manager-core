@@ -395,6 +395,15 @@ impl RedfishClientPool for RedfishClientPoolImpl {
     }
 }
 
+pub async fn is_assigned_machine_booting_scout(machine: &Machine) -> CarbideResult<bool> {
+    match machine.current_state() {
+        model::machine::ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage { .. },
+        } => Ok(true),
+        _ => Ok(false),
+    }
+}
+
 /// redfish utility functions
 ///
 /// host_power_control allows control over the power of the host
@@ -492,47 +501,82 @@ pub async fn host_power_control(
             if (action == SystemPowerControl::GracefulRestart)
                 || (action == SystemPowerControl::ForceRestart) =>
         {
-            // Vikings prepend the users OS to the boot order once it is installed and this cleans up the mess
-            redfish_client
-                .boot_once(libredfish::Boot::UefiHttp)
+            let service_root = redfish_client
+                .get_service_root()
                 .await
                 .map_err(CarbideError::RedfishError)?;
-
-            // vikings reboot their DPU's if redfish reset is used. \
-            // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
-            //
-            // TODO(ajf) none of this IPMI code should be in the redfish module, and constructing an IPMI requires duplicate
-            // work that we did in the calling function.
-            //
-            let machine_id = &machine.id;
-
-            let maybe_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
-                CarbideError::internal(format!("IP address is missing for {machine_id}"))
-            })?;
-
-            let ip = maybe_ip.parse().map_err(|_| {
-                CarbideError::internal(format!("Invalid IP address for {machine_id}"))
-            })?;
-
-            let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
-                .await?
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "MachineInterface by IP",
-                    id: ip.to_string(),
-                })?;
-
-            let credential_key = CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: machine_interface_target.mac_address,
-                },
-            };
-
-            ipmi_tool
-                .restart(&machine.id, ip, false, &credential_key)
+            let system = redfish_client
+                .get_system()
                 .await
-                .map_err(|e: eyre::ErrReport| {
-                    CarbideError::internal(format!("Failed to restart machine: {e}"))
+                .map_err(CarbideError::RedfishError)?;
+            let manager = redfish_client
+                .get_manager()
+                .await
+                .map_err(CarbideError::RedfishError)?;
+            let is_viking = service_root
+                .vendor()
+                .unwrap_or(libredfish::model::service_root::RedfishVendor::Unknown)
+                == libredfish::model::service_root::RedfishVendor::AMI
+                && system.id == "DGX"
+                && manager.id == "BMC";
+
+            if is_viking {
+                // Vikings prepend the users OS to the boot order once it is installed and this cleans up the mess
+                redfish_client
+                    .boot_once(libredfish::Boot::UefiHttp)
+                    .await
+                    .map_err(CarbideError::RedfishError)?;
+
+                // vikings reboot their DPU's if redfish reset is used. \
+                // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
+                //
+                // TODO(ajf) none of this IPMI code should be in the redfish module, and constructing an IPMI requires duplicate
+                // work that we did in the calling function.
+                //
+                let machine_id = &machine.id;
+                let maybe_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
+                    CarbideError::internal(format!("IP address is missing for {machine_id}"))
                 })?;
+
+                let ip = maybe_ip.parse().map_err(|_| {
+                    CarbideError::internal(format!("Invalid IP address for {machine_id}"))
+                })?;
+
+                let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
+                    .await?
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "MachineInterface by IP",
+                        id: ip.to_string(),
+                    })?;
+
+                let credential_key = CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot {
+                        bmc_mac_address: machine_interface_target.mac_address,
+                    },
+                };
+
+                ipmi_tool
+                    .restart(&machine.id, ip, false, &credential_key)
+                    .await
+                    .map_err(|e: eyre::ErrReport| {
+                        CarbideError::internal(format!("Failed to restart machine: {e}"))
+                    })?;
+            } else {
+                // Handle GB200s
+                // This handles cases where the server has prepended the users OS to the boot order.
+                // boot_first will add all UEFI HTTP options to the start of the list
+                if is_assigned_machine_booting_scout(machine).await? {
+                    redfish_client
+                        .boot_first(libredfish::Boot::UefiHttp)
+                        .await
+                        .map_err(CarbideError::RedfishError)?;
+                }
+
+                redfish_client
+                    .power(action)
+                    .await
+                    .map_err(CarbideError::RedfishError)?;
+            }
         }
 
         _ => {
