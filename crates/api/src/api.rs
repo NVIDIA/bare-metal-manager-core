@@ -286,23 +286,18 @@ impl Forge for Api {
         ))
     }
 
-    // DEPRECATED: use find_switch_ids and find_switches_by_ids instead
     async fn find_switches(
         &self,
-        _request: Request<rpc::SwitchQuery>,
+        request: Request<rpc::SwitchQuery>,
     ) -> Result<Response<rpc::SwitchList>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::switch::find_switch(self, request).await
     }
 
     async fn delete_switch(
         &self,
-        _request: Request<rpc::SwitchDeletionRequest>,
+        request: Request<rpc::SwitchDeletionRequest>,
     ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::switch::delete_switch(self, request).await
     }
 
     async fn find_ib_fabric_ids(
