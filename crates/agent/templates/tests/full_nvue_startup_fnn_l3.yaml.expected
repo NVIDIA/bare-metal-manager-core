@@ -247,6 +247,7 @@
             path-selection:
               multipath:
                 aspath-ignore: on
+                bandwidth: ignore
             peer-group:
               routeserver:
                 address-family:
