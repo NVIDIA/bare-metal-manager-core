@@ -13,12 +13,12 @@
 // Unit tests for MqttRegistry functionality including pattern matching, message type
 // registration, serialization/deserialization, and registry introspection.
 
+use mqttea::QoS;
 use mqttea::errors::MqtteaClientError;
 use mqttea::message_types::RawMessage;
 use mqttea::registry::types::PublishOptions;
 use mqttea::registry::{MessageTypeInfo, MqttRegistry, SerializationFormat};
 use mqttea::traits::RawMessageType;
-use mqttea::QoS;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -647,15 +647,21 @@ fn test_multiple_formats_same_registry() {
         .unwrap();
 
     // All should be findable by pattern matching
-    assert!(registry
-        .find_matching_type_for_topic("/test/pb-messages")
-        .is_some());
-    assert!(registry
-        .find_matching_type_for_topic("/test/json-messages")
-        .is_some());
-    assert!(registry
-        .find_matching_type_for_topic("/test/raw-messages")
-        .is_some());
+    assert!(
+        registry
+            .find_matching_type_for_topic("/test/pb-messages")
+            .is_some()
+    );
+    assert!(
+        registry
+            .find_matching_type_for_topic("/test/json-messages")
+            .is_some()
+    );
+    assert!(
+        registry
+            .find_matching_type_for_topic("/test/raw-messages")
+            .is_some()
+    );
 
     // All should be serializable
     let hello = HelloWorld {
@@ -696,16 +702,24 @@ fn test_complex_pattern_matching_scenarios() {
         .unwrap();
 
     // Test various topic matching scenarios
-    assert!(registry
-        .find_matching_type_for_topic("/test/simple-pattern")
-        .is_some());
-    assert!(registry
-        .find_matching_type_for_topic("/complex/sensor.data")
-        .is_some());
-    assert!(registry
-        .find_matching_type_for_topic("/alerts/emergency/fire")
-        .is_some());
-    assert!(registry
-        .find_matching_type_for_topic("/unrelated/topic")
-        .is_none());
+    assert!(
+        registry
+            .find_matching_type_for_topic("/test/simple-pattern")
+            .is_some()
+    );
+    assert!(
+        registry
+            .find_matching_type_for_topic("/complex/sensor.data")
+            .is_some()
+    );
+    assert!(
+        registry
+            .find_matching_type_for_topic("/alerts/emergency/fire")
+            .is_some()
+    );
+    assert!(
+        registry
+            .find_matching_type_for_topic("/unrelated/topic")
+            .is_none()
+    );
 }

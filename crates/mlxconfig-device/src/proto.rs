@@ -14,12 +14,12 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use mac_address::MacAddress;
+use rpc::Timestamp;
 use rpc::protos::mlx_device::{
     DeviceField as DeviceFieldPb, DeviceFilter as DeviceFilterPb,
     DeviceFilterSet as DeviceFilterSetPb, MatchMode as MatchModePb,
     MlxDeviceInfo as MlxDeviceInfoPb, MlxDeviceReport as MlxDeviceReportPb,
 };
-use rpc::Timestamp;
 
 use crate::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
 use crate::info::MlxDeviceInfo;

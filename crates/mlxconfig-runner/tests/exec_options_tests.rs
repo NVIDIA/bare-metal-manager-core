@@ -15,8 +15,8 @@
 
 use std::time::Duration;
 
-use mlxconfig_runner::exec_options::is_destructive_variable;
 use mlxconfig_runner::ExecOptions;
+use mlxconfig_runner::exec_options::is_destructive_variable;
 
 #[test]
 fn test_default_exec_options() {

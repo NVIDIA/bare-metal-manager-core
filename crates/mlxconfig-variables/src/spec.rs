@@ -20,7 +20,7 @@ use std::fmt;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::protos::mlx_device::{
-    mlx_variable_spec as mlx_variable_spec_pb, MlxVariableSpec as MlxVariableSpecPb,
+    MlxVariableSpec as MlxVariableSpecPb, mlx_variable_spec as mlx_variable_spec_pb,
 };
 use serde::{Deserialize, Serialize};
 

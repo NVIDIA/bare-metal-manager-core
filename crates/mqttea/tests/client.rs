@@ -13,8 +13,8 @@
 // Unit tests for MqtteaClient core functionality including connection management,
 // message handling, subscription management, and statistics tracking.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mqttea::client::ClientOptions;
 use mqttea::registry::traits::{JsonRegistration, ProtobufRegistration, RawRegistration};

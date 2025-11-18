@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use clap::Parser;
-use mlxconfig_device::cmd::{dispatch_command, Cli};
+use mlxconfig_device::cmd::{Cli, dispatch_command};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();

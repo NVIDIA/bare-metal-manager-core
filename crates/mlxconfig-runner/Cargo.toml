@@ -1,7 +1,9 @@
 [package]
 name = "carbide-mlxconfig-runner"
-version = "0.0.0"
-edition = "2021"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 description = "Pulls together the mlxconfig-{registry,variables} crates to safely execute mlxconfig commands."
 
 [lib]

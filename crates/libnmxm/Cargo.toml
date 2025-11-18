@@ -1,8 +1,10 @@
 [package]
 name = "libnmxm"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 exclude = ["/tests"]
+license.workspace = true
+authors.workspace = true
 
 [lib]
 name = "libnmxm"

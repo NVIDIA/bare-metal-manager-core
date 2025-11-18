@@ -351,6 +351,7 @@ dependencies = [
   "check-format-flow",
   "check-format-nightly",
   "check-workspace-deps",
+  "check-licenses",
 ]
 
 [tasks.clippy]
@@ -487,4 +488,11 @@ workspace = false
 description = "Check Cargo.toml files for dependency versions declared in crates instead of the workspace root"
 script = [
   "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)",
+]
+[tasks.check-licenses]
+workspace = false
+description = "Check cargo-deny against licenses we're using to validate that we're not introducing new licenses inadvertently"
+category = "Licensing"
+script = [
+  "cargo deny check license"
 ]

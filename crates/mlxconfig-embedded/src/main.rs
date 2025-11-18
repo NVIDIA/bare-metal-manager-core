@@ -11,7 +11,7 @@
  */
 
 use clap::Parser;
-use mlxconfig_embedded::cmd::{run_cli, Cli};
+use mlxconfig_embedded::cmd::{Cli, run_cli};
 
 fn main() {
     let cli = Cli::parse();

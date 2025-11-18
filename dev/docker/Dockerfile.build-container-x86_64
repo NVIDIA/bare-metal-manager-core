@@ -72,7 +72,7 @@ RUN rustup toolchain install ${RUST_NIGHTLY} --profile minimal
 RUN rustup component add --toolchain ${RUST_NIGHTLY} rustfmt
 
 # Cannot install mdbook-plantuml with locked because of outdated dependencies there.
-RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache cargo-watch taplo-cli --locked && \
+RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache cargo-watch taplo-cli cargo-deny --locked && \
     cargo install mdbook-plantuml --version 0.8.0 && \
     cargo cache -r registry-index,registry-sources
 

@@ -1845,7 +1845,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-mlxconfig-device"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "carbide-rpc",
@@ -1870,7 +1870,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-mlxconfig-embedded"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "carbide-mlxconfig-device",
  "carbide-mlxconfig-lockdown",
@@ -1888,7 +1888,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-mlxconfig-lockdown"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "carbide-rpc",
@@ -1903,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-mlxconfig-profile"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "carbide-mlxconfig-registry",
  "carbide-mlxconfig-runner",
@@ -1919,7 +1919,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-mlxconfig-registry"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "carbide-mlxconfig-device",
  "carbide-mlxconfig-variables",
@@ -1930,7 +1930,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-mlxconfig-runner"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "backon",
  "carbide-mlxconfig-device",
@@ -1949,7 +1949,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-mlxconfig-variables"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "carbide-mlxconfig-device",
  "carbide-rpc",
@@ -1962,7 +1962,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-mockdpa"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "carbide-rpc",
  "chrono",
@@ -2214,7 +2214,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-ssh-console-fuzz"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "carbide-ssh-console",
  "libfuzzer-sys",
@@ -2222,7 +2222,7 @@ dependencies = [
 
 [[package]]
 name = "carbide-ssh-console-mock-api-server"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "carbide-api-test-helper",
  "carbide-rpc",

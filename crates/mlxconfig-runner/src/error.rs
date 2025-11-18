@@ -26,7 +26,9 @@ use thiserror::Error;
 pub enum MlxRunnerError {
     // CommandExecution is returned when mlxconfig command
     // execution failed.
-    #[error("Command execution failed: {command}\nExit code: {exit_code:?}\nStdout: {stdout}\nStderr: {stderr}")]
+    #[error(
+        "Command execution failed: {command}\nExit code: {exit_code:?}\nStdout: {stdout}\nStderr: {stderr}"
+    )]
     CommandExecution {
         command: String,
         exit_code: Option<i32>,

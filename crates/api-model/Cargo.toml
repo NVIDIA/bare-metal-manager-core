@@ -3,7 +3,7 @@ name = "carbide-api-model"
 version = "0.0.0"
 edition.workspace = true
 description = "Domain models for carbide-api"
-license-file.workspace = true
+license.workspace = true
 authors.workspace = true
 
 [lib]

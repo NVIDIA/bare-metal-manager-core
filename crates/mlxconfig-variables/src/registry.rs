@@ -140,7 +140,7 @@ impl TryFrom<MlxVariableRegistryPb> for MlxVariableRegistry {
             Some(Err(e)) => {
                 return Err(RpcDataConversionError::InvalidArgument(format!(
                     "failed to convert filters: {e}"
-                )))
+                )));
             }
             None => None,
         };

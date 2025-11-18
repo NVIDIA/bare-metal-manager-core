@@ -16,8 +16,8 @@
 // Provides thread-safe atomic counters for tracking message publishing
 // success/failure rates and throughput metrics for sent messages.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // PublishStats stores a snapshot of sent message statistics.
 #[derive(Debug, Clone)]

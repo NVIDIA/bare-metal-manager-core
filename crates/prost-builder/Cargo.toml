@@ -3,7 +3,7 @@ name = "carbide-prost-builder"
 version = "0.1.0"
 description = "Define derive procmacro for builder for prost types"
 edition.workspace = true
-license-file.workspace = true
+license.workspace = true
 authors.workspace = true
 
 [lib]

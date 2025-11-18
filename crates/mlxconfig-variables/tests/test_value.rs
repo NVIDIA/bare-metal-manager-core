@@ -545,19 +545,23 @@ fn test_vec_string_parsing_for_array_values() {
     );
 
     // Wrong size.
-    assert!(bool_array_var
-        .with(vec!["true".to_string(), "false".to_string()])
-        .is_err());
+    assert!(
+        bool_array_var
+            .with(vec!["true".to_string(), "false".to_string()])
+            .is_err()
+    );
 
     // Invalid boolean in array.
-    assert!(bool_array_var
-        .with(vec![
-            "true".to_string(),
-            "maybe".to_string(),
-            "false".to_string(),
-            "true".to_string()
-        ])
-        .is_err());
+    assert!(
+        bool_array_var
+            .with(vec![
+                "true".to_string(),
+                "maybe".to_string(),
+                "false".to_string(),
+                "true".to_string()
+            ])
+            .is_err()
+    );
 
     // Integer array parsing with sparse support.
     let int_array_var =
@@ -582,18 +586,22 @@ fn test_vec_string_parsing_for_array_values() {
     );
 
     // Wrong size.
-    assert!(int_array_var
-        .with(vec!["1".to_string(), "2".to_string()])
-        .is_err());
+    assert!(
+        int_array_var
+            .with(vec!["1".to_string(), "2".to_string()])
+            .is_err()
+    );
 
     // Invalid integer in array.
-    assert!(int_array_var
-        .with(vec![
-            "42".to_string(),
-            "not_a_number".to_string(),
-            "0".to_string()
-        ])
-        .is_err());
+    assert!(
+        int_array_var
+            .with(vec![
+                "42".to_string(),
+                "not_a_number".to_string(),
+                "0".to_string()
+            ])
+            .is_err()
+    );
 
     // Enum array parsing with sparse support.
     let enum_array_var = create_test_variable(
@@ -647,9 +655,11 @@ fn test_vec_string_parsing_for_array_values() {
     );
 
     // Wrong size.
-    assert!(enum_array_var
-        .with(vec!["input".to_string(), "output".to_string()])
-        .is_err());
+    assert!(
+        enum_array_var
+            .with(vec!["input".to_string(), "output".to_string()])
+            .is_err()
+    );
 
     // Invalid enum option in array.
     let result = enum_array_var.with(vec![
@@ -709,24 +719,30 @@ fn test_vec_string_parsing_for_array_values() {
     );
 
     // Wrong size.
-    assert!(binary_array_var
-        .with(vec!["0x1a2b".to_string(), "3c4d".to_string()])
-        .is_err());
+    assert!(
+        binary_array_var
+            .with(vec!["0x1a2b".to_string(), "3c4d".to_string()])
+            .is_err()
+    );
 
     // Invalid hex in array.
-    assert!(binary_array_var
-        .with(vec![
-            "0x1a2b".to_string(),
-            "invalid".to_string(),
-            "3c4d".to_string()
-        ])
-        .is_err());
+    assert!(
+        binary_array_var
+            .with(vec![
+                "0x1a2b".to_string(),
+                "invalid".to_string(),
+                "3c4d".to_string()
+            ])
+            .is_err()
+    );
 
     // Test that array types reject single value specs.
     let string_var = create_test_variable("test_string", MlxVariableSpec::String);
-    assert!(string_var
-        .with(vec!["hello".to_string(), "world".to_string()])
-        .is_err());
+    assert!(
+        string_var
+            .with(vec!["hello".to_string(), "world".to_string()])
+            .is_err()
+    );
 
     let enum_var = create_test_variable(
         "test_enum",
@@ -734,9 +750,11 @@ fn test_vec_string_parsing_for_array_values() {
             options: vec!["low".to_string(), "high".to_string()],
         },
     );
-    assert!(enum_var
-        .with(vec!["low".to_string(), "high".to_string()])
-        .is_err());
+    assert!(
+        enum_var
+            .with(vec!["low".to_string(), "high".to_string()])
+            .is_err()
+    );
 }
 
 // test_sparse_array_validation tests that sparse arrays properly validate

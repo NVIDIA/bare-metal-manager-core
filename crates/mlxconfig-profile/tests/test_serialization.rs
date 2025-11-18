@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use mlxconfig_profile::serialization::{
-    deserialize_option_profile_map, serialize_option_profile_map, SerializableProfile,
+    SerializableProfile, deserialize_option_profile_map, serialize_option_profile_map,
 };
 use mlxconfig_profile::{MlxConfigProfile, MlxProfileError};
 use mlxconfig_registry::registries;
@@ -674,15 +674,21 @@ INTERNAL_CPU_OFFLOAD_ENGINE = "ENABLED"
     assert_eq!(server_config.mlx_config_profiles.len(), 3);
 
     // Verify the keys match the TOML table names
-    assert!(server_config
-        .mlx_config_profiles
-        .contains_key("bluefield-production"));
-    assert!(server_config
-        .mlx_config_profiles
-        .contains_key("bluefield-development"));
-    assert!(server_config
-        .mlx_config_profiles
-        .contains_key("bluefield-testing"));
+    assert!(
+        server_config
+            .mlx_config_profiles
+            .contains_key("bluefield-production")
+    );
+    assert!(
+        server_config
+            .mlx_config_profiles
+            .contains_key("bluefield-development")
+    );
+    assert!(
+        server_config
+            .mlx_config_profiles
+            .contains_key("bluefield-testing")
+    );
 
     // Verify production profile details
     let prod_profile = &server_config.mlx_config_profiles["bluefield-production"];

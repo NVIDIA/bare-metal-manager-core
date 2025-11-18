@@ -34,7 +34,7 @@ use clap::Parser;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::traits::ProtobufRegistration;
 use rumqttc::QoS;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 #[derive(Parser)]
 #[command(name = "mockdpa")]
@@ -99,10 +99,10 @@ async fn handle_host_message(mystate: &mut InterfaceState, message: SetVni, topi
         // if we just restarted. In that case, we will just
         // echo the message we received.
         let mguard = mystate.last_set_msg.lock().unwrap();
-        if mguard.contains_key(macaddr) {
-            if let Some(rep) = mguard.get(macaddr) {
-                reply = rep.clone();
-            }
+        if mguard.contains_key(macaddr)
+            && let Some(rep) = mguard.get(macaddr)
+        {
+            reply = rep.clone();
         }
     } else {
         // This is not a heartbeat. Carbide is actually configuring us.
@@ -121,7 +121,8 @@ async fn handle_host_message(mystate: &mut InterfaceState, message: SetVni, topi
         }
         Err(e) => {
             println!(
-                "[{}] ERROR: send_dpa_command error: {e:#?} sending message: {reply:#?} to topic: {topic}", Local::now().format("%Y-%m-%d %H:%M:%S")
+                "[{}] ERROR: send_dpa_command error: {e:#?} sending message: {reply:#?} to topic: {topic}",
+                Local::now().format("%Y-%m-%d %H:%M:%S")
             );
         }
     }

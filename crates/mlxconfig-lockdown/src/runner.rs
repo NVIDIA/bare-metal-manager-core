@@ -61,10 +61,9 @@ impl FlintRunner {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
+                && output.success()
             {
-                if output.success() {
-                    return Ok(path.to_string());
-                }
+                return Ok(path.to_string());
             }
         }
 
