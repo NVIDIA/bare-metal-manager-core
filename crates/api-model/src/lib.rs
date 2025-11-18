@@ -40,6 +40,7 @@ pub mod dpu_machine_update;
 pub mod dpu_remediation;
 pub mod errors;
 pub mod expected_machine;
+pub mod expected_power_shelf;
 pub mod extension_service;
 pub mod firmware;
 pub mod hardware_info;
