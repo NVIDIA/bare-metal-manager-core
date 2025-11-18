@@ -20,7 +20,7 @@ use mqttea::registry::traits::{JsonRegistration, ProtobufRegistration, RawRegist
 use mqttea::registry::types::PublishOptions;
 use rumqttc::QoS;
 use serde::{Deserialize, Serialize};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
 
 pub mod sample_protos;

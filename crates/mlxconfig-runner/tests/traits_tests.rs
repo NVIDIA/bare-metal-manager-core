@@ -13,7 +13,7 @@
 // tests/traits_tests.rs
 // Tests for MlxConfigSettable and MlxConfigQueryable traits
 
-use mlxconfig_runner::{traits, MlxConfigQueryable, MlxConfigSettable};
+use mlxconfig_runner::{MlxConfigQueryable, MlxConfigSettable, traits};
 use mlxconfig_variables::MlxValueType;
 
 mod common;

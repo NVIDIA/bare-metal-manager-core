@@ -3,7 +3,7 @@ name = "carbide-api-test-helper"
 version = "0.0.0"
 description = "Helpers to launch carbide-api for integration testing"
 edition.workspace = true
-license-file.workspace = true
+license.workspace = true
 authors.workspace = true
 
 [lib]

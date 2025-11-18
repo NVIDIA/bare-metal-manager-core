@@ -21,13 +21,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
-use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
+use tokio::sync::{Mutex, RwLock, Semaphore, mpsc};
 use tracing::{debug, error, info, warn};
 
 use crate::client::{ClientOptions, ClosureAdapter, ErasedHandler, ReceivedMessage};
 use crate::errors::MqtteaClientError;
-use crate::registry::types::PublishOptions;
 use crate::registry::MqttRegistry;
+use crate::registry::types::PublishOptions;
 use crate::stats::{PublishStats, PublishStatsTracker, QueueStats, QueueStatsTracker};
 use crate::traits::MessageHandler;
 

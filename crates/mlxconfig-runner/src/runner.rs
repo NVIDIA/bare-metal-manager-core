@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::command_builder::CommandBuilder;
 use crate::error::MlxRunnerError;
-use crate::exec_options::{is_destructive_variable, ExecOptions};
+use crate::exec_options::{ExecOptions, is_destructive_variable};
 use crate::executor::CommandExecutor;
 use crate::json_parser::JsonResponseParser;
 use crate::result_types::{

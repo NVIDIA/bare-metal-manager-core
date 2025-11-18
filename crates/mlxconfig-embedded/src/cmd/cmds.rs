@@ -114,7 +114,9 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
 fn cmd_version() {
     println!("mlxconfig-embedded version 0.0.1");
-    println!("A reference example showcasing how to work with mlxconfig-runner, mlxconfig-registry, and mlxconfig-variables.");
+    println!(
+        "A reference example showcasing how to work with mlxconfig-runner, mlxconfig-registry, and mlxconfig-variables."
+    );
 }
 
 fn cmd_registry_generate(

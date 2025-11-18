@@ -18,8 +18,8 @@
 // processing pipeline health. Used to monitor queue depth,
 // throughput, and error rates in real-time.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // QueueStats stores a snapshot of received message processing
 // statistics.

@@ -15,8 +15,8 @@
 
 use std::fs;
 
-use mlxconfig_runner::json_parser::JsonResponseParser;
 use mlxconfig_runner::ExecOptions;
+use mlxconfig_runner::json_parser::JsonResponseParser;
 use mlxconfig_variables::MlxValueType;
 use serde_json::json;
 

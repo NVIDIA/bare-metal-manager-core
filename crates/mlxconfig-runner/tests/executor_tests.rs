@@ -36,12 +36,14 @@ fn test_create_temp_file() {
     // File should exist and be in the specified directory
     assert!(temp_file.exists());
     assert!(temp_file.starts_with(prefix));
-    assert!(temp_file
-        .file_name()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .starts_with("mlxconfig-runner-"));
+    assert!(
+        temp_file
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("mlxconfig-runner-")
+    );
     assert_eq!(temp_file.extension().unwrap(), "json");
 
     // Clean up

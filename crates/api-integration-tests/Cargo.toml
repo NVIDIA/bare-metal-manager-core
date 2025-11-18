@@ -3,7 +3,7 @@ name = "carbide-api-integration-tests"
 version = "0.0.0"
 edition.workspace = true
 description = "Integration tests for carbide-api"
-license-file.workspace = true
+license.workspace = true
 authors.workspace = true
 
 [dev-dependencies]

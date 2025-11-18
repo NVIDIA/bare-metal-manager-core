@@ -417,7 +417,7 @@ where
                     expected: "array type".to_string(),
                     got: format!("{:?}", variable.spec),
                 },
-            })
+            });
         }
     }
     .map_err(|error| {

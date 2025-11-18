@@ -51,11 +51,12 @@ impl<'a> CommandExecutor<'a> {
     pub fn execute_with_retry(&self, command_spec: &CommandSpec) -> Result<Output, MlxRunnerError> {
         if self.options.verbose {
             println!("[EXEC] Executing command with timeout and retry: {command_spec}",);
-            println!("[EXEC] Retry config: {} attempts, {:.1}x multiplier, {} initial delay, {} max delay",
-                     self.options.retries + 1,
-                     self.options.retry_multiplier,
-                     format_duration(self.options.retry_delay),
-                     format_duration(self.options.max_retry_delay)
+            println!(
+                "[EXEC] Retry config: {} attempts, {:.1}x multiplier, {} initial delay, {} max delay",
+                self.options.retries + 1,
+                self.options.retry_multiplier,
+                format_duration(self.options.retry_delay),
+                format_duration(self.options.max_retry_delay)
             );
         }
 

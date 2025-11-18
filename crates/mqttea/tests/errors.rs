@@ -14,7 +14,7 @@
 // Unit tests for error handling throughout the MQTT client library including
 // error creation, categorization, and proper error propagation.
 
-use mqttea::errors::{unregistered_type_error, MqtteaClientError};
+use mqttea::errors::{MqtteaClientError, unregistered_type_error};
 use prost::DecodeError;
 use rumqttc::{ClientError, Disconnect, Request};
 

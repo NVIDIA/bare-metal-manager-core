@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::{command, Parser, Subcommand};
+use clap::{Parser, Subcommand, command};
 
 use crate::cmd::device::args::DeviceArgs;
 pub mod device;

@@ -20,8 +20,8 @@ use std::fmt;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::protos::mlx_device::{
-    mlx_value_type as mlx_value_type_pb, MlxConfigValue as MlxConfigValuePb,
-    MlxValueType as MlxValueTypePb,
+    MlxConfigValue as MlxConfigValuePb, MlxValueType as MlxValueTypePb,
+    mlx_value_type as mlx_value_type_pb,
 };
 use serde::{Deserialize, Serialize};
 
@@ -229,14 +229,14 @@ impl MlxConfigValue {
                 // ..and then validate that each option value provided
                 // is an allowed option per the spec. Skip None values (sparse support).
                 for (pos, value) in values.iter().enumerate() {
-                    if let Some(enum_value) = value {
-                        if !options.contains(enum_value) {
-                            return Err(MlxValueError::InvalidEnumArrayOption {
-                                position: pos,
-                                value: enum_value.clone(),
-                                allowed: options.clone(),
-                            });
-                        }
+                    if let Some(enum_value) = value
+                        && !options.contains(enum_value)
+                    {
+                        return Err(MlxValueError::InvalidEnumArrayOption {
+                            position: pos,
+                            value: enum_value.clone(),
+                            allowed: options.clone(),
+                        });
                     }
                 }
                 Ok(())
@@ -346,7 +346,7 @@ impl fmt::Display for MlxConfigValue {
 // call `var.with(<val>)` for anything and have it work.
 pub trait IntoMlxValue {
     fn into_mlx_value_for_spec(self, spec: &MlxVariableSpec)
-        -> Result<MlxValueType, MlxValueError>;
+    -> Result<MlxValueType, MlxValueError>;
 }
 
 // Implement IntoMlxValue for bools, which gives
@@ -785,7 +785,7 @@ impl IntoMlxValue for Vec<String> {
                                 return Err(MlxValueError::TypeMismatch {
                                     expected: "boolean string in array".to_string(),
                                     got: format!("'{s}' at position {pos}"),
-                                })
+                                });
                             }
                         };
                         sparse_array.push(Some(bool_val));
@@ -922,14 +922,14 @@ impl IntoMlxValue for Vec<Option<String>> {
 
                 // Validate all Some values are valid enum options
                 for (pos, opt_value) in self.iter().enumerate() {
-                    if let Some(value) = opt_value {
-                        if !options.contains(value) {
-                            return Err(MlxValueError::InvalidEnumArrayOption {
-                                position: pos,
-                                value: value.clone(),
-                                allowed: options.clone(),
-                            });
-                        }
+                    if let Some(value) = opt_value
+                        && !options.contains(value)
+                    {
+                        return Err(MlxValueError::InvalidEnumArrayOption {
+                            position: pos,
+                            value: value.clone(),
+                            allowed: options.clone(),
+                        });
                     }
                 }
                 Ok(MlxValueType::EnumArray(self))
@@ -1083,11 +1083,7 @@ impl MlxValueType {
                 .enumerate()
                 .filter_map(
                     |(index, opt)| {
-                        if opt.is_some() {
-                            Some(index)
-                        } else {
-                            None
-                        }
+                        if opt.is_some() { Some(index) } else { None }
                     },
                 )
                 .collect()

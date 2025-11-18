@@ -15,8 +15,8 @@
 
 use std::path::Path;
 
-use mlxconfig_runner::command_builder::{CommandBuilder, CommandSpec};
 use mlxconfig_runner::ExecOptions;
+use mlxconfig_runner::command_builder::{CommandBuilder, CommandSpec};
 
 mod common;
 
@@ -36,9 +36,11 @@ fn test_build_query_command_spec_basic() {
     assert!(command_spec.args.contains(&"01:00.0".to_string()));
     assert!(command_spec.args.contains(&"-e".to_string()));
     assert!(command_spec.args.contains(&"-j".to_string()));
-    assert!(command_spec
-        .args
-        .contains(&temp_file.to_string_lossy().to_string()));
+    assert!(
+        command_spec
+            .args
+            .contains(&temp_file.to_string_lossy().to_string())
+    );
     assert!(command_spec.args.contains(&"q".to_string()));
     assert!(command_spec.args.contains(&"SRIOV_EN".to_string()));
     assert!(command_spec.args.contains(&"NUM_OF_VFS".to_string()));
@@ -460,7 +462,9 @@ fn test_command_spec_complex_path() {
 
     let command_spec = builder.build_query_command(&variables, temp_file).unwrap();
 
-    assert!(command_spec
-        .args
-        .contains(&temp_file.to_string_lossy().to_string()));
+    assert!(
+        command_spec
+            .args
+            .contains(&temp_file.to_string_lossy().to_string())
+    );
 }

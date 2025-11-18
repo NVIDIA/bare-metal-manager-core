@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::string::String;
 use std::time::Duration;
 
-use reqwest::header::{HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderValue, USER_AGENT};
 use reqwest::{Client as HttpClient, ClientBuilder, Method, StatusCode};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tracing::debug;
 
 use crate::nmxm_api::NmxmApi;
@@ -290,14 +290,14 @@ impl NmxmApiClient {
         })?;
         let status_code = response.status();
         // check content length in case of junk responses
-        if let Some(len) = response.content_length() {
-            if len > (20 * 1024 * 1024) {
-                return Err(NmxmApiError::APIError {
-                    url,
-                    status: status_code,
-                    message: format!("Content length {len} exceeds 20MB limit"),
-                });
-            }
+        if let Some(len) = response.content_length()
+            && len > (20 * 1024 * 1024)
+        {
+            return Err(NmxmApiError::APIError {
+                url,
+                status: status_code,
+                message: format!("Content length {len} exceeds 20MB limit"),
+            });
         }
         // get entire response body in bytes into a buffer, then try to convert to utf8 string
         let response_buffer = response
@@ -344,7 +344,7 @@ pub trait Nmxm: Send + Sync + 'static {
     async fn create(&self, endpoint: Endpoint) -> Result<Box<dyn Nmxm>, NmxmApiError>;
     async fn get_chassis(&self, id: String) -> Result<Vec<Chassis>, NmxmApiError>;
     async fn get_chassis_count(&self, domain: Option<Vec<uuid::Uuid>>)
-        -> Result<i64, NmxmApiError>;
+    -> Result<i64, NmxmApiError>;
     //async fn get_chassis_list( &self, domain: Option<Vec<uuid::Uuid>>) -> Result<Vec<Chassis>, NmxmApiError>;
     async fn get_compute_node(&self, id: Option<String>) -> Result<Vec<ComputeNode>, NmxmApiError>;
     async fn get_compute_nodes_count(
