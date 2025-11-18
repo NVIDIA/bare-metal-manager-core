@@ -48,6 +48,7 @@ pub mod route_server;
 pub mod scout_stream;
 pub mod site_explorer;
 pub mod sku;
+pub mod switch;
 pub mod tenant;
 pub mod tenant_keyset;
 pub mod tpm_ca;
