@@ -1551,74 +1551,58 @@ impl Forge for Api {
 
     async fn get_expected_power_shelf(
         &self,
-        _request: Request<rpc::ExpectedPowerShelfRequest>,
+        request: Request<rpc::ExpectedPowerShelfRequest>,
     ) -> Result<Response<rpc::ExpectedPowerShelf>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_power_shelf::get_expected_power_shelf(self, request).await
     }
 
     async fn add_expected_power_shelf(
         &self,
-        _request: Request<rpc::ExpectedPowerShelf>,
+        request: Request<rpc::ExpectedPowerShelf>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_power_shelf::add_expected_power_shelf(self, request).await
     }
 
     async fn delete_expected_power_shelf(
         &self,
-        _request: Request<rpc::ExpectedPowerShelfRequest>,
+        request: Request<rpc::ExpectedPowerShelfRequest>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_power_shelf::delete_expected_power_shelf(self, request).await
     }
 
     async fn update_expected_power_shelf(
         &self,
-        _request: Request<rpc::ExpectedPowerShelf>,
+        request: Request<rpc::ExpectedPowerShelf>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_power_shelf::update_expected_power_shelf(self, request).await
     }
 
     async fn replace_all_expected_power_shelves(
         &self,
-        _request: Request<rpc::ExpectedPowerShelfList>,
+        request: Request<rpc::ExpectedPowerShelfList>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_power_shelf::replace_all_expected_power_shelves(self, request).await
     }
 
     async fn get_all_expected_power_shelves(
         &self,
-        _request: Request<()>,
+        request: Request<()>,
     ) -> Result<Response<rpc::ExpectedPowerShelfList>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_power_shelf::get_all_expected_power_shelves(self, request).await
     }
 
     async fn get_all_expected_power_shelves_linked(
         &self,
-        _request: Request<()>,
+        request: Request<()>,
     ) -> Result<Response<rpc::LinkedExpectedPowerShelfList>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_power_shelf::get_all_expected_power_shelves_linked(self, request).await
     }
 
     async fn delete_all_expected_power_shelves(
         &self,
-        _request: Request<()>,
+        request: Request<()>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::expected_power_shelf::delete_all_expected_power_shelves(self, request).await
     }
 
     async fn get_expected_switch(
