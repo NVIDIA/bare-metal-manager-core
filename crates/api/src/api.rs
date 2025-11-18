@@ -44,6 +44,7 @@ use crate::cfg::file::CarbideConfig;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
+use crate::rack::rms_client::RmsApi;
 use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
@@ -65,6 +66,8 @@ pub struct Api {
     pub dynamic_settings: dynamic_settings::DynamicSettings,
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
     pub(crate) scout_stream_registry: ConnectionRegistry,
+    #[allow(unused)]
+    pub(crate) rms_client: Arc<Box<dyn RmsApi>>,
 }
 
 #[tonic::async_trait]

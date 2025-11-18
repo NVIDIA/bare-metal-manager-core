@@ -78,6 +78,7 @@ use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::ipmitool::IPMIToolTestImpl;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
+use crate::rack::rms_client::{RackManagerClientPool, RmsClientPool};
 use crate::redfish::test_support::RedfishSim;
 use crate::scout_stream;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
@@ -932,6 +933,7 @@ pub fn get_config() -> CarbideConfig {
             public_prefixes: vec![],
         }),
         mlxconfig_profiles: None,
+        rms_api_url: None,
     }
 }
 
@@ -1087,6 +1089,11 @@ pub async fn create_test_env_with_overrides(
         scout_reporting_timeout: config.machine_state_controller.scout_reporting_timeout,
     };
 
+    let rms_api_url = config.rms_api_url.clone().unwrap_or_default();
+    let rms_client_pool = RmsClientPool::new(&rms_api_url);
+    let shared_rms_client = rms_client_pool.create_client().await;
+    let rms_client = Arc::new(shared_rms_client);
+
     let api = Arc::new(Api {
         runtime_config: config.clone(),
         credential_provider: credential_provider.clone(),
@@ -1100,6 +1107,7 @@ pub async fn create_test_env_with_overrides(
         endpoint_explorer: bmc_explorer,
         dpu_health_log_limiter: LogLimiter::default(),
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
+        rms_client,
     });
 
     let attestation_enabled = config.attestation_enabled;

@@ -28,6 +28,7 @@ mqttea = { path = "../mqttea" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-ssh = { path = "../ssh" }
+carbide-tls = { path = "../tls" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 carbide-mlxconfig-device = { path = "../mlxconfig-device" }
