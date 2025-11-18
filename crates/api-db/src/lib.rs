@@ -64,6 +64,7 @@ pub mod resource_record;
 pub mod route_servers;
 pub mod site_exploration_report;
 pub mod sku;
+pub mod switch;
 pub mod tenant;
 pub mod tenant_keyset;
 pub mod trim_table;

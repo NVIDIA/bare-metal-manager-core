@@ -42,15 +42,15 @@ serde_json = { workspace = true }
 serde_regex = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
-  "mac_address",
-  "ipnetwork",
-  "uuid",
-  "migrate",
-  "postgres",
-  "chrono",
-  "macros",
-  "json",
+    "runtime-tokio-rustls",
+    "mac_address",
+    "ipnetwork",
+    "uuid",
+    "migrate",
+    "postgres",
+    "chrono",
+    "macros",
+    "json",
 ] }
 strum = { workspace = true }
 strum_macros = { workspace = true }
@@ -65,9 +65,9 @@ tokio = { workspace = true }
 [features]
 default = ["linux-build"]
 linux-build = [
-  "tss-esapi",
-  "carbide-sqlx-testing/linux-build",
-  "carbide-host-support/linux-build",
+    "tss-esapi",
+    "carbide-sqlx-testing/linux-build",
+    "carbide-host-support/linux-build",
 ]
 
 [build-dependencies]

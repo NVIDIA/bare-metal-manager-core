@@ -73,6 +73,7 @@ pub mod route_server;
 pub mod site_explorer;
 pub mod sku;
 pub mod storage;
+pub mod switch;
 pub mod tenant;
 pub mod vpc;
 pub mod vpc_prefix;
