@@ -25,7 +25,7 @@ environment.
 
 2. Install additional cargo utilities
 
-   `RUSTC_WRAPPER= cargo install cargo-watch cargo-make sccache mdbook mdbook-mermaid`
+   `RUSTC_WRAPPER= cargo install cargo-watch cargo-make sccache mdbook@0.4.52 mdbook-plantuml@0.8.0 mdbook-mermaid@0.16.2`
 
 3. Install docker following these [directions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), then add yourself to the docker group: `sudo usermod -aG docker $USER` (otherwise, you must always `sudo` docker`).
 4. Install docker-compose using your system package manager
@@ -200,7 +200,7 @@ One time build:
  - copy / edit the Docker file from https://gitlab-master.nvidia.com/grahamk/carbide/-/blob/trunk/dev/docker/Dockerfile.build-container-arm into `myarm/Dockerfile`.
  - delete these lines:
 ```
- RUN /root/.cargo/bin/cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache && /root/.cargo/bin/cargo cache -r registry-index,registry-sources
+ RUN /root/.cargo/bin/cargo install cargo-cache cargo-make mdbook@0.4.52 mdbook-plantuml@0.8.0 mdbook-mermaid@0.16.2 sccache && /root/.cargo/bin/cargo cache -r registry-index,registry-sources
  RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
  RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
 ```
