@@ -209,6 +209,22 @@ impl DbPrimaryUuid for PowerShelfId {
     }
 }
 
+impl From<uuid::Uuid> for PowerShelfId {
+    fn from(value: uuid::Uuid) -> Self {
+        // This is a fallback implementation - in practice, PowerShelfId should be created
+        // from hardware hashes, not random UUIDs
+        let mut hasher = Sha256::new();
+        hasher.update(value.as_bytes());
+        let hash: [u8; 32] = hasher.finalize().into();
+
+        Self::new(
+            PowerShelfIdSource::Tpm, // Default source
+            hash,
+            PowerShelfType::Rack, // Default type
+        )
+    }
+}
+
 /// The hardware source from which the Power Shelf ID is derived
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum PowerShelfIdSource {

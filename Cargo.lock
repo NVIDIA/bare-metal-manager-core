@@ -1432,6 +1432,7 @@ dependencies = [
  "config-version",
  "duration-str",
  "eyre",
+ "futures",
  "ipnetwork",
  "itertools 0.14.0",
  "lazy_static",
