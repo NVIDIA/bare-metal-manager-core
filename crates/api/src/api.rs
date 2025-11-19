@@ -1032,29 +1032,23 @@ impl Forge for Api {
 
     async fn get_rack(
         &self,
-        _request: Request<rpc::GetRackRequest>,
+        request: Request<rpc::GetRackRequest>,
     ) -> Result<Response<rpc::GetRackResponse>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::rack::get_rack(self, request).await
     }
 
     async fn delete_rack(
         &self,
-        _request: Request<rpc::DeleteRackRequest>,
+        request: Request<rpc::DeleteRackRequest>,
     ) -> Result<Response<()>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::rack::delete_rack(self, request).await
     }
 
     async fn rack_manager_call(
         &self,
-        _request: Request<rpc::RackManagerForgeRequest>,
+        request: Request<rpc::RackManagerForgeRequest>,
     ) -> Result<Response<rpc::RackManagerForgeResponse>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::rack::rack_manager_call(self, request).await
     }
 
     /// Trigger DPU reprovisioning
