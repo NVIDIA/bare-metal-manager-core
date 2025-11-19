@@ -79,6 +79,7 @@ pub async fn whoami(machine: Machine, state: State<AppState>) -> impl IntoRespon
 
 pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl IntoResponse {
     let machine_interface_id = contents.interface_id;
+
     let (template_key, template_data) = match contents.architecture {
         Some(arch) => {
             let mut template_data = HashMap::new();
@@ -95,6 +96,7 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
             let instructions = RpcContext::get_pxe_instructions(
                 arch.into(),
                 machine_interface_id,
+                contents.product,
                 &state.runtime_config.internal_api_url,
                 &ForgeClientConfig::new(
                     state.runtime_config.forge_root_ca_path.clone(),

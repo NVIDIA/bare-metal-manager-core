@@ -24,6 +24,7 @@ impl RpcContext {
     async fn get_pxe_instructions(
         arch: rpc::MachineArchitecture,
         interface_id: MachineInterfaceId,
+        product: Option<String>,
         url: &str,
         client_config: &ForgeClientConfig,
     ) -> Result<String, String> {
@@ -34,6 +35,7 @@ impl RpcContext {
         let request = tonic::Request::new(rpc::PxeInstructionRequest {
             arch: arch as i32,
             interface_id: Some(interface_id),
+            product,
         });
         client
             .get_pxe_instructions(request)

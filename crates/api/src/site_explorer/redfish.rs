@@ -545,9 +545,16 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
 async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointExplorationError> {
     let mut system = client.get_system().await.map_err(map_redfish_error)?;
     let is_dpu = system.id.to_lowercase().contains("bluefield");
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu)
-        .await
-        .map_err(map_redfish_error)?;
+    let ethernet_interfaces = match fetch_ethernet_interfaces(client, true, is_dpu).await {
+        Ok(interfaces) => Ok(interfaces),
+        Err(e) if is_dpu => {
+            tracing::warn!(
+                "Error getting system ethernet interfaces.  The error will be ignored. ({e})"
+            );
+            Ok(Vec::default())
+        }
+        Err(e) => Err(map_redfish_error(e)),
+    }?;
     let mut base_mac = None;
     let mut nic_mode = None;
 

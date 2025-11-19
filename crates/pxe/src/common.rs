@@ -29,6 +29,11 @@ pub(crate) struct Machine {
 pub(crate) struct MachineInterface {
     pub architecture: Option<machine_architecture::MachineArchitecture>,
     pub interface_id: MachineInterfaceId,
+    pub platform: Option<String>,
+    pub manufacturer: Option<String>,
+    pub product: Option<String>,
+    pub serial: Option<String>,
+    pub asset: Option<String>,
 }
 
 #[derive(Clone, Debug)]

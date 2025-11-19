@@ -18,6 +18,7 @@ use model::machine::{
     DpuInitState, FailureCause, FailureDetails, InstanceState, ManagedHostState, MeasuringState,
     ReprovisionState, ValidationState,
 };
+use model::pxe::PxeInstructionRequest;
 use sqlx::PgConnection;
 
 use crate::CarbideError;
@@ -102,8 +103,7 @@ impl PxeInstructions {
 
     pub async fn get_pxe_instructions(
         txn: &mut PgConnection,
-        interface_id: MachineInterfaceId,
-        arch: rpc::MachineArchitecture,
+        target: PxeInstructionRequest,
     ) -> Result<String, CarbideError> {
         let error_instructions = |x: &ManagedHostState| -> String {
             format!(
@@ -132,20 +132,41 @@ exit ||
         "#;
 
         let mut console = "ttyS0";
-        let interface = db::machine_interface::find_one(txn, interface_id).await?;
+        let interface = db::machine_interface::find_one(txn, target.interface_id).await?;
 
         // This custom pxe is different from a customer instance of pxe. It is more for testing one off
         // changes until a real dev env is established and we can just override our existing code to test
         // It is possible for the pxe to be null if we are only trying to test the user data, and this will
         // follow the same code path and retrieve the non customer pxe
         if let Some(machine_boot_override) =
-            db::machine_boot_override::find_optional(txn, interface_id).await?
+            db::machine_boot_override::find_optional(txn, target.interface_id).await?
             && let Some(custom_pxe) = machine_boot_override.custom_pxe
         {
             return Ok(custom_pxe);
         }
 
         let Some(machine_id) = interface.machine_id else {
+            // FORGE-7330: If site-explorer can't get the interface info from the bmc, then it won't associate the interface with a machine.
+            // if the pxe request included the product and its a DPU, the machine record is not needed and we can just use the DPU type.
+            if let Some(product) = target.product
+                && product.to_ascii_lowercase().contains("bluefield")
+            {
+                if target.arch == rpc::MachineArchitecture::Arm {
+                    return Ok(PxeInstructions::get_pxe_instruction_for_arch(
+                        target.arch,
+                        target.interface_id,
+                        interface.mac_address,
+                        console,
+                        MachineType::Dpu,
+                    ));
+                } else {
+                    tracing::warn!(
+                        "Unsupported DPU type. Product is '{}', but architecture is {:?}",
+                        product,
+                        target.arch,
+                    )
+                }
+            };
             // We haven't minted a machine ID for this yet, so we don't know if it's a DPU or a
             // Host. We can't assume ARM = DPU, because there are zero-dpu ARM hosts. Heuristics we
             // use:
@@ -166,11 +187,11 @@ exit ||
             };
 
             return Ok(PxeInstructions::get_pxe_instruction_for_arch(
-                arch,
-                interface_id,
+                target.arch,
+                target.interface_id,
                 interface.mac_address,
                 console,
-                match arch {
+                match target.arch {
                     rpc::MachineArchitecture::X86 => MachineType::PredictedHost,
                     rpc::MachineArchitecture::Arm => {
                         if endpoint.is_bluefield_model() {
@@ -206,8 +227,8 @@ exit ||
                 )
             {
                 return Ok(PxeInstructions::get_pxe_instruction_for_arch(
-                    arch,
-                    interface_id,
+                    target.arch,
+                    target.interface_id,
                     interface.mac_address,
                     console,
                     machine.id.machine_type(),
@@ -223,8 +244,8 @@ exit ||
                     match dpu_state {
                         DpuInitState::Init => {
                             return Ok(PxeInstructions::get_pxe_instruction_for_arch(
-                                arch,
-                                interface_id,
+                                target.arch,
+                                target.interface_id,
                                 interface.mac_address,
                                 console,
                                 machine.id.machine_type(),
@@ -283,8 +304,8 @@ exit ||
                 validation_state: ValidationState::MachineValidation { .. },
             }
             | ManagedHostState::WaitingForCleanup { .. } => Self::get_pxe_instruction_for_arch(
-                arch,
-                interface_id,
+                target.arch,
+                target.interface_id,
                 interface.mac_address,
                 console,
                 machine.id.machine_type(),
@@ -379,8 +400,8 @@ exit ||
                 InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::HostReprovision { .. } => {
                     PxeInstructions::get_pxe_instruction_for_arch(
-                        arch,
-                        interface_id,
+                        target.arch,
+                        target.interface_id,
                         interface.mac_address,
                         console,
                         machine.id.machine_type(),

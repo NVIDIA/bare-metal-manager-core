@@ -28,6 +28,16 @@ struct MaybeMachineInterface {
     uuid: Option<MachineInterfaceId>,
     #[serde(default)]
     uuid_as_param: Option<String>,
+    #[serde(default)]
+    platform: Option<String>,
+    #[serde(default)]
+    manufacturer: Option<String>,
+    #[serde(default)]
+    product: Option<String>,
+    #[serde(default)]
+    serial: Option<String>,
+    #[serde(default)]
+    asset: Option<String>,
 }
 
 impl TryFrom<MaybeMachineInterface> for MachineInterface {
@@ -45,6 +55,11 @@ impl TryFrom<MaybeMachineInterface> for MachineInterface {
         Ok(MachineInterface {
             architecture: Some(build_architecture),
             interface_id: uuid,
+            platform: value.platform,
+            manufacturer: value.manufacturer,
+            product: value.product,
+            serial: value.serial,
+            asset: value.asset,
         })
     }
 }

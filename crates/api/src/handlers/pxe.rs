@@ -29,15 +29,9 @@ pub(crate) async fn get_pxe_instructions(
 
     let mut txn = api.txn_begin("get_pxe_instructions").await?;
 
-    let request = request.into_inner();
+    let request = request.into_inner().try_into()?;
 
-    let interface_id = request
-        .interface_id
-        .ok_or_else(|| Status::invalid_argument("Interface ID is missing."))?;
-
-    let arch = rpc::MachineArchitecture::try_from(request.arch)
-        .map_err(|_| Status::invalid_argument("Unknown arch received."))?;
-    let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, interface_id, arch).await?;
+    let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, request).await?;
 
     txn.commit().await?;
 

@@ -54,11 +54,13 @@ async fn get_pxe_instructions(
     env: &TestEnv,
     interface_id: MachineInterfaceId,
     arch: rpc::forge::MachineArchitecture,
+    product: Option<String>,
 ) -> rpc::forge::PxeInstructions {
     env.api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: arch as i32,
             interface_id: Some(interface_id),
+            product,
         }))
         .await
         .unwrap()
@@ -82,8 +84,13 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
         .id;
     txn.commit().await.unwrap();
 
-    let instructions =
-        get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
+    let instructions = get_pxe_instructions(
+        &env,
+        dpu_interface_id,
+        rpc::forge::MachineArchitecture::Arm,
+        Some("Fake Bluefield".to_string()),
+    )
+    .await;
     assert!(
         instructions
             .pxe_script
@@ -119,6 +126,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
         &env,
         machine.interfaces.first().unwrap().id,
         rpc::forge::MachineArchitecture::Arm,
+        Some("Fake Bluefield".to_string()),
     )
     .await;
 
@@ -159,8 +167,13 @@ async fn test_dpu_pxe_gets_correct_os_when_machine_is_not_created(
     let dpu_interface_id =
         common::api_fixtures::dpu::dpu_discover_dhcp(&env, &dpu_oob_mac.to_string()).await;
 
-    let instructions =
-        get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
+    let instructions = get_pxe_instructions(
+        &env,
+        dpu_interface_id,
+        rpc::forge::MachineArchitecture::Arm,
+        Some("Fake Bluefield".to_string()),
+    )
+    .await;
 
     assert!(
         !instructions.pxe_script.contains("exit"),
@@ -183,8 +196,13 @@ async fn test_pxe_when_machine_is_not_ingested(pool: sqlx::PgPool) -> eyre::Resu
     )
     .await;
 
-    let instructions =
-        get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
+    let instructions = get_pxe_instructions(
+        &env,
+        dpu_interface_id,
+        rpc::forge::MachineArchitecture::Arm,
+        Some("Fake Host".to_string()),
+    )
+    .await;
 
     assert!(
         instructions.pxe_script.contains("exit"),
@@ -195,8 +213,13 @@ async fn test_pxe_when_machine_is_not_ingested(pool: sqlx::PgPool) -> eyre::Resu
         "should not PXE boot, since we don't know about this machine"
     );
 
-    let instructions =
-        get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::X86).await;
+    let instructions = get_pxe_instructions(
+        &env,
+        dpu_interface_id,
+        rpc::forge::MachineArchitecture::X86,
+        None,
+    )
+    .await;
     assert!(
         instructions.pxe_script.contains("exit"),
         "should exit, since we don't know about this machine"
@@ -204,6 +227,35 @@ async fn test_pxe_when_machine_is_not_ingested(pool: sqlx::PgPool) -> eyre::Resu
     assert!(
         !instructions.pxe_script.contains("x86_64/scout.efi"),
         "should not PXE boot, since we don't know about this machine"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_pxe_when_dpu_is_not_ingested(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = create_test_env(pool).await;
+    let dpu_interface_id = common::api_fixtures::dpu::dpu_discover_dhcp(
+        &env,
+        &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string(),
+    )
+    .await;
+
+    let instructions = get_pxe_instructions(
+        &env,
+        dpu_interface_id,
+        rpc::forge::MachineArchitecture::Arm,
+        Some("Fake Bluefield".to_string()),
+    )
+    .await;
+
+    assert!(
+        !instructions.pxe_script.contains("exit"),
+        "should not exit, since DPUs are allowed to boot"
+    );
+    assert!(
+        instructions.pxe_script.contains("aarch64"),
+        "should PXE boot, since DPUs are allowed to boot"
     );
 
     Ok(())
@@ -236,6 +288,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         &env,
         host_interface_id,
         rpc::forge::MachineArchitecture::X86,
+        None,
     )
     .await;
     assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
@@ -255,6 +308,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         &env,
         host_interface_id,
         rpc::forge::MachineArchitecture::X86,
+        None,
     )
     .await;
     assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
@@ -272,6 +326,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         &env,
         host_interface_id,
         rpc::forge::MachineArchitecture::X86,
+        Some("Fake X86 Host".to_string()),
     )
     .await;
     assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
