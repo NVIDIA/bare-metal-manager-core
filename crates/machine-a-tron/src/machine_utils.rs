@@ -91,13 +91,14 @@ pub async fn send_pxe_boot_request(
     app_context: &MachineATronContext,
     arch: MachineArchitecture,
     interface_id: MachineInterfaceId,
+    product: Option<String>,
     forward_ip: Option<String>,
 ) -> Result<PxeResponse, PxeError> {
     let pxe_script: String =
         if app_context.app_config.use_pxe_api {
             let response = app_context
                 .api_client()
-                .get_pxe_instructions(arch, interface_id)
+                .get_pxe_instructions(arch, interface_id, product)
                 .await?;
             tracing::info!("PXE Request successful");
             response.pxe_script

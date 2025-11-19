@@ -504,11 +504,13 @@ impl ApiClient {
         &self,
         arch: rpc::forge::MachineArchitecture,
         interface_id: MachineInterfaceId,
+        product: Option<String>,
     ) -> ClientApiResult<PxeInstructions> {
         self.0
             .get_pxe_instructions(rpc::forge::PxeInstructionRequest {
                 arch: arch.into(),
                 interface_id: Some(interface_id),
+                product,
             })
             .await
             .map_err(ClientApiError::InvocationError)

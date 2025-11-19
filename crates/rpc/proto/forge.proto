@@ -3524,6 +3524,7 @@ enum VpcResourceAction {
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
   common.MachineInterfaceId interface_id = 2;
+  optional string product = 3;
 }
 
 message PxeInstructions {

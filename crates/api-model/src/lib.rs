@@ -67,6 +67,7 @@ pub mod power_manager;
 pub mod power_shelf;
 pub mod power_shelf_state_history;
 pub mod predicted_machine_interface;
+pub mod pxe;
 pub mod rack;
 pub mod rack_state_history;
 pub mod redfish;

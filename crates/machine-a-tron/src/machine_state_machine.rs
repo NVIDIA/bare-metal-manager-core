@@ -432,15 +432,22 @@ impl MachineStateMachine {
                     return Err(MachineStateError::MissingInterfaceId);
                 };
 
-                let architecture = match self.machine_info {
-                    MachineInfo::Dpu(_) => MachineArchitecture::Arm,
-                    MachineInfo::Host(_) => MachineArchitecture::X86,
+                let (architecture, product) = match self.machine_info {
+                    MachineInfo::Dpu(_) => (
+                        MachineArchitecture::Arm,
+                        "Machine-A-Tron Bluefield".to_string(),
+                    ),
+                    MachineInfo::Host(_) => (
+                        MachineArchitecture::X86,
+                        "Machine-A-Tron X86 Host".to_string(),
+                    ),
                 };
 
                 let pxe_response = send_pxe_boot_request(
                     &self.app_context,
                     architecture,
                     machine_interface_id,
+                    Some(product),
                     Some(inner_state.machine_dhcp_info.ip_address.to_string()),
                 )
                 .await?;
