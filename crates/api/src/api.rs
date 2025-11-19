@@ -12,34 +12,22 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 pub use ::rpc::forge as rpc;
-use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
+use ::rpc::forge::SkuIdList;
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
-use chrono::TimeZone;
-use db::network_devices::NetworkDeviceSearchConfig;
-use db::{DatabaseError, ObjectFilter};
+use db::DatabaseError;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
-use itertools::Itertools;
-use mlxconfig_device::report::MlxDeviceReport;
-use model::dpa_interface::NewDpaInterface;
-use model::firmware::DesiredFirmwareVersions;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::resource_pool::common::CommonPools;
-use tokio::sync::mpsc;
 use tokio_stream::Stream;
-use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
-use utils::HostPortPair;
 
 use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
-use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::rack::rms_client::RmsApi;
@@ -47,8 +35,7 @@ use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
 use crate::{
-    CarbideError, CarbideResult, auth, dynamic_settings, ethernet_virtualization, handlers,
-    measured_boot,
+    CarbideError, CarbideResult, dynamic_settings, ethernet_virtualization, handlers, measured_boot,
 };
 
 pub struct Api {
@@ -68,34 +55,18 @@ pub struct Api {
     pub(crate) rms_client: Arc<Box<dyn RmsApi>>,
 }
 
+pub(crate) type ScoutStreamType =
+    Pin<Box<dyn Stream<Item = Result<rpc::ScoutStreamScoutBoundMessage, Status>> + Send>>;
+
 #[tonic::async_trait]
 impl Forge for Api {
-    // type ScoutStreamStream = ReceiverStream<Result<ScoutStreamScoutBoundMessage, Status>>;
-    type ScoutStreamStream =
-        Pin<Box<dyn Stream<Item = Result<rpc::ScoutStreamScoutBoundMessage, Status>> + Send>>;
+    type ScoutStreamStream = ScoutStreamType;
 
     async fn version(
         &self,
         request: Request<rpc::VersionRequest>,
     ) -> Result<Response<rpc::BuildInfo>, Status> {
-        log_request_data(&request);
-        let version_request = request.into_inner();
-
-        let v = rpc::BuildInfo {
-            build_version: forge_version::v!(build_version).to_string(),
-            build_date: forge_version::v!(build_date).to_string(),
-            git_sha: forge_version::v!(git_sha).to_string(),
-            rust_version: forge_version::v!(rust_version).to_string(),
-            build_user: forge_version::v!(build_user).to_string(),
-            build_hostname: forge_version::v!(build_hostname).to_string(),
-
-            runtime_config: if version_request.display_config {
-                Some(self.runtime_config.redacted().into())
-            } else {
-                None
-            },
-        };
-        Ok(Response::new(v))
+        crate::handlers::api::version(self, request).await
     }
 
     async fn create_domain(
@@ -472,13 +443,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::EchoRequest>,
     ) -> Result<Response<rpc::EchoResponse>, Status> {
-        log_request_data(&request);
-
-        let reply = rpc::EchoResponse {
-            message: request.into_inner().message,
-        };
-
-        Ok(Response::new(reply))
+        crate::handlers::api::echo(self, request).await
     }
 
     async fn create_tenant(
@@ -562,28 +527,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::MachineCertificateRenewRequest>,
     ) -> Result<Response<rpc::MachineCertificateResult>, Status> {
-        if let Some(machine_identity) = request
-            .extensions()
-            .get::<auth::AuthContext>()
-            // XXX: Does a machine's certificate resemble a service's
-            // certificate enough for this to work?
-            .and_then(|auth_context| auth_context.get_spiffe_machine_id())
-        {
-            let certificate = self
-                .certificate_provider
-                .get_certificate(machine_identity, None, None)
-                .await
-                .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
-
-            return Ok(Response::new(rpc::MachineCertificateResult {
-                machine_certificate: Some(certificate.into()),
-            }));
-        }
-
-        Err(
-            CarbideError::ClientCertificateError("no client certificate presented?".to_string())
-                .into(),
-        )
+        crate::handlers::credential::renew_machine_certificate(self, request).await
     }
 
     async fn discover_machine(
@@ -888,104 +832,11 @@ impl Forge for Api {
         crate::handlers::machine::update_machine_metadata(self, request).await
     }
 
-    /// Maintenance mode: Put a machine into maintenance mode or take it out.
-    /// Switching a host into maintenance mode prevents an instance being assigned to it.
     async fn set_maintenance(
         &self,
         request: Request<rpc::MaintenanceRequest>,
     ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-        let machine_id = convert_and_log_machine_id(req.host_id.as_ref())?;
-
-        let (host_machine, mut txn) = self
-            .load_machine(
-                &machine_id,
-                MachineSearchConfig::default(),
-                "maintenance handler",
-            )
-            .await?;
-        if host_machine.is_dpu() {
-            return Err(Status::invalid_argument(
-                "DPU ID provided. Need managed host.",
-            ));
-        }
-        let dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
-
-        // We set status on both host and dpu machine to make them easier to query from DB
-        match req.operation() {
-            rpc::MaintenanceOperation::Enable => {
-                let Some(reference) = req.reference else {
-                    return Err(Status::invalid_argument(
-                        "Missing reference url".to_string(),
-                    ));
-                };
-
-                let reference = reference.trim().to_string();
-                if reference.len() < 5 {
-                    return Err(Status::invalid_argument(
-                        "Provide some valid reference. Minimum expected length is 5.".to_string(),
-                    ));
-                }
-
-                // Maintenance mode is implemented as a host health override
-                crate::handlers::health::insert_health_report_override(
-                    self,
-                    Request::new(rpc::InsertHealthReportOverrideRequest {
-                        machine_id: req.host_id,
-                        r#override: Some(::rpc::forge::HealthReportOverride {
-                            report: Some(health_report::HealthReport {
-                                source: "maintenance".to_string(),
-                                observed_at: Some(chrono::Utc::now()),
-                                successes: Vec::new(),
-                                alerts: vec![health_report::HealthProbeAlert {
-                                    id: "Maintenance".parse().unwrap(),
-                                    target: None,
-                                    in_alert_since: Some(chrono::Utc::now()),
-                                    message: reference.clone(),
-                                    tenant_message: None,
-                                    classifications: vec![
-                                        health_report::HealthAlertClassification::prevent_allocations(),
-                                        health_report::HealthAlertClassification::suppress_external_alerting(),
-                                    ],
-                                }],
-                            }
-                            .into()),
-                            mode: ::rpc::forge::OverrideMode::Merge.into(),
-                        }),
-                    }),
-                )
-                .await?;
-            }
-            rpc::MaintenanceOperation::Disable => {
-                for dpu_machine in dpu_machines.iter() {
-                    if dpu_machine.reprovision_requested.is_some() {
-                        return Err(Status::invalid_argument(format!(
-                            "Reprovisioning request is set on DPU: {}. Clear it first.",
-                            &dpu_machine.id
-                        )));
-                    }
-                }
-
-                match crate::handlers::health::remove_health_report_override(
-                    self,
-                    Request::new(rpc::RemoveHealthReportOverrideRequest {
-                        machine_id: req.host_id,
-                        source: "maintenance".to_string(),
-                    }),
-                )
-                .await
-                {
-                    Ok(_) => (),
-                    Err(status) if status.code() == tonic::Code::NotFound => (),
-                    Err(status) => return Err(status),
-                };
-            }
-        };
-
-        txn.commit().await?;
-
-        Ok(Response::new(()))
+        crate::handlers::managed_host::set_maintenance(self, request).await
     }
 
     async fn find_ip_address(
@@ -1086,16 +937,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::GetDpuInfoListRequest>,
     ) -> Result<Response<rpc::GetDpuInfoListResponse>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("get_dpu_info_list").await?;
-
-        let dpu_list = db::machine::find_dpu_ids_and_loopback_ips(&mut txn).await?;
-
-        txn.commit().await?;
-
-        let response = rpc::GetDpuInfoListResponse { dpu_list };
-        Ok(Response::new(response))
+        crate::handlers::machine::get_dpu_info_list(self, request).await
     }
 
     async fn get_machine_boot_override(
@@ -1123,21 +965,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::NetworkTopologyRequest>,
     ) -> Result<Response<rpc::NetworkTopologyData>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let mut txn = self.txn_begin("get_network_topology").await?;
-
-        let query = match &req.id {
-            Some(x) => ObjectFilter::One(x.as_str()),
-            None => ObjectFilter::All,
-        };
-
-        let data = db::network_devices::get_topology(&mut txn, query).await?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(data.into()))
+        crate::handlers::network_devices::get_network_topology(self, request).await
     }
 
     async fn admin_bmc_reset(
@@ -1270,100 +1098,11 @@ impl Forge for Api {
         crate::handlers::route_server::replace(self, request).await
     }
 
-    // Override RUST_LOG or site-explorer create_machines
     async fn set_dynamic_config(
         &self,
         request: Request<rpc::SetDynamicConfigRequest>,
     ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-
-        let req = request.into_inner();
-        let exp_str = req.expiry.as_deref().unwrap_or("1h");
-        let expiry = duration_str::parse(exp_str).map_err(|err| {
-            Status::invalid_argument(format!("Invalid expiry string '{exp_str}'. {err}"))
-        })?;
-        const MAX_SET_INTERNAL_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
-        if MAX_SET_INTERNAL_EXPIRY < expiry {
-            return Err(Status::invalid_argument(
-                "Expiry exceeds max allowed of 60 hours",
-            ));
-        }
-        let expire_at = chrono::Utc::now() + expiry;
-
-        let Ok(requested_setting) = rpc::ConfigSetting::try_from(req.setting) else {
-            return Err(Status::invalid_argument(format!(
-                "Not a supported dynamic config setting: {}",
-                req.setting
-            )));
-        };
-
-        if req.value.is_empty() && !matches!(requested_setting, rpc::ConfigSetting::BmcProxy) {
-            return Err(Status::invalid_argument("'value' cannot be empty"));
-        }
-
-        match requested_setting {
-            rpc::ConfigSetting::LogFilter => {
-                let level = &self.dynamic_settings.log_filter;
-                level.update(&req.value, Some(expire_at)).map_err(|err| {
-                    Status::invalid_argument(format!(
-                        "Invalid log filter string '{}'. {err}",
-                        req.value
-                    ))
-                })?;
-                tracing::info!(
-                    "Log filter updated to '{}'; global log level: {}",
-                    req.value,
-                    tracing_subscriber::filter::LevelFilter::current()
-                );
-            }
-            rpc::ConfigSetting::CreateMachines => {
-                let is_enabled = req.value.parse::<bool>().map_err(|err| {
-                    Status::invalid_argument(format!(
-                        "Invalid create_machines string '{}'. {err}",
-                        req.value
-                    ))
-                })?;
-                self.dynamic_settings
-                    .create_machines
-                    .store(is_enabled, Ordering::Relaxed);
-                tracing::info!("site-explorer create_machines updated to '{}'", req.value);
-            }
-            rpc::ConfigSetting::BmcProxy => {
-                let Some(true) = self.runtime_config.site_explorer.allow_changing_bmc_proxy else {
-                    return Err(Status::permission_denied(
-                        "site-explorer.bmc_proxy is not allowed to be changed on this server",
-                    ));
-                };
-
-                if req.value.is_empty() {
-                    self.dynamic_settings.bmc_proxy.store(Arc::new(None))
-                } else {
-                    let host_port_pair = req.value.parse::<HostPortPair>().map_err(|err| {
-                        Status::invalid_argument(format!(
-                            "Invalid bmc_proxy string '{}': {err}",
-                            req.value
-                        ))
-                    })?;
-
-                    self.dynamic_settings
-                        .bmc_proxy
-                        .store(Arc::new(Some(host_port_pair)));
-                }
-                tracing::info!("site-explorer create_machines updated to '{}'", req.value);
-            }
-            rpc::ConfigSetting::TracingEnabled => {
-                let enable = req.value.parse().map_err(|_| {
-                    Status::invalid_argument(format!(
-                        "Expected bool for TracingEnabled, got {}",
-                        &req.value
-                    ))
-                })?;
-                self.dynamic_settings
-                    .tracing_enabled
-                    .store(enable, Ordering::Relaxed);
-            }
-        }
-        Ok(Response::new(()))
+        crate::handlers::api::set_dynamic_config(self, request).await
     }
 
     async fn clear_host_uefi_password(
@@ -1552,46 +1291,15 @@ impl Forge for Api {
         &self,
         request: Request<::rpc::common::MachineIdList>,
     ) -> Result<Response<rpc::ConnectedDeviceList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self
-            .txn_begin("find_connected_devices_by_dpu_machine_ids")
-            .await?;
-
-        let dpu_ids = request.into_inner().machine_ids;
-
-        let connected_devices =
-            db::network_devices::dpu_to_network_device_map::find_by_dpu_ids(&mut txn, &dpu_ids)
-                .await?;
-
-        Ok(Response::new(rpc::ConnectedDeviceList {
-            connected_devices: connected_devices.into_iter().map_into().collect(),
-        }))
+        crate::handlers::network_devices::find_connected_devices_by_dpu_machine_ids(self, request)
+            .await
     }
 
     async fn find_network_devices_by_device_ids(
         &self,
         request: Request<rpc::NetworkDeviceIdList>,
     ) -> Result<Response<rpc::NetworkTopologyData>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("find_network_devices_by_device_ids").await?;
-        let request = request.into_inner(); // keep lifetime for this scope
-        let network_device_ids: Vec<&str> = request
-            .network_device_ids
-            .iter()
-            .map(|d| d.as_str())
-            .collect();
-        let network_devices = db::network_devices::find(
-            &mut txn,
-            ObjectFilter::List(&network_device_ids),
-            &NetworkDeviceSearchConfig::new(false),
-        )
-        .await?;
-
-        Ok(Response::new(rpc::NetworkTopologyData {
-            network_devices: network_devices.into_iter().map_into().collect(),
-        }))
+        crate::handlers::network_devices::find_network_devices_by_device_ids(self, request).await
     }
 
     async fn find_machine_ids_by_bmc_ips(
@@ -2292,6 +2000,7 @@ impl Forge for Api {
         )
         .await
     }
+
     async fn get_machine_validation_tests(
         &self,
         request: Request<rpc::MachineValidationTestsGetRequest>,
@@ -2318,6 +2027,7 @@ impl Forge for Api {
     ) -> Result<Response<rpc::MachineValidationTestVerfiedResponse>, Status> {
         crate::handlers::machine_validation::machine_validation_test_verfied(self, request).await
     }
+
     async fn machine_validation_test_next_version(
         &self,
         request: Request<rpc::MachineValidationTestNextVersionRequest>,
@@ -2325,6 +2035,7 @@ impl Forge for Api {
         crate::handlers::machine_validation::machine_validation_test_next_version(self, request)
             .await
     }
+
     async fn machine_validation_test_enable_disable_test(
         &self,
         request: Request<rpc::MachineValidationTestEnableDisableTestRequest>,
@@ -2347,60 +2058,70 @@ impl Forge for Api {
     ) -> Result<Response<rpc::CreateInstanceTypeResponse>, Status> {
         crate::handlers::instance_type::create(self, request).await
     }
+
     async fn find_instance_type_ids(
         &self,
         request: Request<rpc::FindInstanceTypeIdsRequest>,
     ) -> Result<Response<rpc::FindInstanceTypeIdsResponse>, Status> {
         crate::handlers::instance_type::find_ids(self, request).await
     }
+
     async fn find_instance_types_by_ids(
         &self,
         request: Request<rpc::FindInstanceTypesByIdsRequest>,
     ) -> Result<Response<rpc::FindInstanceTypesByIdsResponse>, Status> {
         crate::handlers::instance_type::find_by_ids(self, request).await
     }
+
     async fn delete_instance_type(
         &self,
         request: Request<rpc::DeleteInstanceTypeRequest>,
     ) -> Result<Response<rpc::DeleteInstanceTypeResponse>, Status> {
         crate::handlers::instance_type::delete(self, request).await
     }
+
     async fn update_instance_type(
         &self,
         request: Request<rpc::UpdateInstanceTypeRequest>,
     ) -> Result<Response<rpc::UpdateInstanceTypeResponse>, Status> {
         crate::handlers::instance_type::update(self, request).await
     }
+
     async fn associate_machines_with_instance_type(
         &self,
         request: Request<rpc::AssociateMachinesWithInstanceTypeRequest>,
     ) -> Result<Response<rpc::AssociateMachinesWithInstanceTypeResponse>, Status> {
         crate::handlers::instance_type::associate_machines(self, request).await
     }
+
     async fn remove_machine_instance_type_association(
         &self,
         request: Request<rpc::RemoveMachineInstanceTypeAssociationRequest>,
     ) -> Result<Response<rpc::RemoveMachineInstanceTypeAssociationResponse>, Status> {
         crate::handlers::instance_type::remove_machine_association(self, request).await
     }
+
     async fn redfish_browse(
         &self,
         request: Request<rpc::RedfishBrowseRequest>,
     ) -> Result<Response<rpc::RedfishBrowseResponse>, Status> {
         crate::handlers::redfish::redfish_browse(self, request).await
     }
+
     async fn redfish_list_actions(
         &self,
         request: Request<rpc::RedfishListActionsRequest>,
     ) -> Result<Response<rpc::RedfishListActionsResponse>, Status> {
         crate::handlers::redfish::redfish_list_actions(self, request).await
     }
+
     async fn redfish_create_action(
         &self,
         request: Request<rpc::RedfishCreateActionRequest>,
     ) -> Result<Response<rpc::RedfishCreateActionResponse>, Status> {
         crate::handlers::redfish::redfish_create_action(self, request).await
     }
+
     async fn redfish_approve_action(
         &self,
         request: Request<rpc::RedfishActionId>,
@@ -2413,54 +2134,63 @@ impl Forge for Api {
     ) -> Result<Response<rpc::RedfishApplyActionResponse>, Status> {
         crate::handlers::redfish::redfish_apply_action(self, request).await
     }
+
     async fn redfish_cancel_action(
         &self,
         request: Request<rpc::RedfishActionId>,
     ) -> Result<Response<rpc::RedfishCancelActionResponse>, Status> {
         crate::handlers::redfish::redfish_cancel_action(self, request).await
     }
+
     async fn ufm_browse(
         &self,
         request: Request<rpc::UfmBrowseRequest>,
     ) -> Result<Response<rpc::UfmBrowseResponse>, Status> {
         crate::handlers::ib_fabric::ufm_browse(self, request).await
     }
+
     async fn create_network_security_group(
         &self,
         request: Request<rpc::CreateNetworkSecurityGroupRequest>,
     ) -> Result<Response<rpc::CreateNetworkSecurityGroupResponse>, Status> {
         crate::handlers::network_security_group::create(self, request).await
     }
+
     async fn find_network_security_group_ids(
         &self,
         request: Request<rpc::FindNetworkSecurityGroupIdsRequest>,
     ) -> Result<Response<rpc::FindNetworkSecurityGroupIdsResponse>, Status> {
         crate::handlers::network_security_group::find_ids(self, request).await
     }
+
     async fn find_network_security_groups_by_ids(
         &self,
         request: Request<rpc::FindNetworkSecurityGroupsByIdsRequest>,
     ) -> Result<Response<rpc::FindNetworkSecurityGroupsByIdsResponse>, Status> {
         crate::handlers::network_security_group::find_by_ids(self, request).await
     }
+
     async fn delete_network_security_group(
         &self,
         request: Request<rpc::DeleteNetworkSecurityGroupRequest>,
     ) -> Result<Response<rpc::DeleteNetworkSecurityGroupResponse>, Status> {
         crate::handlers::network_security_group::delete(self, request).await
     }
+
     async fn update_network_security_group(
         &self,
         request: Request<rpc::UpdateNetworkSecurityGroupRequest>,
     ) -> Result<Response<rpc::UpdateNetworkSecurityGroupResponse>, Status> {
         crate::handlers::network_security_group::update(self, request).await
     }
+
     async fn get_network_security_group_propagation_status(
         &self,
         request: Request<rpc::GetNetworkSecurityGroupPropagationStatusRequest>,
     ) -> Result<Response<rpc::GetNetworkSecurityGroupPropagationStatusResponse>, Status> {
         crate::handlers::network_security_group::get_propagation_status(self, request).await
     }
+
     async fn get_network_security_group_attachments(
         &self,
         request: Request<rpc::GetNetworkSecurityGroupAttachmentsRequest>,
@@ -2472,33 +2202,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::GetDesiredFirmwareVersionsRequest>,
     ) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
-        log_request_data(&request);
-
-        let entries = self
-            .runtime_config
-            .get_firmware_config()
-            .map()
-            .into_values()
-            .map(|firmware| {
-                let vendor = firmware.vendor;
-                let model = firmware.model.clone();
-                let component_versions = DesiredFirmwareVersions::from(firmware).versions;
-
-                Ok::<_, serde_json::Error>(rpc::DesiredFirmwareVersionEntry {
-                    vendor: vendor.to_string(),
-                    model,
-                    // Launder firmware.components through serde::value to convert FirmwareComponentType
-                    // to String (serde is configured to lowercase it.)
-                    component_versions: serde_json::from_value(serde_json::to_value(
-                        component_versions,
-                    )?)?,
-                })
-            })
-            .try_collect()
-            .map_err(CarbideError::from)?;
-        Ok(Response::new(rpc::GetDesiredFirmwareVersionsResponse {
-            entries,
-        }))
+        crate::handlers::firmware::get_desired_firmware_versions(self, request).await
     }
 
     async fn create_sku(
@@ -2511,18 +2215,21 @@ impl Forge for Api {
     async fn delete_sku(&self, request: Request<SkuIdList>) -> Result<Response<()>, Status> {
         Ok(crate::handlers::sku::delete(self, request).await?)
     }
+
     async fn generate_sku_from_machine(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<rpc::Sku>, Status> {
         Ok(crate::handlers::sku::generate_from_machine(self, request).await?)
     }
+
     async fn verify_sku_for_machine(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
         Ok(crate::handlers::sku::verify_for_machine(self, request).await?)
     }
+
     async fn assign_sku_to_machine(
         &self,
         request: Request<::rpc::forge::SkuMachinePair>,
@@ -2595,44 +2302,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::CopyBfbToDpuRshimRequest>,
     ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let (bmc_endpoint_request, ssh_config) = match req.ssh_request {
-            Some(ssh_req) => match ssh_req.endpoint_request {
-                Some(bmc_request) => {
-                    // Port 22 is the default SSH port--carbide-api assumes port :4443
-                    let ip_address: String = if bmc_request.ip_address.contains(':') {
-                        bmc_request.ip_address
-                    } else {
-                        format!("{}:22", bmc_request.ip_address)
-                    };
-
-                    (
-                        BmcEndpointRequest {
-                            ip_address,
-                            mac_address: bmc_request.mac_address,
-                        },
-                        ssh_req.timeout_config,
-                    )
-                }
-                None => {
-                    return Err(CarbideError::MissingArgument("bmc_endpoint_request").into());
-                }
-            },
-            None => {
-                return Err(CarbideError::MissingArgument("ssh_request").into());
-            }
-        };
-
-        crate::handlers::bmc_endpoint_explorer::copy_bfb_to_dpu_rshim(
-            self,
-            &bmc_endpoint_request,
-            ssh_config,
-        )
-        .await?;
-
-        Ok(Response::new(()))
+        crate::handlers::bmc_endpoint_explorer::copy_bfb_to_dpu_rshim(self, request).await
     }
 
     // Return a Vector of all the DPA interface IDs
@@ -2710,85 +2380,14 @@ impl Forge for Api {
         &self,
         request: Request<rpc::SetFirmwareUpdateTimeWindowRequest>,
     ) -> Result<Response<rpc::SetFirmwareUpdateTimeWindowResponse>, Status> {
-        let request = request.into_inner();
-        let start = request.start_timestamp.unwrap_or_default().seconds;
-        let end = request.end_timestamp.unwrap_or_default().seconds;
-        // Sanity checks
-        if start != 0 || end != 0 {
-            if start == 0 || end == 0 {
-                return Err(CarbideError::InvalidArgument(
-                    "Start and end must both be zero or nonzero".to_string(),
-                )
-                .into());
-            }
-            if start >= end {
-                return Err(
-                    CarbideError::InvalidArgument("Start must precede end".to_string()).into(),
-                );
-            }
-            if end < chrono::Utc::now().timestamp() {
-                return Err(
-                    CarbideError::InvalidArgument("End occurs in the past".to_string()).into(),
-                );
-            }
-        }
-
-        let mut txn = self.txn_begin("set_firmware_update_time_window").await?;
-
-        tracing::info!(
-            "set_firmware_update_time_window: Setting update start/end ({:?} {:?}) for {:?}",
-            chrono::Utc.timestamp_opt(start, 0),
-            chrono::Utc.timestamp_opt(end, 0),
-            request.machine_ids
-        );
-
-        db::machine::update_firmware_update_time_window_start_end(
-            &request.machine_ids,
-            chrono::Utc
-                .timestamp_opt(request.start_timestamp.unwrap_or_default().seconds, 0)
-                .earliest()
-                .unwrap_or(chrono::Utc::now()),
-            chrono::Utc
-                .timestamp_opt(request.end_timestamp.unwrap_or_default().seconds, 0)
-                .earliest()
-                .unwrap_or(chrono::Utc::now()),
-            &mut txn,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(rpc::SetFirmwareUpdateTimeWindowResponse {}))
+        crate::handlers::firmware::set_firmware_update_time_window(self, request).await
     }
 
     async fn list_host_firmware(
         &self,
-        _request: Request<rpc::ListHostFirmwareRequest>,
+        request: Request<rpc::ListHostFirmwareRequest>,
     ) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
-        let mut ret = vec![];
-        for (_, entry) in self.runtime_config.get_firmware_config().map() {
-            for (component, component_info) in entry.components {
-                for firmware in component_info.known_firmware {
-                    if firmware.default {
-                        ret.push(rpc::AvailableHostFirmware {
-                            vendor: entry.vendor.to_string(),
-                            model: entry.model.clone(),
-                            r#type: component.to_string(),
-                            inventory_name_regex: component_info
-                                .current_version_reported_as
-                                .clone()
-                                .map(|x| x.as_str().to_string())
-                                .unwrap_or("UNSPECIFIED".to_string()),
-                            version: firmware.version.clone(),
-                            needs_explicit_start: entry.explicit_start_needed,
-                        });
-                    }
-                }
-            }
-        }
-        Ok(Response::new(rpc::ListHostFirmwareResponse {
-            available: ret,
-        }))
+        crate::handlers::firmware::list_host_firmware(self, request).await
     }
 
     // Scout is telling Carbide the mlx device configuration in its machine
@@ -2796,123 +2395,25 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
-        // TODO(chet): Integrate this once it's time. For now, just log
-        // that a report was received, that we can successfully convert
-        // it from an RPC message back to an MlxDeviceReport, and drop it.
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        if !self.runtime_config.is_dpa_enabled() {
-            return Ok(Response::new(
-                mlx_device_pb::PublishMlxDeviceReportResponse {},
-            ));
-        }
-
-        if let Some(report_pb) = req.report {
-            let report: MlxDeviceReport = report_pb
-                .try_into()
-                .map_err(|e: String| Status::internal(e))?;
-            tracing::info!(
-                "received MlxDeviceReport hostname={} device_count={}",
-                report.hostname,
-                report.devices.len(),
-            );
-
-            // Without a machine_id, we can't create dpa interfaces
-            if report.machine_id.is_some() {
-                let mut spx_nics: i32 = 0;
-
-                let mid = report.machine_id.unwrap();
-
-                for dev in report.devices {
-                    // XXX TODO XXX
-                    // Change this to base device detection using part numbers rather
-                    // than device description.
-                    // XXX TODO XXX
-                    if dev.device_description.is_some() && dev.base_mac.is_some() {
-                        let descr = dev.device_description.unwrap();
-                        if descr.contains("SuperNIC") {
-                            spx_nics += 1;
-
-                            let mac = dev.base_mac.unwrap();
-                            let dpa_info = NewDpaInterface {
-                                machine_id: mid,
-                                mac_address: mac,
-                                device_type: dev.device_type,
-                                pci_name: dev.pci_name,
-                            };
-
-                            match crate::handlers::dpa::create_internal(self, dpa_info).await {
-                                Ok(dpa_out) => {
-                                    tracing::info!("created dpa: {:#?}", dpa_out);
-                                }
-                                Err(e) => {
-                                    tracing::info!("create dpa error: {:#?}", e);
-                                }
-                            }
-                        }
-                    } else {
-                        tracing::warn!("Missing part, device desc or mac: {:#?}", dev);
-                    }
-                }
-
-                tracing::info!(
-                    "spx nics count: {spx_nics} machine_id: {:#?}",
-                    report.machine_id
-                );
-            } else {
-                tracing::warn!("MlxDeviceReport without machine_id: {:#?}", report);
-            }
-        } else {
-            tracing::warn!("no embedded MlxDeviceReport published");
-        }
-        Ok(Response::new(
-            mlx_device_pb::PublishMlxDeviceReportResponse {},
-        ))
+        crate::handlers::dpa::publish_mlx_device_report(self, request).await
     }
 
     // Scout is telling carbide the observed status (locking status, card mode) of the
     // mlx devices in its host
     async fn publish_mlx_observation_report(
         &self,
-        request: tonic::Request<mlx_device_pb::PublishMlxObservationReportRequest>,
+        request: Request<mlx_device_pb::PublishMlxObservationReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
-        log_request_data(&request);
-
-        if !self.runtime_config.is_dpa_enabled() {
-            return Ok(Response::new(
-                mlx_device_pb::PublishMlxObservationReportResponse {},
-            ));
-        }
-
-        crate::handlers::dpa::process_mlx_observation(self, request).await?;
-
-        Ok(Response::new(
-            mlx_device_pb::PublishMlxObservationReportResponse {},
-        ))
+        crate::handlers::dpa::publish_mlx_observation_report(self, request).await
     }
 
     async fn trim_table(
         &self,
         request: Request<rpc::TrimTableRequest>,
     ) -> Result<Response<rpc::TrimTableResponse>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("trim_table").await?;
-
-        let total_deleted = db::trim_table::trim_table(
-            &mut txn,
-            request.get_ref().target(),
-            request.get_ref().keep_entries,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(rpc::TrimTableResponse {
-            total_deleted: total_deleted.to_string(),
-        }))
+        crate::handlers::db::trim_table(self, request).await
     }
+
     async fn create_remediation(
         &self,
         request: Request<rpc::CreateRemediationRequest>,
@@ -2961,18 +2462,21 @@ impl Forge for Api {
     ) -> Result<Response<rpc::RemediationList>, Status> {
         crate::handlers::dpu_remediation::find_remediations_by_ids(self, request).await
     }
+
     async fn find_applied_remediation_ids(
         &self,
         request: Request<rpc::FindAppliedRemediationIdsRequest>,
     ) -> Result<Response<rpc::AppliedRemediationIdList>, Status> {
         crate::handlers::dpu_remediation::find_applied_remediation_ids(self, request).await
     }
+
     async fn find_applied_remediations(
         &self,
         request: Request<rpc::FindAppliedRemediationsRequest>,
     ) -> Result<Response<rpc::AppliedRemediationList>, Status> {
         crate::handlers::dpu_remediation::find_applied_remediations(self, request).await
     }
+
     async fn get_next_remediation_for_machine(
         &self,
         request: Request<rpc::GetNextRemediationForMachineRequest>,
@@ -3080,62 +2584,7 @@ impl Forge for Api {
         &self,
         request: Request<Streaming<rpc::ScoutStreamApiBoundMessage>>,
     ) -> Result<Response<Self::ScoutStreamStream>, Status> {
-        log_request_data(&request);
-
-        let mut stream = request.into_inner();
-
-        let init_message = stream
-            .message()
-            .await?
-            .ok_or_else(|| Status::invalid_argument("invalid message received"))?;
-
-        // As part of "constructing" the new scout stream, we expect
-        // an Init message as the first thing from the client (in this
-        // case, a scout agent).
-        let machine_id = match init_message.payload {
-            Some(rpc::scout_stream_api_bound_message::Payload::Init(init)) => {
-                convert_and_log_machine_id(init.machine_id.as_ref())?
-            }
-            _ => {
-                return Err(Status::invalid_argument(
-                    "first ScoutStream client message must be an Init message",
-                ));
-            }
-        };
-
-        tracing::info!("scout agent connected for machine: {machine_id}");
-
-        // Now we create channels for bidirectional communication. The API
-        // will receive on one side, process whatever is packed into the oneof field
-        // for the stream message, and then pass it off out the other side.
-        let (agent_tx, agent_rx) = mpsc::channel::<rpc::ScoutStreamApiBoundMessage>(100);
-        let (server_tx, server_rx) =
-            mpsc::channel::<Result<rpc::ScoutStreamScoutBoundMessage, Status>>(100);
-
-        // Next, register the connection using the machine ID and our fancy new channels.
-        self.scout_stream_registry
-            .register(machine_id, server_tx.clone(), agent_rx)
-            .await;
-
-        // And now spawn a task to forward agent messages through
-        // the connection registry.
-        let registry_clone = self.scout_stream_registry.clone();
-        tokio::spawn(async move {
-            while let Ok(Some(message)) = stream.message().await {
-                if agent_tx.send(message).await.is_err() {
-                    tracing::error!("failed to forward message received from scout agent");
-                    break;
-                }
-            }
-
-            // If/when the connection breaks, unregister the scout
-            // agent connection from the connection registry.
-            tracing::info!("scout agent disconnected for machine: {machine_id}");
-            registry_clone.unregister(machine_id).await;
-        });
-
-        // Ok(Response::new(ReceiverStream::new(server_rx)))
-        Ok(Response::new(Box::pin(ReceiverStream::new(server_rx))))
+        handlers::scout_stream::scout_stream(self, request).await
     }
 
     // scout_stream_show_connections lists all active scout agent

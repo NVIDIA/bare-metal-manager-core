@@ -15,6 +15,7 @@ use db::dpa_interface;
 use eyre::eyre;
 use forge_host_support::dpa_cmds::{DpaCommand, OpCode};
 use forge_uuid::machine::MachineId;
+use mlxconfig_device::report::MlxDeviceReport;
 use model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
     DpaLockMode, NewDpaInterface,
@@ -23,7 +24,7 @@ use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValueP
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use rpc::protos::mlx_device::MlxDeviceInfo;
 use sqlx::PgConnection;
-use tonic::{Request, Response};
+use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
 use crate::{CarbideError, CarbideResult};
@@ -50,7 +51,7 @@ pub(crate) async fn create(
 
 // This is the normal code path. When scout reports a DPA NIC, we call this
 // routine to create a dpa_interface object and associate it with the machine.
-pub(crate) async fn create_internal(
+async fn create_internal(
     api: &Api,
     dpa_info: NewDpaInterface,
 ) -> CarbideResult<Response<::rpc::forge::DpaInterface>> {
@@ -291,7 +292,7 @@ fn get_dpa_by_mac(devinfo: &MlxDeviceInfo, dpas: Vec<DpaInterface>) -> CarbideRe
 // Based on what is being reported, we update the card_state of the
 // corresponding DB entry. This update is noticed by the DPA statecontroller
 // and will cause it to advance to the next state.
-pub(crate) async fn process_mlx_observation(
+async fn process_mlx_observation(
     api: &Api,
     request: tonic::Request<mlx_device_pb::PublishMlxObservationReportRequest>,
 ) -> CarbideResult<()> {
@@ -392,4 +393,105 @@ pub(crate) async fn process_mlx_observation(
     txn.commit().await?;
 
     Ok(())
+}
+
+// Scout is telling Carbide the mlx device configuration in its machine
+pub(crate) async fn publish_mlx_device_report(
+    api: &Api,
+    request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
+) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
+    // TODO(chet): Integrate this once it's time. For now, just log
+    // that a report was received, that we can successfully convert
+    // it from an RPC message back to an MlxDeviceReport, and drop it.
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    if !api.runtime_config.is_dpa_enabled() {
+        return Ok(Response::new(
+            mlx_device_pb::PublishMlxDeviceReportResponse {},
+        ));
+    }
+
+    if let Some(report_pb) = req.report {
+        let report: MlxDeviceReport = report_pb
+            .try_into()
+            .map_err(|e: String| Status::internal(e))?;
+        tracing::info!(
+            "received MlxDeviceReport hostname={} device_count={}",
+            report.hostname,
+            report.devices.len(),
+        );
+
+        // Without a machine_id, we can't create dpa interfaces
+        if report.machine_id.is_some() {
+            let mut spx_nics: i32 = 0;
+
+            let mid = report.machine_id.unwrap();
+
+            for dev in report.devices {
+                // XXX TODO XXX
+                // Change this to base device detection using part numbers rather
+                // than device description.
+                // XXX TODO XXX
+                if dev.device_description.is_some() && dev.base_mac.is_some() {
+                    let descr = dev.device_description.unwrap();
+                    if descr.contains("SuperNIC") {
+                        spx_nics += 1;
+
+                        let mac = dev.base_mac.unwrap();
+                        let dpa_info = NewDpaInterface {
+                            machine_id: mid,
+                            mac_address: mac,
+                            device_type: dev.device_type,
+                            pci_name: dev.pci_name,
+                        };
+
+                        match create_internal(api, dpa_info).await {
+                            Ok(dpa_out) => {
+                                tracing::info!("created dpa: {:#?}", dpa_out);
+                            }
+                            Err(e) => {
+                                tracing::info!("create dpa error: {:#?}", e);
+                            }
+                        }
+                    }
+                } else {
+                    tracing::warn!("Missing part, device desc or mac: {:#?}", dev);
+                }
+            }
+
+            tracing::info!(
+                "spx nics count: {spx_nics} machine_id: {:#?}",
+                report.machine_id
+            );
+        } else {
+            tracing::warn!("MlxDeviceReport without machine_id: {:#?}", report);
+        }
+    } else {
+        tracing::warn!("no embedded MlxDeviceReport published");
+    }
+    Ok(Response::new(
+        mlx_device_pb::PublishMlxDeviceReportResponse {},
+    ))
+}
+
+// Scout is telling carbide the observed status (locking status, card mode) of the
+// mlx devices in its host
+pub(crate) async fn publish_mlx_observation_report(
+    api: &Api,
+    request: Request<mlx_device_pb::PublishMlxObservationReportRequest>,
+) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
+    log_request_data(&request);
+
+    if !api.runtime_config.is_dpa_enabled() {
+        return Ok(Response::new(
+            mlx_device_pb::PublishMlxObservationReportResponse {},
+        ));
+    }
+
+    process_mlx_observation(api, request).await?;
+
+    Ok(Response::new(
+        mlx_device_pb::PublishMlxObservationReportResponse {},
+    ))
 }

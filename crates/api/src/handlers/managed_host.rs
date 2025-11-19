@@ -19,6 +19,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
+use crate::handlers::utils::convert_and_log_machine_id;
 
 // This is a work-around for FORGE-7085.  Due to an issue with interface reporting in the host BMC
 // its possible that the primary DPU is not the lowest slot DPU.  Functionally this is not a problem
@@ -198,5 +199,105 @@ pub(crate) async fn set_primary_dpu(
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
     }
+    Ok(Response::new(()))
+}
+
+/// Maintenance mode: Put a machine into maintenance mode or take it out.
+/// Switching a host into maintenance mode prevents an instance being assigned to it.
+pub(crate) async fn set_maintenance(
+    api: &Api,
+    request: Request<rpc::MaintenanceRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+    let machine_id = convert_and_log_machine_id(req.host_id.as_ref())?;
+
+    let (host_machine, mut txn) = api
+        .load_machine(
+            &machine_id,
+            MachineSearchConfig::default(),
+            "maintenance handler",
+        )
+        .await?;
+    if host_machine.is_dpu() {
+        return Err(Status::invalid_argument(
+            "DPU ID provided. Need managed host.",
+        ));
+    }
+    let dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+
+    // We set status on both host and dpu machine to make them easier to query from DB
+    match req.operation() {
+        rpc::MaintenanceOperation::Enable => {
+            let Some(reference) = req.reference else {
+                return Err(Status::invalid_argument(
+                    "Missing reference url".to_string(),
+                ));
+            };
+
+            let reference = reference.trim().to_string();
+            if reference.len() < 5 {
+                return Err(Status::invalid_argument(
+                    "Provide some valid reference. Minimum expected length is 5.".to_string(),
+                ));
+            }
+
+            // Maintenance mode is implemented as a host health override
+            crate::handlers::health::insert_health_report_override(
+                api,
+                Request::new(rpc::InsertHealthReportOverrideRequest {
+                    machine_id: req.host_id,
+                    r#override: Some(::rpc::forge::HealthReportOverride {
+                        report: Some(health_report::HealthReport {
+                            source: "maintenance".to_string(),
+                            observed_at: Some(chrono::Utc::now()),
+                            successes: Vec::new(),
+                            alerts: vec![health_report::HealthProbeAlert {
+                                id: "Maintenance".parse().unwrap(),
+                                target: None,
+                                in_alert_since: Some(chrono::Utc::now()),
+                                message: reference.clone(),
+                                tenant_message: None,
+                                classifications: vec![
+                                    health_report::HealthAlertClassification::prevent_allocations(),
+                                    health_report::HealthAlertClassification::suppress_external_alerting(),
+                                ],
+                            }],
+                        }
+                                     .into()),
+                        mode: ::rpc::forge::OverrideMode::Merge.into(),
+                    }),
+                }),
+            )
+                .await?;
+        }
+        rpc::MaintenanceOperation::Disable => {
+            for dpu_machine in dpu_machines.iter() {
+                if dpu_machine.reprovision_requested.is_some() {
+                    return Err(Status::invalid_argument(format!(
+                        "Reprovisioning request is set on DPU: {}. Clear it first.",
+                        &dpu_machine.id
+                    )));
+                }
+            }
+
+            match crate::handlers::health::remove_health_report_override(
+                api,
+                Request::new(rpc::RemoveHealthReportOverrideRequest {
+                    machine_id: req.host_id,
+                    source: "maintenance".to_string(),
+                }),
+            )
+            .await
+            {
+                Ok(_) => (),
+                Err(status) if status.code() == tonic::Code::NotFound => (),
+                Err(status) => return Err(status),
+            };
+        }
+    };
+
+    txn.commit().await?;
+
     Ok(Response::new(()))
 }

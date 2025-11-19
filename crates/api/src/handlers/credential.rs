@@ -18,7 +18,7 @@ use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
 use mac_address::MacAddress;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
-use tonic::Response;
+use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
@@ -498,4 +498,29 @@ pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideErr
         })?;
 
     Ok(())
+}
+
+pub(crate) async fn renew_machine_certificate(
+    api: &Api,
+    request: Request<rpc::MachineCertificateRenewRequest>,
+) -> Result<Response<rpc::MachineCertificateResult>, Status> {
+    if let Some(machine_identity) = request
+        .extensions()
+        .get::<crate::auth::AuthContext>()
+        // XXX: Does a machine's certificate resemble a service's
+        // certificate enough for this to work?
+        .and_then(|auth_context| auth_context.get_spiffe_machine_id())
+    {
+        let certificate = api
+            .certificate_provider
+            .get_certificate(machine_identity, None, None)
+            .await
+            .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
+
+        return Ok(Response::new(rpc::MachineCertificateResult {
+            machine_certificate: Some(certificate.into()),
+        }));
+    }
+
+    Err(CarbideError::ClientCertificateError("no client certificate presented?".to_string()).into())
 }

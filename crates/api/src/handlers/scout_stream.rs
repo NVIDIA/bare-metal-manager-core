@@ -11,10 +11,79 @@
  */
 
 use ::rpc::protos::forge as rpc;
-use tonic::{Request, Response, Status};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::{Request, Response, Status, Streaming};
 
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, ScoutStreamType, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
+
+// scout_stream handles the bidirectional streaming connection from scout agents.
+// scout agents call scout_stream and send an Init message, and then carbide-api
+// will send down "request" messages to connected agent(s) to either instruct them
+// or ask them for information (sometimes for state changes, other times for
+// feeding data back to administrative CLI/UI calls).
+pub(crate) async fn scout_stream(
+    api: &Api,
+    request: Request<Streaming<rpc::ScoutStreamApiBoundMessage>>,
+) -> Result<Response<ScoutStreamType>, Status> {
+    log_request_data(&request);
+
+    let mut stream = request.into_inner();
+
+    let init_message = stream
+        .message()
+        .await?
+        .ok_or_else(|| Status::invalid_argument("invalid message received"))?;
+
+    // As part of "constructing" the new scout stream, we expect
+    // an Init message as the first thing from the client (in this
+    // case, a scout agent).
+    let machine_id = match init_message.payload {
+        Some(rpc::scout_stream_api_bound_message::Payload::Init(init)) => {
+            convert_and_log_machine_id(init.machine_id.as_ref())?
+        }
+        _ => {
+            return Err(Status::invalid_argument(
+                "first ScoutStream client message must be an Init message",
+            ));
+        }
+    };
+
+    tracing::info!("scout agent connected for machine: {machine_id}");
+
+    // Now we create channels for bidirectional communication. The API
+    // will receive on one side, process whatever is packed into the oneof field
+    // for the stream message, and then pass it off out the other side.
+    let (agent_tx, agent_rx) = mpsc::channel::<rpc::ScoutStreamApiBoundMessage>(100);
+    let (server_tx, server_rx) =
+        mpsc::channel::<Result<rpc::ScoutStreamScoutBoundMessage, Status>>(100);
+
+    // Next, register the connection using the machine ID and our fancy new channels.
+    api.scout_stream_registry
+        .register(machine_id, server_tx.clone(), agent_rx)
+        .await;
+
+    // And now spawn a task to forward agent messages through
+    // the connection registry.
+    let registry_clone = api.scout_stream_registry.clone();
+    tokio::spawn(async move {
+        while let Ok(Some(message)) = stream.message().await {
+            if agent_tx.send(message).await.is_err() {
+                tracing::error!("failed to forward message received from scout agent");
+                break;
+            }
+        }
+
+        // If/when the connection breaks, unregister the scout
+        // agent connection from the connection registry.
+        tracing::info!("scout agent disconnected for machine: {machine_id}");
+        registry_clone.unregister(machine_id).await;
+    });
+
+    // Ok(Response::new(ReceiverStream::new(server_rx)))
+    Ok(Response::new(Box::pin(ReceiverStream::new(server_rx))))
+}
 
 pub async fn show_connections(
     api: &Api,
