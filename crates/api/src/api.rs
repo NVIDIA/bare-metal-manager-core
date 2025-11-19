@@ -267,23 +267,18 @@ impl Forge for Api {
         crate::handlers::ib_partition::for_tenant(self, request).await
     }
 
-    // DEPRECATED: use find_power_shelf_ids and find_power_shelves_by_ids instead
     async fn find_power_shelves(
         &self,
-        _request: Request<rpc::PowerShelfQuery>,
+        request: Request<rpc::PowerShelfQuery>,
     ) -> Result<Response<rpc::PowerShelfList>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::power_shelf::find_power_shelf(self, request).await
     }
 
     async fn delete_power_shelf(
         &self,
-        _request: Request<rpc::PowerShelfDeletionRequest>,
+        request: Request<rpc::PowerShelfDeletionRequest>,
     ) -> Result<Response<rpc::PowerShelfDeletionResult>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        handlers::power_shelf::delete_power_shelf(self, request).await
     }
 
     // DEPRECATED: use find_switch_ids and find_switches_by_ids instead

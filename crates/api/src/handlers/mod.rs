@@ -41,6 +41,7 @@ pub mod measured_boot;
 pub mod mlx_admin;
 pub mod network_security_group;
 pub mod network_segment;
+pub mod power_shelf;
 pub mod pxe;
 pub mod redfish;
 pub mod resource_pool;
