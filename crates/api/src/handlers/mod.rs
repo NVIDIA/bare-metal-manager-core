@@ -38,11 +38,13 @@ pub mod machine_interface;
 pub mod machine_quarantine;
 pub mod machine_scout;
 pub mod machine_validation;
+pub mod managed_host;
 #[cfg(feature = "linux-build")]
 pub mod measured_boot;
 pub mod mlx_admin;
 pub mod network_security_group;
 pub mod network_segment;
+pub mod power_options;
 pub mod power_shelf;
 pub mod pxe;
 pub mod redfish;
