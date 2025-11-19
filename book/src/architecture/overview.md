@@ -12,8 +12,8 @@ The Kubernetes cluster needs to have variety of services deployed:
 
 The following chapters look at each of these in more detail.
 
-<!-- Source drawio file at static/site-controller.drawio -->
-![Carbide site controller](static/site-controller-overview.png)
+<!-- Source drawio file at ../static/site-controller.drawio -->
+![Carbide site controller](../static/site-controller-overview.png)
 
 ## Managed Hosts
 
@@ -40,7 +40,7 @@ Carbide deploys a set of binaries on these hosts during various points of their 
 [dpu-agent](https://gitlab-master.nvidia.com/nvmetal/carbide/-/tree/trunk/crates/agent) is an agent that Carbide runs exclusively on DPUS managed by Carbide as a daemon.
 
 DPU agent performs the following tasks:
-- Configuring the DPU as required at any state during the hosts lifecycle. This process is described more in depth in [DPU configuration](architecture/dpu_configuration.md).
+- Configuring the DPU as required at any state during the hosts lifecycle. This process is described more in depth in [DPU configuration](dpu_configuration.md).
 - Executing periodic health-checks on the DPU
 - Running the Forge metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance. Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.
 - Enabling auto-updates of the dpu-agent itself
@@ -81,8 +81,8 @@ Carbide core can be considered as a "collection of independent components that a
 
 Carbide core is the only component within carbide which interacts with the postgres database. This simplifies the rollout of database migrations throughout the product lifecycle.
 
-<!-- Source drawio file at static/carbide-core.drawio -->
-![Carbide site controller](static/carbide-core.png)
+<!-- Source drawio file at ../static/carbide-core.drawio -->
+![Carbide site controller](../static/carbide-core.png)
 
 ### Carbide Core Components
 
@@ -114,7 +114,7 @@ Carbide implements state machines for
 - InfiniBand Partitions
 - NVLink Logical Partitions
 
-Details about the Carbide state handling implementation can be found [here](architecture/state_handling.md).
+Details about the Carbide state handling implementation can be found [here](state_handling.md).
 
 ### Site Explorer
 
