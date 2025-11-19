@@ -1,10 +1,10 @@
 # NVIDIA Carbide
 
 - [Introduction](README.md)
-- [Architecture](architecture.md)
 
 # Architecture
 
+- [Overview and components](architecture/overview.md)
 - [Reliable state handling](architecture/state_handling.md)
 - [DPU configuration](architecture/dpu_configuration.md)
 - [Health checks and health aggregation](architecture/health_aggregation.md)
@@ -20,10 +20,12 @@
 
 - [Ingesting Machines](manuals/ingesting_machines.md)
 - [Removing Machines](manuals/removing_machines.md)
-- [Updating Machines](manuals/machine_updates.md)
+- [Updating Expected Machines Manifest](manuals/expected_machine_update.md)
+- [Machine Updates](manuals/machine_updates.md)
 - [Machine Validation](manuals/machine_validation.md)
 - [SKU Validation](manuals/sku_validation.md)
 - [Release Instance API Enhancements](manuals/breakfix_integration.md)
+- [Managing VPC Peering](manuals/vpc_peering_management.md)
 
 # Sites and site access
 
@@ -52,8 +54,6 @@
 - [Azure OIDC for Carbide-Web UI](playbooks/carbide_web_oauth2.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
-- [Discovering Machines](playbooks/machine_discovery.md)
-- [Managing VPC Peering](playbooks/vpc_peering_management.md)
 - [Instance/Subnet/etc is stuck in a state]()
     - [Overview and general troubleshooting](playbooks/stuck_objects/stuck_objects.md)
     - [Common Mitigations](playbooks/stuck_objects/common_mitigations.md)
@@ -63,7 +63,6 @@
     - [Adding new machines to an existing site](playbooks/stuck_objects/adding_new_machines.md)
     - [Troubleshooting noDpuLogsWarning alerts](playbooks/troubleshooting_noDpuLogsWarning_alerts.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
-- [Updating Expected Machines Manifest](playbooks/em_update.md)
 - [Hardware](playbooks/hardware/hardware.md)
     - [Lenovo SR670 V2](playbooks/hardware/sr670v2.md)
     - [Lenovo SR650 V2](playbooks/hardware/sr650v2.md)
