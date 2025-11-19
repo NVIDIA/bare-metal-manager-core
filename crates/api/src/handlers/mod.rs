@@ -10,11 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod api;
 pub mod attestation;
 pub mod bmc_endpoint_explorer;
 pub mod bmc_metadata;
 pub mod boot_override;
 pub mod credential;
+pub mod db;
 pub mod dns;
 pub mod domain;
 pub mod dpa;
@@ -25,6 +27,7 @@ pub mod expected_power_shelf;
 pub mod expected_switch;
 pub mod extension_service;
 pub mod finder;
+pub mod firmware;
 pub mod health;
 pub mod host_reprovisioning;
 pub mod ib_fabric;
@@ -42,6 +45,7 @@ pub mod managed_host;
 #[cfg(feature = "linux-build")]
 pub mod measured_boot;
 pub mod mlx_admin;
+pub mod network_devices;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod power_options;

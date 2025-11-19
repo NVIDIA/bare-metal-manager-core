@@ -636,6 +636,23 @@ pub(crate) async fn admin_force_delete_machine(
     Ok(Response::new(response))
 }
 
+/// Retrieves all DPU information including id and loopback IP
+pub(crate) async fn get_dpu_info_list(
+    api: &Api,
+    request: Request<rpc::GetDpuInfoListRequest>,
+) -> Result<Response<rpc::GetDpuInfoListResponse>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.txn_begin("get_dpu_info_list").await?;
+
+    let dpu_list = db::machine::find_dpu_ids_and_loopback_ips(&mut txn).await?;
+
+    txn.commit().await?;
+
+    let response = rpc::GetDpuInfoListResponse { dpu_list };
+    Ok(Response::new(response))
+}
+
 fn snapshot_map_to_rpc_machines(
     snapshots: HashMap<MachineId, ManagedHostStateSnapshot>,
 ) -> rpc::MachineList {
