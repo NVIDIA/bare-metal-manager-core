@@ -42,6 +42,7 @@ pub mod mlx_admin;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod pxe;
+pub mod rack;
 pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
