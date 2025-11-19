@@ -47,6 +47,30 @@ pub(crate) async fn find_machine_ids(
     }))
 }
 
+pub(crate) async fn find_machine_ids_by_bmc_ips(
+    api: &Api,
+    request: Request<rpc::BmcIpList>,
+) -> Result<Response<rpc::MachineIdBmcIpPairs>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.txn_begin("find_machine_ids_by_bmc_ips").await?;
+
+    let pairs =
+        db::machine_topology::find_machine_bmc_pairs(&mut txn, request.into_inner().bmc_ips)
+            .await?;
+    let rpc_pairs = rpc::MachineIdBmcIpPairs {
+        pairs: pairs
+            .into_iter()
+            .map(|(machine_id, bmc_ip)| rpc::MachineIdBmcIp {
+                machine_id: Some(machine_id),
+                bmc_ip,
+            })
+            .collect(),
+    };
+
+    Ok(Response::new(rpc_pairs))
+}
+
 pub(crate) async fn find_machines_by_ids(
     api: &Api,
     request: Request<::rpc::forge::MachinesByIdsRequest>,

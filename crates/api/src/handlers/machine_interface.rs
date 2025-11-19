@@ -133,3 +133,27 @@ pub(crate) async fn delete_interface(
 
     Ok(Response::new(()))
 }
+
+pub(crate) async fn find_mac_address_by_bmc_ip(
+    api: &Api,
+    request: Request<rpc::BmcIp>,
+) -> Result<Response<rpc::MacAddressBmcIp>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+    let bmc_ip = req.bmc_ip;
+
+    let mut txn = api.txn_begin("find_mac_address_by_bmc_ip").await?;
+
+    let interface = db::machine_interface::find_by_ip(&mut txn, bmc_ip.parse().unwrap())
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine_interface",
+            id: bmc_ip.clone(),
+        })?;
+
+    Ok(Response::new(rpc::MacAddressBmcIp {
+        bmc_ip,
+        mac_address: interface.mac_address.to_string(),
+    }))
+}

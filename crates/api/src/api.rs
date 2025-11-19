@@ -10,9 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -30,8 +28,8 @@ use itertools::Itertools;
 use mlxconfig_device::report::MlxDeviceReport;
 use model::dpa_interface::NewDpaInterface;
 use model::firmware::DesiredFirmwareVersions;
+use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, Machine};
 use model::resource_pool::common::CommonPools;
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
@@ -1022,109 +1020,14 @@ impl Forge for Api {
         &self,
         request: Request<rpc::PowerOptionRequest>,
     ) -> Result<Response<rpc::PowerOptionResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let mut txn = self.txn_begin("get_power_options").await?;
-        let power_options = if req.machine_id.is_empty() {
-            db::power_options::get_all(&mut txn).await
-        } else {
-            db::power_options::get_by_ids(&req.machine_id, &mut txn).await
-        }?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(rpc::PowerOptionResponse {
-            response: power_options
-                .into_iter()
-                .map(|x| x.into())
-                .collect::<Vec<rpc::PowerOptions>>(),
-        }))
+        crate::handlers::power_options::get_power_options(self, request).await
     }
 
     async fn update_power_option(
         &self,
         request: Request<rpc::PowerOptionUpdateRequest>,
     ) -> Result<Response<rpc::PowerOptionResponse>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let machine_id = req
-            .machine_id
-            .ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?;
-
-        if machine_id.machine_type().is_dpu() {
-            return Err(Status::invalid_argument("Only host id is expected!!"));
-        }
-
-        log_machine_id(&machine_id);
-
-        let mut txn = self.txn_begin("update_power_options").await?;
-
-        let current_power_state = db::power_options::get_by_ids(&[machine_id], &mut txn).await?;
-
-        // This should never happen until machine is not forced-deleted or does not exist.
-        let Some(current_power_options) = current_power_state.first() else {
-            return Err(Status::invalid_argument("Only host id is expected!!"));
-        };
-
-        let desired_power_state = req.power_state();
-
-        // if desired_state == Off, maintenance must be set.
-        if matches!(desired_power_state, rpc::PowerState::Off) {
-            let snapshot = db::managed_host::load_snapshot(
-                &mut txn,
-                &machine_id,
-                LoadSnapshotOptions {
-                    include_history: false,
-                    include_instance_data: false,
-                    host_health_config: self.runtime_config.host_health,
-                },
-            )
-            .await?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            })?;
-
-            // Start reprovisioning only if the host has an HostUpdateInProgress health alert
-            let update_alert = snapshot
-                .aggregate_health
-                .alerts
-                .iter()
-                .find(|a| a.id == health_report::HealthProbeId::internal_maintenance());
-            if !update_alert.is_some_and(|alert| {
-                alert.classifications.contains(
-                    &health_report::HealthAlertClassification::suppress_external_alerting(),
-                )
-            }) {
-                return Err(Status::invalid_argument(
-                    "Machine must have a 'Maintenance' Health Alert with 'SupressExternalAlerting' classification.",
-                ));
-            }
-        }
-
-        // To avoid unnecessary version increment.
-        let desired_power_state = desired_power_state.into();
-        if desired_power_state == current_power_options.desired_power_state {
-            return Err(Status::invalid_argument(format!(
-                "Power State is already set as {desired_power_state:?}. No change is performed."
-            )));
-        }
-
-        let updated_value = db::power_options::update_desired_state(
-            &machine_id,
-            desired_power_state,
-            &current_power_options.desired_power_state_version,
-            &mut txn,
-        )
-        .await?;
-
-        txn.commit().await?;
-
-        Ok(Response::new(rpc::PowerOptionResponse {
-            response: vec![updated_value.into()],
-        }))
+        crate::handlers::power_options::update_power_option(self, request).await
     }
 
     async fn get_rack(
@@ -1701,48 +1604,14 @@ impl Forge for Api {
         &self,
         request: Request<rpc::BmcIpList>,
     ) -> Result<Response<rpc::MachineIdBmcIpPairs>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.txn_begin("find_machine_ids_by_bmc_ips").await?;
-
-        let pairs =
-            db::machine_topology::find_machine_bmc_pairs(&mut txn, request.into_inner().bmc_ips)
-                .await?;
-        let rpc_pairs = rpc::MachineIdBmcIpPairs {
-            pairs: pairs
-                .into_iter()
-                .map(|(machine_id, bmc_ip)| rpc::MachineIdBmcIp {
-                    machine_id: Some(machine_id),
-                    bmc_ip,
-                })
-                .collect(),
-        };
-
-        Ok(Response::new(rpc_pairs))
+        crate::handlers::machine::find_machine_ids_by_bmc_ips(self, request).await
     }
 
     async fn find_mac_address_by_bmc_ip(
         &self,
         request: Request<rpc::BmcIp>,
     ) -> Result<Response<rpc::MacAddressBmcIp>, Status> {
-        log_request_data(&request);
-
-        let req = request.into_inner();
-        let bmc_ip = req.bmc_ip;
-
-        let mut txn = self.txn_begin("find_mac_address_by_bmc_ip").await?;
-
-        let interface = db::machine_interface::find_by_ip(&mut txn, bmc_ip.parse().unwrap())
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine_interface",
-                id: bmc_ip.clone(),
-            })?;
-
-        Ok(Response::new(rpc::MacAddressBmcIp {
-            bmc_ip,
-            mac_address: interface.mac_address.to_string(),
-        }))
+        crate::handlers::machine_interface::find_mac_address_by_bmc_ip(self, request).await
     }
 
     async fn attest_quote(
@@ -3124,193 +2993,11 @@ impl Forge for Api {
         crate::handlers::dpu_remediation::remediation_applied(self, request).await
     }
 
-    // This is a work-around for FORGE-7085.  Due to an issue with interface reporting in the host BMC
-    // its possible that the primary DPU is not the lowest slot DPU.  Functionally this is not a problem
-    // but the host names interfaces by pci address so the behavior between machines of the same type
-    // is different.
-    //
-    // this function is broken into the following parts
-    // 1. collect interface and bmc information
-    // 2. set the boot device
-    // 3. update the primary interface and network config versions.
-    // 4. reboot the host if requested.
-    //
-    // No transaction should be held during 2 or 4 since they are requests to the host bmc.
-    //
     async fn set_primary_dpu(
         &self,
         request: Request<rpc::SetPrimaryDpuRequest>,
     ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-
-        let request = request.into_inner();
-        let host_machine_id = request.host_machine_id.ok_or_else(|| {
-            CarbideError::InvalidArgument("Host Machine ID is required".to_string())
-        })?;
-        let dpu_machine_id = request.dpu_machine_id.ok_or_else(|| {
-            CarbideError::InvalidArgument("DPU Machine ID is required".to_string())
-        })?;
-
-        log_machine_id(&host_machine_id);
-
-        let mut txn = self.txn_begin("set_primary_dpu").await?;
-
-        let interface_map =
-            db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id]).await?;
-
-        let interface_snapshots =
-            interface_map
-                .get(&host_machine_id)
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "Machine",
-                    id: host_machine_id.to_string(),
-                })?;
-
-        // Find the interface id for the old primary dpu and the interface for the new primary dpu.  they have to be found
-        // before the db update since the "only one primary" constraint will cause a failure
-        // if the new interface is found first.
-        let mut current_primary_interface_id = None;
-        let mut new_primary_interface = None;
-
-        for interface_snapshot in interface_snapshots {
-            if interface_snapshot.primary_interface {
-                let Some(attached_dpu_machine_id) = interface_snapshot.attached_dpu_machine_id
-                else {
-                    return Err(CarbideError::InvalidArgument(
-                        "Primary interface is not associated with a DPU.  Operation not supported"
-                            .to_string(),
-                    )
-                    .into());
-                };
-
-                if attached_dpu_machine_id == dpu_machine_id {
-                    return Err(CarbideError::InvalidArgument(
-                        "Requested DPU is already primary".to_string(),
-                    )
-                    .into());
-                }
-                current_primary_interface_id = Some(interface_snapshot.id);
-                tracing::info!("Removing primary from {}", attached_dpu_machine_id);
-            } else if interface_snapshot.attached_dpu_machine_id == Some(dpu_machine_id) {
-                new_primary_interface = Some(interface_snapshot);
-                tracing::info!("Setting primary on {}", dpu_machine_id);
-            }
-        }
-
-        // we need to set the boot device or the host will no longer be able to boot.  we need BMC info.
-        // the same BMC info is used if a reboot was requested.
-        let machine =
-            db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-                .await?
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "Machine",
-                    id: host_machine_id.to_string(),
-                })?;
-
-        let bmc_addr_str = machine
-            .bmc_info
-            .ip
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "BMC IP",
-                id: host_machine_id.to_string(),
-            })?;
-
-        let bmc_addr = IpAddr::from_str(&bmc_addr_str).map_err(CarbideError::AddressParseError)?;
-        let bmc_socket_addr = SocketAddr::new(bmc_addr, 443);
-
-        let bmc_interface = db::machine_interface::find_by_ip(&mut txn, bmc_addr)
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "BMC Interface",
-                id: bmc_addr.to_string(),
-            })?;
-
-        let primary_interface_mac_address = new_primary_interface
-            .ok_or_else(|| {
-                CarbideError::internal("Primary interface disappeared during update".to_string())
-            })?
-            .mac_address
-            .to_string();
-
-        txn.rollback().await?;
-
-        let Some(current_primary_interface_id) = current_primary_interface_id else {
-            return Err(CarbideError::internal(
-                "Could not determing old primary interface id".to_string(),
-            )
-            .into());
-        };
-        let Some(new_primary_interface) = new_primary_interface else {
-            return Err(CarbideError::internal(
-                "Could not determing new primary interface id".to_string(),
-            )
-            .into());
-        };
-
-        // set the boot device
-        self.endpoint_explorer
-            .set_boot_order_dpu_first(
-                bmc_socket_addr,
-                &bmc_interface,
-                &primary_interface_mac_address,
-            )
-            .await
-            .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-        let mut txn = self.txn_begin("set_primary_dpu").await?;
-
-        // update the primary interface
-        db::machine_interface::set_primary_interface(
-            &current_primary_interface_id,
-            false,
-            &mut txn,
-        )
-        .await?;
-        db::machine_interface::set_primary_interface(&new_primary_interface.id, true, &mut txn)
-            .await?;
-
-        // increment the network config version so that the DPUs pick up their new config
-        let (network_config, network_config_version) =
-            db::machine::get_network_config(&mut txn, &host_machine_id)
-                .await?
-                .take();
-        db::machine::try_update_network_config(
-            &mut txn,
-            &host_machine_id,
-            network_config_version,
-            &network_config,
-        )
-        .await?;
-
-        // if there is an instance, update the instances network config version so the DPUs pick up the new config
-        if let Some(instance) = db::instance::find_by_machine_id(&mut txn, &host_machine_id).await?
-        {
-            db::instance::update_network_config(
-                &mut txn,
-                instance.id,
-                instance.network_config_version,
-                &instance.config.network,
-                true,
-            )
-            .await?;
-        }
-
-        txn.commit().await?;
-
-        // optionally reboot the host.  if there is an instance, this is probably a required step,
-        // but an operator will need to make that call.  The scout image handles this pretty well,
-        // albeit with a leftover IP on the unused interface
-        if request.reboot {
-            self.endpoint_explorer
-                .redfish_power_control(
-                    bmc_socket_addr,
-                    &bmc_interface,
-                    libredfish::SystemPowerControl::ForceRestart,
-                )
-                .await
-                .map_err(|e| CarbideError::internal(e.to_string()))?;
-        }
-        Ok(Response::new(()))
+        crate::handlers::managed_host::set_primary_dpu(self, request).await
     }
 
     async fn create_dpu_extension_service(
