@@ -9,16 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-pub mod common_services;
-pub mod config;
-pub mod controller;
-pub mod dpa_interface;
-pub mod ib_partition;
+pub mod context;
+pub mod handler;
 pub mod io;
-pub mod machine;
-pub mod metrics;
-pub mod network_segment;
-pub mod power_shelf;
-pub mod rack;
-pub mod state_handler;

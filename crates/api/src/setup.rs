@@ -70,6 +70,8 @@ use crate::state_controller::network_segment::handler::NetworkSegmentStateHandle
 use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
 use crate::state_controller::power_shelf::handler::PowerShelfStateHandler;
 use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
+use crate::state_controller::rack::handler::RackStateHandler;
+use crate::state_controller::rack::io::RackStateControllerIO;
 use crate::{attestation, db_init, dpa, ethernet_virtualization, listener};
 
 pub fn parse_carbide_config(
@@ -633,6 +635,14 @@ pub async fn initialize_and_start_controllers(
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
         .build_and_spawn()
         .expect("Unable to build PowerShelfStateController");
+
+    let _rack_controller_handle = StateController::<RackStateControllerIO>::builder()
+        .database(db_pool.clone())
+        .meter("carbide_racks", meter.clone())
+        .services(handler_services.clone())
+        .state_handler(Arc::new(RackStateHandler::default()))
+        .build_and_spawn()
+        .expect("Unable to build RackStateController");
 
     let ib_fabric_monitor = IbFabricMonitor::new(
         db_pool.clone(),

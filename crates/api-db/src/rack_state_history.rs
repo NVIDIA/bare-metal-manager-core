@@ -55,7 +55,7 @@ pub async fn find_by_rack_ids(
 pub async fn persist(
     txn: &mut PgConnection,
     rack_id: &str,
-    state: RackState,
+    state: &RackState,
     state_version: ConfigVersion,
 ) -> DatabaseResult<RackStateHistory> {
     let query = "INSERT INTO rack_state_history (rack_id, state, state_version)

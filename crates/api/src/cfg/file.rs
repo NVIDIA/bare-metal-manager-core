@@ -206,6 +206,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dpa_interface_state_controller: DpaInterfaceStateControllerConfig,
 
+    /// RackStateController related configuration parameter
+    #[serde(default)]
+    pub rack_state_controller: RackStateControllerConfig,
+
     #[serde(default)]
     pub power_shelf_state_controller: PowerShelfStateControllerConfig,
 
@@ -669,6 +673,14 @@ pub struct DpaInterfaceStateControllerConfig {
 /// PowerShelfStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct PowerShelfStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+}
+
+/// RackStateController related config
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct RackStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
