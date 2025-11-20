@@ -529,6 +529,11 @@ impl RedfishClient {
     }
 }
 
+async fn is_switch(client: &dyn Redfish) -> Result<bool, RedfishError> {
+    let chassis = client.get_chassis_all().await?;
+    Ok(chassis.contains(&"MGX_NVSwitch_0".to_string()))
+}
+
 async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     let manager = client.get_manager().await?;
     let ethernet_interfaces = fetch_ethernet_interfaces(client, false, false)
@@ -600,10 +605,17 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
         .await
         .map_err(map_redfish_error)?;
 
-    let boot_order = fetch_boot_order(client, &system)
-        .await
-        .inspect_err(|error| tracing::warn!(%error, "Failed to fetch boot order."))
-        .ok();
+    // If this is an nvswitch, don't set a boot order.
+    let boot_order = match is_switch(client).await.map_err(map_redfish_error)? {
+        true => {
+            tracing::debug!("Skipping boot order for nvswitch");
+            None
+        }
+        false => fetch_boot_order(client, &system)
+            .await
+            .inspect_err(|error| tracing::warn!(%error, "Failed to fetch boot order."))
+            .ok(),
+    };
 
     Ok(ComputerSystem {
         ethernet_interfaces,
@@ -721,6 +733,14 @@ async fn fetch_ethernet_interfaces(
 async fn get_oob_interface(
     client: &dyn Redfish,
 ) -> Result<Option<EthernetInterface>, RedfishError> {
+    // If chassis.contains(&"MGX_NVSwitch_0".to_string()),
+    // nvlink switch does not have oob interface. And, if we try
+    // querying boot options over redfish, we will get a 404 error.
+    // So just return Ok(None) here.
+    if is_switch(client).await? {
+        return Ok(None);
+    }
+
     // Temporary workaround until oob mac would be possible to get via Redfish
     let boot_options = client.get_boot_options().await?;
     let mac_pattern = Regex::new(r"MAC\((?<mac>[[:alnum:]]+)\,").unwrap();
