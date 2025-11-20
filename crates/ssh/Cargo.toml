@@ -10,12 +10,13 @@ authors.workspace = true
 name = "forge_ssh"
 
 [dependencies]
-tokio = { workspace = true }
-ssh2 = { workspace = true }
+async-ssh2-tokio = { workspace = true }
 humantime = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
-
+russh = { workspace = true }
 
 [lints]
 workspace = true
+

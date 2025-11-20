@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
-use forge_ssh::ssh::SshConfig;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use model::expected_machine::ExpectedMachine;
@@ -188,7 +187,6 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

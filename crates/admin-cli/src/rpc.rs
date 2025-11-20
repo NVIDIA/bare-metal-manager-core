@@ -43,9 +43,7 @@ use forge_uuid::vpc::VpcId;
 use forge_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
-use crate::cfg::cli_options::{
-    self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, TimeoutConfig,
-};
+use crate::cfg::cli_options::{self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate};
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
 /// methods.
@@ -622,7 +620,6 @@ impl ApiClient {
         &self,
         address: String,
         mac_address: Option<MacAddress>,
-        timeout_config: Option<TimeoutConfig>,
     ) -> CarbideCliResult<()> {
         let request = rpc::CopyBfbToDpuRshimRequest {
             ssh_request: Some(SshRequest {
@@ -630,7 +627,6 @@ impl ApiClient {
                     ip_address: address.to_string(),
                     mac_address: mac_address.map(|mac| mac.to_string()),
                 }),
-                timeout_config: timeout_config.map(|config| config.to_rpc_timeout_config()),
             }),
         };
 

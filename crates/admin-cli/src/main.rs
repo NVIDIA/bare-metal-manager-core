@@ -1275,7 +1275,7 @@ async fn main() -> color_eyre::Result<()> {
                     tracing::info!("Follow SCP progress in the carbide-api logs...");
 
                     api_client
-                        .copy_bfb_to_dpu_rshim(args.address, args.mac, args.timeout_config)
+                        .copy_bfb_to_dpu_rshim(args.address, args.mac)
                         .await?;
                 }
             }
@@ -2233,7 +2233,6 @@ async fn main() -> color_eyre::Result<()> {
                     ssh_args.credentials.bmc_ip_address,
                     ssh_args.credentials.bmc_username,
                     ssh_args.credentials.bmc_password,
-                    None,
                 )
                 .await?;
                 tracing::info!("{is_rshim_enabled}");
@@ -2243,9 +2242,6 @@ async fn main() -> color_eyre::Result<()> {
                     ssh_args.credentials.bmc_ip_address,
                     ssh_args.credentials.bmc_username,
                     ssh_args.credentials.bmc_password,
-                    ssh_args
-                        .timeouts
-                        .map(|timeout_config| timeout_config.to_ssh_config()),
                 )
                 .await?;
             }
@@ -2254,9 +2250,6 @@ async fn main() -> color_eyre::Result<()> {
                     ssh_args.credentials.bmc_ip_address,
                     ssh_args.credentials.bmc_username,
                     ssh_args.credentials.bmc_password,
-                    ssh_args
-                        .timeouts
-                        .map(|timeout_config| timeout_config.to_ssh_config()),
                 )
                 .await?;
             }
@@ -2265,10 +2258,6 @@ async fn main() -> color_eyre::Result<()> {
                     copy_bfb_args.ssh_args.credentials.bmc_ip_address,
                     copy_bfb_args.ssh_args.credentials.bmc_username,
                     copy_bfb_args.ssh_args.credentials.bmc_password,
-                    copy_bfb_args
-                        .ssh_args
-                        .timeouts
-                        .map(|timeout_config| timeout_config.to_ssh_config()),
                     copy_bfb_args.bfb_path,
                 )
                 .await?;
@@ -2278,9 +2267,6 @@ async fn main() -> color_eyre::Result<()> {
                     ssh_args.credentials.bmc_ip_address,
                     ssh_args.credentials.bmc_username,
                     ssh_args.credentials.bmc_password,
-                    ssh_args
-                        .timeouts
-                        .map(|timeout_config| timeout_config.to_ssh_config()),
                 )
                 .await?;
 

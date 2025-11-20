@@ -12,7 +12,6 @@
 
 use std::net::SocketAddr;
 
-use forge_ssh::ssh::SshConfig;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use model::expected_machine::ExpectedMachine;
@@ -138,7 +137,6 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError>;
 
     async fn create_bmc_user(
