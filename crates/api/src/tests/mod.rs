@@ -84,6 +84,8 @@ mod site_explorer;
 mod sku;
 mod spdm;
 mod storage;
+mod switch;
+mod switch_state_controller;
 mod tenant_keyset_find;
 mod tenants;
 mod test_meter;

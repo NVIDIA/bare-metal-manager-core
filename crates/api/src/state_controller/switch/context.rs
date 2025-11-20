@@ -10,16 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod common_services;
-pub mod config;
-pub mod controller;
-pub mod dpa_interface;
-pub mod ib_partition;
-pub mod io;
-pub mod machine;
-pub mod metrics;
-pub mod network_segment;
-pub mod power_shelf;
-pub mod rack;
-pub mod state_handler;
-pub mod switch;
+use crate::state_controller::common_services::CommonStateHandlerServices;
+use crate::state_controller::state_handler::StateHandlerContextObjects;
+
+pub struct SwitchStateHandlerContextObjects {}
+
+impl StateHandlerContextObjects for SwitchStateHandlerContextObjects {
+    type ObjectMetrics = ();
+    type Services = CommonStateHandlerServices;
+}

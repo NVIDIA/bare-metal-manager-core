@@ -70,8 +70,8 @@ use crate::cfg::file::{
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
     MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, PowerManagerOptions, PowerShelfStateControllerConfig,
-    RackStateControllerConfig, SiteExplorerConfig, StateControllerConfig, VmaasConfig,
-    VpcPeeringPolicy, default_max_find_by_ids,
+    RackStateControllerConfig, SiteExplorerConfig, StateControllerConfig,
+    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
@@ -98,6 +98,8 @@ use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
+use crate::state_controller::switch::handler::SwitchStateHandler;
+use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
@@ -247,6 +249,8 @@ pub struct TestEnv {
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     #[allow(dead_code)]
     power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
+    #[allow(dead_code)]
+    switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub reachability_params: ReachabilityParams,
     pub test_meter: TestMeter,
     pub attestation_enabled: bool,
@@ -478,6 +482,18 @@ impl TestEnv {
             .await;
     }
 
+    /// Runs one iteration of the switch state controller handler with the services
+    /// in this test environment
+    #[allow(clippy::await_holding_refcell_ref)]
+    #[allow(dead_code)]
+    pub async fn run_switch_controller_iteration(&self) {
+        self.switch_controller
+            .lock()
+            .await
+            .run_single_iteration()
+            .await;
+    }
+
     /// Runs power shelf controller iterations until a condition is met
     #[allow(dead_code)]
     pub async fn run_power_shelf_controller_iteration_until_condition(
@@ -493,6 +509,25 @@ impl TestEnv {
         }
         panic!(
             "Power shelf controller condition not met after {} iterations",
+            max_iterations
+        );
+    }
+
+    /// Runs switch controller iterations until a condition is met
+    #[allow(dead_code)]
+    pub async fn run_switch_controller_iteration_until_condition(
+        &self,
+        max_iterations: u32,
+        condition: impl Fn() -> bool,
+    ) {
+        for _ in 0..max_iterations {
+            self.run_switch_controller_iteration().await;
+            if condition() {
+                return;
+            }
+        }
+        panic!(
+            "Switch controller condition not met after {} iterations",
             max_iterations
         );
     }
@@ -920,6 +955,9 @@ pub fn get_config() -> CarbideConfig {
         rack_state_controller: RackStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
+        switch_state_controller: SwitchStateControllerConfig {
+            controller: StateControllerConfig::default(),
+        },
         dpu_config: InitialDpuConfig {
             dpu_nic_firmware_initial_update_enabled: true,
             dpu_nic_firmware_reprovision_update_enabled: true,
@@ -1236,6 +1274,14 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations()
         .expect("Unable to build PowerShelfStateController");
 
+    let switch_controller = StateController::builder()
+        .database(db_pool.clone())
+        .meter("carbide_switches", test_meter.meter())
+        .services(handler_services.clone())
+        .state_handler(Arc::new(SwitchStateHandler::default()))
+        .build_for_manual_iterations()
+        .expect("Unable to build state controller");
+
     let fake_endpoint_explorer = MockEndpointExplorer {
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
     };
@@ -1348,6 +1394,8 @@ pub async fn create_test_env_with_overrides(
         machine_state_handler: machine_swap,
         ib_fabric_monitor: Arc::new(ib_fabric_monitor),
         ib_partition_controller: Arc::new(Mutex::new(ib_controller)),
+        #[allow(dead_code)]
+        switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         #[allow(dead_code)]
         power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),

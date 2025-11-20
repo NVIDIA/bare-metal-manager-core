@@ -253,6 +253,13 @@ impl From<SwitchStateHistory> for rpc::SwitchEvent {
     }
 }
 
+impl Switch {
+    #[allow(dead_code)]
+    pub fn is_marked_as_deleted(&self) -> bool {
+        self.deleted.is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

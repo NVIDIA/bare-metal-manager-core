@@ -1412,7 +1412,7 @@ pub async fn new_switch(
     )
     .map_err(|e| eyre::eyre!("Failed to create switch ID: {:?}", e))?;
 
-    // Create switch configuration
+    // Create switch configuration.
     let config = SwitchConfig {
         name: switch_name,
         enable_nmxc: false,
@@ -1435,7 +1435,6 @@ pub async fn new_switch(
     Ok(switch_id)
 }
 
-#[allow(dead_code)]
 pub async fn new_switches(env: &TestEnv, count: u32) -> eyre::Result<Vec<SwitchId>> {
     let mut switch_ids = Vec::new();
     for i in 0..count {
