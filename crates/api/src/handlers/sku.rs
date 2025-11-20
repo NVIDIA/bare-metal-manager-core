@@ -16,16 +16,16 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;
 use rpc::forge::SkuIdList;
-use tonic::{Request, Response};
+use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, CarbideResult};
 
 pub(crate) async fn create(
     api: &Api,
     request: Request<::rpc::forge::SkuList>,
-) -> CarbideResult<Response<::rpc::forge::SkuIdList>> {
+) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
     log_request_data(&request);
     let mut txn = api.txn_begin("create_sku").await?;
 
@@ -44,7 +44,7 @@ pub(crate) async fn create(
     Ok(Response::new(sku_ids))
 }
 
-pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideResult<Response<()>> {
+pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let mut txn = api.txn_begin("delete_sku").await?;
 
@@ -58,10 +58,11 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
                 .first()
                 .map(|id| id.to_string())
                 .unwrap_or_default()
-        )));
+        ))
+        .into());
     };
     if !skus.is_empty() {
-        return Err(CarbideError::NotImplemented);
+        return Err(CarbideError::NotImplemented.into());
     }
 
     let machine_ids = db::machine::find_machine_ids_by_sku_id(&mut txn, &sku.id).await?;
@@ -69,7 +70,8 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
         return Err(CarbideError::InvalidArgument(format!(
             "The SKUs are in use by {} machines",
             machine_ids.len()
-        )));
+        ))
+        .into());
     }
 
     db::sku::delete(&mut txn, &sku.id).await?;
@@ -82,7 +84,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
 pub(crate) async fn generate_from_machine(
     api: &Api,
     request: Request<MachineId>,
-) -> CarbideResult<Response<::rpc::forge::Sku>> {
+) -> Result<Response<::rpc::forge::Sku>, Status> {
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
@@ -96,7 +98,7 @@ pub(crate) async fn generate_from_machine(
 pub(crate) async fn assign_to_machine(
     api: &Api,
     request: Request<::rpc::forge::SkuMachinePair>,
-) -> CarbideResult<Response<()>> {
+) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let mut txn = api.txn_begin("assign_sku_to_machine").await?;
 
@@ -115,7 +117,8 @@ pub(crate) async fn assign_to_machine(
         if let Some(assigned_sku) = machine.hw_sku {
             return Err(CarbideError::FailedPrecondition(format!(
                 "The specified machine already has a SKU assigned ({assigned_sku})"
-            )));
+            ))
+            .into());
         }
 
         match machine.current_state() {
@@ -132,7 +135,8 @@ pub(crate) async fn assign_to_machine(
             _ => {
                 return Err(CarbideError::FailedPrecondition(
                     "Specified machine is not in a valid state for assigning a SKU".to_string(),
-                ));
+                )
+                .into());
             }
         }
     }
@@ -148,7 +152,8 @@ pub(crate) async fn assign_to_machine(
         return Err(CarbideError::internal(format!(
             "Unexpected additional SKUs found for ID: {}",
             sku_machine_pair.sku_id.clone()
-        )));
+        ))
+        .into());
     }
 
     db::machine::assign_sku(&mut txn, &machine_id, &sku.id).await?;
@@ -163,7 +168,7 @@ pub(crate) async fn assign_to_machine(
 pub(crate) async fn verify_for_machine(
     api: &Api,
     request: Request<MachineId>,
-) -> CarbideResult<Response<()>> {
+) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
@@ -186,7 +191,8 @@ pub(crate) async fn verify_for_machine(
             return Err(CarbideError::FailedPrecondition(
                 "Specified machine is not in a valid state for machine SKU verification"
                     .to_string(),
-            ));
+            )
+            .into());
         }
     }
 
@@ -204,7 +210,7 @@ pub(crate) async fn verify_for_machine(
 pub(crate) async fn remove_sku_association(
     api: &Api,
     request: Request<MachineId>,
-) -> CarbideResult<Response<()>> {
+) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
@@ -227,7 +233,8 @@ pub(crate) async fn remove_sku_association(
             return Err(CarbideError::FailedPrecondition(
                 "Specified machine is not in a valid state for removing SKU association"
                     .to_string(),
-            ));
+            )
+            .into());
         }
     }
 
@@ -241,7 +248,7 @@ pub(crate) async fn remove_sku_association(
 pub(crate) async fn get_all_ids(
     api: &Api,
     request: Request<()>,
-) -> CarbideResult<Response<::rpc::forge::SkuIdList>> {
+) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
     log_request_data(&request);
     let mut txn = api.txn_begin("get_all_sku_ids").await?;
 
@@ -255,7 +262,7 @@ pub(crate) async fn get_all_ids(
 pub(crate) async fn find_skus_by_ids(
     api: &Api,
     request: Request<::rpc::forge::SkusByIdsRequest>,
-) -> CarbideResult<Response<::rpc::forge::SkuList>> {
+) -> Result<Response<::rpc::forge::SkuList>, Status> {
     log_request_data(&request);
 
     let sku_ids = request.into_inner().ids;
@@ -263,11 +270,12 @@ pub(crate) async fn find_skus_by_ids(
     if sku_ids.len() > max_find_by_ids {
         return Err(CarbideError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
-        )));
+        ))
+        .into());
     } else if sku_ids.is_empty() {
-        return Err(CarbideError::InvalidArgument(
-            "at least one ID must be provided".to_string(),
-        ));
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
     }
 
     let mut txn = api.txn_begin("find_skus_by_ids").await?;
@@ -290,7 +298,7 @@ pub(crate) async fn find_skus_by_ids(
 pub(crate) async fn update_sku_metadata(
     api: &Api,
     request: Request<::rpc::forge::SkuUpdateMetadataRequest>,
-) -> CarbideResult<Response<()>> {
+) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -313,7 +321,7 @@ pub(crate) async fn update_sku_metadata(
 pub(crate) async fn replace_sku(
     api: &Api,
     request: Request<::rpc::forge::Sku>,
-) -> CarbideResult<Response<rpc::forge::Sku>> {
+) -> Result<Response<rpc::forge::Sku>, Status> {
     let request = request.into_inner().into();
     let mut txn = api.txn_begin("replace_sku_components").await?;
 
