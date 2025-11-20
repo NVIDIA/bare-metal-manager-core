@@ -159,6 +159,13 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
     }
 }
 
+impl PowerShelf {
+    #[allow(dead_code)]
+    pub fn is_marked_as_deleted(&self) -> bool {
+        self.deleted.is_some()
+    }
+}
+
 /// State of a PowerShelf as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]

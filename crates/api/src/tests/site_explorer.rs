@@ -5196,13 +5196,9 @@ async fn test_power_shelf_state_history_error_handling(
     for state in test_states.iter() {
         let version = ConfigVersion::initial();
 
-        let history_entry = db::power_shelf_state_history::persist(
-            &mut txn,
-            &power_shelf_id,
-            state.clone(),
-            version,
-        )
-        .await?;
+        let history_entry =
+            db::power_shelf_state_history::persist(&mut txn, &power_shelf_id, state, version)
+                .await?;
 
         assert_eq!(
             history_entry.state.replace(" ", ""),

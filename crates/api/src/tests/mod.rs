@@ -73,6 +73,8 @@ mod network_security_group;
 mod network_segment;
 mod network_segment_find;
 mod network_segment_lifecycle;
+mod power_shelf;
+mod power_shelf_state_controller;
 mod prevent_duplicate_mac_addresses;
 mod redfish_actions;
 mod resource_pool;
