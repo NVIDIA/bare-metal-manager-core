@@ -73,7 +73,7 @@ pub async fn for_power_shelf(
 pub async fn persist(
     txn: &mut PgConnection,
     power_shelf_id: &PowerShelfId,
-    state: PowerShelfControllerState,
+    state: &PowerShelfControllerState,
     state_version: ConfigVersion,
 ) -> DatabaseResult<PowerShelfStateHistory> {
     let query = "INSERT INTO power_shelf_state_history (power_shelf_id, state, state_version)

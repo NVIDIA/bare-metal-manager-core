@@ -1313,7 +1313,6 @@ pub async fn new_dpu_in_network_install(
 }
 
 /// Creates a new power shelf for testing purposes
-/// #[allow(dead_code)]
 pub async fn new_power_shelf(
     env: &TestEnv,
     name: Option<String>,
