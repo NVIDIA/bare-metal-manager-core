@@ -70,8 +70,8 @@ use crate::cfg::file::{
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
     MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, PowerManagerOptions, PowerShelfStateControllerConfig,
-    SiteExplorerConfig, StateControllerConfig, VmaasConfig, VpcPeeringPolicy,
-    default_max_find_by_ids,
+    RackStateControllerConfig, SiteExplorerConfig, StateControllerConfig, VmaasConfig,
+    VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
@@ -915,6 +915,9 @@ pub fn get_config() -> CarbideConfig {
             controller: StateControllerConfig::default(),
         },
         power_shelf_state_controller: PowerShelfStateControllerConfig {
+            controller: StateControllerConfig::default(),
+        },
+        rack_state_controller: RackStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
         dpu_config: InitialDpuConfig {
