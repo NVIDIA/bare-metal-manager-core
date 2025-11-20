@@ -10,16 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod common_services;
-pub mod config;
-pub mod controller;
-pub mod dpa_interface;
-pub mod ib_partition;
+//! State Controller implementation for Switches.
+
+pub mod context;
+pub mod handler;
 pub mod io;
-pub mod machine;
-pub mod metrics;
-pub mod network_segment;
-pub mod power_shelf;
-pub mod rack;
-pub mod state_handler;
-pub mod switch;

@@ -72,6 +72,8 @@ use crate::state_controller::power_shelf::handler::PowerShelfStateHandler;
 use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
 use crate::state_controller::rack::handler::RackStateHandler;
 use crate::state_controller::rack::io::RackStateControllerIO;
+use crate::state_controller::switch::handler::SwitchStateHandler;
+use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::{attestation, db_init, dpa, ethernet_virtualization, listener};
 
 pub fn parse_carbide_config(
@@ -643,6 +645,15 @@ pub async fn initialize_and_start_controllers(
         .state_handler(Arc::new(RackStateHandler::default()))
         .build_and_spawn()
         .expect("Unable to build RackStateController");
+
+    let _switch_controller_handle = StateController::<SwitchStateControllerIO>::builder()
+        .database(db_pool.clone())
+        .meter("carbide_switches", meter.clone())
+        .services(handler_services.clone())
+        .iteration_config((&carbide_config.switch_state_controller.controller).into())
+        .state_handler(Arc::new(SwitchStateHandler::default()))
+        .build_and_spawn()
+        .expect("Unable to build SwitchStateController");
 
     let ib_fabric_monitor = IbFabricMonitor::new(
         db_pool.clone(),

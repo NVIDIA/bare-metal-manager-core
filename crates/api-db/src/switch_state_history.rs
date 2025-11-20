@@ -73,7 +73,7 @@ pub async fn for_switch(
 pub async fn persist(
     txn: &mut PgConnection,
     switch_id: &SwitchId,
-    state: SwitchControllerState,
+    state: &SwitchControllerState,
     state_version: ConfigVersion,
 ) -> DatabaseResult<SwitchStateHistory> {
     let query = "INSERT INTO switch_state_history (switch_id, state, state_version)
