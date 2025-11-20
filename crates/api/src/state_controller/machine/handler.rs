@@ -649,6 +649,7 @@ impl MachineStateHandler {
                     .associated_dpu_machine_ids()
                     .is_empty()
                 {
+                    // GB200/300 dpu info not populated in expected machines and dpu not cabled up will go through here.
                     tracing::info!(
                         machine_id = %host_machine_id,
                         "Skipping to HostInit because machine has no DPUs"
@@ -660,6 +661,24 @@ impl MachineStateHandler {
                     ))
                 } else {
                     let mut state_handler_outcome = StateHandlerOutcome::do_nothing();
+                    if ctx.services.site_config.force_dpu_nic_mode {
+                        // skip dpu discovery and init entirely, treat it as a nic
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::WaitingForPlatformConfiguration,
+                            },
+                        ));
+                        /*
+                        // todo: check for machine type before skipping? not sure site explorer is setting this
+                        if let Some(hwinfo) = mh_snapshot.host_snapshot.hardware_info.clone() {
+                            if let Some(dmi_data) = hwinfo.dmi_data {
+                                if dmi_data.product_name.contains("GB200 NVL") {
+
+                                }
+                            }
+                        }
+                         */
+                    }
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         state_handler_outcome = self
                             .dpu_handler
@@ -4612,6 +4631,21 @@ impl StateHandler for HostMachineStateHandler {
                             ))
                         }
                         LockdownState::TimeWaitForDPUDown => {
+                            if ctx.services.site_config.force_dpu_nic_mode {
+                                // skip wait for dpu reboot TimeWaitForDPUDown, WaitForDPUUp
+                                // GB200/300, etc with dpu disconnected or in nic mode
+                                let next_state = ManagedHostState::BomValidating {
+                                    bom_validating_state: BomValidating::MatchingSku(
+                                        BomValidatingContext {
+                                            machine_validation_context: Some(
+                                                "Discovery".to_string(),
+                                            ),
+                                            reboot_retry_count: None,
+                                        },
+                                    ),
+                                };
+                                return Ok(StateHandlerOutcome::transition(next_state));
+                            }
                             // Lets wait for some time before checking if DPU is up or not.
                             // Waiting is needed because DPU takes some time to go down. If we check DPU
                             // reachability before it goes down, it will give us wrong result.
