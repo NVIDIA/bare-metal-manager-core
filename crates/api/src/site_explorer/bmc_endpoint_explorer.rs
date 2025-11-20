@@ -14,7 +14,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use forge_secrets::credentials::{CredentialProvider, Credentials};
-use forge_ssh::ssh::SshConfig;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
@@ -364,17 +363,15 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        ssh_config: Option<SshConfig>,
     ) -> Result<bool, EndpointExplorationError> {
         let (username, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
-        let rshim_status =
-            forge_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password, ssh_config)
-                .await
-                .map_err(|err| EndpointExplorationError::Other {
-                    details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
-                })?;
+        let rshim_status = forge_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password)
+            .await
+            .map_err(|err| EndpointExplorationError::Other {
+                details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
+            })?;
 
         Ok(rshim_status)
     }
@@ -383,13 +380,12 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         let (username, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        forge_ssh::ssh::enable_rshim(bmc_ip_address, username, password, ssh_config)
+        forge_ssh::ssh::enable_rshim(bmc_ip_address, username, password)
             .await
             .map_err(|err| EndpointExplorationError::Other {
                 details: format!("failed enable RSHIM on {bmc_ip_address}: {err}"),
@@ -400,16 +396,15 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: &Credentials,
-        ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         let mut i = 0;
         while i < 3 {
             if !self
-                .is_rshim_enabled(bmc_ip_address, credentials.clone(), ssh_config.clone())
+                .is_rshim_enabled(bmc_ip_address, credentials.clone())
                 .await?
             {
                 tracing::warn!("RSHIM is not enabled on {bmc_ip_address}");
-                self.enable_rshim(bmc_ip_address, credentials.clone(), ssh_config.clone())
+                self.enable_rshim(bmc_ip_address, credentials.clone())
                     .await?;
 
                 // Sleep for 10 seconds before checking again
@@ -499,7 +494,6 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         let (username, password) = match credentials.clone() {
             Credentials::UsernamePassword { username, password } => (username, password),
@@ -508,14 +502,13 @@ impl BmcEndpointExplorer {
         self.create_unified_preingestion_bfb(&username, &password)
             .await?;
 
-        self.check_and_enable_rshim(bmc_ip_address, &credentials, ssh_config.clone())
+        self.check_and_enable_rshim(bmc_ip_address, &credentials)
             .await?;
 
         forge_ssh::ssh::copy_bfb_to_bmc_rshim(
             bmc_ip_address,
             username,
             password,
-            ssh_config,
             UNIFIED_PREINGESTION_BFB_PATH.to_string(),
         )
         .await
@@ -917,13 +910,12 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.copy_bfb_to_dpu_rshim(bmc_ip_address, credentials, ssh_config)
+                self.copy_bfb_to_dpu_rshim(bmc_ip_address, credentials)
                     .await
             }
             Err(e) => {

@@ -2807,8 +2807,7 @@ message SshTimeoutConfig {
 message SshRequest {
   // BMC Endpoint Request
   BmcEndpointRequest endpoint_request = 1;
-  // Optional SSH Timeout Configuration
-  optional SshTimeoutConfig timeout_config = 2;
+  reserved 2; // deprecated -- timeout_config
 }
 
 message CopyBfbToDpuRshimRequest {

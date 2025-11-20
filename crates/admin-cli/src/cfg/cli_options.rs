@@ -17,10 +17,6 @@ use std::path::PathBuf;
 use clap::builder::BoolishValueParser;
 use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
 use forge_network::virtualization::VpcVirtualizationType;
-use forge_ssh::ssh::{
-    DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
-    DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
-};
 use forge_uuid::domain::DomainId;
 use forge_uuid::dpa_interface::DpaInterfaceId;
 use forge_uuid::dpu_remediations::RemediationId;
@@ -35,7 +31,7 @@ use libredfish::model::update_service::ComponentType;
 use mac_address::MacAddress;
 use rpc::InstanceInfinibandConfig;
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig};
+use rpc::forge::{OperatingSystem, RouteServerSourceType};
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
@@ -2975,8 +2971,6 @@ pub struct CopyBfbToDpuRshimArgs {
     pub address: String,
     #[clap(long, help = "The MAC address the BMC sent DHCP from")]
     pub mac: Option<MacAddress>,
-    #[clap(flatten)]
-    pub timeout_config: Option<TimeoutConfig>,
     #[clap(
         long,
         help = "Host BMC IP address. Provide this if you want to power cycle the host before SCPing."
@@ -3697,21 +3691,6 @@ pub enum SshActions {
     ShowObmcLog(SshArgs),
 }
 
-#[derive(Parser, Debug, Clone)]
-pub struct TimeoutConfig {
-    #[clap(long, help = "TCP Connection Timeout (seconds)")]
-    pub tcp_connection_timeout: Option<u64>,
-
-    #[clap(long, help = "TCP Read Timeout (seconds)")]
-    pub tcp_read_timeout: Option<u64>,
-
-    #[clap(long, help = "TCP Write Timeout (seconds)")]
-    pub tcp_write_timeout: Option<u64>,
-
-    #[clap(long, help = "SSH Session Timeout (seconds)")]
-    pub ssh_session_timeout: Option<u64>,
-}
-
 #[derive(Parser, Debug)]
 pub enum TrimTableTarget {
     MeasuredBoot(KeepEntries),
@@ -3722,26 +3701,6 @@ pub struct KeepEntries {
     #[clap(help = "Number of entries to keep")]
     #[arg(long)]
     pub keep_entries: u32,
-}
-
-impl TimeoutConfig {
-    pub fn to_ssh_config(&self) -> SshConfig {
-        SshConfig {
-            tcp_connection_timeout: DEFAULT_TCP_CONNECTION_TIMEOUT,
-            tcp_read_timeout: DEFAULT_TCP_READ_TIMEOUT,
-            tcp_write_timeout: DEFAULT_TCP_WRITE_TIMEOUT,
-            ssh_session_timeout: DEFAULT_SSH_SESSION_TIMEOUT,
-        }
-    }
-
-    pub fn to_rpc_timeout_config(&self) -> SshTimeoutConfig {
-        SshTimeoutConfig {
-            tcp_connection_timeout: self.tcp_connection_timeout,
-            tcp_read_timeout: self.tcp_read_timeout,
-            tcp_write_timeout: self.tcp_write_timeout,
-            ssh_session_timeout: self.ssh_session_timeout,
-        }
-    }
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -3758,8 +3717,6 @@ pub struct BmcCredentials {
 pub struct SshArgs {
     #[clap(flatten)]
     pub credentials: BmcCredentials,
-    #[clap(flatten)]
-    pub timeouts: Option<TimeoutConfig>,
 }
 
 #[derive(Parser, Debug)]

@@ -134,7 +134,11 @@ license-files = [
   # Each entry is a crate relative path, and the (opaque) hash of its contents
   #{ path = "LICENSE", hash = 0xbd0eed23 }
 ]
-[[licenses.clarify]] # TODO: we should open a PR against the upstream lib to figure out why this is necessary, it's clearly marked as MIT on the GH page for the repo.
+[[licenses.clarify]] # TODO: we should open a PR against the upstream lib to figure out why this is necessary, it's clearly marked on the GH page for the repo.
+crate = "async-ssh2-tokio"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]] # TODO: we should open a PR against the upstream lib to figure out why this is necessary, it's clearly marked on the GH page for the repo.
 crate = "smbios-lib"
 expression = "MIT"
 license-files = []
@@ -181,11 +185,12 @@ allow = [
 ]
 # List of crates to deny
 deny = [
-  #"ansi_term@0.11.0",
-  #{ crate = "ansi_term@0.11.0", reason = "you can specify a reason it is banned" },
-  # Wrapper crates can optionally be specified to allow the crate when it
-  # is a direct dependency of the otherwise banned crate
-  #{ crate = "ansi_term@0.11.0", wrappers = ["this-crate-directly-depends-on-ansi_term"] },
+    { crate = "openssl-sys", reason = "for the love of all that is holy please stop depending on native libs being installed" },
+    #"ansi_term@0.11.0",
+    #{ crate = "ansi_term@0.11.0", reason = "you can specify a reason it is banned" },
+    # Wrapper crates can optionally be specified to allow the crate when it
+    # is a direct dependency of the otherwise banned crate
+    #{ crate = "ansi_term@0.11.0", wrappers = ["this-crate-directly-depends-on-ansi_term"] },
 ]
 
 # List of features to allow/deny

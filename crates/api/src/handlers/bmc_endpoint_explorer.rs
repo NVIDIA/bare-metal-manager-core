@@ -15,10 +15,6 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use db::machine_interface::find_by_ip;
-use forge_ssh::ssh::{
-    DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
-    DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
-};
 use forge_uuid::machine::MachineId;
 use libredfish::RoleId;
 use mac_address::MacAddress;
@@ -541,7 +537,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     log_request_data(&request);
     let req = request.into_inner();
 
-    let (bmc_endpoint_request, ssh_config) = match req.ssh_request {
+    let bmc_endpoint_request = match req.ssh_request {
         Some(ssh_req) => match ssh_req.endpoint_request {
             Some(bmc_request) => {
                 // Port 22 is the default SSH port--carbide-api assumes port :4443
@@ -551,13 +547,10 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
                     format!("{}:22", bmc_request.ip_address)
                 };
 
-                (
-                    rpc::BmcEndpointRequest {
-                        ip_address,
-                        mac_address: bmc_request.mac_address,
-                    },
-                    ssh_req.timeout_config,
-                )
+                rpc::BmcEndpointRequest {
+                    ip_address,
+                    mac_address: bmc_request.mac_address,
+                }
             }
             None => {
                 return Err(CarbideError::MissingArgument("bmc_endpoint_request").into());
@@ -568,7 +561,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         }
     };
 
-    do_copy_bfb_to_dpu_rshim(api, &bmc_endpoint_request, ssh_config).await?;
+    do_copy_bfb_to_dpu_rshim(api, &bmc_endpoint_request).await?;
 
     Ok(Response::new(()))
 }
@@ -612,7 +605,6 @@ async fn resolve_bmc_interface(
 async fn do_copy_bfb_to_dpu_rshim(
     api: &Api,
     request: &rpc::BmcEndpointRequest,
-    ssh_config: Option<rpc::SshTimeoutConfig>,
 ) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -651,31 +643,8 @@ async fn do_copy_bfb_to_dpu_rshim(
         }
     }
 
-    let ssh_timeout_config: Option<SshConfig> = ssh_config.map(|config| SshConfig {
-        tcp_connection_timeout: Duration::from_secs(
-            config
-                .tcp_connection_timeout
-                .unwrap_or(DEFAULT_TCP_CONNECTION_TIMEOUT.as_secs()),
-        ),
-        tcp_read_timeout: Duration::from_secs(
-            config
-                .tcp_read_timeout
-                .unwrap_or(DEFAULT_TCP_READ_TIMEOUT.as_secs()),
-        ),
-        tcp_write_timeout: Duration::from_secs(
-            config
-                .tcp_write_timeout
-                .unwrap_or(DEFAULT_TCP_WRITE_TIMEOUT.as_secs()),
-        ),
-        ssh_session_timeout: Duration::from_secs(
-            config
-                .ssh_session_timeout
-                .unwrap_or(DEFAULT_SSH_SESSION_TIMEOUT.as_secs()),
-        ),
-    });
-
     api.endpoint_explorer
-        .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface, ssh_timeout_config)
+        .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
