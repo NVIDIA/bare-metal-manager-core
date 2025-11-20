@@ -15,8 +15,11 @@ use std::iter;
 use std::net::IpAddr;
 
 use db::machine_interface::find_by_mac_address;
+use db::{power_shelf as db_power_shelf, switch as db_switch};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use forge_uuid::machine::MachineId;
+use forge_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use forge_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use futures_util::FutureExt;
 use health_report::HealthReport;
 use model::hardware_info::HardwareInfo;
@@ -25,13 +28,18 @@ use model::machine::{
     LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
     ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
 };
+use model::power_shelf::power_shelf_id::from_hardware_info;
+use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::site_explorer::EndpointExplorationReport;
+use model::switch::switch_id::from_hardware_info as switch_from_hardware_info;
+use model::switch::{NewSwitch, SwitchConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self, HardwareHealthReport};
 use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
 use tonic::Request;
+use uuid;
 
 use super::dpu::create_machine_inventory;
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
@@ -175,7 +183,7 @@ impl<'a> MockExploredHost<'a> {
     }
 
     /// Run DHCP on the host's primary interface. If there are DPU's in the ManagedHostConfig, it
-    /// uses the host_mac_address of the first DPU. If there are no DPUs, it uses the first mac
+    /// uses the host_nics of the first DPU. If there are no DPUs, it uses the first mac
     /// address in [`ManagedHostConfig#non_dpu_macs`]. If there are none of those, panics.
     ///
     /// Yields the DHCP result to the passed closure
@@ -1302,4 +1310,137 @@ pub async fn new_dpu_in_network_install(
         dpu_ids: vec![dpu_machine_id],
         api: env.api.clone(),
     })
+}
+
+/// Creates a new power shelf for testing purposes
+/// #[allow(dead_code)]
+pub async fn new_power_shelf(
+    env: &TestEnv,
+    name: Option<String>,
+    capacity: Option<u32>,
+    voltage: Option<u32>,
+    location: Option<String>,
+) -> eyre::Result<PowerShelfId> {
+    let mut txn = env.pool.begin().await.unwrap();
+
+    // Generate a unique name if not provided
+    let power_shelf_name = name.unwrap_or_else(|| {
+        format!(
+            "Test Power Shelf {}",
+            &uuid::Uuid::new_v4().to_string()[..8]
+        )
+    });
+
+    // Generate power shelf ID using hardware info
+    let power_shelf_serial = &power_shelf_name;
+    let power_shelf_vendor = "NVIDIA";
+    let power_shelf_model = "PowerShelf";
+
+    let power_shelf_id = from_hardware_info(
+        power_shelf_serial,
+        power_shelf_vendor,
+        power_shelf_model,
+        PowerShelfIdSource::ProductBoardChassisSerial,
+        PowerShelfType::Rack,
+    )
+    .map_err(|e| eyre::eyre!("Failed to create power shelf ID: {:?}", e))?;
+
+    // Create power shelf configuration
+    let config = PowerShelfConfig {
+        name: power_shelf_name,
+        capacity: capacity.or(Some(100)),
+        voltage: voltage.or(Some(240)),
+        location: location.or(Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string())),
+    };
+
+    // Create the power shelf
+    let new_power_shelf = NewPowerShelf {
+        id: power_shelf_id,
+        config,
+    };
+
+    let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to create power shelf: {:?}", e))?;
+
+    txn.commit().await.unwrap();
+
+    Ok(power_shelf_id)
+}
+
+#[allow(dead_code)]
+pub async fn new_power_shelfs(env: &TestEnv, count: u32) -> eyre::Result<Vec<PowerShelfId>> {
+    let mut power_shelf_ids = Vec::new();
+    for i in 0..count {
+        power_shelf_ids.push(
+            new_power_shelf(
+                env,
+                Some(format!("Test Power Shelf {}", i)),
+                None,
+                None,
+                None,
+            )
+            .await?,
+        );
+    }
+    Ok(power_shelf_ids)
+}
+
+/// Creates a new switch for testing purposes
+#[allow(dead_code)]
+pub async fn new_switch(
+    env: &TestEnv,
+    name: Option<String>,
+    location: Option<String>,
+) -> eyre::Result<SwitchId> {
+    let mut txn = env.pool.begin().await.unwrap();
+
+    // Generate a unique name if not provided
+    let switch_name =
+        name.unwrap_or_else(|| format!("Test Switch {}", &uuid::Uuid::new_v4().to_string()[..8]));
+
+    // Generate switch ID using hardware info
+    let switch_serial = &switch_name;
+    let switch_vendor = "NVIDIA";
+    let switch_model = "Switch";
+
+    let switch_id = switch_from_hardware_info(
+        switch_serial,
+        switch_vendor,
+        switch_model,
+        SwitchIdSource::ProductBoardChassisSerial,
+        SwitchType::NvLink,
+    )
+    .map_err(|e| eyre::eyre!("Failed to create switch ID: {:?}", e))?;
+
+    // Create switch configuration
+    let config = SwitchConfig {
+        name: switch_name,
+        enable_nmxc: false,
+        fabric_manager_config: None,
+        location: location.or(Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string())),
+    };
+
+    // Create the switch
+    let new_switch = NewSwitch {
+        id: switch_id,
+        config,
+    };
+
+    let _switch = db_switch::create(&mut txn, &new_switch)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to create switch: {:?}", e))?;
+
+    txn.commit().await.unwrap();
+
+    Ok(switch_id)
+}
+
+#[allow(dead_code)]
+pub async fn new_switches(env: &TestEnv, count: u32) -> eyre::Result<Vec<SwitchId>> {
+    let mut switch_ids = Vec::new();
+    for i in 0..count {
+        switch_ids.push(new_switch(env, Some(format!("Test Switch {}", i)), None).await?);
+    }
+    Ok(switch_ids)
 }

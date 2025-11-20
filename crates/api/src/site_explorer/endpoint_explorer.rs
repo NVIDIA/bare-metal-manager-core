@@ -16,6 +16,8 @@ use forge_ssh::ssh::SshConfig;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use model::expected_machine::ExpectedMachine;
+use model::expected_power_shelf::ExpectedPowerShelf;
+use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
 
@@ -34,6 +36,8 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         expected: Option<&ExpectedMachine>,
+        expected_power_shelf: Option<ExpectedPowerShelf>,
+        expected_switch: Option<ExpectedSwitch>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
 

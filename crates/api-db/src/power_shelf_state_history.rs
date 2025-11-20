@@ -52,7 +52,6 @@ pub async fn find_by_power_shelf_ids(
     Ok(histories)
 }
 
-#[cfg(test)] // only used in tests today
 #[allow(dead_code)]
 pub async fn for_power_shelf(
     txn: &mut PgConnection,

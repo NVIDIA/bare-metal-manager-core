@@ -19,6 +19,8 @@ use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::expected_machine::ExpectedMachine;
+use model::expected_power_shelf::ExpectedPowerShelf;
+use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
 use tokio::fs::{self, File};
@@ -158,6 +160,8 @@ impl BmcEndpointExplorer {
         bmc_mac_address: MacAddress,
         vendor: RedfishVendor,
         expected_machine: Option<&ExpectedMachine>,
+        expected_power_shelf: Option<ExpectedPowerShelf>,
+        expected_switch: Option<ExpectedSwitch>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let current_bmc_credentials;
 
@@ -168,6 +172,18 @@ impl BmcEndpointExplorer {
             current_bmc_credentials = Credentials::UsernamePassword {
                 username: expected_machine_credentials.data.bmc_username.clone(),
                 password: expected_machine_credentials.data.bmc_password.clone(),
+            };
+        } else if let Some(expected_power_shelf_credentials) = expected_power_shelf {
+            tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected power shelf for this BMC mac address");
+            current_bmc_credentials = Credentials::UsernamePassword {
+                username: expected_power_shelf_credentials.bmc_username,
+                password: expected_power_shelf_credentials.bmc_password,
+            };
+        } else if let Some(expected_switch_credentials) = expected_switch {
+            tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected switch for this BMC mac address");
+            current_bmc_credentials = Credentials::UsernamePassword {
+                username: expected_switch_credentials.bmc_username,
+                password: expected_switch_credentials.bmc_password,
             };
         } else {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
@@ -573,6 +589,8 @@ impl EndpointExplorer for BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         expected_machine: Option<&ExpectedMachine>,
+        expected_power_shelf: Option<ExpectedPowerShelf>,
+        expected_switch: Option<ExpectedSwitch>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         // If the site explorer was previously unable to login to the root BMC account using
@@ -614,6 +632,8 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     bmc_mac_address,
                     vendor,
                     expected_machine,
+                    expected_power_shelf,
+                    expected_switch,
                 )
                 .await
             }

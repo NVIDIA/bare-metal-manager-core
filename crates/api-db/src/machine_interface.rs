@@ -21,15 +21,16 @@ use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
+use model::expected_machine::ExpectedHostNic;
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineInterfaceSnapshot;
-use model::network_segment::NetworkSegment;
+use model::network_segment::{NetworkSegment, NetworkSegmentType};
 use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{FromRow, PgConnection};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver, next_machine_interface_v4_ip};
-use crate::{DatabaseError, DatabaseResult, Transaction};
+use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
@@ -229,6 +230,7 @@ pub async fn find_or_create_machine_interface(
     machine_id: Option<MachineId>,
     mac_address: MacAddress,
     relay: IpAddr,
+    host_nic: Option<ExpectedHostNic>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     match machine_id {
         None => {
@@ -237,7 +239,7 @@ pub async fn find_or_create_machine_interface(
                 %relay,
                 "Found no existing machine with mac address {mac_address} using network with relay {relay}",
             );
-            Ok(validate_existing_mac_and_create(&mut *txn, mac_address, relay).await?)
+            Ok(validate_existing_mac_and_create(&mut *txn, mac_address, relay, host_nic).await?)
         }
         Some(_) => {
             let mut ifcs = find_by_mac_address(&mut *txn, mac_address).await?;
@@ -264,6 +266,7 @@ pub async fn validate_existing_mac_and_create(
     txn: &mut PgConnection,
     mac_address: MacAddress,
     relay: IpAddr,
+    host_nic: Option<ExpectedHostNic>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut existing_mac = find_by_mac_address(txn, mac_address).await?;
     match &existing_mac.len() {
@@ -272,23 +275,56 @@ pub async fn validate_existing_mac_and_create(
                 %mac_address,
                 "No existing machine_interface with mac address exists yet, creating one",
             );
-            match crate::network_segment::for_relay(txn, relay).await? {
-                None => Err(DatabaseError::internal(format!(
-                    "No network segment defined for relay address: {relay}"
-                ))),
-                Some(segment) => {
-                    // actually create the interface
-                    let v = create(
-                        txn,
-                        &segment,
-                        &mac_address,
-                        segment.subdomain_id,
-                        true,
-                        AddressSelectionStrategy::Automatic,
-                    )
-                    .await?;
-                    Ok(v)
+
+            let segment_type = if let Some(nic) = host_nic.clone() {
+                if let Some(nic_type) = nic.nic_type {
+                    match nic_type.to_ascii_lowercase().as_str() {
+                        "bf3" => Some(NetworkSegmentType::Admin),
+                        "dpu" => Some(NetworkSegmentType::Admin),
+                        "bmc" => Some(NetworkSegmentType::Underlay),
+                        "oob" => Some(NetworkSegmentType::Underlay),
+                        "onboard" => Some(NetworkSegmentType::Admin),
+                        &_ => None, // (default) use the relay ip if not forcing a segment type
+                    }
+                } else {
+                    None
                 }
+            } else {
+                None
+            };
+
+            let network_segment = if let Some(network_segment_type) = segment_type {
+                // only if forcing a segment type
+                db_network_segment::for_segment_type(txn, relay, network_segment_type).await?
+            } else {
+                db_network_segment::for_relay(txn, relay).await?
+            };
+
+            if let Some(segment) = network_segment {
+                // TODO: add fixed_ip handling
+                if let Some(expected_nic) = host_nic.clone()
+                    && let Some(ipaddr) = expected_nic.fixed_ip
+                {
+                    return Err(DatabaseError::internal(format!(
+                        "IP reservation per MAC address not implemented yet for {ipaddr}, {mac_address}"
+                    )));
+                }
+
+                // actually create the interface
+                let v = create(
+                    txn,
+                    &segment,
+                    &mac_address,
+                    segment.subdomain_id,
+                    true,
+                    AddressSelectionStrategy::Automatic,
+                )
+                .await?;
+                Ok(v)
+            } else {
+                Err(DatabaseError::internal(format!(
+                    "No network segment defined for relay address: {relay}"
+                )))
             }
         }
         1 => {
@@ -674,7 +710,7 @@ pub async fn create_host_machine_dpu_interface_proactively(
     let existing_machine = crate::machine::find_existing_machine(txn, host_mac, gateway).await?;
 
     let machine_interface =
-        find_or_create_machine_interface(txn, existing_machine, host_mac, gateway).await?;
+        find_or_create_machine_interface(txn, existing_machine, host_mac, gateway, None).await?;
     associate_interface_with_dpu_machine(&machine_interface.id, dpu_id, txn).await?;
 
     Ok(machine_interface)

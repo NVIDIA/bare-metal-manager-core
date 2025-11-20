@@ -110,5 +110,7 @@ fn build_exploration_report(
         forge_setup_status: None,
         secure_boot_status: None,
         lockdown_status: None,
+        power_shelf_id: None,
+        switch_id: None,
     }
 }

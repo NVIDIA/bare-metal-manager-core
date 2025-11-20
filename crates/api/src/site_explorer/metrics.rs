@@ -59,10 +59,24 @@ pub struct SiteExplorationMetrics {
     pub created_machines: usize,
     /// The time it took to create machines
     pub create_machines_latency: Option<Duration>,
+    // TODO(chet): Track down Jira created and/or implement Rack metrics
+    // also. Currently on Vinod to make a Jira, but leaving this here.
+    /// The amount of Power Shelves that have been created by Site Explorer
+    pub created_power_shelves_count: usize,
+    /// The number of Switches that have been created by Site Explorer
+    pub created_switches_count: usize,
+    /// The time it took to create power shelves
+    pub create_power_shelves_latency: Option<Duration>,
+    /// The time it took to create switches
+    pub create_switches_latency: Option<Duration>,
     /// Total amount of BMC resets
     pub bmc_reset_count: usize,
     /// Total amount of BMC reboots
     pub bmc_reboot_count: usize,
+    /// Total number of expected power shelves that were not successfully identified.
+    // TODO(chet): Track down Jira and/or implement similar
+    // counter for Switch as well.
+    pub endpoint_explorations_expected_power_shelves_missing_overall_count: usize,
     /// Total count of expected machines by SKU ID and device type
     pub expected_machines_sku_count: HashMap<(String, String), usize>, // (sku_id, device_type)
 }
@@ -90,8 +104,13 @@ impl SiteExplorationMetrics {
             exploration_identified_managed_hosts: 0,
             created_machines: 0,
             create_machines_latency: None,
+            created_power_shelves_count: 0,
+            create_power_shelves_latency: None,
+            created_switches_count: 0,
+            create_switches_latency: None,
             bmc_reset_count: 0,
             bmc_reboot_count: 0,
+            endpoint_explorations_expected_power_shelves_missing_overall_count: 0,
             expected_machines_sku_count: HashMap::new(),
         }
     }
@@ -177,6 +196,8 @@ pub struct SiteExplorerInstruments {
     pub endpoint_exploration_duration: Histogram<f64>,
     pub site_explorer_iteration_latency: Histogram<f64>,
     pub site_explorer_create_machines_latency: Histogram<f64>,
+    pub site_explorer_create_power_shelves_latency: Histogram<f64>,
+    pub site_explorer_create_switches_latency: Histogram<f64>,
 }
 
 impl SiteExplorerInstruments {
@@ -437,7 +458,29 @@ impl SiteExplorerInstruments {
         }
 
         {
-            let metrics = shared_metrics;
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge(
+                    "forge_endpoint_exploration_expected_power_shelves_missing_overall_count",
+                )
+                .with_description(
+                    "The total number of power shelves that were expected but not identified",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(
+                            metrics
+                                .endpoint_explorations_expected_power_shelves_missing_overall_count
+                                as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("forge_site_exploration_expected_machines_sku_count")
                 .with_description("The total count of expected machines by SKU ID and device type")
@@ -463,10 +506,62 @@ impl SiteExplorerInstruments {
                 .build();
         }
 
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge(
+                    "forge_endpoint_exploration_expected_power_shelves_missing_overall_count",
+                )
+                .with_description(
+                    "The total number of power shelves that were expected but not identified",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(
+                            metrics
+                                .endpoint_explorations_expected_power_shelves_missing_overall_count
+                                as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics;
+            meter
+                .u64_observable_gauge("forge_site_explorer_created_power_shelves_count")
+                .with_description("The amount of Power Shelves that had been created by Site Explorer after being identified")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(
+                            metrics.created_power_shelves_count as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build();
+        }
+
+        let site_explorer_create_power_shelves_latency = meter
+            .f64_histogram("site_explorer_create_power_shelves_latency")
+            .with_description("Duration of power shelf creation")
+            .with_unit("s")
+            .build();
+
+        let site_explorer_create_switches_latency = meter
+            .f64_histogram("site_explorer_create_switches_latency")
+            .with_description("Duration of switch creation")
+            .with_unit("s")
+            .build();
+
         SiteExplorerInstruments {
             endpoint_exploration_duration,
             site_explorer_iteration_latency,
             site_explorer_create_machines_latency,
+            site_explorer_create_power_shelves_latency,
+            site_explorer_create_switches_latency,
         }
     }
 
@@ -481,6 +576,16 @@ impl SiteExplorerInstruments {
 
         if let Some(latency) = metrics.create_machines_latency {
             self.site_explorer_create_machines_latency
+                .record(1000.0 * latency.as_secs_f64(), &[]);
+        }
+
+        if let Some(latency) = metrics.create_power_shelves_latency {
+            self.site_explorer_create_power_shelves_latency
+                .record(1000.0 * latency.as_secs_f64(), &[]);
+        }
+
+        if let Some(latency) = metrics.create_switches_latency {
+            self.site_explorer_create_switches_latency
                 .record(1000.0 * latency.as_secs_f64(), &[]);
         }
 

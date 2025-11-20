@@ -933,7 +933,9 @@ pub fn get_config() -> CarbideConfig {
             public_prefixes: vec![],
         }),
         mlxconfig_profiles: None,
-        rms_api_url: None,
+        rack_management_enabled: false,
+        force_dpu_nic_mode: false,
+        rms_api_url: Some("https://localhost".to_string()),
     }
 }
 
@@ -1210,6 +1212,12 @@ pub async fn create_test_env_with_overrides(
             reset_rate_limit: Duration::hours(1),
             allow_proxy_to_unknown_host: false,
             allocate_secondary_vtep_ip: true,
+            create_power_shelves: Arc::new(true.into()),
+            explore_power_shelves_from_static_ip: Arc::new(true.into()),
+            power_shelves_created_per_run: 1,
+            create_switches: Arc::new(true.into()),
+            explore_switches_from_static_ip: Arc::new(true.into()),
+            switches_created_per_run: 1,
         },
         test_meter.meter(),
         Arc::new(fake_endpoint_explorer.clone()),

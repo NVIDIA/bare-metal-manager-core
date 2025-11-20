@@ -18,6 +18,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_uuid::machine::{MachineId, MachineType};
+use forge_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use forge_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use libredfish::RedfishError;
@@ -34,6 +36,8 @@ use crate::errors::{ModelError, ModelResult};
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
+use crate::power_shelf::power_shelf_id;
+use crate::switch::switch_id;
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -83,6 +87,10 @@ pub struct EndpointExplorationReport {
     pub secure_boot_status: Option<SecureBootStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lockdown_status: Option<LockdownStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_shelf_id: Option<PowerShelfId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub switch_id: Option<SwitchId>,
 }
 
 impl EndpointExplorationReport {
@@ -657,6 +665,8 @@ impl EndpointExplorationReport {
             forge_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
+            power_shelf_id: None,
+            switch_id: None,
         }
     }
 
@@ -671,6 +681,28 @@ impl EndpointExplorationReport {
     /// Return `true` if the explored endpoint is a DPU
     pub fn is_dpu(&self) -> bool {
         self.identify_dpu().is_some()
+    }
+
+    /// Return `true` if the explored endpoint is a PowerShelf
+    pub fn is_power_shelf(&self) -> bool {
+        self.chassis.iter().any(|c| {
+            c.model
+                .as_ref()
+                .unwrap_or(&"".to_string())
+                .to_lowercase()
+                .contains("powershelf")
+        })
+    }
+
+    /// Return `true` if the explored endpoint is a Switch
+    pub fn is_switch(&self) -> bool {
+        self.chassis.iter().any(|c| {
+            c.model
+                .as_ref()
+                .unwrap_or(&"".to_string())
+                .to_lowercase()
+                .contains("mgx_nvswitch_0")
+        })
     }
 
     /// Return `DpuModel` if the explored endpoint is a DPU
@@ -778,6 +810,111 @@ impl EndpointExplorationReport {
                 .map_err(|e| ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(e)))?;
 
             Ok(Some(self.machine_id.insert(machine_id)))
+        } else {
+            Err(ModelError::HardwareInfo(
+                HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
+            ))
+        }
+    }
+
+    /// Tries to generate and store a MachineId for the discovered endpoint if
+    /// enough data for generation is available
+    pub fn generate_power_shelf_id(&mut self) -> ModelResult<Option<&PowerShelfId>> {
+        if let Some(serial_number) = self
+            .systems
+            .first()
+            .and_then(|system| system.serial_number.as_ref())
+        {
+            let vendor = self
+                .systems
+                .first()
+                .and_then(|system| system.manufacturer.as_ref());
+            let model = self
+                .systems
+                .first()
+                .and_then(|system| system.model.as_ref());
+
+            let dmi_data = self.create_temporary_dmi_data(serial_number, vendor, model);
+
+            // Construct a HardwareInfo object specifically so that we can mint a MachineId.
+            let _hardware_info = HardwareInfo {
+                dmi_data: Some(dmi_data),
+                // This field should not be read, machine_id::from_hardware_info_with_type should not
+                // need this, only the dmi_data.
+                machine_type: CpuArchitecture::Unknown,
+                ..Default::default()
+            };
+
+            let power_shelf_type = PowerShelfType::Rack; //TODO Check later if we need to support other types
+            let power_shelf_source = PowerShelfIdSource::ProductBoardChassisSerial;
+
+            let power_shelf_id = power_shelf_id::from_hardware_info_with_type(
+                serial_number,
+                vendor.unwrap(),
+                model.unwrap(),
+                power_shelf_source,
+                power_shelf_type,
+            )
+            .map_err(|_e| {
+                ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(
+                    MissingHardwareInfo::Serial,
+                ))
+            })?;
+
+            Ok(Some(self.power_shelf_id.insert(power_shelf_id)))
+        } else {
+            Err(ModelError::HardwareInfo(
+                HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
+            ))
+        }
+    }
+
+    //TODO: refactor for common code with generate_power_shelf_id
+    /// Tries to generate and store a MachineId for the discovered endpoint if
+    /// enough data for generation is available
+    pub fn generate_switch_id(&mut self) -> ModelResult<Option<&SwitchId>> {
+        if let Some(serial_number) = self
+            .systems
+            .first()
+            .and_then(|system| system.serial_number.as_ref())
+        {
+            let vendor = self
+                .systems
+                .first()
+                .and_then(|system| system.manufacturer.as_ref());
+            let model = self
+                .systems
+                .first()
+                .and_then(|system| system.model.as_ref());
+
+            let dmi_data = self.create_temporary_dmi_data(serial_number, vendor, model);
+
+            // Construct a HardwareInfo object specifically so that we can mint a MachineId.
+            let _hardware_info = HardwareInfo {
+                dmi_data: Some(dmi_data),
+                // This field should not be read, machine_id::from_hardware_info_with_type should not
+                // need this, only the dmi_data.
+                machine_type: CpuArchitecture::Unknown,
+                ..Default::default()
+            };
+
+            let switch_type = SwitchType::NvLink;
+            let switch_source = SwitchIdSource::ProductBoardChassisSerial;
+
+            let switch_id = switch_id::from_hardware_info_with_type(
+                serial_number,
+                vendor.unwrap(),
+                model.unwrap(),
+                switch_source,
+                switch_type,
+            )
+            .map_err(|_e| {
+                ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(
+                    MissingHardwareInfo::Serial,
+                ))
+            })?;
+
+            Ok(Some(self.switch_id.insert(switch_id)))
         } else {
             Err(ModelError::HardwareInfo(
                 HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
@@ -1731,6 +1868,8 @@ mod tests {
             forge_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
+            power_shelf_id: None,
+            switch_id: None,
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1790,6 +1929,8 @@ mod tests {
             forge_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
+            power_shelf_id: None,
+            switch_id: None,
         };
         report
             .generate_machine_id(false)
