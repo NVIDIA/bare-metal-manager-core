@@ -274,6 +274,8 @@ impl RedfishClient {
             vendor,
             versions: HashMap::default(),
             model: None,
+            power_shelf_id: None,
+            switch_id: None,
             forge_setup_status,
             secure_boot_status,
             lockdown_status,

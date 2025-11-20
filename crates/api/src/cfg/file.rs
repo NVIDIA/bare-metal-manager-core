@@ -304,6 +304,46 @@ pub struct CarbideConfig {
     )]
     pub mlxconfig_profiles: Option<HashMap<String, MlxConfigProfile>>,
 
+    /// The intent of this config option is to use the forge site controller as a standalone
+    /// (disconnected / air-gapped) infrastructure manager for racks of GB200/GB300/VR144.
+    /// Only set this if using Forge site controller with Rack Manager to manage GB200/300/VR144.
+    /// It will change site controller behavior significantly in the following ways, etc.:
+    /// 1. skip dpu management and use dpus in nic mode (optional, can set force_dpu_nic_mode=false)
+    ///    a. no dpu bfb upgrade and host power cycle
+    ///    b. no firmware upgrade and host power cycle
+    ///    c. no hbn deployment (no ecmp, etc)
+    ///    d. no dpu agent deployment
+    ///    e. no restricted mode configuration
+    ///    f. no tenant overlay network via L2 vxlan/evpn or L3 vni (fnn)
+    /// 2. support any other nic interface on the compute nodes including the onboard 3p nic
+    /// 3. require expected machines table rows to have other/all mac addresses for each machine
+    /// 4. restrict dhcp service to only provide ip address to known mac addresses
+    ///    a. for additional mac addresses, use HostInband network segment when dpu is in nic mode
+    /// 5. disable compute host individual firmware upgrades
+    ///    a. only rack level firmware upgrades are allowed
+    /// 6. enable nvlink switch and power shelf discovery and ingestion
+    ///    a. site explorer changes to explore switch and power shelf bmc
+    ///    b. state machine for ingestion workflow
+    ///    c. nvlink switch nvos deployment/upgrade via onie
+    ///    d. nvlink switch default configuration and machine validation
+    /// 7. enable rack state machine and calls to rack manager
+    ///    a. depend on rack manager for firmware upgrades of the rack
+    ///    b. depend on rack manager for all power sequencing of the rack and components
+    ///    c. override/suspend component level state machine state transitions as needed
+    /// 8. enable nvlink control plane integration with nmx-c
+    ///    a. export nmx-c apis via site controller
+    ///    b. hardware health daemon polling of switch telemetry and collection into site controller
+    ///    prometheus instance
+    /// 9. enable domain power service integration
+    #[serde(default)]
+    pub rack_management_enabled: bool,
+
+    #[serde(default)]
+    /// Treat any dpu found as a regular NIC and skip configuring it as a managed dpu.
+    /// This is specifically for rack level service to allow using GB200/300 and VR144 compute
+    /// trays with bluefield dpus as NICs.
+    pub force_dpu_nic_mode: bool,
+
     // rms_api_url is the URL to the Rack Manager Service API.
     pub rms_api_url: Option<String>,
 }
@@ -906,6 +946,48 @@ pub struct SiteExplorerConfig {
     /// additional VTEPS would turn this on.
     #[serde(default)]
     pub allocate_secondary_vtep_ip: bool,
+
+    /// Whether SiteExplorer should create Power Shelf state machine
+    #[serde(
+        default = "SiteExplorerConfig::default_create_power_shelves",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub create_power_shelves: Arc<AtomicBool>,
+
+    /// Whether SiteExplorer should create Power Shelf state machine from static IP
+    #[serde(
+        default = "SiteExplorerConfig::default_explore_power_shelves_from_static_ip",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub explore_power_shelves_from_static_ip: Arc<AtomicBool>,
+
+    #[serde(default = "SiteExplorerConfig::default_power_shelves_created_per_run")]
+    /// How many Power Shelves should be created in a single run.
+    /// Default is 1.
+    pub power_shelves_created_per_run: u64,
+
+    /// Whether SiteExplorer should create Switch state machine
+    #[serde(
+        default = "SiteExplorerConfig::default_create_switches",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub create_switches: Arc<AtomicBool>,
+
+    /// Whether SiteExplorer should create Switch state machine from static IP
+    #[serde(
+        default = "SiteExplorerConfig::default_explore_switches_from_static_ip",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub explore_switches_from_static_ip: Arc<AtomicBool>,
+
+    #[serde(default = "SiteExplorerConfig::default_switches_created_per_run")]
+    /// How many Switches should be created in a single run.
+    /// Default is 9.
+    pub switches_created_per_run: u64,
 }
 
 impl Default for SiteExplorerConfig {
@@ -925,6 +1007,12 @@ impl Default for SiteExplorerConfig {
             reset_rate_limit: Self::default_reset_rate_limit(),
             allow_proxy_to_unknown_host: false,
             allocate_secondary_vtep_ip: false,
+            create_power_shelves: Arc::new(true.into()),
+            explore_power_shelves_from_static_ip: Arc::new(true.into()),
+            power_shelves_created_per_run: Self::default_power_shelves_created_per_run(),
+            create_switches: Arc::new(true.into()),
+            explore_switches_from_static_ip: Arc::new(true.into()),
+            switches_created_per_run: Self::default_switches_created_per_run(),
         }
     }
 }
@@ -965,6 +1053,30 @@ impl SiteExplorerConfig {
 
     pub const fn default_reset_rate_limit() -> Duration {
         Duration::hours(1)
+    }
+
+    pub fn default_create_power_shelves() -> Arc<AtomicBool> {
+        Arc::new(false.into())
+    }
+
+    pub fn default_explore_power_shelves_from_static_ip() -> Arc<AtomicBool> {
+        Arc::new(false.into())
+    }
+
+    pub const fn default_power_shelves_created_per_run() -> u64 {
+        1
+    }
+
+    pub fn default_create_switches() -> Arc<AtomicBool> {
+        Arc::new(false.into())
+    }
+
+    pub fn default_explore_switches_from_static_ip() -> Arc<AtomicBool> {
+        Arc::new(false.into())
+    }
+
+    pub const fn default_switches_created_per_run() -> u64 {
+        9
     }
 }
 
@@ -2384,6 +2496,12 @@ mod tests {
                 reset_rate_limit: Duration::hours(1),
                 allow_proxy_to_unknown_host: false,
                 allocate_secondary_vtep_ip: false,
+                create_power_shelves: Arc::new(true.into()),
+                explore_power_shelves_from_static_ip: Arc::new(true.into()),
+                power_shelves_created_per_run: 1,
+                create_switches: Arc::new(true.into()),
+                explore_switches_from_static_ip: Arc::new(true.into()),
+                switches_created_per_run: 9,
             }
         );
         assert_eq!(
@@ -2534,6 +2652,12 @@ mod tests {
                 reset_rate_limit: Duration::hours(2),
                 allow_proxy_to_unknown_host: false,
                 allocate_secondary_vtep_ip: false,
+                create_power_shelves: Arc::new(true.into()),
+                explore_power_shelves_from_static_ip: Arc::new(true.into()),
+                power_shelves_created_per_run: 1,
+                create_switches: Arc::new(true.into()),
+                explore_switches_from_static_ip: Arc::new(true.into()),
+                switches_created_per_run: 9,
             }
         );
 
@@ -2788,6 +2912,12 @@ mod tests {
                 reset_rate_limit: Duration::hours(2),
                 allow_proxy_to_unknown_host: false,
                 allocate_secondary_vtep_ip: false,
+                create_power_shelves: Arc::new(true.into()),
+                explore_power_shelves_from_static_ip: Arc::new(true.into()),
+                power_shelves_created_per_run: 1,
+                create_switches: Arc::new(true.into()),
+                explore_switches_from_static_ip: Arc::new(true.into()),
+                switches_created_per_run: 9,
             }
         );
 

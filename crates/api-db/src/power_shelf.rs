@@ -11,11 +11,11 @@
  */
 
 use chrono::prelude::*;
-use config_version::ConfigVersion;
+use config_version::{ConfigVersion, Versioned};
 use forge_uuid::power_shelf::PowerShelfId;
 use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState};
+use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
 use sqlx::PgConnection;
 
 use crate::{
@@ -47,6 +47,39 @@ impl ColumnInfo<'_> for NameColumn {
     fn column_name(&self) -> &'static str {
         "name"
     }
+}
+
+pub async fn create(
+    txn: &mut PgConnection,
+    new_power_shelf: &NewPowerShelf,
+) -> Result<PowerShelf, DatabaseError> {
+    let state = PowerShelfControllerState::Initializing;
+    let version = ConfigVersion::initial();
+
+    let query = sqlx::query_as::<_, PowerShelfId>(
+        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    );
+    let _: PowerShelfId = query
+        .bind(new_power_shelf.id.to_string())
+        .bind(new_power_shelf.config.name.clone())
+        .bind(sqlx::types::Json(&new_power_shelf.config))
+        .bind(sqlx::types::Json(&state))
+        .bind(version)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("create power_shelf", e))?;
+
+    Ok(PowerShelf {
+        id: new_power_shelf.id,
+        config: new_power_shelf.config.clone(),
+        status: None,
+        deleted: None,
+        controller_state: Versioned {
+            value: state,
+            version,
+        },
+        controller_state_outcome: None,
+    })
 }
 
 pub async fn find_by_name(

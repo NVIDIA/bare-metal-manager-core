@@ -143,6 +143,7 @@ async fn return_existing_machine_interface_on_rediscover(
         &mut txn,
         test_mac,
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
+        None,
     )
     .await?;
 
@@ -150,6 +151,7 @@ async fn return_existing_machine_interface_on_rediscover(
         &mut txn,
         test_mac,
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
+        None,
     )
     .await?;
 

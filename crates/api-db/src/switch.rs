@@ -47,7 +47,7 @@ impl ColumnInfo<'_> for NameColumn {
 pub struct SwitchSearchConfig {
     // pub include_history: bool, // unused
 }
-pub async fn create(new_switch: NewSwitch, txn: &mut PgConnection) -> DatabaseResult<Switch> {
+pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseResult<Switch> {
     let state = SwitchControllerState::Initializing;
     let version = ConfigVersion::initial();
 

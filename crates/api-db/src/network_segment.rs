@@ -192,6 +192,38 @@ pub async fn for_relay(
     }
 }
 
+pub async fn for_segment_type(
+    txn: &mut PgConnection,
+    relay: IpAddr,
+    segment_type: NetworkSegmentType,
+) -> DatabaseResult<Option<NetworkSegment>> {
+    lazy_static! {
+        static ref query: String = format!(
+            r#"{}
+                INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
+                WHERE $1::inet <<= network_prefixes.prefix
+                AND $2 = ns.network_segment_type
+                "#,
+            NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
+        );
+    }
+    let mut results = sqlx::query_as(&query)
+        .bind(IpNetwork::from(relay))
+        .bind(segment_type)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new(&query, e))?;
+
+    if results.len() > 1 {
+        tracing::trace!(
+            "Multiple network segments defined for segment_type {} and relay address {}",
+            segment_type.to_string(),
+            relay.to_string()
+        );
+    }
+    Ok(results.pop())
+}
+
 /// Retrieves the IDs of all network segments.
 /// If `segment_type` is specified, only IDs of segments that match the specific type are returned.
 pub async fn list_segment_ids(

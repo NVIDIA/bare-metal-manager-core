@@ -447,6 +447,11 @@ pub(crate) async fn explore(
 
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
     let expected_machine = crate::handlers::expected_machine::query(api, bmc_mac_address).await?;
+    // TODO(chet): Track down Vinod's Jira to optimize code for
+    // existing sites where there is no nvswitch or power shelf.
+    let expected_switch = crate::handlers::expected_switch::query(api, bmc_mac_address).await?;
+    let expected_power_shelf =
+        crate::handlers::expected_power_shelf::query(api, bmc_mac_address).await?;
 
     let report = api
         .endpoint_explorer
@@ -454,6 +459,8 @@ pub(crate) async fn explore(
             bmc_addr,
             &machine_interface,
             expected_machine.as_ref(),
+            expected_power_shelf,
+            expected_switch,
             None,
         )
         .await

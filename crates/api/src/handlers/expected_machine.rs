@@ -11,6 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
+use db::rack as db_rack;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -101,6 +102,7 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
+    let request_rack_id = request.rack_id.clone();
     let mut db_data: ExpectedMachineData = request.try_into()?;
     // Ensure an id is always supplied by the server if the client omitted it
     if db_data.override_id.is_none() {
@@ -110,6 +112,27 @@ pub(crate) async fn add(
     let mut txn = api.txn_begin("add_expected_machines").await?;
 
     db::expected_machine::create(&mut txn, parsed_mac, db_data).await?;
+
+    if let Some(rack_id) = request_rack_id.as_ref() {
+        match db_rack::get(&mut txn, rack_id).await {
+            Ok(rack) => {
+                let mut config = rack.config.clone();
+                if !config.expected_compute_trays.contains(&parsed_mac) {
+                    config.expected_compute_trays.push(parsed_mac);
+                    db_rack::update(&mut txn, rack_id, &config)
+                        .await
+                        .map_err(CarbideError::from)?;
+                }
+            }
+            Err(_) => {
+                let expected_compute_trays = vec![parsed_mac];
+                let _rack =
+                    db_rack::create(&mut txn, rack_id, expected_compute_trays, vec![], vec![])
+                        .await
+                        .map_err(CarbideError::from)?;
+            }
+        }
+    }
 
     txn.commit().await?;
 
@@ -160,6 +183,7 @@ pub(crate) async fn update(
     // Save fields needed later before moving `request` into data conversion
     let request_id = request.id.clone();
     let request_mac = request.bmc_mac_address.clone();
+    let request_rack_id = request.rack_id.clone();
     let data: ExpectedMachineData = request.try_into()?;
 
     let mut txn = api.txn_begin("update_expected_machine").await?;
@@ -179,6 +203,33 @@ pub(crate) async fn update(
             data: data.clone(),
         };
         db::expected_machine::update(&mut expected_machine, &mut txn, data).await?;
+
+        // TODO(chet): This should also go into the `update_by_id` flow,
+        // but the fact `parsed_mac` is only in this flow makes me think
+        // there might not be a parsed MAC to work with in the `update_by_id`
+        // flow. That said, the backing queries could be changed to return
+        // the bmc_mac_address in both cases, which would then let this
+        // work for both cases.
+        if let Some(rack_id) = request_rack_id.as_ref() {
+            match db_rack::get(&mut txn, rack_id).await {
+                Ok(rack) => {
+                    let mut config = rack.config.clone();
+                    if !config.expected_compute_trays.contains(&parsed_mac) {
+                        config.expected_compute_trays.push(parsed_mac);
+                        db_rack::update(&mut txn, rack_id, &config)
+                            .await
+                            .map_err(CarbideError::from)?;
+                    }
+                }
+                Err(_) => {
+                    let expected_compute_trays = vec![parsed_mac];
+                    let _rack =
+                        db_rack::create(&mut txn, rack_id, expected_compute_trays, vec![], vec![])
+                            .await
+                            .map_err(CarbideError::from)?;
+                }
+            }
+        }
     }
 
     txn.commit().await?;

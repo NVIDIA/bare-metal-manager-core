@@ -13,20 +13,28 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use chrono::Utc;
 use config_version::ConfigVersion;
-use db::{self, DatabaseError, ObjectFilter, Transaction, machine};
+use db::{
+    self, DatabaseError, ObjectFilter, Transaction, machine, network_segment as db_network_segment,
+    power_shelf as db_power_shelf, switch as db_switch,
+};
 use forge_network::sanitized_mac;
 use forge_uuid::machine::{MachineId, MachineType};
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
+use forge_uuid::switch::{SwitchIdSource, SwitchType};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use managed_host::ManagedHost;
 use model::bmc_info::BmcInfo;
+use model::expected_power_shelf::ExpectedPowerShelf;
+use model::expected_switch::ExpectedSwitch;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -34,12 +42,14 @@ use model::machine::{
     DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
 };
 use model::metadata::Metadata;
+use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState, PreingestionState,
     Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
 };
+use model::switch::{NewSwitch, SwitchConfig};
 use sqlx::{PgConnection, PgPool};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
@@ -79,6 +89,8 @@ pub struct Endpoint {
     last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
     pub(crate) expected: Option<ExpectedMachine>,
+    pub(crate) expected_power_shelf: Option<ExpectedPowerShelf>,
+    pub(crate) expected_switch: Option<ExpectedSwitch>,
     pause_remediation: bool,
 }
 
@@ -106,6 +118,8 @@ impl Endpoint {
             last_redfish_reboot,
             old_report,
             expected: None,
+            expected_power_shelf: None,
+            expected_switch: None,
             pause_remediation,
         }
     }
@@ -423,9 +437,9 @@ impl SiteExplorer {
                     })
                 {
                     metrics
-                            .increment_endpoint_explorations_expected_serial_number_mismatches_overall_count(
-                                machine_type,
-                            );
+                        .increment_endpoint_explorations_expected_serial_number_mismatches_overall_count(
+                            machine_type,
+                        );
 
                     new_health_report
                         .alerts
@@ -469,7 +483,22 @@ impl SiteExplorer {
     async fn explore_site(&self, metrics: &mut SiteExplorationMetrics) -> CarbideResult<()> {
         self.check_preconditions(metrics).await?;
 
-        let matched_expected_machines = self.update_explored_endpoints(metrics).await?;
+        let (
+            matched_expected_machines,
+            mut matched_expected_power_shelves,
+            matched_expected_switches,
+        ) = self.update_explored_endpoints(metrics).await?;
+
+        let matched_expected_power_shelves_from_static_ip = if self
+            .config
+            .explore_power_shelves_from_static_ip
+            .load(Ordering::Relaxed)
+        {
+            self.update_explored_endpoints_power_shelf(metrics).await?
+        } else {
+            HashMap::new()
+        };
+        matched_expected_power_shelves.extend(matched_expected_power_shelves_from_static_ip);
 
         // Create a list of DPUs and hosts that site explorer should try to ingest. Site explorer uses the following criteria to determine whether
         // to ingest a given endpoint (creating a managed host containing the endpoint and adding it to the state machine):
@@ -502,6 +531,34 @@ impl SiteExplorer {
                 .await;
             metrics.create_machines_latency = Some(start_create_machines.elapsed());
             create_machines_res?;
+        }
+
+        // Identify and create power shelves
+        let explored_power_shelves = self.identify_power_shelves_to_ingest().await?;
+
+        if self.config.create_power_shelves.load(Ordering::Relaxed) {
+            let start_create_power_shelves = std::time::Instant::now();
+            let create_power_shelves_res: Result<(), CarbideError> = self
+                .create_power_shelves(
+                    metrics,
+                    explored_power_shelves,
+                    &matched_expected_power_shelves,
+                )
+                .await;
+            metrics.create_power_shelves_latency = Some(start_create_power_shelves.elapsed());
+            create_power_shelves_res?;
+        }
+
+        // Identify and create switches
+        let explored_switches = self.identify_switches_to_ingest().await?;
+
+        if self.config.create_switches.load(Ordering::Relaxed) {
+            let start_create_switches = std::time::Instant::now();
+            let create_switches_res: Result<(), CarbideError> = self
+                .create_switches(metrics, explored_switches, &matched_expected_switches)
+                .await;
+            metrics.create_switches_latency = Some(start_create_switches.elapsed());
+            create_switches_res?;
         }
 
         // Audit after everything has been explored, identified, and created.
@@ -537,6 +594,92 @@ impl SiteExplorer {
                 }
                 Ok(false) => {}
                 Err(error) => tracing::error!(%error, "Failed to create managed host {:#?}", host),
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn create_power_shelves(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+        explored_power_shelves: Vec<(ExploredEndpoint, EndpointExplorationReport)>,
+        matched_expected_power_shelves: &HashMap<IpAddr, ExpectedPowerShelf>,
+    ) -> CarbideResult<()> {
+        for (endpoint, report) in explored_power_shelves {
+            let expected_power_shelf = matched_expected_power_shelves.get(&endpoint.address);
+            if expected_power_shelf.is_none() {
+                tracing::info!(
+                    "No expected power shelf found for endpoint {:#?}",
+                    endpoint.address
+                );
+                continue;
+            }
+
+            match self
+                .create_power_shelf(
+                    endpoint.clone(),
+                    report,
+                    expected_power_shelf,
+                    &self.database_connection,
+                )
+                .await
+            {
+                Ok(true) => {
+                    metrics.created_power_shelves_count += 1;
+                    if metrics.created_power_shelves_count as u64
+                        == self.config.power_shelves_created_per_run
+                    {
+                        break;
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::error!(%error, "Failed to create power shelf {:#?}", endpoint.address)
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Creates a `Switch` object for an identified switch endpoint with initial states
+    async fn create_switches(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+        explored_switches: Vec<(ExploredEndpoint, EndpointExplorationReport)>,
+        matched_expected_switches: &HashMap<IpAddr, ExpectedSwitch>,
+    ) -> CarbideResult<()> {
+        for (endpoint, report) in explored_switches {
+            let expected_switch = matched_expected_switches.get(&endpoint.address);
+            if expected_switch.is_none() {
+                tracing::info!(
+                    "No expected switch found for endpoint {:#?}",
+                    endpoint.address
+                );
+                continue;
+            }
+
+            match self
+                .create_switch(
+                    endpoint.clone(),
+                    report,
+                    expected_switch,
+                    &self.database_connection,
+                )
+                .await
+            {
+                Ok(true) => {
+                    metrics.created_switches_count += 1;
+                    if metrics.created_switches_count as u64 == self.config.switches_created_per_run
+                    {
+                        break;
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::error!(%error, "Failed to create switch {:#?}", endpoint.address)
+                }
             }
         }
 
@@ -643,6 +786,187 @@ impl SiteExplorer {
         Ok(true)
     }
 
+    pub async fn create_power_shelf(
+        &self,
+        explored_endpoint: ExploredEndpoint,
+        _report: EndpointExplorationReport,
+        expected_power_shelf: Option<&ExpectedPowerShelf>,
+        pool: &PgPool,
+    ) -> CarbideResult<bool> {
+        let mut txn = pool
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new("begin load create_power_shelf", e))?;
+
+        let metadata = match expected_power_shelf {
+            Some(ps) => ps.metadata.clone(),
+            None => return Ok(false),
+        };
+
+        tracing::info!(
+            "creating power shelf for endpoint: {} ",
+            explored_endpoint.address
+        );
+
+        // Check if a power shelf with the same name already exists
+        if !metadata.name.is_empty() {
+            let existing_power_shelves = db_power_shelf::find_by(
+                &mut txn,
+                ObjectColumnFilter::All::<db::power_shelf::NameColumn>,
+                db_power_shelf::PowerShelfSearchConfig::default(),
+            )
+            .await?;
+
+            // Check if any existing power shelf has the same name
+            for existing_ps in &existing_power_shelves {
+                if existing_ps.config.name == metadata.name {
+                    tracing::info!(
+                        "Power shelf with name '{}' already exists, skipping creation for endpoint {}",
+                        metadata.name,
+                        explored_endpoint.address
+                    );
+                    txn.rollback()
+                        .await
+                        .map_err(|e| DatabaseError::new("rollback create_power_shelf", e))?;
+                    return Ok(false);
+                }
+            }
+        }
+
+        // Create a new power shelf
+        // Generate power_shelf_id similar to machine_id using deterministic hashing
+        // Extract power shelf metadata similar to how machine_id extracts hardware info
+        //TODO fetch these from chassis
+        let power_shelf_serial = metadata.name.as_str();
+        let power_shelf_vendor = "NVIDIA"; // Default vendor for power shelves
+        let power_shelf_model = "PowerShelf"; // Default model identifier
+        // TODO: Fetch power shelf location from chassis metadata or configuration
+        // NOTE: Metadata does not have a 'location' field, so use a default for now.
+
+        let power_shelf_id = match model::power_shelf::power_shelf_id::from_hardware_info(
+            power_shelf_serial,
+            power_shelf_vendor,
+            power_shelf_model,
+            PowerShelfIdSource::ProductBoardChassisSerial,
+            PowerShelfType::Rack,
+        ) {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!(%e, "Failed to create power shelf ID");
+                return Err(CarbideError::InvalidArgument(format!(
+                    "Failed to create power shelf ID: {e}"
+                )));
+            }
+        };
+
+        let config = PowerShelfConfig {
+            name: metadata.name.clone(),
+            capacity: Some(100),
+            voltage: Some(240),
+            location: Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string()),
+        };
+
+        let new_power_shelf = NewPowerShelf {
+            id: power_shelf_id,
+            config,
+        };
+
+        let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
+
+        // No need to update the power shelf name again; it was already set in config above.
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new("end create_power_shelf", e))?;
+
+        tracing::info!(
+            "Created power shelf {} for endpoint {}",
+            power_shelf_id,
+            explored_endpoint.address
+        );
+        Ok(true)
+    }
+
+    pub async fn create_switch(
+        &self,
+        explored_endpoint: ExploredEndpoint,
+        _report: EndpointExplorationReport,
+        expected_switch: Option<&ExpectedSwitch>,
+        pool: &PgPool,
+    ) -> CarbideResult<bool> {
+        let mut txn = pool
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new("begin load create_switch", e))?;
+
+        let metadata = match expected_switch {
+            Some(ps) => ps.metadata.clone(),
+            None => return Ok(false),
+        };
+
+        // Generate switch_id similar to machine_id using deterministic hashing
+        // Extract switch metadata similar to how machine_id extracts hardware info
+        //TODO fetch these from chassis
+        let switch_serial = metadata.name.as_str();
+        let switch_vendor = "NVIDIA"; // Default vendor for switches
+        let switch_model = "Switch"; // Default model identifier
+
+        let switch_id = match model::switch::switch_id::from_hardware_info(
+            switch_serial,
+            switch_vendor,
+            switch_model,
+            SwitchIdSource::ProductBoardChassisSerial,
+            SwitchType::NvLink,
+        ) {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!(%e, "Failed to create switch ID");
+                return Err(CarbideError::InvalidArgument(format!(
+                    "Failed to create switch ID: {e}"
+                )));
+            }
+        };
+
+        // TODO: review
+        // Check if a switch with the same SwitchId already exists
+        if let Some(_existing_switch) = db_switch::find_by_id(&mut txn, &switch_id).await? {
+            tracing::info!(
+                "Switch with ID '{}' already exists, skipping creation for endpoint {}",
+                switch_id,
+                explored_endpoint.address
+            );
+            txn.rollback()
+                .await
+                .map_err(|e| DatabaseError::new("rollback create_switch", e))?;
+            return Ok(false);
+        }
+
+        let config = SwitchConfig {
+            name: metadata.name.clone(),
+            enable_nmxc: false,
+            fabric_manager_config: None,
+            location: Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string()),
+        };
+
+        let new_switch = NewSwitch {
+            id: switch_id,
+            config,
+        };
+
+        let _switch = db_switch::create(&mut txn, &new_switch).await?;
+
+        // No need to update the switch name again; it was already set in config above.
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new("end create_switch", e))?;
+
+        tracing::info!(
+            "Created switch {} for endpoint {}",
+            switch_id,
+            explored_endpoint.address,
+        );
+        Ok(true)
+    }
+
     /// identify_machines_to_ingest returns two maps.
     /// The first map returned identifies all of the DPUs that site explorer will try to ingest.
     /// The latter identifies all of the hosts the the site explorer will try to ingest.
@@ -669,6 +993,14 @@ impl SiteExplorer {
         let mut explored_hosts = HashMap::new();
         for ep in explored_endpoints.into_iter() {
             if ep.report.endpoint_type != EndpointType::Bmc {
+                continue;
+            }
+
+            if ep.report.is_power_shelf() {
+                continue;
+            }
+
+            if ep.report.is_switch() {
                 continue;
             }
 
@@ -878,6 +1210,10 @@ impl SiteExplorer {
                         }
                     }
                 }
+
+                // Temp hack force expected DPU to zero
+                expected_num_dpus_attached_to_host = 0;
+
                 // The site explorer should only create a managed host after exploring all of the DPUs attached to the host.
                 // If a host reports that it has two DPUs, the site explorer must wait until **both** DPUs have made the DHCP request.
                 // If only one of the two DPUs have made the DHCP request, the site explorer must wait until it has explored the latter DPU's BMC
@@ -904,8 +1240,8 @@ impl SiteExplorer {
                                     );
 
                                     let _ = self.redfish_powercycle(
-                                            ep.address,
-                                        )
+                                        ep.address,
+                                    )
                                         .await.inspect_err(|err| tracing::warn!("site explorer failed to power cycle host {} to apply DPU mode changes: {err}", ep.address));
                                 }
                             } else {
@@ -1005,6 +1341,68 @@ impl SiteExplorer {
         Ok(managed_hosts)
     }
 
+    async fn identify_power_shelves_to_ingest(
+        &self,
+    ) -> CarbideResult<Vec<(ExploredEndpoint, EndpointExplorationReport)>> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new("load find_all_preingestion_complete data", e))?;
+
+        let explored_endpoints =
+            db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new("end find_all_preingestion_complete data", e))?;
+
+        let mut explored_power_shelves = Vec::new();
+        for ep in explored_endpoints.into_iter() {
+            if ep.report.endpoint_type != EndpointType::Bmc {
+                continue;
+            }
+            // if ep.report.is_power_shelf() {
+            // For now, we'll consider all BMC endpoints as potential power shelves
+            // In the future, we can add more specific logic to identify power shelves
+            explored_power_shelves.push((ep.clone(), ep.report.clone()));
+            // }
+        }
+
+        Ok(explored_power_shelves)
+    }
+
+    async fn identify_switches_to_ingest(
+        &self,
+    ) -> CarbideResult<Vec<(ExploredEndpoint, EndpointExplorationReport)>> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new("load find_all_preingestion_complete data", e))?;
+
+        let explored_endpoints =
+            db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new("end find_all_preingestion_complete data", e))?;
+
+        let mut explored_switches = Vec::new();
+        for ep in explored_endpoints.into_iter() {
+            if ep.report.endpoint_type != EndpointType::Bmc {
+                continue;
+            }
+            // if ep.report.is_switch() {
+            // For now, we'll consider all BMC endpoints as potential switches
+            // In the future, we can add more specific logic to identify switches
+            explored_switches.push((ep.clone(), ep.report.clone()));
+            // }
+        }
+
+        Ok(explored_switches)
+    }
+
     /// Checks if all data that a site exploration run requires is actually configured
     ///
     /// Doing this upfront avoids the risk of trying to log into BMCs without
@@ -1019,7 +1417,11 @@ impl SiteExplorer {
     async fn update_explored_endpoints(
         &self,
         metrics: &mut SiteExplorationMetrics,
-    ) -> CarbideResult<HashMap<IpAddr, ExpectedMachine>> {
+    ) -> CarbideResult<(
+        HashMap<IpAddr, ExpectedMachine>,
+        HashMap<IpAddr, ExpectedPowerShelf>,
+        HashMap<IpAddr, ExpectedSwitch>,
+    )> {
         let mut txn = self
             .txn_begin("load update_explored_endpoints data")
             .await?;
@@ -1029,6 +1431,31 @@ impl SiteExplorer {
                 .await?;
         let interfaces = db::machine_interface::find_all(&mut txn).await?;
         let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+
+        // TODO(chet): RMS team has a TODO to clean up this code per another MR.
+        // Follow up with that or just take care of it.
+        let explore_power_shelves_frpm_static_ip = self
+            .config
+            .explore_power_shelves_from_static_ip
+            .load(Ordering::Relaxed);
+
+        let expected_power_shelves = if explore_power_shelves_frpm_static_ip {
+            vec![]
+        } else {
+            db::expected_power_shelf::find_all(&mut txn).await?
+        };
+
+        let explore_switches_frpm_static_ip = self
+            .config
+            .explore_switches_from_static_ip
+            .load(Ordering::Relaxed);
+
+        let expected_switches = if explore_switches_frpm_static_ip {
+            vec![]
+        } else {
+            db::expected_switch::find_all(&mut txn).await?
+        };
+
         txn.rollback().await?;
 
         // We don't have to scan anything that is on the Tenant or Admin Segments,
@@ -1062,9 +1489,26 @@ impl SiteExplorer {
             }
         }
 
+        // Create a mapping of expected power shelves by IP address and MAC address
+        let mut expected_power_shelves_by_mac = HashMap::<MacAddress, ExpectedPowerShelf>::new();
+        for expected_power_shelf in &expected_power_shelves {
+            expected_power_shelves_by_mac.insert(
+                expected_power_shelf.bmc_mac_address,
+                expected_power_shelf.clone(),
+            );
+        }
+
+        // Create a mapping of expected switches by IP address and MAC address
+        let mut expected_switches_by_mac = HashMap::<MacAddress, ExpectedSwitch>::new();
+        for expected_switch in &expected_switches {
+            expected_switches_by_mac
+                .insert(expected_switch.bmc_mac_address, expected_switch.clone());
+        }
+
         let mut explored_endpoints_by_address = HashMap::<IpAddr, ExploredEndpoint>::new();
         let mut explored_endpoints_addresses = HashSet::new();
         for endpoint in explored_endpoints.into_iter() {
+            // Include all endpoints, including PowerShelves and Switches, for exploration.
             explored_endpoints_addresses.insert(endpoint.address);
             explored_endpoints_by_address.insert(endpoint.address, endpoint);
         }
@@ -1084,7 +1528,11 @@ impl SiteExplorer {
                         update_endpoints.push((address, *iface, endpoint));
                     }
                 }
-                None => delete_endpoints.push(address),
+                None => {
+                    if !endpoint.report.is_power_shelf() && !explore_power_shelves_frpm_static_ip {
+                        delete_endpoints.push(address)
+                    }
+                }
             }
         }
 
@@ -1102,12 +1550,16 @@ impl SiteExplorer {
         }
 
         // If there is a MachineInterface and no previously discovered information,
-        // we need to detect it
+        // we need to detect it. This includes both regular machines, PowerShelves
+        // and Switches.
         let mut unexplored_endpoints = Vec::with_capacity(
             underlay_interfaces_by_address
                 .len()
-                .saturating_sub(explored_endpoints_addresses.len()),
+                .saturating_sub(explored_endpoints_addresses.len())
+                + expected_power_shelves_by_mac.len(),
         );
+
+        // Add unexplored machine interfaces.
         for (address, &iface) in &underlay_interfaces_by_address {
             if !explored_endpoints_addresses.contains(address) {
                 unexplored_endpoints.push((*address, iface));
@@ -1235,6 +1687,47 @@ impl SiteExplorer {
             }
         }
 
+        // Create a mapping of matched expected PowerShelfs by IP address
+        let mut matched_expected_power_shelves: HashMap<IpAddr, ExpectedPowerShelf> =
+            HashMap::new();
+        for (mac_address, expected_power_shelf) in &expected_power_shelves_by_mac {
+            tracing::info!(
+                "expected_power_shelf from DB: {} {}",
+                expected_power_shelf.bmc_mac_address,
+                expected_power_shelf.metadata.name
+            );
+            if let Some(iface) = underlay_interfaces_by_mac.get(mac_address) {
+                tracing::info!(
+                    "iface mac address {} expected machine mac address {}",
+                    iface.mac_address,
+                    expected_power_shelf.bmc_mac_address
+                );
+                for addr in iface.addresses.iter() {
+                    matched_expected_power_shelves.insert(*addr, expected_power_shelf.clone());
+                }
+            }
+        }
+
+        // Create a mapping of matched expected Switches by IP address
+        let mut matched_expected_switches: HashMap<IpAddr, ExpectedSwitch> = HashMap::new();
+        for (mac_address, expected_switch) in &expected_switches_by_mac {
+            tracing::info!(
+                "expected_switch from DB: {} {}",
+                expected_switch.bmc_mac_address,
+                expected_switch.metadata.name
+            );
+            if let Some(iface) = underlay_interfaces_by_mac.get(mac_address) {
+                tracing::info!(
+                    "iface mac address {} expected switch mac address {}",
+                    iface.mac_address,
+                    expected_switch.bmc_mac_address
+                );
+                for addr in iface.addresses.iter() {
+                    matched_expected_switches.insert(*addr, expected_switch.clone());
+                }
+            }
+        }
+
         // Record the difference between the total expected machine count and
         // the number of expected machines we've actually "seen."
         metrics.endpoint_explorations_expected_machines_missing_overall_count =
@@ -1242,6 +1735,9 @@ impl SiteExplorer {
 
         for endpoint in explore_endpoint_data.iter_mut() {
             endpoint.expected = expected_machines_by_mac.remove(&endpoint.iface.mac_address);
+            endpoint.expected_power_shelf =
+                expected_power_shelves_by_mac.remove(&endpoint.iface.mac_address);
+            endpoint.expected_switch = expected_switches_by_mac.remove(&endpoint.iface.mac_address);
         }
 
         for endpoint in explore_endpoint_data.into_iter() {
@@ -1272,6 +1768,8 @@ impl SiteExplorer {
                             bmc_target_addr,
                             &endpoint.iface,
                             endpoint.expected.as_ref(),
+                            endpoint.expected_power_shelf.clone(),
+                            endpoint.expected_switch.clone(),
                             endpoint.old_report.as_ref().map(|report| &report.1),
                         )
                         .await;
@@ -1282,7 +1780,7 @@ impl SiteExplorer {
                             &database_connection,
                             &endpoint.address.to_string(),
                         )
-                        .await
+                            .await
                         {
                             Ok(state) if !state.is_empty() => format!(" (state: {state})"),
                             _ => String::new(),
@@ -1292,27 +1790,33 @@ impl SiteExplorer {
 
                     // Try to generate a MachineId and parsed version info based on the retrieved data
                     if let Ok(report) = &mut result {
-                        if let Err(error) = report.generate_machine_id(false) {
-                            tracing::error!(%error, "Can not generate MachineId for explored endpoint");
-                        }
-                        report.model = report.model();
-                        if let Some(fw_info) = firmware_config.find_fw_info_for_host_report(report)
-                        {
-                            let components_without_version = report.parse_versions(&fw_info);
-                            if !components_without_version.is_empty() {
-                                tracing::debug!("Can not find firmware version for component(s): {:?}", components_without_version);
+                        if !report.is_power_shelf() {
+                            tracing::info!("Generating MachineId for machine");
+                            if let Err(error) = report.generate_machine_id(false) {
+                                tracing::error!(%error, "Can not generate MachineId for explored endpoint");
+                            }
+                            report.model = report.model();
+                            if let Some(fw_info) = firmware_config.find_fw_info_for_host_report(report)
+                            {
+                                let components_without_version = report.parse_versions(&fw_info);
+                                if !components_without_version.is_empty() {
+                                    tracing::debug!("Can not find firmware version for component(s): {:?}", components_without_version);
+                                }
+                            } else {
+                                // It's possible that we knew about this host type before but do not now, so make sure we
+                                // do not keep stale data.
+                                report.versions = HashMap::default();
+                                tracing::debug!("Can not find fimware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
                             }
                         } else {
-                            // It's possible that we knew about this host type before but do not now, so make sure we
-                            // do not keep stale data.
+                            tracing::info!("Generating MachineId for power shelf");
                             report.versions = HashMap::default();
-                            tracing::debug!("Can not find fimware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
                         }
                     }
 
                     (endpoint, result, start.elapsed())
                 }
-                .in_current_span(),
+                    .in_current_span(),
             );
         }
 
@@ -1383,7 +1887,7 @@ impl SiteExplorer {
                                 tracing::info!(
                                     address = %address,
                                     exploration_report = ?report,
-                                    "Initial exploration of machine"
+                                    "Initial exploration of endpoint"
                                 );
                             }
                             let _updated = db::explored_endpoints::try_update(
@@ -1418,7 +1922,7 @@ impl SiteExplorer {
                             tracing::info!(
                                 address = %address,
                                 exploration_report = ?report,
-                                "Initial exploration of machine"
+                                "Initial exploration of endpoint"
                             );
                             db::explored_endpoints::insert(address, &report, &mut txn).await?;
                         }
@@ -1444,7 +1948,406 @@ impl SiteExplorer {
             return Err(err.into());
         }
 
-        Ok(matched_expected_machines)
+        Ok((
+            matched_expected_machines,
+            matched_expected_power_shelves,
+            matched_expected_switches,
+        ))
+    }
+
+    // TODO(chet): Follow up with RMS team re: code cleanup, or
+    // just take care of it myself (import/merge feedback).
+    fn get_static_ip_for_power_shelf(
+        &self,
+        _mac_address: &MacAddress,
+        ip_address: Option<IpAddr>,
+    ) -> IpAddr {
+        // Convert MAC address to a deterministic IP address
+        // We'll use a private IP range (192.168.0.0/16) and derive the IP from MAC
+        //TODO will check this later needd better logic
+        // let mac_bytes = mac_address.bytes();
+        // let ip_bytes = [192, 168, mac_bytes[4], mac_bytes[5]];
+        // IpAddr::V4(std::net::Ipv4Addr::new(
+        //     ip_bytes[0],
+        //     ip_bytes[1],
+        //     ip_bytes[2],
+        //     ip_bytes[3],
+        // ));
+        // if ip_address.is_some() {
+        //     return ip_address.unwrap();
+        // }
+        ip_address.unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
+    }
+
+    /// Get the underlay segment ID for power shelf interfaces
+    async fn get_underlay_segment_id(&self) -> CarbideResult<NetworkSegmentId> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new("begin get underlay segment id", e))?;
+
+        let underlay_segments =
+            db_network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
+                .await?;
+        txn.rollback()
+            .await
+            .map_err(|e| DatabaseError::new("end get underlay segment id", e))?;
+
+        // Return the first underlay segment, or create a default one if none exist
+        underlay_segments
+            .first()
+            .copied()
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "underlay_segment",
+                id: "no_underlay_segments_found".to_string(),
+            })
+    }
+
+    async fn update_explored_endpoints_power_shelf(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+    ) -> CarbideResult<HashMap<IpAddr, ExpectedPowerShelf>> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new("begin load update_explored_endpoints_power_shelf data", e)
+        })?;
+
+        let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+        let expected_power_shelves = db::expected_power_shelf::find_all(&mut txn).await?;
+        txn.rollback().await.map_err(|e| {
+            DatabaseError::new("end load update_explored_endpoints_power_shelf data", e)
+        })?;
+        // Create fake interfaces for power shelves using their expected IP addresses
+        let mut power_shelf_interfaces_by_address =
+            HashMap::<IpAddr, MachineInterfaceSnapshot>::new();
+
+        for expected_power_shelf in &expected_power_shelves {
+            let fake_ip = self.get_static_ip_for_power_shelf(
+                &expected_power_shelf.bmc_mac_address,
+                expected_power_shelf.ip_address,
+            );
+            // Create a fake machine interface for the power shelf
+            let mut fake_interface =
+                MachineInterfaceSnapshot::mock_with_mac(expected_power_shelf.bmc_mac_address);
+            fake_interface.hostname = format!("power-shelf-{}", expected_power_shelf.serial_number);
+            fake_interface.segment_id = self.get_underlay_segment_id().await?; // Can we skip this ?
+            fake_interface.addresses = vec![fake_ip];
+            fake_interface.network_segment_type = Some(NetworkSegmentType::Underlay);
+            fake_interface.vendors = vec!["PowerShelf".to_string()];
+
+            power_shelf_interfaces_by_address.insert(fake_ip, fake_interface.clone());
+        }
+
+        let mut explored_endpoints_by_address = HashMap::<IpAddr, ExploredEndpoint>::new();
+        for endpoint in explored_endpoints.into_iter() {
+            // Only include power shelf endpoints for this function
+            if endpoint.report.is_power_shelf() {
+                explored_endpoints_by_address.insert(endpoint.address, endpoint);
+            }
+        }
+
+        // If a previously explored power shelf endpoint is not part of expected power shelves anymore,
+        // we can delete knowledge about it
+        let mut delete_endpoints = Vec::new();
+        let mut priority_update_endpoints = Vec::new();
+        let mut update_endpoints = Vec::with_capacity(explored_endpoints_by_address.len());
+
+        for (address, endpoint) in &explored_endpoints_by_address {
+            match power_shelf_interfaces_by_address.get(address) {
+                Some(iface) => {
+                    if endpoint.exploration_requested {
+                        priority_update_endpoints.push((*address, iface.clone(), endpoint));
+                    } else {
+                        update_endpoints.push((*address, iface.clone(), endpoint));
+                    }
+                }
+                None => delete_endpoints.push(*address),
+            }
+        }
+
+        // Clean up unknown power shelf endpoints
+        if !delete_endpoints.is_empty() {
+            //TODO will check this later needd better logic
+            let mut txn =
+                self.database_connection.begin().await.map_err(|e| {
+                    DatabaseError::new("begin delete unknown power shelf endpoints", e)
+                })?;
+
+            for address in delete_endpoints.into_iter() {
+                db::explored_endpoints::delete(&mut txn, address).await?;
+            }
+
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::new("end delete unknown power shelf endpoints", e))?;
+        }
+
+        // Find unexplored power shelf endpoints
+        let mut unexplored_endpoints = Vec::with_capacity(
+            power_shelf_interfaces_by_address
+                .len()
+                .saturating_sub(explored_endpoints_by_address.len()),
+        );
+
+        for (address, iface) in &power_shelf_interfaces_by_address {
+            if !explored_endpoints_by_address.contains_key(address) {
+                unexplored_endpoints.push((*address, iface.clone()));
+            }
+        }
+
+        // Decide what to explore based on config limits
+        let num_explore_endpoints = (self.config.explorations_per_run as usize)
+            .min(unexplored_endpoints.len() + update_endpoints.len());
+        #[allow(clippy::type_complexity)]
+        let mut explore_endpoint_data = Vec::with_capacity(num_explore_endpoints);
+
+        // Prioritize existing endpoints with exploration_requested flag
+        for (address, iface, endpoint) in
+            priority_update_endpoints.iter().take(num_explore_endpoints)
+        {
+            explore_endpoint_data.push(Endpoint::new(
+                *address,
+                iface.clone(),
+                endpoint.last_redfish_bmc_reset,
+                endpoint.last_ipmitool_bmc_reset,
+                endpoint.last_redfish_reboot,
+                Some((endpoint.report_version, endpoint.report.clone())),
+                false, // TODO(chet): Need to check on this.
+            ));
+        }
+
+        // Next priority are unexplored power shelf endpoints
+        let remaining_explore_endpoints = num_explore_endpoints - explore_endpoint_data.len();
+        for (address, iface) in unexplored_endpoints
+            .iter()
+            .take(remaining_explore_endpoints)
+        {
+            explore_endpoint_data.push(Endpoint::new(
+                *address,
+                iface.clone(),
+                None,
+                None,
+                None,
+                None,
+                false, // TODO(chet): Check on this.
+            ))
+        }
+
+        // If we have capacity, update existing endpoints
+        let remaining_explore_endpoints = num_explore_endpoints - explore_endpoint_data.len();
+        if remaining_explore_endpoints != 0 {
+            update_endpoints.sort_by_key(|(_address, _machine_interface, endpoint)| {
+                endpoint.report_version.timestamp()
+            });
+            for (address, iface, endpoint) in
+                update_endpoints.iter().take(remaining_explore_endpoints)
+            {
+                explore_endpoint_data.push(Endpoint::new(
+                    *address,
+                    iface.clone(),
+                    endpoint.last_redfish_bmc_reset,
+                    endpoint.last_ipmitool_bmc_reset,
+                    endpoint.last_redfish_reboot,
+                    Some((endpoint.report_version, endpoint.report.clone())),
+                    false, // TODO(chet): Check on this.
+                ));
+            }
+        }
+
+        let mut task_set = JoinSet::new();
+        let concurrency_limiter = Arc::new(tokio::sync::Semaphore::new(
+            self.config.concurrent_explorations as usize,
+        ));
+
+        // Create mapping of expected power shelves by MAC address
+        let mut expected_power_shelves_by_ipaddress: HashMap<IpAddr, ExpectedPowerShelf> =
+            HashMap::new();
+        for expected_power_shelf in expected_power_shelves {
+            expected_power_shelves_by_ipaddress.insert(
+                expected_power_shelf.ip_address.unwrap(),
+                expected_power_shelf,
+            );
+        }
+
+        // Create mapping of matched expected power shelves by IP address
+        let mut matched_expected_power_shelves: HashMap<IpAddr, ExpectedPowerShelf> =
+            HashMap::new();
+        for (ip_address, expected_power_shelf) in &expected_power_shelves_by_ipaddress {
+            if let Some(iface) = power_shelf_interfaces_by_address.get(ip_address) {
+                for addr in iface.addresses.iter() {
+                    matched_expected_power_shelves.insert(*addr, expected_power_shelf.clone());
+                }
+            }
+        }
+
+        // Set expected power shelf for each endpoint
+        for endpoint in explore_endpoint_data.iter_mut() {
+            endpoint.expected_power_shelf =
+                expected_power_shelves_by_ipaddress.remove(&endpoint.iface.addresses[0]);
+        }
+
+        // Spawn exploration tasks
+        for endpoint in explore_endpoint_data.into_iter() {
+            let endpoint_explorer = self.endpoint_explorer.clone();
+            let concurrency_limiter = concurrency_limiter.clone();
+
+            let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+            let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+            let _firmware_config = self.firmware_config.clone();
+            let database_connection = self.database_connection.clone();
+
+            let _abort_handle = task_set.spawn(
+                async move {
+                    let start = std::time::Instant::now();
+
+                    let _permit = concurrency_limiter
+                        .acquire()
+                        .await
+                        .expect("Semaphore can't be closed");
+
+                    let mut result = endpoint_explorer
+                        .explore_endpoint(
+                            bmc_target_addr,
+                            &endpoint.iface,
+                            endpoint.expected.as_ref(),
+                            endpoint.expected_power_shelf.clone(),
+                            endpoint.expected_switch.clone(),
+                            endpoint.old_report.as_ref().map(|report| &report.1),
+                        )
+                        .await;
+
+                    if let Err(error) = result.clone() {
+                        let machine_state = match get_machine_state_by_bmc_ip(
+                            &database_connection,
+                            &endpoint.address.to_string(),
+                        )
+                            .await
+                        {
+                            Ok(state) if !state.is_empty() => format!(" (state: {})", state),
+                            _ => String::new(),
+                        };
+                        tracing::info!(%error, "Failed to explore power shelf {}: {}{}", bmc_target_addr, error, machine_state);
+                    }
+
+                    // Generate MachineId for power shelf
+                    if let Ok(report) = &mut result
+                        && report.is_power_shelf() {
+                            tracing::info!("Generating MachineId for power shelf");
+                            if let Err(error) = report.generate_machine_id(false) {
+                                tracing::error!(%error, "Can not generate MachineId for explored power shelf endpoint");
+                            }
+                            report.versions = HashMap::default();
+
+                    }
+
+                    (endpoint, result, start.elapsed())
+                }
+                    .in_current_span(),
+            );
+        }
+
+        // Wait for all tasks to complete
+        let mut last_join_error: Option<tokio::task::JoinError> = None;
+        let mut exploration_results = Vec::new();
+
+        while let Some(result) = task_set.join_next().await {
+            match result {
+                Err(join_error) => {
+                    last_join_error = Some(join_error);
+                }
+                Ok(result) => {
+                    exploration_results.push(result);
+                }
+            }
+        }
+
+        // Update the database with exploration results
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                DatabaseError::new("begin update power shelf endpoint information", e)
+            })?;
+
+        for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
+            let address = endpoint.address;
+
+            metrics.endpoint_explorations += 1;
+            metrics
+                .endpoint_exploration_duration
+                .push(exploration_duration);
+            match &result {
+                Ok(_) => metrics.endpoint_explorations_success += 1,
+                Err(e) => {
+                    *metrics
+                        .endpoint_explorations_failures_by_type
+                        .entry(exploration_error_to_metric_label(e))
+                        .or_default() += 1;
+
+                    if e.is_redfish() {
+                        self.handle_redfish_error(&endpoint, metrics, e).await;
+                    }
+                }
+            }
+            match endpoint.old_report {
+                Some((old_version, mut old_report)) => match result {
+                    Ok(mut report) => {
+                        report.last_exploration_latency = Some(exploration_duration);
+                        if old_report.endpoint_type == EndpointType::Unknown {
+                            tracing::info!(
+                                address = %address,
+                                exploration_report = ?report,
+                                "Initial exploration of power shelf endpoint"
+                            );
+                        }
+                        let _updated = db::explored_endpoints::try_update(
+                            address,
+                            old_version,
+                            &report,
+                            false,
+                            &mut txn,
+                        )
+                        .await?;
+                    }
+                    Err(e) => {
+                        old_report.last_exploration_error = Some(e);
+                        old_report.last_exploration_latency = Some(exploration_duration);
+                        let _updated = db::explored_endpoints::try_update(
+                            address,
+                            old_version,
+                            &old_report,
+                            true,
+                            &mut txn,
+                        )
+                        .await?;
+                    }
+                },
+                None => match result {
+                    Ok(mut report) => {
+                        report.last_exploration_latency = Some(exploration_duration);
+                        tracing::info!(
+                            address = %address,
+                            exploration_report = ?report,
+                            "Initial exploration of power shelf endpoint"
+                        );
+                        db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                    }
+                    Err(e) => {
+                        let mut report = EndpointExplorationReport::new_with_error(e);
+                        report.last_exploration_latency = Some(exploration_duration);
+                        db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                    }
+                },
+            }
+        }
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new("end update power shelf endpoint information", e))?;
+
+        if let Some(err) = last_join_error.take() {
+            return Err(err.into());
+        }
+
+        Ok(matched_expected_power_shelves)
     }
 
     // create_dpu does everything needed to create a DPU as part of a newly discovered managed host.
