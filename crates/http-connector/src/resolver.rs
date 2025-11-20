@@ -28,6 +28,7 @@ use socket2::SockAddr;
 use tokio::net::{TcpSocket, TcpStream as TokioTcpStream, UdpSocket as TokioUdpSocket};
 use tracing::trace;
 
+#[cfg(target_os = "linux")]
 const MGMT_VRF_NAME: &[u8] = "mgmt".as_bytes();
 
 type HickoryResolverFuture =
@@ -61,6 +62,7 @@ impl ForgeRuntimeProvider {
         socket.set_reuse_address(true)?;
         socket.set_nonblocking(true)?;
         if use_mgmt {
+            #[cfg(target_os = "linux")]
             socket.bind_device(Some(MGMT_VRF_NAME))?;
         }
         Ok(socket)
@@ -73,6 +75,7 @@ impl ForgeRuntimeProvider {
         )?;
         socket.set_nonblocking(true)?;
         if use_mgmt {
+            #[cfg(target_os = "linux")]
             socket.bind_device(Some(MGMT_VRF_NAME))?;
         }
         Ok(socket)
