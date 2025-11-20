@@ -21,6 +21,7 @@ use db::ib_partition::IBPartition;
 use db::{self, DatabaseError};
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
+use health_report::OverrideMode;
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
@@ -321,10 +322,11 @@ impl IbFabricMonitor {
         }
 
         let mut reports = Vec::new();
-        for (machine, mut snapshot) in snapshots {
+        for (machine, snapshot) in &snapshots {
+            let mut snapshot_clone = snapshot.clone();
             match record_machine_infiniband_status_observation(
                 &self.db_pool,
-                &mut snapshot,
+                &mut snapshot_clone,
                 &tenant_partitions,
                 &partition_ids_by_pkey,
                 &fabric_data,
@@ -901,6 +903,45 @@ async fn record_machine_infiniband_status_observation(
     // This allows to update a record ony in case of any changes.
     prev.observed_at = cur.observed_at;
 
+    if let Some(alert) = mh_snapshot
+        .aggregate_health
+        .alerts
+        .iter()
+        .find(|alert| alert.id.as_str() == "IbCleanupPending")
+    {
+        let guids = parse_guids_from_alert(&alert.message);
+        tracing::info!(
+            machine_id = %machine_id,
+            guids = ?guids,
+            "Processing IbCleanupPending alert - checking if GUIDs are cleared from UFM"
+        );
+        let mut all_cleared = true;
+        for guid in &guids {
+            if result.missing_guid_pkeys.iter().any(|(_, g, _)| g == guid)
+                || result
+                    .unexpected_guid_pkeys
+                    .iter()
+                    .any(|(_, g, _)| g == guid)
+                || result.unknown_guid_pkeys.iter().any(|(_, g, _)| g == guid)
+            {
+                all_cleared = false;
+            }
+        }
+        if all_cleared {
+            tracing::info!(
+                machine_id = %machine_id,
+                guids = ?guids,
+                "All GUIDs cleared from UFM - clearing IbCleanupPending alert"
+            );
+            clear_ib_cleanup_alert(db_pool, machine_id).await?;
+        } else {
+            tracing::debug!(
+                machine_id = %machine_id,
+                "Not all GUIDs cleared yet - alert remains"
+            );
+        }
+    }
+
     // Update Machine infiniband status in case any changes only
     // Vector of statuses is based on guids vector that is formed
     // from hardware_info.infiniband_interfaces[]
@@ -918,6 +959,45 @@ async fn record_machine_infiniband_status_observation(
     Ok(result)
 }
 
+/// Clear the IbCleanupPending alert
+async fn clear_ib_cleanup_alert(
+    db_pool: &PgPool,
+    machine_id: &MachineId,
+) -> Result<(), CarbideError> {
+    let mut conn = db_pool
+        .acquire()
+        .await
+        .map_err(|e| DatabaseError::new("acquire connection", e))?;
+
+    db::machine::remove_health_report_override(
+        &mut conn,
+        machine_id,
+        OverrideMode::Merge,
+        "ib-cleanup-validation",
+    )
+    .await
+    .map_err(|e| CarbideError::internal(format!("Failed to clear IB cleanup alert: {e}")))?;
+
+    Ok(())
+}
+
+/// Parse GUIDs from IbCleanupPending alert message
+/// Returns Vec<String> of GUIDs
+/// Format: "IB port cleanup pending - IB Monitor will unbind. GUIDs: X; Y; Z"
+fn parse_guids_from_alert(message: &str) -> Vec<String> {
+    let Some(guids_str) =
+        message.strip_prefix("IB port cleanup pending - IB Monitor will unbind. GUIDs: ")
+    else {
+        return Vec::new();
+    };
+
+    guids_str
+        .split("; ")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// Parses a u64 string in hexadecimal or decimal format
 fn parse_num(input: &str) -> Option<u64> {
     match input.strip_prefix("0x") {
@@ -926,10 +1006,74 @@ fn parse_num(input: &str) -> Option<u64> {
     }
 }
 
-#[test]
-fn test_parse_num() {
-    assert_eq!(0, parse_num("0x0000000000000000").unwrap());
-    assert_eq!(1, parse_num("0x0000000000000001").unwrap());
-    assert_eq!(0, parse_num("0x00").unwrap());
-    assert_eq!(1, parse_num("0x01").unwrap());
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_num() {
+        assert_eq!(0, parse_num("0x0000000000000000").unwrap());
+        assert_eq!(1, parse_num("0x0000000000000001").unwrap());
+        assert_eq!(0, parse_num("0x00").unwrap());
+        assert_eq!(1, parse_num("0x01").unwrap());
+    }
+
+    // ============================================================
+    // Unit Tests for parse_guids_from_alert
+    // ============================================================
+
+    #[test]
+    fn test_parse_guids_single() {
+        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8";
+        let result = parse_guids_from_alert(message);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "946dae03006104f8");
+    }
+
+    #[test]
+    fn test_parse_guids_multiple() {
+        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8; abc123def4567890; fedcba9876543210";
+        let result = parse_guids_from_alert(message);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "946dae03006104f8");
+        assert_eq!(result[1], "abc123def4567890");
+        assert_eq!(result[2], "fedcba9876543210");
+    }
+
+    #[test]
+    fn test_parse_guids_wrong_prefix() {
+        let message = "Wrong prefix message";
+        let result = parse_guids_from_alert(message);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_guids_empty() {
+        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: ";
+        let result = parse_guids_from_alert(message);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_guids_with_whitespace() {
+        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs:  abc  ;  def  ";
+        let result = parse_guids_from_alert(message);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "abc");
+        assert_eq!(result[1], "def");
+    }
+
+    // ============================================================
+    // Integration Tests - TODO
+    // ============================================================
+    // Integration tests deferred until after code review.
+    //
+    // Planned test scenarios:
+    // 1. Alert found + alert GUIDs NOT in result lists → Alert cleared
+    // 2. Alert found + alert GUIDs present in unexpected_guid_pkeys → Alert NOT cleared (retry next iteration)
+    // 3. Alert found + alert GUIDs present in missing_guid_pkeys → Alert NOT cleared
+    // 4. Alert found + alert GUIDs present in unknown_guid_pkeys → Alert NOT cleared
+    // 5. No alert present → No action taken
+    // 6. Alert with malformed message → Gracefully ignored (no GUIDs extracted)
+    // 7. Multiple GUIDs in single alert → All GUIDs checked for clearing condition
 }

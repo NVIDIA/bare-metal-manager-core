@@ -15,6 +15,7 @@
 use std::collections::{HashMap, HashSet};
 use std::mem::discriminant as enum_discr;
 use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
@@ -28,6 +29,9 @@ use forge_secrets::credentials::{
 };
 use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+};
 use itertools::Itertools;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
@@ -47,7 +51,7 @@ use model::instance::status::extension_service::{
     InstanceExtensionServicesStatus,
 };
 use model::machine::LockdownMode::{self, Enable};
-use model::machine::infiniband::ib_config_synced;
+use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::{
     BomValidating, BomValidatingContext, CleanupState, CreateBossVolumeContext,
     CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver, DpuInitState,
@@ -4969,7 +4973,7 @@ impl StateHandler for InstanceStateHandler {
                     ) {
                         return Ok(StateHandlerOutcome::wait(format!(
                             "Waiting for IB config to be applied: {}",
-                            not_synced_reason.0
+                            not_synced_reason
                         )));
                     }
 
@@ -5387,7 +5391,7 @@ impl StateHandler for InstanceStateHandler {
                     check_host_health_for_alerts(mh_snapshot)?;
 
                     // Check whether IB config is removed
-                    if let Err(not_synced_reason) = ib_config_synced(
+                    match ib_config_synced(
                         mh_snapshot
                             .host_snapshot
                             .infiniband_status_observation
@@ -5395,10 +5399,68 @@ impl StateHandler for InstanceStateHandler {
                         Some(&instance.config.infiniband),
                         false,
                     ) {
-                        return Ok(StateHandlerOutcome::wait(format!(
-                            "Waiting for IB config to be applied: {}",
-                            not_synced_reason.0
-                        )));
+                        Ok(()) => {
+                            // Config is synced, proceed with termination
+                        }
+                        Err(IbConfigNotSyncedReason::PortStateUnobservable { guids, details }) => {
+                            tracing::warn!(
+                                instance_id = %instance.id,
+                                machine_id = %host_machine_id,
+                                guids = ?guids,
+                                details = %details,
+                                "IB ports not observable during termination - IB Monitor will unbind"
+                            );
+
+                            // Collect GUIDs for cleanup
+                            // TODO: Include fabric name for multi-fabric deployments
+                            let message = format!(
+                                "IB port cleanup pending - IB Monitor will unbind. GUIDs: {}",
+                                guids.join("; ")
+                            );
+
+                            // Create health report with alert that will prevent re-allocation
+                            // IB Monitor will unbind before clearing
+                            let health_report = HealthReport {
+                                source: "ib-cleanup-validation".to_string(),
+                                observed_at: Some(chrono::Utc::now()),
+                                alerts: vec![HealthProbeAlert {
+                                    id: HealthProbeId::from_str("IbCleanupPending")
+                                        .expect("valid probe id"),
+                                    target: None,
+                                    in_alert_since: Some(chrono::Utc::now()),
+                                    message,
+                                    tenant_message: None,
+                                    classifications: vec![
+                                        HealthAlertClassification::prevent_allocations(),
+                                    ],
+                                }],
+                                successes: vec![],
+                            };
+
+                            // Use health report override instead of state_controller_health_report field
+                            db::machine::insert_health_report_override(
+                                txn,
+                                host_machine_id,
+                                OverrideMode::Merge,
+                                &health_report,
+                                false, // no_overwrite = false (we want to update if exists)
+                            )
+                            .await?;
+
+                            tracing::info!(
+                                machine_id = %host_machine_id,
+                                guids = ?guids,
+                                "IbCleanupPending alert created - IB Monitor will handle unbind and clear alert"
+                            );
+
+                            // Termination proceeds - IB Monitor will handle cleanup
+                        }
+                        Err(other_reason) => {
+                            return Ok(StateHandlerOutcome::wait(format!(
+                                "Waiting for IB config to be removed (Reason: {})",
+                                other_reason
+                            )));
+                        }
                     }
 
                     // TODO: TPM cleanup
