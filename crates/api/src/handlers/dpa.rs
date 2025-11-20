@@ -33,7 +33,13 @@ use crate::{CarbideError, CarbideResult};
 pub(crate) async fn create(
     api: &Api,
     request: Request<::rpc::forge::DpaInterfaceCreationRequest>,
-) -> CarbideResult<Response<::rpc::forge::DpaInterface>> {
+) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    if !api.runtime_config.is_dpa_enabled() {
+        return Err(CarbideError::InvalidArgument(
+            "CreateDpaInterface cannot be done as dpa_enabled is false".to_string(),
+        )
+        .into());
+    }
     log_request_data(&request);
 
     let mut txn = api.txn_begin("create dpa").await?;
@@ -71,7 +77,13 @@ async fn create_internal(
 pub(crate) async fn delete(
     api: &Api,
     request: Request<::rpc::forge::DpaInterfaceDeletionRequest>,
-) -> CarbideResult<Response<::rpc::forge::DpaInterfaceDeletionResult>> {
+) -> Result<Response<::rpc::forge::DpaInterfaceDeletionResult>, Status> {
+    if !api.runtime_config.is_dpa_enabled() {
+        return Err(CarbideError::InvalidArgument(
+            "DeleteDpaInterface cannot be done as dpa_enabled is false".to_string(),
+        )
+        .into());
+    }
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -90,7 +102,8 @@ pub(crate) async fn delete(
         _ => {
             return Err(CarbideError::InvalidArgument(
                 "ID could not be used to locate interface".to_string(),
-            ));
+            )
+            .into());
         }
     };
 
@@ -104,7 +117,7 @@ pub(crate) async fn delete(
 pub(crate) async fn get_all_ids(
     api: &Api,
     request: Request<()>,
-) -> CarbideResult<Response<::rpc::forge::DpaInterfaceIdList>> {
+) -> Result<Response<::rpc::forge::DpaInterfaceIdList>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin("dpa get_all_ids").await?;
@@ -117,7 +130,7 @@ pub(crate) async fn get_all_ids(
 pub(crate) async fn find_dpa_interfaces_by_ids(
     api: &Api,
     request: Request<::rpc::forge::DpaInterfacesByIdsRequest>,
-) -> CarbideResult<Response<::rpc::forge::DpaInterfaceList>> {
+) -> Result<Response<::rpc::forge::DpaInterfaceList>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -126,13 +139,15 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
     if req.ids.len() > max_find_by_ids {
         return Err(CarbideError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be submitted to find_dpa_interfaces_by_ids"
-        )));
+        ))
+        .into());
     }
 
     if req.ids.is_empty() {
         return Err(CarbideError::InvalidArgument(
             "at least one ID must be provided to find_dpa_interfaces_by_ids".to_string(),
-        ));
+        )
+        .into());
     }
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
@@ -160,7 +175,7 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
 pub(crate) async fn set_dpa_network_observation_status(
     api: &Api,
     request: Request<::rpc::forge::DpaNetworkObservationSetRequest>,
-) -> CarbideResult<Response<::rpc::forge::DpaInterface>> {
+) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -177,7 +192,8 @@ pub(crate) async fn set_dpa_network_observation_status(
     if dpa_ifs_int.len() != 1 {
         return Err(CarbideError::InvalidArgument(
             "ID could not be used to locate interface".to_string(),
-        ));
+        )
+        .into());
     }
 
     let dpa_if_int = dpa_ifs_int[0].clone();

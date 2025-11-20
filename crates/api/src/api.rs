@@ -28,27 +28,27 @@ use tonic::{Request, Response, Status, Streaming};
 
 use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
+use crate::dynamic_settings::DynamicSettings;
+use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::rack::rms_client::RmsApi;
 use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
-use crate::{
-    CarbideError, CarbideResult, dynamic_settings, ethernet_virtualization, handlers, measured_boot,
-};
+use crate::{CarbideError, CarbideResult, measured_boot};
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
     pub(crate) credential_provider: Arc<dyn CredentialProvider>,
     pub(crate) certificate_provider: Arc<dyn CertificateProvider>,
     pub(crate) redfish_pool: Arc<dyn RedfishClientPool>,
-    pub(crate) eth_data: ethernet_virtualization::EthVirtData,
+    pub(crate) eth_data: EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,
     pub(crate) ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub(crate) runtime_config: Arc<CarbideConfig>,
     pub(crate) dpu_health_log_limiter: LogLimiter<MachineId>,
-    pub dynamic_settings: dynamic_settings::DynamicSettings,
+    pub dynamic_settings: DynamicSettings,
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
     pub(crate) scout_stream_registry: ConnectionRegistry,
     #[allow(unused)]
@@ -240,28 +240,28 @@ impl Forge for Api {
         &self,
         request: Request<rpc::PowerShelfQuery>,
     ) -> Result<Response<rpc::PowerShelfList>, Status> {
-        handlers::power_shelf::find_power_shelf(self, request).await
+        crate::handlers::power_shelf::find_power_shelf(self, request).await
     }
 
     async fn delete_power_shelf(
         &self,
         request: Request<rpc::PowerShelfDeletionRequest>,
     ) -> Result<Response<rpc::PowerShelfDeletionResult>, Status> {
-        handlers::power_shelf::delete_power_shelf(self, request).await
+        crate::handlers::power_shelf::delete_power_shelf(self, request).await
     }
 
     async fn find_switches(
         &self,
         request: Request<rpc::SwitchQuery>,
     ) -> Result<Response<rpc::SwitchList>, Status> {
-        handlers::switch::find_switch(self, request).await
+        crate::handlers::switch::find_switch(self, request).await
     }
 
     async fn delete_switch(
         &self,
         request: Request<rpc::SwitchDeletionRequest>,
     ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
-        handlers::switch::delete_switch(self, request).await
+        crate::handlers::switch::delete_switch(self, request).await
     }
 
     async fn find_ib_fabric_ids(
@@ -890,21 +890,21 @@ impl Forge for Api {
         &self,
         request: Request<rpc::GetRackRequest>,
     ) -> Result<Response<rpc::GetRackResponse>, Status> {
-        handlers::rack::get_rack(self, request).await
+        crate::handlers::rack::get_rack(self, request).await
     }
 
     async fn delete_rack(
         &self,
         request: Request<rpc::DeleteRackRequest>,
     ) -> Result<Response<()>, Status> {
-        handlers::rack::delete_rack(self, request).await
+        crate::handlers::rack::delete_rack(self, request).await
     }
 
     async fn rack_manager_call(
         &self,
         request: Request<rpc::RackManagerForgeRequest>,
     ) -> Result<Response<rpc::RackManagerForgeResponse>, Status> {
-        handlers::rack::rack_manager_call(self, request).await
+        crate::handlers::rack::rack_manager_call(self, request).await
     }
 
     /// Trigger DPU reprovisioning
@@ -1184,112 +1184,115 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ExpectedPowerShelfRequest>,
     ) -> Result<Response<rpc::ExpectedPowerShelf>, Status> {
-        handlers::expected_power_shelf::get_expected_power_shelf(self, request).await
+        crate::handlers::expected_power_shelf::get_expected_power_shelf(self, request).await
     }
 
     async fn add_expected_power_shelf(
         &self,
         request: Request<rpc::ExpectedPowerShelf>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_power_shelf::add_expected_power_shelf(self, request).await
+        crate::handlers::expected_power_shelf::add_expected_power_shelf(self, request).await
     }
 
     async fn delete_expected_power_shelf(
         &self,
         request: Request<rpc::ExpectedPowerShelfRequest>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_power_shelf::delete_expected_power_shelf(self, request).await
+        crate::handlers::expected_power_shelf::delete_expected_power_shelf(self, request).await
     }
 
     async fn update_expected_power_shelf(
         &self,
         request: Request<rpc::ExpectedPowerShelf>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_power_shelf::update_expected_power_shelf(self, request).await
+        crate::handlers::expected_power_shelf::update_expected_power_shelf(self, request).await
     }
 
     async fn replace_all_expected_power_shelves(
         &self,
         request: Request<rpc::ExpectedPowerShelfList>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_power_shelf::replace_all_expected_power_shelves(self, request).await
+        crate::handlers::expected_power_shelf::replace_all_expected_power_shelves(self, request)
+            .await
     }
 
     async fn get_all_expected_power_shelves(
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::ExpectedPowerShelfList>, Status> {
-        handlers::expected_power_shelf::get_all_expected_power_shelves(self, request).await
+        crate::handlers::expected_power_shelf::get_all_expected_power_shelves(self, request).await
     }
 
     async fn get_all_expected_power_shelves_linked(
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::LinkedExpectedPowerShelfList>, Status> {
-        handlers::expected_power_shelf::get_all_expected_power_shelves_linked(self, request).await
+        crate::handlers::expected_power_shelf::get_all_expected_power_shelves_linked(self, request)
+            .await
     }
 
     async fn delete_all_expected_power_shelves(
         &self,
         request: Request<()>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_power_shelf::delete_all_expected_power_shelves(self, request).await
+        crate::handlers::expected_power_shelf::delete_all_expected_power_shelves(self, request)
+            .await
     }
 
     async fn get_expected_switch(
         &self,
         request: Request<rpc::ExpectedSwitchRequest>,
     ) -> Result<Response<rpc::ExpectedSwitch>, Status> {
-        handlers::expected_switch::get_expected_switch(self, request).await
+        crate::handlers::expected_switch::get_expected_switch(self, request).await
     }
 
     async fn add_expected_switch(
         &self,
         request: Request<rpc::ExpectedSwitch>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_switch::add_expected_switch(self, request).await
+        crate::handlers::expected_switch::add_expected_switch(self, request).await
     }
 
     async fn delete_expected_switch(
         &self,
         request: Request<rpc::ExpectedSwitchRequest>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_switch::delete_expected_switch(self, request).await
+        crate::handlers::expected_switch::delete_expected_switch(self, request).await
     }
 
     async fn update_expected_switch(
         &self,
         request: Request<rpc::ExpectedSwitch>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_switch::update_expected_switch(self, request).await
+        crate::handlers::expected_switch::update_expected_switch(self, request).await
     }
 
     async fn replace_all_expected_switches(
         &self,
         request: Request<rpc::ExpectedSwitchList>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_switch::replace_all_expected_switches(self, request).await
+        crate::handlers::expected_switch::replace_all_expected_switches(self, request).await
     }
 
     async fn get_all_expected_switches(
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::ExpectedSwitchList>, Status> {
-        handlers::expected_switch::get_all_expected_switches(self, request).await
+        crate::handlers::expected_switch::get_all_expected_switches(self, request).await
     }
 
     async fn get_all_expected_switches_linked(
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::LinkedExpectedSwitchList>, Status> {
-        handlers::expected_switch::get_all_expected_switches_linked(self, request).await
+        crate::handlers::expected_switch::get_all_expected_switches_linked(self, request).await
     }
 
     async fn delete_all_expected_switches(
         &self,
         request: Request<()>,
     ) -> Result<Response<()>, Status> {
-        handlers::expected_switch::delete_all_expected_switches(self, request).await
+        crate::handlers::expected_switch::delete_all_expected_switches(self, request).await
     }
 
     async fn find_connected_devices_by_dpu_machine_ids(
@@ -2214,64 +2217,64 @@ impl Forge for Api {
         &self,
         request: Request<rpc::SkuList>,
     ) -> Result<Response<rpc::SkuIdList>, Status> {
-        Ok(crate::handlers::sku::create(self, request).await?)
+        crate::handlers::sku::create(self, request).await
     }
 
     async fn delete_sku(&self, request: Request<SkuIdList>) -> Result<Response<()>, Status> {
-        Ok(crate::handlers::sku::delete(self, request).await?)
+        crate::handlers::sku::delete(self, request).await
     }
 
     async fn generate_sku_from_machine(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<rpc::Sku>, Status> {
-        Ok(crate::handlers::sku::generate_from_machine(self, request).await?)
+        crate::handlers::sku::generate_from_machine(self, request).await
     }
 
     async fn verify_sku_for_machine(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
-        Ok(crate::handlers::sku::verify_for_machine(self, request).await?)
+        crate::handlers::sku::verify_for_machine(self, request).await
     }
 
     async fn assign_sku_to_machine(
         &self,
         request: Request<::rpc::forge::SkuMachinePair>,
     ) -> Result<Response<()>, Status> {
-        Ok(crate::handlers::sku::assign_to_machine(self, request).await?)
+        crate::handlers::sku::assign_to_machine(self, request).await
     }
 
     async fn remove_sku_association(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
-        Ok(crate::handlers::sku::remove_sku_association(self, request).await?)
+        crate::handlers::sku::remove_sku_association(self, request).await
     }
 
     async fn get_all_sku_ids(
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::SkuIdList>, Status> {
-        Ok(crate::handlers::sku::get_all_ids(self, request).await?)
+        crate::handlers::sku::get_all_ids(self, request).await
     }
 
     async fn find_skus_by_ids(
         &self,
         request: Request<rpc::SkusByIdsRequest>,
     ) -> Result<Response<rpc::SkuList>, Status> {
-        Ok(crate::handlers::sku::find_skus_by_ids(self, request).await?)
+        crate::handlers::sku::find_skus_by_ids(self, request).await
     }
 
     async fn update_sku_metadata(
         &self,
         request: Request<rpc::SkuUpdateMetadataRequest>,
     ) -> Result<Response<()>, Status> {
-        Ok(crate::handlers::sku::update_sku_metadata(self, request).await?)
+        crate::handlers::sku::update_sku_metadata(self, request).await
     }
 
     async fn replace_sku(&self, request: Request<rpc::Sku>) -> Result<Response<rpc::Sku>, Status> {
-        Ok(crate::handlers::sku::replace_sku(self, request).await?)
+        crate::handlers::sku::replace_sku(self, request).await
     }
 
     async fn set_managed_host_quarantine_state(
@@ -2315,7 +2318,7 @@ impl Forge for Api {
         &self,
         request: Request<()>,
     ) -> Result<Response<rpc::DpaInterfaceIdList>, Status> {
-        Ok(crate::handlers::dpa::get_all_ids(self, request).await?)
+        crate::handlers::dpa::get_all_ids(self, request).await
     }
 
     // Given a Vector of DPA Interface IDs, return the corresponding
@@ -2324,7 +2327,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::DpaInterfacesByIdsRequest>,
     ) -> Result<Response<rpc::DpaInterfaceList>, Status> {
-        Ok(crate::handlers::dpa::find_dpa_interfaces_by_ids(self, request).await?)
+        crate::handlers::dpa::find_dpa_interfaces_by_ids(self, request).await
     }
 
     // create_dpa_interface is mainly for debugging purposes. In practice,
@@ -2334,13 +2337,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::DpaInterfaceCreationRequest>,
     ) -> Result<Response<rpc::DpaInterface>, Status> {
-        if !self.runtime_config.is_dpa_enabled() {
-            return Err(CarbideError::InvalidArgument(
-                "CreateDpaInterface cannot be done as dpa_enabled is false".to_string(),
-            )
-            .into());
-        }
-        Ok(crate::handlers::dpa::create(self, request).await?)
+        crate::handlers::dpa::create(self, request).await
     }
 
     // delete_dpa_interface is mainly for debugging purposes.
@@ -2348,13 +2345,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::DpaInterfaceDeletionRequest>,
     ) -> Result<Response<rpc::DpaInterfaceDeletionResult>, Status> {
-        if !self.runtime_config.is_dpa_enabled() {
-            return Err(CarbideError::InvalidArgument(
-                "DeleteDpaInterface cannot be done as dpa_enabled is false".to_string(),
-            )
-            .into());
-        }
-        Ok(crate::handlers::dpa::delete(self, request).await?)
+        crate::handlers::dpa::delete(self, request).await
     }
 
     // set_dpa_network_observaction_status is for debugging purposes.
@@ -2364,7 +2355,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::DpaNetworkObservationSetRequest>,
     ) -> Result<Response<rpc::DpaInterface>, Status> {
-        Ok(crate::handlers::dpa::set_dpa_network_observation_status(self, request).await?)
+        crate::handlers::dpa::set_dpa_network_observation_status(self, request).await
     }
 
     async fn create_bmc_user(
@@ -2589,7 +2580,7 @@ impl Forge for Api {
         &self,
         request: Request<Streaming<rpc::ScoutStreamApiBoundMessage>>,
     ) -> Result<Response<Self::ScoutStreamStream>, Status> {
-        handlers::scout_stream::scout_stream(self, request).await
+        crate::handlers::scout_stream::scout_stream(self, request).await
     }
 
     // scout_stream_show_connections lists all active scout agent
@@ -2599,7 +2590,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ScoutStreamShowConnectionsRequest>,
     ) -> Result<Response<rpc::ScoutStreamShowConnectionsResponse>, Status> {
-        handlers::scout_stream::show_connections(self, request).await
+        crate::handlers::scout_stream::show_connections(self, request).await
     }
 
     // scout_stream_disconnect is used to disconnect the
@@ -2608,7 +2599,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ScoutStreamDisconnectRequest>,
     ) -> Result<Response<rpc::ScoutStreamDisconnectResponse>, Status> {
-        handlers::scout_stream::disconnect(self, request).await
+        crate::handlers::scout_stream::disconnect(self, request).await
     }
 
     // scout_stream_ping is used to ping the
@@ -2617,56 +2608,56 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ScoutStreamAdminPingRequest>,
     ) -> Result<Response<rpc::ScoutStreamAdminPingResponse>, Status> {
-        handlers::scout_stream::ping(self, request).await
+        crate::handlers::scout_stream::ping(self, request).await
     }
 
     async fn mlx_admin_profile_sync(
         &self,
         request: Request<mlx_device_pb::MlxAdminProfileSyncRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminProfileSyncResponse>, Status> {
-        handlers::mlx_admin::profile_sync(self, request).await
+        crate::handlers::mlx_admin::profile_sync(self, request).await
     }
 
     async fn mlx_admin_profile_show(
         &self,
         request: Request<mlx_device_pb::MlxAdminProfileShowRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminProfileShowResponse>, Status> {
-        handlers::mlx_admin::profile_show(self, request).await
+        crate::handlers::mlx_admin::profile_show(self, request).await
     }
 
     async fn mlx_admin_profile_compare(
         &self,
         request: Request<mlx_device_pb::MlxAdminProfileCompareRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminProfileCompareResponse>, Status> {
-        handlers::mlx_admin::profile_compare(self, request).await
+        crate::handlers::mlx_admin::profile_compare(self, request).await
     }
 
     async fn mlx_admin_profile_list(
         &self,
         request: Request<mlx_device_pb::MlxAdminProfileListRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminProfileListResponse>, Status> {
-        handlers::mlx_admin::profile_list(self, request).await
+        crate::handlers::mlx_admin::profile_list(self, request).await
     }
 
     async fn mlx_admin_lockdown_lock(
         &self,
         request: Request<mlx_device_pb::MlxAdminLockdownLockRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminLockdownLockResponse>, Status> {
-        handlers::mlx_admin::lockdown_lock(self, request).await
+        crate::handlers::mlx_admin::lockdown_lock(self, request).await
     }
 
     async fn mlx_admin_lockdown_unlock(
         &self,
         request: Request<mlx_device_pb::MlxAdminLockdownUnlockRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminLockdownUnlockResponse>, Status> {
-        handlers::mlx_admin::lockdown_unlock(self, request).await
+        crate::handlers::mlx_admin::lockdown_unlock(self, request).await
     }
 
     async fn mlx_admin_lockdown_status(
         &self,
         request: Request<mlx_device_pb::MlxAdminLockdownStatusRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminLockdownStatusResponse>, Status> {
-        handlers::mlx_admin::lockdown_status(self, request).await
+        crate::handlers::mlx_admin::lockdown_status(self, request).await
     }
 
     async fn mlx_admin_show_device(
@@ -2680,49 +2671,49 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::MlxAdminDeviceReportRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminDeviceReportResponse>, Status> {
-        handlers::mlx_admin::show_device_report(self, request).await
+        crate::handlers::mlx_admin::show_device_report(self, request).await
     }
 
     async fn mlx_admin_registry_list(
         &self,
         request: Request<mlx_device_pb::MlxAdminRegistryListRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminRegistryListResponse>, Status> {
-        handlers::mlx_admin::registry_list(self, request).await
+        crate::handlers::mlx_admin::registry_list(self, request).await
     }
 
     async fn mlx_admin_registry_show(
         &self,
         request: Request<mlx_device_pb::MlxAdminRegistryShowRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminRegistryShowResponse>, Status> {
-        handlers::mlx_admin::registry_show(self, request).await
+        crate::handlers::mlx_admin::registry_show(self, request).await
     }
 
     async fn mlx_admin_config_query(
         &self,
         request: Request<mlx_device_pb::MlxAdminConfigQueryRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminConfigQueryResponse>, Status> {
-        handlers::mlx_admin::config_query(self, request).await
+        crate::handlers::mlx_admin::config_query(self, request).await
     }
 
     async fn mlx_admin_config_set(
         &self,
         request: Request<mlx_device_pb::MlxAdminConfigSetRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminConfigSetResponse>, Status> {
-        handlers::mlx_admin::config_set(self, request).await
+        crate::handlers::mlx_admin::config_set(self, request).await
     }
 
     async fn mlx_admin_config_sync(
         &self,
         request: Request<mlx_device_pb::MlxAdminConfigSyncRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminConfigSyncResponse>, Status> {
-        handlers::mlx_admin::config_sync(self, request).await
+        crate::handlers::mlx_admin::config_sync(self, request).await
     }
 
     async fn mlx_admin_config_compare(
         &self,
         request: Request<mlx_device_pb::MlxAdminConfigCompareRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminConfigCompareResponse>, Status> {
-        handlers::mlx_admin::config_compare(self, request).await
+        crate::handlers::mlx_admin::config_compare(self, request).await
     }
 }
 
