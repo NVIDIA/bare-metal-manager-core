@@ -22,6 +22,17 @@ all specified tests on the host.
 An alert with this ID is placed on a host in case the SKU validation workflow failed.
 The alert will make the host un-allocatable by tenants.
 
+## Repair workflow integrations related health probe identifiers
+
+### `TenantReportedIssue`
+
+Indicates that a tenant reported an issue with the host while releasing the bare metal instance. The host won't be available for other tenants until the alert is cleared.
+
+### `RequestRepair`
+
+Indicates that a tenant reported an issue with the host while releasing the bare metal instance
+and that repair by an external framework is required.
+
 ## Site Explorer health probe identifiers
 
 ### `BmcExplorationFailure`
@@ -31,6 +42,10 @@ Indicates that the hosts BMC endpoint could not be scraped. This can happen if t
 ### `PoweredOff`
 
 Indicates that the power status of a host as reported by the BMC is **not** on.
+
+### `SerialNumberMismatch`
+
+Indicates that the serial number on a host does not match the serial number in the Expected Machine manifest.
 
 ## Hardware/BMC health probe identifiers
 
@@ -77,6 +92,22 @@ Indicates that a BGP session with a top-of-rack (TOR) switch could not be establ
 
 Indicates that a BGP session with the route server that is part of the part of the Carbide control plane could not be established by a host/DPU.
 
+### `BgpStats`
+
+Indicates that BGP statistics could not be extacted by `dpu-agent`
+
+### `BgpDaemonEnabled`
+
+Indicates that the BGP daemon (FRR) is not running on the DPU
+
+### `DhcpRelay`
+
+Indicates issues regarding the start of the DHCP relay on the DPU
+
+### `DhcpServer`
+
+Indicates issues regarding the start of the DHCP server on the DPU
+
 ### `HeartbeatTimeout`
 
 Indicates that there was no communication between `dpu-agent` and `carbide-core` for a certain amount of time.
@@ -85,6 +116,35 @@ This condition usually implies that the DPU won't be able to apply any configura
 ### `StaleAgentVersion`
 
 Indicates that `dpu-agent` has not been updated to the newest version, even though the newest release had been available for a certain amount of time.
+
+### `ContainerExists`
+
+Indicates that a container that was expected to run on the DPU is not running
+
+### `SupervisorctlStatus`
+
+Indicates an issue with retrieving the list of running services
+
+### `ServiceRunning`
+
+Indicates that an expected service on the DPU is not runnning
+
+### `PostConfigCheckWait`
+
+The alert is placed on a host for a few seconds after a configuration change by dpu-agent in order to allow the configuration changes to "settle" before doing the health assessment.
+That avoids the host to move between states even though the new configuration might be  problematic.
+
+### `RestrictedMode`
+
+Indicates that the DPU is not running in restricted mode
+
+### `DpuDiskUtilizationCheck`
+
+Indicates that the dpu-agent failed to check disk utilization
+
+### `DpuDiskUtilizationCritical`
+
+Indicates that the dpu-agent disk utilization on the DPU is above a critical threshold
 
 ## Other health probe identifiers
 
@@ -106,3 +166,13 @@ report is preferrable to failing the workflow.
 ### `Maintenance`
 
 The alert is used by site admins to mark hosts that are under maintenance - e.g. for CPU or memory replacements.
+
+### `HostUpdateInProgress`
+
+Indicates that an update for host firmware was scheduled on the host
+
+### `IbCleanupPending`
+
+Indicates that the host was released back to the admin pool without the system being able to fully clean up all port to partition key associations for all InfiniBand interfaces.
+This means the host might still be bound to a tenants partition.
+Once the IB subsystem can communicate with UFM and detects that the port is not bound to a partition anymore, the alert will automatically clear.
