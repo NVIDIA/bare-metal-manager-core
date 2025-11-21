@@ -37,11 +37,12 @@ enum RulePrincipal {
     Health,
     Pxe,
     Rla,
+    MaintenanceJobs,
     Anonymous, // Permitted for everything
 }
 use self::RulePrincipal::{
-    Agent, Anonymous, Dhcp, Dns, ForgeAdminCLI, Health, Machineatron, Pxe, Rla, Scout, SiteAgent,
-    Ssh, SshRs,
+    Agent, Anonymous, Dhcp, Dns, ForgeAdminCLI, Health, Machineatron, MaintenanceJobs, Pxe, Rla,
+    Scout, SiteAgent, Ssh, SshRs,
 };
 
 impl InternalRBACRules {
@@ -463,7 +464,7 @@ impl InternalRBACRules {
             "PublishMlxObservationReport",
             vec![Agent, Scout, Machineatron, ForgeAdminCLI],
         );
-        x.perm("TrimTable", vec![ForgeAdminCLI]);
+        x.perm("TrimTable", vec![ForgeAdminCLI, MaintenanceJobs]);
         x.perm("CreateRemediation", vec![ForgeAdminCLI]);
         x.perm("ApproveRemediation", vec![ForgeAdminCLI]);
         x.perm("RevokeRemediation", vec![ForgeAdminCLI]);
@@ -661,6 +662,9 @@ impl RuleInfo {
                     RulePrincipal::Rla => {
                         Principal::SpiffeServiceIdentifier("carbide-rla".to_string())
                     }
+                    RulePrincipal::MaintenanceJobs => {
+                        Principal::SpiffeServiceIdentifier("carbide-maintenance-jobs".to_string())
+                    }
                     RulePrincipal::Anonymous => Principal::Anonymous,
                 })
                 .collect(),
@@ -796,6 +800,13 @@ mod rbac_rule_tests {
         assert!(InternalRBACRules::allowed_from_static(
             "DiscoverMachine",
             &[]
+        ));
+
+        assert!(InternalRBACRules::allowed_from_static(
+            "TrimTable",
+            &[Principal::SpiffeServiceIdentifier(
+                "carbide-maintenance-jobs".to_string()
+            )]
         ));
 
         // Ensure Ssh and SshRs both have identical permissions. (ssh-console-rs is a rust rewrite
