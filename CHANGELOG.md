@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased (v2025.11.21-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc1-0...trunk)
+## [Unreleased (v2025.12.05-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc2-0...trunk)
 
 ### Added
 
@@ -8,11 +8,55 @@
 
 ### Fixed
 
-- [MR-4861](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4861): Fixed an issue where using `boot_once(Pxe)` on Lenovo machines in Assigned/Ready state would cause the DPU to restart unexpectedly due to Lenovo's PCIe power reset when all PXE boot attempts fail; changed to `boot_first(Pxe)` which allows fallthrough to installed OS after PXE boot failure.
-
 ### Removed
 
 ### Internal Changes
+
+## [v2025.11.21-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc1-0...v2025.11.21-rc2-0)
+
+### Added in v2025.11.21-rc2-0
+
+- [MR-4902](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4902), [MR-4897](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4897), [MR-4894](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4894), [MR-4889](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4889), [MR-4888](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4888), [MR-4887](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4887), [MR-4890](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4890), [MR-4886](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4886), [MR-4884](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4884), [MR-4877](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4877), [MR-4872](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4872), [MR-4878](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4878), [MR-4874](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4874), [MR-4875](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4875), [MR-4873](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4873), [MR-4865](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4865), [MR-4860](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4860), [MR-4908](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4908), [MR-4898](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4898), [MR-4899](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4899): Added the ability to manage switches, racks, power shelves, expected switches and power shelves, including forge-admin-cli and web UI management for the RMS feature.
+- [MR-4730](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4730): Added the ability to configure DPA NICs in scout by interacting with the DPA state controller.
+- [MR-4910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4910): Added the ability to automatically trim carbide tables by adding a RBAC policy for maintenance jobs.
+
+- [FORGE-5987](https://jirasw.nvidia.com/browse/FORGE-5987),[MR-4833](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4833): Added the ability to administratively manage Mellanox devices via forge-admin-cli using a new `ScoutStream` interface, enabling device reports, device locking/unlocking, and mlxconfig profile and variable management.
+
+### Fixed in v2025.11.21-rc2-0
+
+- [DGXH5GL3-616](https://jirasw.nvidia.com/browse/DGXH5GL3-616), [5555733](https://nvbugspro.nvidia.com/bug/5555733), [MR-4861](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4861): Fixed an issue where using `boot_once(Pxe)` on Lenovo machines in Assigned/Ready state would cause the DPU to restart unexpectedly due to Lenovo's PCIe power reset when all PXE boot attempts fail; changed to `boot_first(Pxe)` which allows fallthrough to installed OS after PXE boot failure.
+- [MR-4891](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4891): Fixed an issue where the boot order may break after a tenant releases a machine by prepending UEFI HTTP boot options to the boot order when tenants release GB200 machines.
+- [5558946](https://nvbugspro.nvidia.com/bug/5558946), [MR-4713](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4713): Fixed an issue where machines get stuck in termination when UFM is not reporting all expected Infiniband ports.
+- [FORGE-7330](https://jirasw.nvidia.com/browse/FORGE-7330),[MR-4815](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4815): Fixed an issue where DPUs could not boot without an associated machine record because site-explorer requires Ethernet interface information that was unavailable.
+- [MR-4868](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4868): Fixed an issue where DPUs attempted to handle bandwidth distribution via unofficial feature that sends extended-communities; DPUs now route traffic to any connected leaf TOR switch and let the TOR handle bandwidth distribution.
+- [MR-4855](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4855): Fixed an issue where the IP allocator did not skip network and gateway addresses.
+
+### Removed in v2025.11.21-rc2-0
+
+- [MR-4863](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4863): Removed the ability to use the `FindMachines` API which was replaced by the `FindMachineIds` and `FindMachinesByIds` APIs.
+- [MR-4848](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4848): Removed the ability to use various `Find` APIs that did not support pagination and were marked as deprecated for about a year.
+
+### Internal Changes in v2025.11.21-rc2-0
+
+- [MR-4790](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4790): Internal change that added the ability to check dependency licenses using cargo-deny.
+- [MR-4866](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4866): Internal change that added the ability to use `ROCE_CC_STEERING_EXT` in the config variable registry using definition data from `show_confs`.
+- [FORGE-7452](https://jirasw.nvidia.com/browse/FORGE-7452),[MR-4896](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4896): Fixed an issue where forge-admin-cli was not building on macOS because `bind_device()` is not asupported function in its TCP/IP stack.
+- [MR-4882](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4882): Internal change that fixed an issue where documentation would no longer build by pinning mdbook version.
+- [MR-4869](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4869): Internal change that fixed an issue with BMC-Mock where Name and NetworkAdapter types did not match the Redfish specification.
+- [MR-4881](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4881): Internal change that removed the ability to run machine lifecycle tests using the code in this repository as it has moved to [its own repository](https://gitlab-master.nvidia.com/nvmetal/machine-lifecycle-test).
+- [MR-4905](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4905): Internal change where the source of libredfish was changed to use github.com.
+- [MR-4904](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4904): Internal change where some code was removed from powershelf tests.
+- [MR-4901](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4901): Internal change where openssl was removed and the SSH feature was refactored to use pure Rust libraries instead of native dependencies.
+- [MR-4906](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4906): Internal change where API unification makes all API-handler Errors `tonic::Status`.
+- [MR-4895](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4895): Internal change where API unification moved out remaining RPC calls to handlers.
+- [MR-4883](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4883): Internal change for API unification.
+- [MR-4892](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4892): Internal change where the architecture overview was moved under the architecture section, VPC peering and expected machines update were moved under the manuals section, and the outdated Machine Discovery page was deleted in the documentation.
+- [MR-4876](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4876): Internal change where an overview of health and health aggregation was added to the documentation.
+- [MR-4867](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4867): Internal change where redundant error handling annotations were removed from carbide-admin-cli since the `#[from]` attribute now handles the conversion automatically.
+- [MR-4870](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4870): Internal change where API unification moves out UEFI password and host reprovisioning functions to handlers.
+- [MR-4871](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4871): Internal change where a Manuals section was added to the documentation, existing chapters were moved under it, and new chapters were proposed without content.
+- [MR-4862](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4862): Internal change where API unification moved attest_quote, force delete machine, and others to handlers.
+- [MR-4880](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4880): Internal change that fixed trunk build failure of the documentation.
 
 ## [v2025.11.07-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.10.24-rc2-0...v2025.11.07-rc2-0)
 
@@ -22,13 +66,13 @@
 - [MR-4591](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4591): Added the ability to collect and bundle host machine and carbide-api logs from Grafana/Loki for a specified time range into a ZIP file with deduplicated logs, metadata, and Grafana query links using `forge-admin-cli managed-host debug-bundle <HOST_ID> --start-time "HH:MM:SS" --end-time "HH:MM:SS" --site <SITE> --output-path <PATH>`.
 - [MR-4788](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4788): Added the ability to insert global/admin-level security policies that take precedence over tenant-defined policies, enabling granular overrides such as ensuring tenant instances can always communicate with the iPXE server even when NSGs are applied.
 - [MR-4767](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4767): Create an xtask module that is able to move dependencies to the workspace level to avoid version conflicts between different crates' dependencies.
-- [MR-4756](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4756), [VMAAS-49](https://jirasw.nvidia.com/browse/VMAAS-49), [VMAAS-95](https://jirasw.nvidia.com/browse/VMAAS-95): Added lifecycle management for DPU extension services with versioned configurations and per-instance deployment. 
+- [MR-4756](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4756), [VMAAS-49](https://jirasw.nvidia.com/browse/VMAAS-49), [VMAAS-95](https://jirasw.nvidia.com/browse/VMAAS-95): Added lifecycle management for DPU extension services with versioned configurations and per-instance deployment.
 
 DPU extension services are tenant-scoped, versioned service definitions (currently supporting "KubernetesPod" service type which deploys static pod manifests). Services can include private registry credentials stored securely in Vault. Instances can attach multiple DPU extension services by declaring them in InstanceConfig. The system tracks per-DPU deployment status and reports aggregated instance-level state for all attached services.
 
     - DPU agents obtains list of DPU extension services configured for any instance attached from GetManagedHostNetworkConfig. For "KubernetesPod` services, DPU agents deploy the services as static pods via kubelet, automatically configuring the image credential provider, setting up a SOCKS5 proxy for containerd, and monitoring status via crictl.
     - RPC calls added: CreateDpuExtensionService, UpdateDpuExtensionService, DeleteDpuExtensionService, FindDpuExtensionServiceIds, FindDpuExtensionServicesByIds, GetDpuExtensionServiceVersionInfos, FindInstancesByDpuExtensionService.
-    - forge-admin-cli commands added: extension-service commands including create, update, delete, show, get-version, show-instance
+    - forge-admin-cli commands added: extension-service commands including create, update, delete, show, get-version, show-instance.
 
 ### Changed
 
@@ -53,8 +97,8 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 - [MR-4779](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4779): Fixed an issue where an unused openssl dependency in carbide-ssh was causing build failures due to a missing cmake dependency in aws-lc-sys; the unused dependency has been removed.
 - [MR-4777](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4777): Fixed an issue where `cargo make build` would fail to build `admin_cli` due to the missing `to_csv` method in the `Table` struct caused by a missing library feature.
 - [MR-4822](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4822): Fixed an issue with horizontal overflow on a table for PCIe devices table in in the system tab.
-- [MR-4830](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4830): Update libredfish to 0.31.5
-- [MR-4834](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4834): Fixes an issue where if Carbide is unable to set the boot order on a given machine, it will issue a reboot to try to remediate the issue
+- [MR-4830](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4830): Update libredfish to 0.31.5.
+- [MR-4834](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4834): Fixes an issue where if Carbide is unable to set the boot order on a given machine, it will issue a reboot to try to remediate the issue.
 
 ### Removed
 
