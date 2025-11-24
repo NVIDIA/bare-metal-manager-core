@@ -27,9 +27,11 @@ use super::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate}
 use crate::instance::config::InstanceConfig;
 use crate::instance::config::extension_services::InstanceExtensionServicesConfig;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
+use crate::instance::config::nvlink::InstanceNvLinkConfig;
 use crate::instance::config::tenant_config::TenantConfig;
 use crate::instance::status::{InstanceStatus, InstanceStatusObservations};
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
+use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::{ManagedHostState, ReprovisionRequest};
 use crate::metadata::Metadata;
 use crate::os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant};
@@ -75,6 +77,8 @@ pub struct InstanceSnapshot {
     /// of [InstanceConfig::extension_services]
     pub extension_services_config_version: ConfigVersion,
 
+    pub nvlink_config_version: ConfigVersion,
+
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
 
@@ -101,6 +105,7 @@ impl InstanceSnapshot {
         managed_host_state: ManagedHostState,
         reprovision_request: Option<ReprovisionRequest>,
         ib_status: Option<&MachineInfinibandStatusObservation>,
+        nvlink_status: Option<&MachineNvLinkStatusObservation>,
     ) -> Result<InstanceStatus, RpcDataConversionError> {
         InstanceStatus::from_config_and_observation(
             dpu_id_to_device_map,
@@ -111,11 +116,13 @@ impl InstanceSnapshot {
                 &self.config.extension_services,
                 self.extension_services_config_version,
             ),
+            Versioned::new(&self.config.nvlink, self.nvlink_config_version),
             &self.observations,
             managed_host_state,
             self.deleted.is_some(),
             reprovision_request,
             ib_status,
+            nvlink_status,
             self.update_network_config_request.is_some(),
         )
     }
@@ -137,6 +144,8 @@ pub struct InstanceSnapshotPgJson {
     ib_config: InstanceInfinibandConfig,
     ib_config_version: String,
     storage_config_version: String,
+    nvlink_config: InstanceNvLinkConfig,
+    nvlink_config_version: String,
     config_version: String,
     phone_home_last_contact: Option<DateTime<Utc>>,
     use_custom_pxe_on_boot: bool,
@@ -203,6 +212,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             os,
             network: value.network_config,
             infiniband: value.ib_config,
+            nvlink: value.nvlink_config,
             network_security_group_id: value.network_security_group_id,
             extension_services: value.extension_services_config,
         };
@@ -228,6 +238,12 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             ib_config_version: value.ib_config_version.parse().map_err(|e| {
                 sqlx::error::Error::ColumnDecode {
                     index: "ib_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            nvlink_config_version: value.nvlink_config_version.parse().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "nvl_config_version".to_string(),
                     source: Box::new(e),
                 }
             })?,

@@ -1186,7 +1186,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1217,7 +1217,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1260,7 +1260,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1300,7 +1300,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1330,7 +1330,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1382,7 +1382,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1412,7 +1412,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1449,7 +1449,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1484,7 +1484,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1542,7 +1542,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1572,7 +1572,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1600,7 +1600,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1623,7 +1623,7 @@ async fn test_instance_upgrading_actual_part_2(
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()

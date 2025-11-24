@@ -16,7 +16,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub use ::rpc::forge as rpc;
-use model::hardware_info::HardwareInfo;
+use forge_uuid::nvlink::NvLinkDomainId;
+use model::hardware_info::{HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::machine::machine_id::{from_hardware_info, host_id_from_dpu_hardware_info};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{DpuInitState, DpuInitStates, ManagedHostState};
@@ -240,6 +241,69 @@ pub(crate) async fn discover_machine(
         api.runtime_config.bom_validation.enabled,
     )
     .await?;
+
+    // Discover NMX-M info if this is a GBX00 machine
+    if hardware_info.is_gbx00()
+        && let Some(platform_info) = hardware_info
+            .gpus
+            .first()
+            .and_then(|gpu| gpu.platform_info.as_ref())
+    {
+        let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref() else {
+            return Err(Status::internal("NvLink config not found".to_string()));
+        };
+        let nmx_m_client = api
+            .nmxm_pool
+            .create_client(&nvlink_config.nmx_m_endpoint, None)
+            .await
+            .map_err(|e| CarbideError::internal(format!("Failed to create NMX-M client: {e}")))?;
+
+        // Turns out this would also be a good place to get the NMX-M ID for the GPUs. So instead of getting the chassis list, we should get the GPUs list.
+        let nmx_m_gpu_list = nmx_m_client
+            .get_gpu(None)
+            .await
+            .map_err(|e| CarbideError::internal(format!("Failed to get compute nodes: {e}")))?;
+
+        // Get the list of GPUs which match the location info returned from scout.
+        let matching_gpus = nmx_m_gpu_list
+            .iter()
+            .filter(|gpu| {
+                // If NMX-M GPU location info tray index matches the tray index returned from scout.
+                gpu.location_info
+                    .as_ref()
+                    .map(|info| {
+                        info.tray_index.unwrap_or_default() as u32 == platform_info.tray_index
+                            && info.slot_id.unwrap_or_default() as u32 == platform_info.slot_number
+                            && info.chassis_serial_number.as_deref().unwrap_or_default()
+                                == platform_info.chassis_serial
+                    })
+                    .unwrap_or(false)
+            })
+            .collect::<Vec<_>>();
+
+        let domain_uuid = matching_gpus
+            .first()
+            .and_then(|gpu| gpu.domain_uuid)
+            .ok_or_else(|| {
+                CarbideError::internal(format!(
+                    "Failed to find domain UUID for GPUs: {matching_gpus:?}"
+                ))
+            })?;
+
+        db::machine::update_nvlink_info(
+            &mut txn,
+            &machine_id,
+            MachineNvLinkInfo {
+                domain_uuid: NvLinkDomainId::from(domain_uuid),
+                gpus: matching_gpus
+                    .into_iter()
+                    .cloned()
+                    .map(NvLinkGpu::from)
+                    .collect(),
+            },
+        )
+        .await?;
+    }
 
     if hardware_info.is_dpu() {
         // Create Host proactively.

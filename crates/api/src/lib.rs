@@ -48,6 +48,8 @@ mod machine_update_manager;
 mod machine_validation;
 mod measured_boot;
 mod network_segment;
+mod nvl_partition_monitor;
+mod nvlink;
 mod preingestion_manager;
 mod rack;
 mod redfish;

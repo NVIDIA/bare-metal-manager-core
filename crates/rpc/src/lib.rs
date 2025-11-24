@@ -42,8 +42,9 @@ pub use crate::protos::forge::{
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
     InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus, InterfaceFunctionType, Machine,
     MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent, MachineInterface, MachineList,
-    Metadata, NetworkPrefixEvent, NetworkSegment, NetworkSegmentList, ResourcePoolType, SyncState,
-    TenantConfig, TenantState, forge_agent_control_response,
+    Metadata, NetworkPrefixEvent, NetworkSegment, NetworkSegmentList, NvLinkPartition,
+    NvLinkPartitionList, NvLinkPartitionQuery, ResourcePoolType, SyncState, TenantConfig,
+    TenantState, forge_agent_control_response,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
@@ -717,6 +718,7 @@ impl forge::MachineCapabilityDeviceType {
         Ok(match t {
             forge::MachineCapabilityDeviceType::Dpu => "DPU".to_string(),
             forge::MachineCapabilityDeviceType::Unknown => "UNKNOWN".to_string(),
+            forge::MachineCapabilityDeviceType::Nvlink => "NVLINK".to_string(),
         })
     }
 }

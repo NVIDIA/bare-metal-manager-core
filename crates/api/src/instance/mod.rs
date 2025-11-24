@@ -501,6 +501,7 @@ pub async fn allocate_instance(
     let ib_config_version = ConfigVersion::initial();
     let extension_services_config_version = ConfigVersion::initial();
     let config_version = ConfigVersion::initial();
+    let nvl_config_version = ConfigVersion::initial();
 
     validate_ib_partition_ownership(
         &mut txn,
@@ -521,8 +522,8 @@ pub async fn allocate_instance(
         network_config_version,
         ib_config_version,
         extension_services_config_version,
+        nvlink_config_version: nvl_config_version,
     };
-
     let machine_id = new_instance.machine_id;
     if !machine_id.machine_type().is_host() {
         return Err(CarbideError::InvalidArgument(format!(
@@ -622,6 +623,15 @@ pub async fn allocate_instance(
         instance.id,
         ib_config_version,
         &updated_ib_config,
+        false,
+    )
+    .await?;
+
+    db::instance::update_nvlink_config(
+        &mut txn,
+        instance.id,
+        nvl_config_version,
+        &request.config.nvlink,
         false,
     )
     .await?;

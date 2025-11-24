@@ -34,6 +34,8 @@ pub struct MachineSearchConfig {
     /// and any joined tables.  The value is *not*
     /// propagated to any additional underlying queries.
     pub for_update: bool,
+    // Only include NVLink capable machines (GB200/GB300 etc)
+    pub mnnvl_only: bool,
 }
 
 impl TryFrom<rpc::forge::MachineSearchConfig> for MachineSearchConfig {
@@ -55,6 +57,7 @@ impl TryFrom<rpc::forge::MachineSearchConfig> for MachineSearchConfig {
                 })
                 .transpose()?,
             for_update: false, // This isn't exposed to API callers
+            mnnvl_only: value.mnnvl_only,
         })
     }
 }

@@ -93,6 +93,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                 if_version_match: None,
                 metadata: Some(invalid_metadata.clone()),
                 network_security_group_id: None,
+                default_nvlink_logical_partition_id: None,
             }))
             .await;
 

@@ -28,12 +28,13 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::hardware_info::MachineInventory;
+use model::hardware_info::{MachineInventory, MachineNvLinkInfo};
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::{
     MachineNetworkStatusObservation, ManagedHostNetworkConfig, ManagedHostQuarantineState,
 };
+use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
     FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
@@ -333,6 +334,39 @@ pub async fn find_ids_by_instance_type_id(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(builder.sql(), e))
+}
+
+/// Finds NMX-M info for a list of machine IDs
+///
+/// * `txn` - A reference to an active DB transaction
+/// * `machine_ids` - A slice of machine IDs to query for
+pub async fn find_nvlink_info_by_machine_ids(
+    txn: &mut PgConnection,
+    machine_ids: &[MachineId],
+) -> Result<HashMap<MachineId, Option<MachineNvLinkInfo>>, DatabaseError> {
+    if machine_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let query = "SELECT id, nvlink_info FROM machines WHERE id = ANY($1)";
+    let machine_id_strings: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
+
+    let rows = sqlx::query(query)
+        .bind(machine_id_strings)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    let mut result = HashMap::new();
+    for row in rows {
+        let machine_id: MachineId = row.try_get(0).map_err(|e| DatabaseError::query(query, e))?;
+        let nvlink_info: Option<sqlx::types::Json<MachineNvLinkInfo>> =
+            row.try_get(1).map_err(|e| DatabaseError::query(query, e))?;
+        let nvlink_info = nvlink_info.map(|json| json.0);
+        result.insert(machine_id, nvlink_info);
+    }
+
+    Ok(result)
 }
 
 async fn update_machine_instance_type(
@@ -740,6 +774,24 @@ pub async fn update_infiniband_status_observation(
              (infiniband_status_observation IS NULL
                 OR (infiniband_status_observation ? 'observed_at' AND infiniband_status_observation->>'observed_at' <= $3)
             ) RETURNING id";
+    let _id: (MachineId,) = sqlx::query_as(query)
+        .bind(sqlx::types::Json(&observation))
+        .bind(machine_id.to_string())
+        .bind(observation.observed_at.to_rfc3339())
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn update_nvlink_status_observation(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    observation: &MachineNvLinkStatusObservation,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET nvlink_status_observation = $1::json WHERE id = $2 AND
+                (nvlink_status_observation->>'observed_at' IS NULL OR nvlink_status_observation->>'observed_at' <= $3) RETURNING id";
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(&observation))
         .bind(machine_id.to_string())
@@ -1572,7 +1624,13 @@ pub async fn find_machine_ids(
     txn: &mut PgConnection,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<MachineId>, DatabaseError> {
-    let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines WHERE TRUE");
+    let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
+
+    if search_config.mnnvl_only {
+        qb.push(" INNER JOIN machine_topologies mt ON machines.id = mt.machine_id");
+    }
+
+    qb.push(" WHERE TRUE");
 
     if search_config.only_maintenance {
         qb.push(" AND health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance'");
@@ -1614,13 +1672,19 @@ pub async fn find_machine_ids(
         ));
     }
 
-    if search_config.for_update {
-        qb.push(" FOR UPDATE ");
+    if search_config.mnnvl_only {
+        qb.push(
+            " AND mt.topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' = 'GB200 NVL'",
+        );
     }
 
     if let Some(id) = search_config.instance_type_id {
         qb.push(" AND instance_type_id = ");
         qb.push_bind(id);
+    }
+
+    if search_config.for_update {
+        qb.push(" FOR UPDATE");
     }
 
     let q = qb.build_query_as();
@@ -2110,6 +2174,21 @@ pub async fn clear_quarantine_state(
     network_config.quarantine_state = None;
     try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
     Ok(old_quarantine_state)
+}
+
+pub async fn update_nvlink_info(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    nvlink_info: MachineNvLinkInfo,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET nvlink_info=$1 WHERE id=$2 RETURNING id";
+    let _id: MachineId = sqlx::query_as(query)
+        .bind(sqlx::types::Json(nvlink_info))
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]

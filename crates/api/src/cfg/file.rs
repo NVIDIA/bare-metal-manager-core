@@ -48,6 +48,7 @@ use utils::HostPortPair;
 use crate::state_controller::config::IterationConfig;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
+
 static BF2_NIC: &str = "24.43.3608";
 static BF2_BMC: &str = "BF-24.10-33";
 static BF2_CEC: &str = "4-15";
@@ -292,6 +293,10 @@ pub struct CarbideConfig {
     ///  eventually, export
     #[serde(default = "default_datacenter_asn")]
     pub datacenter_asn: u32,
+
+    /// NvLink related configuration
+    #[serde(default)]
+    pub nvlink_config: Option<NvLinkConfig>,
 
     #[serde(default = "default_power_options")]
     pub power_manager_options: PowerManagerOptions,
@@ -873,6 +878,59 @@ impl IBFabricConfig {
         let service_level = i32::deserialize(deserializer)?;
 
         IBServiceLevel::try_from(service_level).map_err(|e| serde::de::Error::custom(e.to_string()))
+    }
+}
+
+/// NvLink related configuration
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct NvLinkConfig {
+    #[serde(default)]
+    /// Enable NvLink Partitioning
+    pub enabled: bool,
+
+    /// Defaults to 1 Minute if not specified.
+    #[serde(
+        default = "NvLinkConfig::default_monitor_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub monitor_run_interval: std::time::Duration,
+
+    /// Timeout for pending NMX-M operations. Defaults to 10 seconds if not specified.
+    #[serde(
+        default = "NvLinkConfig::default_nmx_m_operation_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub nmx_m_operation_timeout: std::time::Duration,
+
+    /// NMX-M endpoint (name or IP address) used to create client connections,
+    /// include port number as well if required eg. 127.0.0.1:4010
+    #[serde(default = "default_nmx_m_endpoint")]
+    pub nmx_m_endpoint: String,
+}
+
+fn default_nmx_m_endpoint() -> String {
+    "localhost".to_string()
+}
+
+impl Default for NvLinkConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            monitor_run_interval: Self::default_monitor_run_interval(),
+            nmx_m_operation_timeout: Self::default_nmx_m_operation_timeout(),
+            nmx_m_endpoint: "localhost".to_string(),
+        }
+    }
+}
+
+impl NvLinkConfig {
+    pub const fn default_monitor_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+    pub const fn default_nmx_m_operation_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(10)
     }
 }
 
@@ -3286,6 +3344,22 @@ mqtt_endpoint = "mqtt.forge"
                 mqtt_endpoint: "mqtt.forge".to_string(),
                 mqtt_broker_port: 1884,
                 hb_interval: Duration::minutes(2),
+            }
+        );
+    }
+
+    #[test]
+    fn deserialize_serialize_nvlink_config() {
+        let value_json = r#"{"enabled": true, "allow_insecure": true, "monitor_run_interval": "33", "nmx_m_operation_timeout": "21", "nmx_m_endpoint": "localhost"}"#;
+
+        let nvlink_config: NvLinkConfig = serde_json::from_str(value_json).unwrap();
+        assert_eq!(
+            nvlink_config,
+            NvLinkConfig {
+                enabled: true,
+                monitor_run_interval: std::time::Duration::from_secs(33),
+                nmx_m_operation_timeout: std::time::Duration::from_secs(21),
+                nmx_m_endpoint: "localhost".to_string(),
             }
         );
     }

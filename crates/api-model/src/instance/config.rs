@@ -13,12 +13,13 @@
 pub mod extension_services;
 pub mod infiniband;
 pub mod network;
+pub mod nvlink;
 pub mod tenant_config;
 
-use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::network_security_group::{
     NetworkSecurityGroupId, NetworkSecurityGroupIdParseError,
 };
+use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 
 use crate::ConfigValidationError;
@@ -27,6 +28,7 @@ use crate::instance::config::extension_services::{
 };
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::network::InstanceNetworkConfig;
+use crate::instance::config::nvlink::InstanceNvLinkConfig;
 use crate::instance::config::tenant_config::TenantConfig;
 use crate::os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant};
 
@@ -56,6 +58,9 @@ pub struct InstanceConfig {
     /// Configures instance extension services
     #[serde(default)]
     pub extension_services: InstanceExtensionServicesConfig,
+
+    /// configure instance nvlink
+    pub nvlink: InstanceNvLinkConfig,
 }
 
 impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
@@ -111,6 +116,13 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             .transpose()?
             .unwrap_or(InstanceExtensionServicesConfig::default());
 
+        // NvLink config is optional
+        let nvlink = config
+            .nvlink
+            .map(InstanceNvLinkConfig::try_from)
+            .transpose()?
+            .unwrap_or(InstanceNvLinkConfig::default());
+
         Ok(InstanceConfig {
             tenant,
             os,
@@ -124,6 +136,7 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
                     RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
             extension_services,
+            nvlink,
         })
     }
 }
@@ -154,6 +167,11 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             true => None,
             false => Some(infiniband),
         };
+        let nvlink = rpc::forge::InstanceNvLinkConfig::try_from(config.nvlink)?;
+        let nvlink = match nvlink.gpu_configs.is_empty() {
+            true => None,
+            false => Some(nvlink),
+        };
 
         // We only show user active extension services, and track terminating services internally.
         let active_extension_services: Vec<InstanceExtensionServiceConfig> = config
@@ -178,6 +196,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             infiniband,
             network_security_group_id: config.network_security_group_id.map(|i| i.to_string()),
             dpu_extension_services: extension_services,
+            nvlink,
         })
     }
 }
@@ -198,6 +217,8 @@ impl InstanceConfig {
         }
 
         self.infiniband.validate()?;
+
+        self.nvlink.validate()?;
 
         Ok(())
     }
@@ -222,6 +243,7 @@ impl InstanceConfig {
 
         self.extension_services
             .verify_update_allowed_to(&new_config.extension_services)?;
+        self.nvlink.verify_update_allowed_to(&new_config.nvlink)?;
 
         Ok(())
     }

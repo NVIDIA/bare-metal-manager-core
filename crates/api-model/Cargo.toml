@@ -21,6 +21,7 @@ carbide-health-report = { path = "../health-report" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
+libnmxm = { path = "../libnmxm" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized

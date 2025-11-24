@@ -101,6 +101,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         infiniband: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        nvlink: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -355,6 +356,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         infiniband: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        nvlink: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -603,6 +605,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         infiniband: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        nvlink: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -731,6 +734,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         infiniband: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        nvlink: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -913,6 +917,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         infiniband: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        nvlink: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -1048,6 +1053,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
         infiniband: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        nvlink: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -1210,6 +1216,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
         infiniband: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        nvlink: None,
     };
 
     let initial_metadata = rpc::Metadata {

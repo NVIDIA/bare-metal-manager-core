@@ -18,6 +18,7 @@ use forge_uuid::machine::MachineId;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcPrefixId;
 use model::instance::config::network::DeviceLocator;
+use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::instance::status::network::InstanceNetworkStatusObservation;
 use model::machine::{
@@ -50,6 +51,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
                 infiniband: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                nvlink: None,
             },
             tenant: default_tenant_config(),
             metadata: None,
@@ -293,6 +295,22 @@ pub fn config_for_ib_config(
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(network_segment_id)),
         infiniband: Some(ib_config),
+        nvlink: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+    }
+}
+
+pub fn config_for_nvlink_config(
+    nvl_config: rpc::forge::InstanceNvLinkConfig,
+    network_segment_id: NetworkSegmentId,
+) -> rpc::forge::InstanceConfig {
+    rpc::forge::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(network_segment_id)),
+        infiniband: None,
+        nvlink: Some(nvl_config),
         network_security_group_id: None,
         dpu_extension_services: None,
     }
@@ -335,6 +353,8 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
         // monitor supplied the results
         env.run_ib_fabric_monitor_iteration().await;
         env.run_ib_fabric_monitor_iteration().await;
+        env.run_nvl_partition_monitor_iteration().await;
+        env.run_nvl_partition_monitor_iteration().await;
         env.run_machine_state_controller_iteration().await;
     }
     assert_eq!(
@@ -564,6 +584,32 @@ pub async fn update_instance_network_status_observation(
     let _query_result = sqlx::query(query)
         .bind(sqlx::types::Json(obs))
         .bind(dpu_id.to_string())
+        .execute(txn.deref_mut())
+        .await
+        .unwrap();
+}
+
+pub async fn create_instance_with_nvlink_config<'a, 'b>(
+    env: &'a TestEnv,
+    mh: &'b TestManagedHost,
+    nvl_config: rpc::forge::InstanceNvLinkConfig,
+    network_segment_id: NetworkSegmentId,
+) -> (TestInstance<'a, 'b>, RpcInstance) {
+    mh.instance_builer(env)
+        .config(config_for_nvlink_config(nvl_config, network_segment_id))
+        .build_and_return()
+        .await
+}
+
+pub async fn update_instance_nvlink_config(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &InstanceId,
+    config: &InstanceNvLinkConfig,
+) {
+    let query = "UPDATE instances SET nvlink_config=$1::json where id = $2::uuid returning id";
+    let _query_result = sqlx::query(query)
+        .bind(sqlx::types::Json(config))
+        .bind(id.to_string())
         .execute(txn.deref_mut())
         .await
         .unwrap();

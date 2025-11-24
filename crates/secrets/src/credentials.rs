@@ -208,6 +208,7 @@ pub enum CredentialKey {
     HostUefi { credential_type: CredentialType },
     BmcCredentials { credential_type: BmcCredentialType },
     ExtensionService { service_id: String, version: String },
+    NmxM { nmxm_id: String },
 }
 
 impl CredentialKey {
@@ -280,6 +281,7 @@ impl CredentialKey {
             } => Cow::from(format!(
                 "machines/extension-services/{service_id}/versions/{version}/credential"
             )),
+            CredentialKey::NmxM { nmxm_id } => Cow::from(format!("nmxm/{nmxm_id}/auth")),
         }
     }
 }

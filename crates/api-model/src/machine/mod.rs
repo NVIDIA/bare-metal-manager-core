@@ -37,6 +37,7 @@ use strum_macros::EnumIter;
 
 use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
+use self::nvlink::MachineNvLinkStatusObservation;
 use super::StateSla;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::MachineInventory;
@@ -49,7 +50,7 @@ use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
 use crate::errors::{ModelError, ModelResult};
 use crate::firmware::FirmwareComponentType;
-use crate::hardware_info::HardwareInfo;
+use crate::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
@@ -66,6 +67,7 @@ pub mod json;
 pub mod machine_id;
 pub mod machine_search_config;
 pub mod network;
+pub mod nvlink;
 pub mod topology;
 pub mod upgrade_policy;
 
@@ -503,6 +505,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
                 .host_snapshot
                 .infiniband_status_observation
                 .as_ref(),
+            snapshot.host_snapshot.nvlink_status_observation.as_ref(),
         )?;
 
         Ok(Some(rpc::Instance {
@@ -522,6 +525,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
                 hi.tpm_ek_certificate
                     .map(|cert| BASE64_STANDARD.encode(cert.into_bytes()))
             }),
+            nvlink_config_version: instance.nvlink_config_version.version_string(),
         }))
     }
 }
@@ -596,6 +600,9 @@ pub struct Machine {
 
     /// The most recent status of infiniband interfaces.
     pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
+
+    // The most recent status of the nvlink GPUs.
+    pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
 
     /// A list of [MachineStateHistory] that this machine has experienced
     pub history: Vec<MachineStateHistory>,
@@ -712,6 +719,9 @@ pub struct Machine {
 
     /// If host upgrades have been completed since the last start explicit start request or actual start
     pub update_complete: bool,
+
+    /// The NMX-M GPU info for this machine.
+    pub nvlink_info: Option<MachineNvLinkInfo>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -1072,6 +1082,7 @@ impl From<Machine> for rpc::forge::Machine {
                 .map(Into::into),
             hw_sku_device_type: machine.hw_sku_device_type,
             update_complete: machine.update_complete,
+            nvlink_info: machine.nvlink_info.map(|info| info.into()),
         }
     }
 }

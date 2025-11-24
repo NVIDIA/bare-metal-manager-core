@@ -52,6 +52,7 @@ use model::instance::status::extension_service::{
 };
 use model::machine::LockdownMode::{self, Enable};
 use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
+use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     BomValidating, BomValidatingContext, CleanupState, CreateBossVolumeContext,
     CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver, DpuInitState,
@@ -4977,6 +4978,16 @@ impl StateHandler for InstanceStateHandler {
                         )));
                     }
 
+                    // Check if the nvlink config has been applied
+                    if let Err(not_synced_reason) = nvlink_config_synced(
+                        mh_snapshot.host_snapshot.nvlink_status_observation.as_ref(),
+                        Some(&instance.config.nvlink),
+                    ) {
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "Waiting for NvLink config to be applied: {}",
+                            not_synced_reason.0
+                        )));
+                    }
                     Ok(StateHandlerOutcome::transition(next_state))
                 }
                 InstanceState::WaitingForStorageConfig => {

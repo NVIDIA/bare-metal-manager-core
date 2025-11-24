@@ -23,6 +23,7 @@ pub mod machine;
 pub mod measured_boot;
 pub mod network;
 pub mod network_security_group;
+pub mod nvlink;
 pub mod power_shelf;
 pub mod switch;
 pub mod typed_uuids;

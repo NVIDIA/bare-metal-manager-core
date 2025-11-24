@@ -21,10 +21,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::bmc_info::BmcInfo;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
-use crate::hardware_info::MachineInventory;
+use crate::hardware_info::{MachineInventory, MachineNvLinkInfo};
 use crate::machine::health_override::HealthReportOverrides;
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
+use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
     FailureDetails, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
@@ -50,6 +51,7 @@ pub struct MachineSnapshotPgJson {
     pub network_config: ManagedHostNetworkConfig,
     pub network_status_observation: Option<MachineNetworkStatusObservation>,
     pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
+    pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
     pub controller_state_version: String,
     pub controller_state: ManagedHostState,
     pub last_discovery_time: Option<DateTime<Utc>>,
@@ -94,6 +96,7 @@ pub struct MachineSnapshotPgJson {
     pub power_options: Option<PowerOptions>,
     pub hw_sku_device_type: Option<String>,
     pub update_complete: bool,
+    pub nvlink_info: Option<MachineNvLinkInfo>,
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -161,6 +164,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             },
             network_status_observation: value.network_status_observation,
             infiniband_status_observation: value.infiniband_status_observation,
+            nvlink_status_observation: value.nvlink_status_observation,
             history,
             interfaces: value.interfaces,
             hardware_info,
@@ -203,6 +207,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             power_options: value.power_options,
             hw_sku_device_type: value.hw_sku_device_type,
             update_complete: value.update_complete,
+            nvlink_info: value.nvlink_info,
         })
     }
 }

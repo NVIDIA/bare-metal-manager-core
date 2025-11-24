@@ -150,6 +150,7 @@ pub async fn create_instance<'a, 'b>(
         infiniband: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        nvlink: None,
     };
     mh.instance_builer(env).config(config).build().await
 }

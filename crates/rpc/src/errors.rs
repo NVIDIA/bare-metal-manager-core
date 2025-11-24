@@ -87,6 +87,10 @@ pub enum RpcDataConversionError {
     JsonParseError(#[from] serde_json::Error),
     #[error("Unable to parse string into IP Network: {0}")]
     NetworkParseError(#[from] ipnetwork::IpNetworkError),
+    #[error("NVL Partition ID {0} is not valid")]
+    InvalidNvlPartitionId(String),
+    #[error("Logical Partition ID {0} is not valid")]
+    InvalidLogicalPartitionId(String),
 }
 
 impl From<RpcDataConversionError> for tonic::Status {

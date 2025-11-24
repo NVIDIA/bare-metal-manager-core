@@ -47,6 +47,7 @@ use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
 };
+use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
@@ -1628,6 +1629,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             tenant: default_tenant_config().try_into().unwrap(),
             network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &Vec::default()),
             infiniband: InstanceInfinibandConfig::default(),
+            nvlink: InstanceNvLinkConfig::default(),
             network_security_group_id: None,
             extension_services: InstanceExtensionServicesConfig::default(),
         },
@@ -1917,6 +1919,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         os: Some(os),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
+        nvlink: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -2077,6 +2080,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         }),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
+        nvlink: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -2136,6 +2140,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         }),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
+        nvlink: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -2292,6 +2297,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         }),
         network: Some(x),
         infiniband: None,
+        nvlink: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -3211,6 +3217,7 @@ async fn test_network_details_migration(
                     }],
                 }),
                 infiniband: None,
+                nvlink: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -3279,6 +3286,7 @@ async fn test_network_details_migration(
                     }],
                 }),
                 infiniband: None,
+                nvlink: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -3431,6 +3439,7 @@ async fn test_allocate_and_update_network_config_instance(
                     os: Some(default_os_config()),
                     network: Some(new_network_config),
                     infiniband: None,
+                    nvlink: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
                 }),
@@ -3558,6 +3567,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                     os: Some(default_os_config()),
                     network: Some(new_network_config),
                     infiniband: None,
+                    nvlink: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
                 }),
@@ -3704,6 +3714,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
+        nvlink: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -3931,6 +3942,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
                     os: Some(default_os_config()),
                     network: Some(new_network_config),
                     infiniband: None,
+                    nvlink: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
                 }),
@@ -4046,6 +4058,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
+        nvlink: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -4264,6 +4277,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
         }),
         network: Some(network_config),
         infiniband: None,
+        nvlink: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -5179,6 +5193,7 @@ async fn test_allocate_instance_with_extension_services(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        nvlink: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service.service_id.clone(),
@@ -5332,6 +5347,7 @@ async fn test_allocate_instance_with_duplicate_extension_services(
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
+                nvlink: None,
                 dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
                     service_configs: vec![
                         rpc::forge::InstanceDpuExtensionServiceConfig {
@@ -5410,6 +5426,7 @@ async fn test_update_instance_with_extension_services(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        nvlink: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),
@@ -5446,6 +5463,7 @@ async fn test_update_instance_with_extension_services(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        nvlink: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![
                 rpc::forge::InstanceDpuExtensionServiceConfig {
@@ -5552,6 +5570,7 @@ async fn test_update_instance_with_extension_services(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        nvlink: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![],
         }),
@@ -5629,6 +5648,7 @@ async fn test_update_instance_with_extension_services(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        nvlink: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),
@@ -5662,6 +5682,7 @@ async fn test_update_instance_with_extension_services(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        nvlink: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![
                 rpc::forge::InstanceDpuExtensionServiceConfig {
@@ -5724,6 +5745,7 @@ async fn test_extension_services_status_observation(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
+        nvlink: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),

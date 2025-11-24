@@ -39,6 +39,7 @@ pub struct NewInstance<'a> {
     pub network_config_version: ConfigVersion,
     pub ib_config_version: ConfigVersion,
     pub extension_services_config_version: ConfigVersion,
+    pub nvlink_config_version: ConfigVersion,
 }
 
 pub struct DeleteInstance {

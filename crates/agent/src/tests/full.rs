@@ -771,6 +771,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             infiniband: None,
             network_security_group_id: None,
             dpu_extension_services: None,
+            nvlink: None,
         }),
         status: Some(rpc::InstanceStatus {
             tenant: Some(rpc::InstanceTenantStatus {
@@ -797,6 +798,10 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 dpu_extension_services: vec![],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),
+            nvlink: Some(rpc::forge::InstanceNvLinkStatus {
+                gpu_statuses: vec![],
+                configs_synced: rpc::SyncState::Synced.into(),
+            }),
             configs_synced: rpc::SyncState::Synced.into(),
             update: None,
         }),
@@ -805,6 +810,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         config_version: "V1-T1748645613333260".to_string(),
         dpu_extension_service_version: "V1-T1748645613333257".to_string(),
         tpm_ek_certificate: None,
+        nvlink_config_version: "V1-T1748645613333260".to_string(),
     };
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {

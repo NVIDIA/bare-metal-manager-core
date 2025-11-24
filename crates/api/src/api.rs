@@ -32,6 +32,7 @@ use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
+use crate::nvlink::NmxmClientPool;
 use crate::rack::rms_client::RmsApi;
 use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
@@ -53,6 +54,7 @@ pub struct Api {
     pub(crate) scout_stream_registry: ConnectionRegistry,
     #[allow(unused)]
     pub(crate) rms_client: Arc<Box<dyn RmsApi>>,
+    pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
 }
 
 pub(crate) type ScoutStreamType =
@@ -2311,6 +2313,69 @@ impl Forge for Api {
         request: Request<rpc::CopyBfbToDpuRshimRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::bmc_endpoint_explorer::copy_bfb_to_dpu_rshim(self, request).await
+    }
+
+    async fn find_nv_link_partition_ids(
+        &self,
+        request: Request<rpc::NvLinkPartitionSearchFilter>,
+    ) -> Result<Response<rpc::NvLinkPartitionIdList>, Status> {
+        crate::handlers::nvl_partition::find_ids(self, request).await
+    }
+
+    async fn find_nv_link_partitions_by_ids(
+        &self,
+        request: Request<rpc::NvLinkPartitionsByIdsRequest>,
+    ) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
+        crate::handlers::nvl_partition::find_by_ids(self, request).await
+    }
+
+    async fn nv_link_partitions_for_tenant(
+        &self,
+        request: Request<rpc::TenantSearchQuery>,
+    ) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
+        crate::handlers::nvl_partition::for_tenant(self, request).await
+    }
+
+    async fn find_nv_link_logical_partition_ids(
+        &self,
+        request: Request<rpc::NvLinkLogicalPartitionSearchFilter>,
+    ) -> Result<Response<rpc::NvLinkLogicalPartitionIdList>, Status> {
+        crate::handlers::logical_partition::find_ids(self, request).await
+    }
+
+    async fn find_nv_link_logical_partitions_by_ids(
+        &self,
+        request: Request<rpc::NvLinkLogicalPartitionsByIdsRequest>,
+    ) -> Result<Response<rpc::NvLinkLogicalPartitionList>, Status> {
+        crate::handlers::logical_partition::find_by_ids(self, request).await
+    }
+
+    async fn create_nv_link_logical_partition(
+        &self,
+        request: Request<rpc::NvLinkLogicalPartitionCreationRequest>,
+    ) -> Result<Response<rpc::NvLinkLogicalPartition>, Status> {
+        crate::handlers::logical_partition::create(self, request).await
+    }
+
+    async fn delete_nv_link_logical_partition(
+        &self,
+        request: Request<rpc::NvLinkLogicalPartitionDeletionRequest>,
+    ) -> Result<Response<rpc::NvLinkLogicalPartitionDeletionResult>, Status> {
+        crate::handlers::logical_partition::delete(self, request).await
+    }
+
+    async fn nv_link_logical_partitions_for_tenant(
+        &self,
+        request: Request<rpc::TenantSearchQuery>,
+    ) -> Result<Response<rpc::NvLinkLogicalPartitionList>, Status> {
+        crate::handlers::logical_partition::for_tenant(self, request).await
+    }
+
+    async fn update_nv_link_logical_partition(
+        &self,
+        request: Request<rpc::NvLinkLogicalPartitionUpdateRequest>,
+    ) -> Result<Response<rpc::NvLinkLogicalPartitionUpdateResult>, Status> {
+        crate::handlers::logical_partition::update(self, request).await
     }
 
     // Return a Vector of all the DPA interface IDs

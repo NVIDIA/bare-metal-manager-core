@@ -23,6 +23,7 @@ carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-secrets = { path = "../secrets" }
 carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
+libnmxm = { path = "../libnmxm" }
 logfmt = { path = "../logfmt" }
 mqttea = { path = "../mqttea" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }

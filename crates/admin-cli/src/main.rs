@@ -32,11 +32,11 @@ use cfg::cli_options::{
     AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
     CredentialAction, Domain, DpaOptions, DpuAction, DpuReprovision, ExpectedMachineJson,
     ExpectedPowerShelfJson, ExpectedSwitchJson, Firmware, HostAction, HostReprovision,
-    IbPartitionOptions, Instance, IpAction, Machine, MachineHardwareInfo,
+    IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions, Machine, MachineHardwareInfo,
     MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
-    ManagedHost, NetworkCommand, NetworkSegment, RedfishCommand, ResourcePool, SetAction, Shell,
-    SiteExplorer, TenantKeySetOptions, TpmCa, UriInfo, VpcOptions, VpcPeeringOptions,
-    VpcPrefixOptions,
+    ManagedHost, NetworkCommand, NetworkSegment, NvlPartitionOptions, RedfishCommand, ResourcePool,
+    SetAction, Shell, SiteExplorer, TenantKeySetOptions, TpmCa, UriInfo, VpcOptions,
+    VpcPeeringOptions, VpcPrefixOptions,
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
@@ -93,6 +93,8 @@ mod mlx;
 mod network;
 mod network_devices;
 mod network_security_group;
+mod nvl_logical_partition;
+mod nvl_partition;
 mod ping;
 
 mod power_shelf;
@@ -2425,6 +2427,36 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
+
+        CliCommand::NvlPartition(nvlp) => match nvlp {
+            NvlPartitionOptions::Show(show_options) => {
+                nvl_partition::handle_show(
+                    show_options,
+                    config.format,
+                    &api_client,
+                    config.internal_page_size,
+                )
+                .await?
+            }
+        },
+
+        CliCommand::LogicalPartition(lp) => match lp {
+            LogicalPartitionOptions::Show(show_options) => {
+                nvl_logical_partition::handle_show(
+                    show_options,
+                    config.format,
+                    &api_client,
+                    config.internal_page_size,
+                )
+                .await?
+            }
+            LogicalPartitionOptions::Create(create_options) => {
+                nvl_logical_partition::handle_create(create_options, &api_client).await?
+            }
+            LogicalPartitionOptions::Delete(delete_options) => {
+                nvl_logical_partition::handle_delete(delete_options, &api_client).await?
+            }
+        },
     }
 
     Ok(())
