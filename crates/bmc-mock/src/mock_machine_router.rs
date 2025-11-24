@@ -681,8 +681,9 @@ async fn get_system(
 ) -> MockWrapperResult {
     let inner_response = state.call_inner_router(request).await?;
     let inner_json = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
-    // Name from inner json.
     let name = ResourceName::new(&inner_json);
+    let bios = inner_json.get("Bios").cloned();
+    let oem = inner_json.get("Oem").cloned();
     let mut system = serde_json::from_value::<ComputerSystem>(inner_json)?;
     system.serial_number = state.machine_info.product_serial();
     system.power_state = state.mock_power_state.get_power_state().into();
@@ -691,7 +692,13 @@ async fn get_system(
         // Append required 'Name' field to the json. It is not part of the
         // libredfish model but must present in all Redfish resources.
         let json = serde_json::to_value(&system)?;
-        let json = name.add_to_json(json);
+        let mut json = name.add_to_json(json);
+        if let Some(bios) = bios {
+            json_patch(&mut json, serde_json::json!({"Bios": bios}));
+        }
+        if let Some(oem) = oem {
+            json_patch(&mut json, serde_json::json!({"Oem": oem}));
+        }
         return Ok(Bytes::from(json.to_string()));
     };
 
@@ -735,7 +742,13 @@ async fn get_system(
     system.pcie_devices = pcie_devices;
 
     let json = serde_json::to_value(&system)?;
-    let json = name.add_to_json(json);
+    let mut json = name.add_to_json(json);
+    if let Some(bios) = bios {
+        json_patch(&mut json, serde_json::json!({"Bios": bios}));
+    }
+    if let Some(oem) = oem {
+        json_patch(&mut json, serde_json::json!({"Oem": oem}));
+    }
     Ok(Bytes::from(json.to_string()))
 }
 
@@ -1091,19 +1104,19 @@ async fn get_oem_nvidia(
     };
 
     let mut system: serde_json::Value = serde_json::from_slice(&inner_response)?;
-    if let serde_json::Value::Object(map) = &mut system {
-        map.insert(
-            "Mode".to_string(),
-            serde_json::Value::String(
-                if dpu_machine.nic_mode {
-                    "NicMode"
-                } else {
-                    "DpuMode"
-                }
-                .to_string(),
-            ),
-        );
-    }
+    json_patch(
+        &mut system,
+        serde_json::json!(
+        {
+            "@odata.id": "/redfish/v1/Systems/Bluefield/Oem/Nvidia",
+            "@odata.type": "#NvidiaComputerSystem.v1_0_0.NvidiaComputerSystem",
+            "Mode": if dpu_machine.nic_mode {
+                "NicMode"
+            } else {
+                "DpuMode"
+            }
+        }),
+    );
     Ok(Bytes::from(serde_json::to_string(&system)?))
 }
 
