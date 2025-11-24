@@ -15,11 +15,11 @@ use std::pin::Pin;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::SkuList;
 use prettytable::{Row, Table};
-use rpc::forge::SkuIdList;
+use rpc::forge::{RemoveSkuRequest, SkuIdList};
 use tokio::io::AsyncWriteExt;
 
 use crate::cfg::cli_options::{
-    BulkUpdatyeSkuMetadata, CreateSku, GenerateSku, Sku, UpdateSkuMetadata,
+    BulkUpdatyeSkuMetadata, CreateSku, GenerateSku, Sku, UnassignSku, UpdateSkuMetadata,
 };
 use crate::rpc::ApiClient;
 use crate::{async_write_table_as_csv, async_writeln};
@@ -424,8 +424,14 @@ pub async fn handle_sku_command(
                 .assign_sku_to_machine(sku_id, machine_id, force)
                 .await?;
         }
-        Sku::Unassign { machine_id } => {
-            api_client.0.remove_sku_association(machine_id).await?;
+        Sku::Unassign(UnassignSku { machine_id, force }) => {
+            api_client
+                .0
+                .remove_sku_association(RemoveSkuRequest {
+                    machine_id: Some(machine_id),
+                    force,
+                })
+                .await?;
         }
         Sku::Verify { machine_id } => {
             api_client.0.verify_sku_for_machine(machine_id).await?;

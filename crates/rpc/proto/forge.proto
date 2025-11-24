@@ -529,7 +529,7 @@ service Forge {
   rpc AssignSkuToMachine(SkuMachinePair) returns (google.protobuf.Empty);
   // Remove a SKU assignemnt from a machine.  Must be in the Ready or SkuVerifyFailed states.
   // The machine will move to the WaitingForSkuAssignment state.
-  rpc RemoveSkuAssociation(common.MachineId) returns (google.protobuf.Empty);
+  rpc RemoveSkuAssociation(RemoveSkuRequest) returns (google.protobuf.Empty);
   // Removes an unused SKU
   rpc DeleteSku(SkuIdList) returns (google.protobuf.Empty);
   rpc GetAllSkuIds(google.protobuf.Empty) returns (SkuIdList);
@@ -5231,6 +5231,11 @@ message SkuMachinePair {
   string sku_id = 1;
   common.MachineId machine_id = 2;
   bool force = 3;
+}
+
+message RemoveSkuRequest {
+  common.MachineId machine_id = 1;
+  bool force = 2;
 }
 
 message SkuList {
