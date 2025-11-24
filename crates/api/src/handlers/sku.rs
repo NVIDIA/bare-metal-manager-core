@@ -15,7 +15,7 @@ use forge_uuid::machine::MachineId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;
-use rpc::forge::SkuIdList;
+use rpc::forge::{RemoveSkuRequest, SkuIdList};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -209,10 +209,11 @@ pub(crate) async fn verify_for_machine(
 
 pub(crate) async fn remove_sku_association(
     api: &Api,
-    request: Request<MachineId>,
+    request: Request<RemoveSkuRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
-    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+    let request = request.into_inner();
+    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     let mut txn = api.txn_begin("remove_sku_association").await?;
 
@@ -224,20 +225,21 @@ pub(crate) async fn remove_sku_association(
         id: machine_id.to_string(),
     })?;
 
-    match machine.current_state() {
-        ManagedHostState::Ready
-        | ManagedHostState::BomValidating {
-            bom_validating_state: BomValidating::SkuVerificationFailed(_),
-        } => {}
-        _ => {
-            return Err(CarbideError::FailedPrecondition(
-                "Specified machine is not in a valid state for removing SKU association"
-                    .to_string(),
-            )
-            .into());
+    if !request.force {
+        match machine.current_state() {
+            ManagedHostState::Ready
+            | ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::SkuVerificationFailed(_),
+            } => {}
+            _ => {
+                return Err(CarbideError::FailedPrecondition(
+                    "Specified machine is not in a valid state for removing SKU association"
+                        .to_string(),
+                )
+                .into());
+            }
         }
     }
-
     db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
     txn.commit().await?;

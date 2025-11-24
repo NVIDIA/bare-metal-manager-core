@@ -14,7 +14,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 pub use ::rpc::forge as rpc;
-use ::rpc::forge::SkuIdList;
+use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use db::DatabaseError;
 use forge_secrets::certificates::CertificateProvider;
@@ -2247,7 +2247,7 @@ impl Forge for Api {
 
     async fn remove_sku_association(
         &self,
-        request: Request<MachineId>,
+        request: Request<RemoveSkuRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::sku::remove_sku_association(self, request).await
     }

@@ -3666,7 +3666,7 @@ pub enum Sku {
         force: bool,
     },
     #[clap(about = "Unassign a SKU from a machine", visible_alias = "u")]
-    Unassign { machine_id: MachineId },
+    Unassign(UnassignSku),
     #[clap(about = "Verify a machine against its SKU", visible_alias = "v")]
     Verify { machine_id: MachineId },
     #[clap(about = "Update the metadata of a SKU")]
@@ -3787,7 +3787,7 @@ pub struct ShowSku {
 
 #[derive(Parser, Debug)]
 pub struct GenerateSku {
-    #[clap(help = "The filename of the SKU data")]
+    #[clap(help = "The machine id of the machine to use to generate a SKU")]
     pub machine_id: MachineId,
     #[clap(help = "override the ID of the SKU", long)]
     pub id: Option<String>,
@@ -3799,6 +3799,14 @@ pub struct CreateSku {
     pub filename: String,
     #[clap(help = "override the ID of the SKU in the file data", long)]
     pub id: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct UnassignSku {
+    #[clap(help = "The machine id of the machine to unassign")]
+    pub machine_id: MachineId,
+    #[clap(long)]
+    pub force: bool,
 }
 
 #[derive(Parser, Debug)]
