@@ -21,12 +21,15 @@ use crate::instance::config::InstanceConfig;
 use crate::instance::config::extension_services::InstanceExtensionServicesConfig;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::network::InstanceNetworkConfig;
+use crate::instance::config::nvlink::InstanceNvLinkConfig;
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
+use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::{InstanceState, ManagedHostState, ReprovisionRequest};
 
 pub mod extension_service;
 pub mod infiniband;
 pub mod network;
+pub mod nvlink;
 pub mod tenant;
 
 /// Instance status
@@ -46,6 +49,9 @@ pub struct InstanceStatus {
 
     /// Status of the extension services configured on an instance
     pub extension_services: extension_service::InstanceExtensionServicesStatus,
+
+    /// Status of nvlink subsystem of an instance
+    pub nvlink: nvlink::InstanceNvLinkStatus,
 
     /// Whether all configurations related to an instance are in-sync.
     /// This is a logical AND for the settings of all sub-configurations.
@@ -68,6 +74,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
             network: Some(status.network.try_into()?),
             infiniband: Some(status.infiniband.try_into()?),
             dpu_extension_services: Some(status.extension_services.try_into()?),
+            nvlink: Some(status.nvlink.try_into()?),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
             update: status.reprovision_request.map(|request| request.into()),
         })
@@ -164,11 +171,13 @@ impl InstanceStatus {
         network_config: Versioned<&InstanceNetworkConfig>,
         ib_config: Versioned<&InstanceInfinibandConfig>,
         extension_services_config: Versioned<&InstanceExtensionServicesConfig>,
+        nvlink_config: Versioned<&InstanceNvLinkConfig>,
         observations: &InstanceStatusObservations,
         machine_state: ManagedHostState,
         delete_requested: bool,
         reprovision_request: Option<ReprovisionRequest>,
         ib_status: Option<&MachineInfinibandStatusObservation>,
+        nvlink_status: Option<&MachineNvLinkStatusObservation>,
         is_network_config_request_pending: bool,
     ) -> Result<Self, RpcDataConversionError> {
         let mut instance_config_synced = SyncState::Synced;
@@ -204,6 +213,8 @@ impl InstanceStatus {
             );
         let extension_services_ready =
             extension_service::is_extension_services_ready(&extension_services);
+        let nvlink =
+            nvlink::InstanceNvLinkStatus::from_config_and_observation(nvlink_config, nvlink_status);
 
         let phone_home_last_contact = observations.phone_home_last_contact;
 
@@ -212,11 +223,16 @@ impl InstanceStatus {
             network.configs_synced,
             infiniband.configs_synced,
             extension_services.configs_synced,
+            nvlink.configs_synced,
             instance_config_synced,
         ) {
-            (SyncState::Synced, SyncState::Synced, SyncState::Synced, SyncState::Synced) => {
-                SyncState::Synced
-            }
+            (
+                SyncState::Synced,
+                SyncState::Synced,
+                SyncState::Synced,
+                SyncState::Synced,
+                SyncState::Synced,
+            ) => SyncState::Synced,
             _ => SyncState::Pending,
         };
 
@@ -246,6 +262,7 @@ impl InstanceStatus {
             network,
             infiniband,
             extension_services,
+            nvlink,
             configs_synced,
             reprovision_request,
         })

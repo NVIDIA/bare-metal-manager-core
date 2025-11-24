@@ -53,6 +53,8 @@ use crate::logging::service_health_metrics::{
 use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
+use crate::nvl_partition_monitor::NvlPartitionMonitor;
+use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::preingestion_manager::PreingestionManager;
 use crate::rack::rms_client::{RackManagerClientPool, RmsClientPool};
 use crate::redfish::RedfishClientPool;
@@ -314,6 +316,11 @@ pub async fn start_api(
         vault_client.clone(),
     ));
 
+    let nmxm_client_pool = libnmxm::NmxmClientPool::builder().build()?;
+    let nmxm_pool = NmxmClientPoolImpl::new(vault_client.clone(), nmxm_client_pool);
+
+    let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
+
     let api_service = Arc::new(Api {
         certificate_provider: vault_client.clone(),
         common_pools,
@@ -328,6 +335,7 @@ pub async fn start_api(
         runtime_config: carbide_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
         rms_client,
+        nmxm_pool: shared_nmxm_pool,
     });
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
@@ -371,6 +379,7 @@ pub async fn initialize_and_start_controllers(
         database_connection: db_pool,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
+        nmxm_pool: shared_nmxm_pool,
         ..
     } = api_service.as_ref();
     // As soon as we get the database up, observe this version of forge so that we know when it was
@@ -667,6 +676,15 @@ pub async fn initialize_and_start_controllers(
         carbide_config.clone(),
     );
     let _ib_fabric_monitor_handle = ib_fabric_monitor.start()?;
+
+    let nvlink_partition_monitor = NvlPartitionMonitor::new(
+        db_pool.clone(),
+        shared_nmxm_pool.clone(),
+        // meter.clone(),
+        carbide_config.nvlink_config.clone().unwrap_or_default(),
+        carbide_config.host_health,
+    );
+    let _nv_link_partition_monitor_handle = nvlink_partition_monitor.start()?;
 
     let site_explorer = SiteExplorer::new(
         db_pool.clone(),

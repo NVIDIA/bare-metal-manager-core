@@ -53,6 +53,8 @@ pub mod network_prefix;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod network_segment_state_history;
+pub mod nvl_logical_partition;
+pub mod nvl_partition;
 pub mod os_image;
 pub mod power_options;
 pub mod power_shelf;

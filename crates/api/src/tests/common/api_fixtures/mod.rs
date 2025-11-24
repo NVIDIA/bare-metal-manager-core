@@ -69,9 +69,10 @@ use crate::cfg::file::{
     DpuConfig as InitialDpuConfig, FirmwareGlobal, IBFabricConfig, IbFabricDefinition,
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
     MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, PowerManagerOptions, PowerShelfStateControllerConfig,
-    RackStateControllerConfig, SiteExplorerConfig, StateControllerConfig,
-    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
+    NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig,
+    StateControllerConfig, SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy,
+    default_max_find_by_ids,
 };
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
@@ -79,6 +80,9 @@ use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::ipmitool::IPMIToolTestImpl;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
+use crate::nvl_partition_monitor::NvlPartitionMonitor;
+use crate::nvlink::NmxmClientPool;
+use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::{RackManagerClientPool, RmsClientPool};
 use crate::redfish::test_support::RedfishSim;
 use crate::scout_stream;
@@ -118,6 +122,7 @@ pub mod ib_partition;
 pub mod instance;
 pub mod managed_host;
 pub mod network_segment;
+pub mod nvl_logical_partition;
 pub mod rpc_instance;
 pub mod site_explorer;
 pub mod tenant;
@@ -255,10 +260,12 @@ pub struct TestEnv {
     pub test_meter: TestMeter,
     pub attestation_enabled: bool,
     pub site_explorer: SiteExplorer,
+    pub nmxm_sim: Arc<dyn NmxmClientPool>,
     pub endpoint_explorer: MockEndpointExplorer,
     pub admin_segment: Option<NetworkSegmentId>,
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
+    pub nvl_partition_monitor: Arc<NvlPartitionMonitor>,
 }
 
 impl TestEnv {
@@ -772,6 +779,14 @@ impl TestEnv {
 
         (tenant_network_id_1, tenant_network_id_2)
     }
+
+    pub async fn run_nvl_partition_monitor_iteration(&self) {
+        self.nvl_partition_monitor
+            .run_single_iteration()
+            .boxed()
+            .await
+            .unwrap();
+    }
 }
 
 fn dpu_fw_example() -> HashMap<String, Firmware> {
@@ -993,6 +1008,7 @@ pub fn get_config() -> CarbideConfig {
         bom_validation: BomValidationConfig::default(),
         listen_mode: ListenMode::Tls,
         listen_only: false,
+        nvlink_config: Some(NvLinkConfig::default()),
         dpa_config: Some(DpaConfig {
             enabled: true,
             mqtt_endpoint: "mqtt.forge".to_string(),
@@ -1063,6 +1079,7 @@ pub async fn create_test_env_with_overrides(
     populate_default_credentials(credential_provider.as_ref()).await;
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
+    let nmxm_sim: Arc<dyn NmxmClientPool> = Arc::new(NmxmSimClient::default());
 
     let mut config = overrides.config.unwrap_or(get_config());
     if let Some(threshold) = overrides.dpu_agent_version_staleness_threshold {
@@ -1112,6 +1129,14 @@ pub async fn create_test_env_with_overrides(
         test_meter.meter(),
         ib_fabric_manager.clone(),
         config.clone(),
+    );
+
+    let nvl_partition_monitor = NvlPartitionMonitor::new(
+        db_pool.clone(),
+        nmxm_sim.clone(),
+        // test_meter.meter(),
+        config.nvlink_config.clone().unwrap(),
+        config.host_health,
     );
 
     let site_fabric_networks = overrides
@@ -1190,6 +1215,7 @@ pub async fn create_test_env_with_overrides(
         dpu_health_log_limiter: LogLimiter::default(),
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
         rms_client,
+        nmxm_pool: nmxm_sim.clone(),
     });
 
     let attestation_enabled = config.attestation_enabled;
@@ -1403,10 +1429,12 @@ pub async fn create_test_env_with_overrides(
         attestation_enabled,
         test_meter,
         site_explorer,
+        nmxm_sim,
         endpoint_explorer: fake_endpoint_explorer,
         admin_segment,
         underlay_segment,
         domain,
+        nvl_partition_monitor: Arc::new(nvl_partition_monitor),
     }
 }
 
@@ -1981,6 +2009,19 @@ pub async fn create_host_with_machine_validation(
     let mh = new_host_with_machine_validation(env, 1, machine_validation_result_data, error)
         .await
         .unwrap();
+    TestManagedHost {
+        id: mh.host_snapshot.id,
+        dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),
+        api: env.api.clone(),
+    }
+}
+
+pub async fn create_managed_host_with_hardware_info_template(
+    env: &TestEnv,
+    hardware_info_template: managed_host::HardwareInfoTemplate,
+) -> TestManagedHost {
+    let config = ManagedHostConfig::with_hardware_info_template(hardware_info_template);
+    let mh = site_explorer::new_host(env, config).await.unwrap();
     TestManagedHost {
         id: mh.host_snapshot.id,
         dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),

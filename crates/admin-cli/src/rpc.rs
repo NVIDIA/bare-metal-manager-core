@@ -39,6 +39,7 @@ use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use forge_uuid::vpc::VpcId;
 use forge_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
@@ -1044,6 +1045,7 @@ impl ApiClient {
                     labels: vec![],
                 }),
                 network_security_group_id: None,
+                default_nvlink_logical_partition_id: None,
             })
             .await
         {
@@ -1536,6 +1538,7 @@ impl ApiClient {
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
             dpu_extension_services: None,
+            nvlink: None,
         };
 
         let mut labels = vec![
@@ -1785,6 +1788,7 @@ impl ApiClient {
             if_version_match: Some(version),
             metadata,
             network_security_group_id,
+            default_nvlink_logical_partition_id: None,
         };
         self.0
             .update_vpc(request)
@@ -2123,6 +2127,131 @@ impl ApiClient {
             .response;
 
         Ok(power_options)
+    }
+
+    pub async fn get_all_nv_link_partitions(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::NvLinkPartitionList> {
+        let all_ids = self
+            .get_nv_link_partition_ids(tenant_org_id.clone(), name.clone())
+            .await?;
+        let mut all_list = rpc::NvLinkPartitionList {
+            partitions: Vec::with_capacity(all_ids.partition_ids.len()),
+        };
+
+        for ids in all_ids.partition_ids.chunks(page_size) {
+            let list = self.get_nv_link_partitions_by_ids(ids).await?;
+            all_list.partitions.extend(list.partitions);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_nv_link_partition(
+        &self,
+        nvl_partition_id: NvLinkPartitionId,
+    ) -> CarbideCliResult<rpc::NvLinkPartition> {
+        let partitions = self
+            .get_nv_link_partitions_by_ids(std::slice::from_ref(&nvl_partition_id))
+            .await?;
+
+        if partitions.partitions.len() != 1 {
+            return Err(CarbideCliError::GenericError(
+                "Unknown NvLink Partition ID".to_string(),
+            ));
+        }
+        Ok(partitions.partitions[0].clone())
+    }
+
+    async fn get_nv_link_partition_ids(
+        &self,
+        tenant_organization_id: Option<String>,
+        name: Option<String>,
+    ) -> CarbideCliResult<rpc::NvLinkPartitionIdList> {
+        let request = rpc::NvLinkPartitionSearchFilter {
+            tenant_organization_id,
+            name,
+        };
+        self.0
+            .find_nv_link_partition_ids(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    async fn get_nv_link_partitions_by_ids(
+        &self,
+        ids: &[NvLinkPartitionId],
+    ) -> CarbideCliResult<rpc::NvLinkPartitionList> {
+        let request = rpc::NvLinkPartitionsByIdsRequest {
+            partition_ids: Vec::from(ids),
+            include_history: ids.len() == 1,
+        };
+        self.0
+            .find_nv_link_partitions_by_ids(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn get_all_logical_partitions(
+        &self,
+        name: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::NvLinkLogicalPartitionList> {
+        let all_ids = self.get_logical_partition_ids(name.clone()).await?;
+        let mut all_list = rpc::NvLinkLogicalPartitionList {
+            partitions: Vec::with_capacity(all_ids.partition_ids.len()),
+        };
+
+        for ids in all_ids.partition_ids.chunks(page_size) {
+            let list = self.get_logical_partitions_by_ids(ids).await?;
+            all_list.partitions.extend(list.partitions);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_logical_partition(
+        &self,
+        partition_id: NvLinkLogicalPartitionId,
+    ) -> CarbideCliResult<rpc::NvLinkLogicalPartition> {
+        let partitions = self
+            .get_logical_partitions_by_ids(std::slice::from_ref(&partition_id))
+            .await?;
+
+        if partitions.partitions.len() != 1 {
+            return Err(CarbideCliError::GenericError(format!(
+                "Multiple logical partitions found for ID: {partition_id}",
+            )));
+        }
+        Ok(partitions.partitions[0].clone())
+    }
+
+    async fn get_logical_partition_ids(
+        &self,
+        name: Option<String>,
+    ) -> CarbideCliResult<rpc::NvLinkLogicalPartitionIdList> {
+        let request = rpc::NvLinkLogicalPartitionSearchFilter { name };
+        self.0
+            .find_nv_link_logical_partition_ids(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    async fn get_logical_partitions_by_ids(
+        &self,
+        ids: &[NvLinkLogicalPartitionId],
+    ) -> CarbideCliResult<rpc::NvLinkLogicalPartitionList> {
+        let request = rpc::NvLinkLogicalPartitionsByIdsRequest {
+            partition_ids: Vec::from(ids),
+            include_history: ids.len() == 1,
+        };
+        self.0
+            .find_nv_link_logical_partitions_by_ids(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
     }
 
     pub async fn create_bmc_user(

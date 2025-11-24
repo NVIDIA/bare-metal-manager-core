@@ -759,6 +759,7 @@ mod tests {
                 cores: Some(1),
                 threads: Some(2),
                 memory_capacity: Some("12 GB".to_string()),
+                device_type: Some(MachineCapabilityDeviceType::Unknown),
             }],
             memory: vec![capabilities::MachineCapabilityMemory {
                 name: "ddr4".to_string(),

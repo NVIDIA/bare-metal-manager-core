@@ -29,6 +29,7 @@ use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
+use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::config::tenant_config::TenantConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -1040,6 +1041,8 @@ pub(crate) async fn update_instance_config(
     )
     .await?;
 
+    update_instance_nvlink_config(&mh_snapshot, &instance, &config.nvlink, &mut txn).await?;
+
     db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
@@ -1376,6 +1379,46 @@ pub async fn force_delete_instance(
     )
     .await
     .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(())
+}
+
+pub async fn update_instance_nvlink_config(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    instance: &InstanceSnapshot,
+    nvlcfg: &InstanceNvLinkConfig,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), CarbideError> {
+    if !instance
+        .config
+        .nvlink
+        .is_nvlink_config_update_requested(nvlcfg)
+    {
+        return Ok(());
+    }
+
+    if !matches!(
+        mh_snapshot.managed_state,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    ) {
+        return Err(ConfigValidationError::InvalidState.into());
+    }
+
+    if instance.deleted.is_some() {
+        return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
+    }
+
+    // Update config in db.
+    db::instance::update_nvlink_config(
+        txn,
+        instance.id,
+        instance.nvlink_config_version,
+        nvlcfg,
+        true,
+    )
+    .await?;
 
     Ok(())
 }

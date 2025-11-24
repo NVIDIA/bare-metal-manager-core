@@ -37,6 +37,8 @@ pub struct VpcCreationRequest {
     pub id: ::core::option::Option<::forge_uuid::vpc::VpcId>,
     pub metadata: ::core::option::Option<rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub default_nvlink_logical_partition_id:
+        ::core::option::Option<::forge_uuid::nvlink::NvLinkLogicalPartitionId>,
 }
 
 // Reflection of rpc::forge::VpcUpdateRequest. It should contain exactly
@@ -49,6 +51,8 @@ pub struct VpcUpdateRequest {
     pub name: ::prost::alloc::string::String,
     pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub default_nvlink_logical_partition_id:
+        ::core::option::Option<::forge_uuid::nvlink::NvLinkLogicalPartitionId>,
 }
 
 // Reflection of rpc::forge::InstanceAllocationRequest. It should contain exactly
@@ -76,6 +80,7 @@ pub struct InstanceConfig {
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
     pub dpu_extension_services:
         ::core::option::Option<::rpc::forge::InstanceDpuExtensionServicesConfig>,
+    pub nvlink: ::core::option::Option<::rpc::forge::InstanceNvLinkConfig>,
 }
 
 impl InstanceConfig {

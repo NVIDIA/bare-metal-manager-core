@@ -31,6 +31,8 @@ const DPU_ADMIN_USERNAME: &str = "forge";
 /// Default Username for the admin BMC account.
 const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
 
+const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
+
 pub(crate) async fn create_credential(
     api: &Api,
     request: tonic::Request<rpc::CredentialCreationRequest>,
@@ -210,6 +212,30 @@ pub(crate) async fn create_credential(
                 "Forge does not support creating forge-admin credentials yet.",
             ));
         }
+        rpc::CredentialType::NmxM => {
+            if let Some(username) = req.username {
+                api.credential_provider
+                    .set_credentials(
+                        &CredentialKey::NmxM {
+                            nmxm_id: DEFAULT_NMX_M_NAME.to_string(),
+                        },
+                        &Credentials::UsernamePassword {
+                            username: username.clone(),
+                            password: password.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::internal(format!(
+                            "Error setting credential for NmxM {}: {:?} ",
+                            username.clone(),
+                            e
+                        ))
+                    })?;
+            } else {
+                return Err(tonic::Status::invalid_argument("missing username"));
+            }
+        }
     };
 
     Ok(Response::new(rpc::CredentialCreationResult {}))
@@ -278,7 +304,8 @@ pub(crate) async fn delete_credential(
         | rpc::CredentialType::HostUefi
         | rpc::CredentialType::HostBmcFactoryDefault
         | rpc::CredentialType::DpuBmcFactoryDefault
-        | rpc::CredentialType::BmcForgeAdminByMacAddress => {
+        | rpc::CredentialType::BmcForgeAdminByMacAddress
+        | rpc::CredentialType::NmxM => {
             // Not support delete credential for these types
         }
     };

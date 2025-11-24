@@ -21,6 +21,7 @@ use base64::prelude::*;
 #[cfg(feature = "linux-build")]
 use forge_host_support::hardware_enumeration::aggregate_cpus;
 use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
+use forge_uuid::nvlink::NvLinkDomainId;
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
 use utils::models::arch::CpuArchitecture;
@@ -241,6 +242,18 @@ pub struct Gpu {
     pub total_memory: String,
     pub frequency: String,
     pub pci_bus_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_info: Option<GpuPlatformInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GpuPlatformInfo {
+    pub chassis_serial: String,
+    pub slot_number: u32,
+    pub tray_index: u32,
+    pub host_id: u32,
+    pub module_id: u32,
+    pub fabric_guid: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -643,33 +656,84 @@ impl TryFrom<PciDeviceProperties> for rpc::machine_discovery::PciDevicePropertie
     }
 }
 
-impl From<rpc::machine_discovery::Gpu> for Gpu {
-    fn from(value: rpc::machine_discovery::Gpu) -> Self {
-        Gpu {
-            name: value.name,
-            serial: value.serial,
-            driver_version: value.driver_version,
-            vbios_version: value.vbios_version,
-            inforom_version: value.inforom_version,
-            total_memory: value.total_memory,
-            frequency: value.frequency,
-            pci_bus_id: value.pci_bus_id,
-        }
+impl TryFrom<GpuPlatformInfo> for rpc::machine_discovery::GpuPlatformInfo {
+    type Error = RpcDataConversionError;
+
+    fn try_from(info: GpuPlatformInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            chassis_serial: info.chassis_serial,
+            slot_number: info.slot_number,
+            tray_index: info.tray_index,
+            host_id: info.host_id,
+            module_id: info.module_id,
+            fabric_guid: info.fabric_guid,
+        })
     }
 }
 
-impl From<Gpu> for rpc::machine_discovery::Gpu {
-    fn from(value: Gpu) -> Self {
-        rpc::machine_discovery::Gpu {
-            name: value.name,
-            serial: value.serial,
-            driver_version: value.driver_version,
-            vbios_version: value.vbios_version,
-            inforom_version: value.inforom_version,
-            total_memory: value.total_memory,
-            frequency: value.frequency,
-            pci_bus_id: value.pci_bus_id,
-        }
+impl TryFrom<rpc::machine_discovery::GpuPlatformInfo> for GpuPlatformInfo {
+    type Error = RpcDataConversionError;
+
+    fn try_from(info: rpc::machine_discovery::GpuPlatformInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            chassis_serial: info.chassis_serial,
+            slot_number: info.slot_number,
+            tray_index: info.tray_index,
+            host_id: info.host_id,
+            module_id: info.module_id,
+            fabric_guid: info.fabric_guid,
+        })
+    }
+}
+
+impl TryFrom<Gpu> for rpc::machine_discovery::Gpu {
+    type Error = RpcDataConversionError;
+
+    fn try_from(gpu: Gpu) -> Result<Self, Self::Error> {
+        let platform_info = match gpu
+            .platform_info
+            .map(rpc::machine_discovery::GpuPlatformInfo::try_from)
+        {
+            Some(Err(e)) => return Err(e),
+            Some(Ok(info)) => Some(info),
+            None => None,
+        };
+
+        Ok(Self {
+            name: gpu.name,
+            serial: gpu.serial,
+            driver_version: gpu.driver_version,
+            vbios_version: gpu.vbios_version,
+            inforom_version: gpu.inforom_version,
+            total_memory: gpu.total_memory,
+            frequency: gpu.frequency,
+            pci_bus_id: gpu.pci_bus_id,
+            platform_info,
+        })
+    }
+}
+
+impl TryFrom<rpc::machine_discovery::Gpu> for Gpu {
+    type Error = RpcDataConversionError;
+
+    fn try_from(gpu: rpc::machine_discovery::Gpu) -> Result<Self, Self::Error> {
+        let platform_info = match gpu.platform_info.map(GpuPlatformInfo::try_from) {
+            Some(Err(e)) => return Err(e),
+            Some(Ok(info)) => Some(info),
+            None => None,
+        };
+
+        Ok(Self {
+            name: gpu.name,
+            serial: gpu.serial,
+            driver_version: gpu.driver_version,
+            vbios_version: gpu.vbios_version,
+            inforom_version: gpu.inforom_version,
+            total_memory: gpu.total_memory,
+            frequency: gpu.frequency,
+            pci_bus_id: gpu.pci_bus_id,
+            platform_info,
+        })
     }
 }
 
@@ -787,7 +851,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
-            gpus: info.gpus.into_iter().map(Gpu::from).collect(),
+            gpus: try_convert_vec(info.gpus)?,
             memory_devices: info
                 .memory_devices
                 .into_iter()
@@ -823,11 +887,7 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .dpu_info
                 .map(rpc::machine_discovery::DpuData::try_from)
                 .transpose()?,
-            gpus: info
-                .gpus
-                .into_iter()
-                .map(rpc::machine_discovery::Gpu::from)
-                .collect(),
+            gpus: try_convert_vec(info.gpus)?,
             memory_devices: info
                 .memory_devices
                 .into_iter()
@@ -886,6 +946,12 @@ impl HardwareInfo {
             .iter()
             .map(|i| i.mac_address)
             .collect()
+    }
+
+    pub fn is_gbx00(&self) -> bool {
+        self.dmi_data
+            .as_ref()
+            .is_some_and(|dmi| dmi.product_name.contains("GB200")) // TODO: for now just do GB200
     }
 }
 
@@ -947,6 +1013,66 @@ impl From<MachineInventory> for rpc::forge::MachineInventory {
                     url: c.url,
                 })
                 .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MachineNvLinkInfo {
+    pub domain_uuid: NvLinkDomainId,
+    pub gpus: Vec<NvLinkGpu>,
+}
+
+impl From<MachineNvLinkInfo> for rpc::forge::MachineNvLinkInfo {
+    fn from(value: MachineNvLinkInfo) -> Self {
+        rpc::forge::MachineNvLinkInfo {
+            domain_uuid: Some(value.domain_uuid),
+            gpus: value
+                .gpus
+                .into_iter()
+                .map(rpc::forge::NvLinkGpu::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<NvLinkGpu> for rpc::forge::NvLinkGpu {
+    fn from(value: NvLinkGpu) -> Self {
+        rpc::forge::NvLinkGpu {
+            nmx_m_id: value.nmx_m_id,
+            tray_index: value.tray_index,
+            slot_id: value.slot_id,
+            device_id: value.device_id,
+            guid: value.guid,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NvLinkGpu {
+    pub nmx_m_id: String,
+    pub tray_index: i32,
+    pub slot_id: i32,
+    pub device_id: i32, // For GB200s, 1-based index of GPU in compute tray.
+    pub guid: i32,
+}
+
+impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {
+    fn from(gpu: libnmxm::nmxm_model::Gpu) -> Self {
+        NvLinkGpu {
+            nmx_m_id: gpu.id.unwrap_or_default(),
+            tray_index: gpu
+                .location_info
+                .as_ref()
+                .and_then(|info| info.tray_index)
+                .unwrap_or_default(),
+            slot_id: gpu
+                .location_info
+                .as_ref()
+                .and_then(|info| info.slot_id)
+                .unwrap_or_default(),
+            device_id: gpu.device_id,
+            guid: gpu.device_uid,
         }
     }
 }

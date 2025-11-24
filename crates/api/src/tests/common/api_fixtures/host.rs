@@ -34,7 +34,12 @@ pub const X86_INFO_JSON: &[u8] =
 // TODO: Remove when there's no longer a need to handle the old topology format
 pub const X86_V1_CPU_INFO_JSON: &[u8] =
     include_bytes!("../../../../../api-model/src/hardware_info/test_data/x86_v1_cpu_info.json");
-
+pub const GB200_COMPUTE_TRAY_1_INFO_JSON: &[u8] = include_bytes!(
+    "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_1_info.json"
+);
+pub const GB200_COMPUTE_TRAY_2_INFO_JSON: &[u8] = include_bytes!(
+    "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_2_info.json"
+);
 /// Uses the `discover_dhcp` API to discover a Host with a certain MAC address
 ///
 /// Returns the created `machine_interface_id`

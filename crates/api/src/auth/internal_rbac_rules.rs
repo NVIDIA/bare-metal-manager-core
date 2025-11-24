@@ -582,6 +582,27 @@ impl InternalRBACRules {
         x.perm("MlxAdminConfigSet", vec![ForgeAdminCLI]);
         x.perm("MlxAdminConfigSync", vec![ForgeAdminCLI]);
         x.perm("MlxAdminConfigCompare", vec![ForgeAdminCLI]);
+        x.perm("FindNVLinkPartitionIds", vec![ForgeAdminCLI]);
+        x.perm("FindNVLinkPartitionsByIds", vec![ForgeAdminCLI]);
+        x.perm("NVLinkPartitionsForTenant", vec![ForgeAdminCLI]);
+        x.perm("FindNVLinkLogicalPartitionIds", vec![ForgeAdminCLI]);
+        x.perm("FindNVLinkLogicalPartitionsByIds", vec![ForgeAdminCLI]);
+        x.perm(
+            "CreateNVLinkLogicalPartition",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "UpdateNVLinkLogicalPartition",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "DeleteNVLinkLogicalPartition",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "NVLinkLogicalPartitionsForTenant",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

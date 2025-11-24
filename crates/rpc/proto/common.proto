@@ -73,3 +73,15 @@ message NetworkPrefixId {
 message RemediationId {
   string value = 1;
 }
+
+message NVLinkPartitionId {
+  string value = 1;
+}
+
+message NVLinkLogicalPartitionId {
+  string value = 1;
+}
+
+message NVLinkDomainId {
+  string value = 1;
+}

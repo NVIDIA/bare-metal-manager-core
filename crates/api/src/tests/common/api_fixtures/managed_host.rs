@@ -32,6 +32,12 @@ use crate::tests::common::{ib_guid_pool, mac_address_pool};
 static NEXT_HOST_SERIAL: AtomicU32 = AtomicU32::new(1);
 const REQUIRED_IB_GUIDS: usize = 6;
 
+#[derive(Debug, Clone)]
+pub enum HardwareInfoTemplate {
+    Default,
+    Custom(&'static [u8]),
+}
+
 /// Describes a Managed Host
 #[derive(Debug, Clone)]
 pub struct ManagedHostConfig {
@@ -46,6 +52,7 @@ pub struct ManagedHostConfig {
     /// when machine enters WaitingForSkuAssignment state.
     /// Default: true (maintains backward compatibility)
     pub auto_assign_sku_in_fixture: bool,
+    pub hardware_info_template: HardwareInfoTemplate,
 }
 
 impl ManagedHostConfig {
@@ -66,6 +73,13 @@ impl ManagedHostConfig {
     pub fn with_expected_state(expected_state: ManagedHostState) -> Self {
         Self {
             expected_state,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_hardware_info_template(hardware_info_template: HardwareInfoTemplate) -> Self {
+        Self {
+            hardware_info_template,
             ..Default::default()
         }
     }
@@ -106,13 +120,19 @@ impl Default for ManagedHostConfig {
                 .take(6)
                 .collect(),
             auto_assign_sku_in_fixture: true,
+            hardware_info_template: HardwareInfoTemplate::Default,
         }
     }
 }
 
 impl From<&ManagedHostConfig> for HardwareInfo {
     fn from(config: &ManagedHostConfig) -> Self {
-        let mut info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
+        let mut info =
+            serde_json::from_slice::<HardwareInfo>(match config.hardware_info_template {
+                HardwareInfoTemplate::Default => X86_INFO_JSON,
+                HardwareInfoTemplate::Custom(data) => data,
+            })
+            .unwrap();
         info.tpm_ek_certificate = Some(config.tpm_ek_cert.clone());
         info.dmi_data.as_mut().unwrap().product_serial = config.serial.clone();
         info.dmi_data.as_mut().unwrap().chassis_serial = config.serial.clone();

@@ -60,8 +60,8 @@ pub(crate) async fn handle_machine_hardware_info_update(
             let gpus: Vec<model::hardware_info::Gpu> = request_hardware_info
                 .gpus
                 .into_iter()
-                .map(model::hardware_info::Gpu::from)
-                .collect();
+                .map(model::hardware_info::Gpu::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
             if gpus.is_empty() {
                 new_hardware_info.gpus.clear();
             } else {

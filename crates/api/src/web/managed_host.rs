@@ -660,6 +660,7 @@ async fn fetch_managed_hosts_with_metadata(
             exclude_hosts: false,
             only_quarantine: false,
             instance_type_id: None,
+            mnnvl_only: false,
         }))
         .await?
         .into_inner()

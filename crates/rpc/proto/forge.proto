@@ -698,6 +698,24 @@ service Forge {
   // variable values for the provided target machine device, reporting back
   // specifics of what would change.
   rpc MlxAdminConfigCompare(mlx_device.MlxAdminConfigCompareRequest) returns (mlx_device.MlxAdminConfigCompareResponse);
+  
+  // NVL Partition
+  rpc FindNVLinkPartitionIds(NVLinkPartitionSearchFilter) returns (NVLinkPartitionIdList);
+  rpc FindNVLinkPartitionsByIds(NVLinkPartitionsByIdsRequest) returns (NVLinkPartitionList);
+  // Find all NVLink partitions under a specified tenant
+  rpc NVLinkPartitionsForTenant(TenantSearchQuery) returns (NVLinkPartitionList);
+
+  // NVL Logical Partitions
+  rpc FindNVLinkLogicalPartitionIds(NVLinkLogicalPartitionSearchFilter) returns (NVLinkLogicalPartitionIdList);
+  rpc FindNVLinkLogicalPartitionsByIds(NVLinkLogicalPartitionsByIdsRequest) returns (NVLinkLogicalPartitionList);
+  // Create a Logical partition
+  rpc CreateNVLinkLogicalPartition(NVLinkLogicalPartitionCreationRequest) returns (NVLinkLogicalPartition);
+  // Update a Logical partition
+  rpc UpdateNVLinkLogicalPartition(NVLinkLogicalPartitionUpdateRequest) returns (NVLinkLogicalPartitionUpdateResult);
+  // Delete a Logical partition
+  rpc DeleteNVLinkLogicalPartition(NVLinkLogicalPartitionDeletionRequest) returns (NVLinkLogicalPartitionDeletionResult);
+  // Find all Logical partitions under a specified tenant
+  rpc NVLinkLogicalPartitionsForTenant(TenantSearchQuery) returns (NVLinkLogicalPartitionList);
 }
 
 message AttestationIdsRequest {
@@ -807,6 +825,7 @@ enum CredentialType {
   SiteWideBmcRoot = 7;
   RootBmcByMacAddress = 8;
   BmcForgeAdminByMacAddress = 9;
+  NmxM = 10;
 }
 
 message CredentialCreationRequest {
@@ -1036,6 +1055,11 @@ message Vpc {
   optional string network_security_group_id  = 11;
 
   optional uint32 dpa_vni = 12;
+
+  // The ID of the default NVLink Logical Partition for a VPC
+  // This is the NVLink Logical Partition that will be used by default for all instances in the VPC.
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13;
+
 }
 
 message VpcCreationRequest {
@@ -1054,6 +1078,10 @@ message VpcCreationRequest {
 
   // The desired NSG ID and version for a VPC
   optional string network_security_group_id  = 13;
+
+  // The ID of the default NVLink Logical Partition for a VPC
+  // This is the NVLink Logical Partition that will be used by default for all instances in the VPC.
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 14;
 }
 
 enum VpcVirtualizationType {
@@ -1089,6 +1117,10 @@ message VpcUpdateRequest {
 
   // Sets the desired NSG ID for a VPC
   optional string network_security_group_id  = 17;
+
+  // The ID of the default NVLink Logical Partition for a VPC. This is the
+  // NVLink Logical Partition that will be used by default for all instances in the VPC.
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 18;
 }
 
 message VpcUpdateResult {
@@ -1891,6 +1923,10 @@ message InstanceConfig {
 
   // Configures instance extension services (e.g., SDN components)
   optional InstanceDpuExtensionServicesConfig dpu_extension_services = 23;
+
+  // Configures instance nvlink partitions
+  InstanceNVLinkConfig nvlink = 24;
+
 }
 
 // Desired network configuration for an instance
@@ -1913,6 +1949,11 @@ message InstanceDpuExtensionServiceConfig {
 // Extension services configuration for an instance
 message InstanceDpuExtensionServicesConfig {
   repeated InstanceDpuExtensionServiceConfig service_configs = 1;
+}
+// Desired nvlink configuration for an instance
+message InstanceNVLinkConfig {
+  // Configures how instance nvlink gpus are set up
+  repeated InstanceNVLinkGpuConfig gpu_configs = 1;
 }
 
 // New configuration for the instances network interfaces
@@ -1991,7 +2032,6 @@ message InstanceStatus {
 
   // Status of attached extension services of an instance
   InstanceDpuExtensionServicesStatus dpu_extension_services = 22;
-
   // Whether all configurations related to an instance are in-sync.
   // This is a logical AND for the settings of all sub-configurations.
   // At this time it equals `InstanceNetworkStatus::configs_synced`,
@@ -2000,6 +2040,8 @@ message InstanceStatus {
 
   // This indicates if updates are pending for the instance
   optional InstanceUpdateStatus update = 102;
+
+  InstanceNVLinkStatus nvlink = 103;
 }
 
 // State of the networking subsystem of an instance
@@ -2072,6 +2114,11 @@ message InstanceDpuExtensionServicesStatus {
   SyncState configs_synced = 101;
 }
 
+message InstanceNVLinkStatus {
+  repeated InstanceNVLinkGpuStatus gpu_statuses = 1;
+  SyncState configs_synced = 101;
+}
+
 // Contains all information about an actively running instance
 // This entails both the instance configuration, as well as the current state of the instance
 message Instance {
@@ -2121,6 +2168,7 @@ message Instance {
   reserved 204;
   // Current version of the extension service configuration that is applied on the instance
   string dpu_extension_service_version = 205;
+  string nvlink_config_version = 206;
 }
 
 message InstanceUpdateStatus {
@@ -2266,6 +2314,27 @@ message InstanceIBInterfaceStatus {
   // repeated string addresses = 21;
 }
 
+// The actual status of a single gpu of an instance
+message InstanceNVLinkGpuStatus {
+  /// fabric guid of this GPU 
+  optional string gpu_guid = 1;
+
+  /// The NVLink domain this GPU is physically a part of
+  common.NVLinkDomainId domain_id = 2;
+
+  // Logical partition this GPU is in
+  common.NVLinkLogicalPartitionId logical_partition_id = 3;
+}
+
+
+// The configuration that a customer desires for an instances NVLink GPUs
+message InstanceNVLinkGpuConfig {
+  uint32 device_instance = 1;
+
+  // logical partition gpu is part of
+  common.NVLinkLogicalPartitionId logical_partition_id = 2;
+}
+
 message InstancePhoneHomeLastContactRequest {
   common.InstanceId instance_id = 1;
 }
@@ -2315,6 +2384,7 @@ message MachineSearchConfig {
   bool exclude_hosts = 6;
   bool only_quarantine = 7;
   optional string instance_type_id = 8;
+  bool mnnvl_only = 9;
 }
 
 message MachineStateHistoriesRequest {
@@ -2498,6 +2568,8 @@ message Machine {
   optional string hw_sku_device_type = 41;
 
   bool update_complete = 42;
+
+  optional MachineNVLinkInfo nvlink_info = 43;
 }
 
 message InstanceNetworkRestrictions {
@@ -4638,6 +4710,7 @@ message MachineValidationRunResponse {
 enum MachineCapabilityDeviceType {
   MACHINE_CAPABILITY_DEVICE_TYPE_UNKNOWN = 0;
   MACHINE_CAPABILITY_DEVICE_TYPE_DPU = 1;
+  MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK = 2; 
 }
 
 message MachineCapabilityAttributesCpu {
@@ -4657,6 +4730,7 @@ message MachineCapabilityAttributesGpu {
   optional string capacity        = 5; // Memory capacity
   optional uint32 cores           = 6;
   optional uint32 threads         = 7;
+  optional MachineCapabilityDeviceType device_type = 8;
 }
 
 message MachineCapabilityAttributesMemory {
@@ -5406,6 +5480,121 @@ message RackManagerForgeRequest {
 
 message RackManagerForgeResponse {
   optional string json_result = 1;
+}
+message MachineNVLinkInfo {
+  common.NVLinkDomainId domain_uuid = 1;
+  repeated NVLinkGpu gpus = 2;
+}
+
+message NVLinkGpu {
+  string nmx_m_id = 1;
+  int32 tray_index = 2;
+  int32 slot_id = 3;
+  int32 device_id = 4;
+  int32 guid = 5;
+}
+
+// Describe an NVLink based Partition configuration and status
+message NVLinkPartition {
+  common.NVLinkPartitionId id = 1;
+  string name = 2;
+  string nmx_m_id = 3;
+  common.NVLinkDomainId domain_uuid = 4;
+  common.NVLinkLogicalPartitionId logical_partition_id = 5;
+}
+
+message NVLinkPartitionList {
+  repeated NVLinkPartition partitions = 1;
+}
+
+message NVLinkPartitionSearchConfig {
+  bool include_history = 1;
+}
+
+message NVLinkPartitionQuery {
+  common.UUID id = 1;
+  optional NVLinkPartitionSearchConfig search_config = 2;
+}
+
+message NVLinkPartitionSearchFilter {
+  optional string tenant_organization_id = 1;
+  optional string name = 2;
+}
+
+message NVLinkPartitionsByIdsRequest {
+  repeated common.NVLinkPartitionId partition_ids = 1;
+  bool include_history = 2;
+}
+
+message NVLinkPartitionIdList {
+  repeated common.NVLinkPartitionId partition_ids = 1;
+}
+
+message NVLinkFabricSearchFilter {
+}
+
+// Describe the desired configuration of an Logical Partition
+message NVLinkLogicalPartitionConfig {
+  Metadata metadata = 1;
+  // The ID of tenant that NVLPartition belong to
+  string tenant_organization_id = 2;
+}
+
+// Describe the status and applied configuration of an Logical Partition
+message NVLinkLogicalPartitionStatus {
+  // Provisioning state of this partition
+  TenantState state = 1;
+}
+
+// Describe a Logical Partition configuration and status
+message NVLinkLogicalPartition {
+  common.NVLinkLogicalPartitionId id = 1;
+  NVLinkLogicalPartitionConfig config = 2;
+
+  string config_version = 3;
+
+  NVLinkLogicalPartitionStatus status = 4;
+}
+
+message NVLinkLogicalPartitionList {
+  repeated NVLinkLogicalPartition partitions = 1;
+}
+
+message NVLinkLogicalPartitionCreationRequest {
+  NVLinkLogicalPartitionConfig config = 1;
+  // Desired ID for this Partition. If the ID is not provided, Forge will generate
+  // a random ID.
+  // The Partition ID must be unique within the Forge site.
+  optional common.NVLinkLogicalPartitionId id = 2;
+}
+
+message NVLinkLogicalPartitionDeletionRequest {
+  common.NVLinkLogicalPartitionId id = 1;
+}
+
+message NVLinkLogicalPartitionDeletionResult {
+}
+
+message NVLinkLogicalPartitionSearchFilter {
+  optional string name = 1;
+}
+
+message NVLinkLogicalPartitionsByIdsRequest {
+  repeated common.NVLinkLogicalPartitionId partition_ids = 1;
+  bool include_history = 2;
+}
+
+message NVLinkLogicalPartitionIdList {
+  repeated common.NVLinkLogicalPartitionId partition_ids = 1;
+}
+
+message NVLinkLogicalPartitionUpdateRequest {
+  common.NVLinkLogicalPartitionId id = 1;
+  NVLinkLogicalPartitionConfig config = 2;
+  optional string if_version_match = 3;
+}
+
+message NVLinkLogicalPartitionUpdateResult {
 }
 
 // Must provide either machine_id or ip/mac pair

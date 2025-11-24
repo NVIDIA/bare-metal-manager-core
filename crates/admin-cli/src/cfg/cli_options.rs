@@ -293,6 +293,19 @@ pub enum CliCommand {
     Mlx(mlx::MlxAction),
     #[clap(about = "Scout Stream Connection Handling", subcommand)]
     ScoutStream(scout_stream::ScoutStreamAction),
+    #[clap(
+        about = "NvLink Partition related handling",
+        subcommand,
+        visible_alias = "nvp"
+    )]
+    NvlPartition(NvlPartitionOptions),
+
+    #[clap(
+        about = "Logical partition related handling",
+        subcommand,
+        visible_alias = "lp"
+    )]
+    LogicalPartition(LogicalPartitionOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -3603,6 +3616,65 @@ pub struct MachineValidationAddTestOptions {
 
     #[clap(long, help = "Is read-only")]
     pub read_only: Option<bool>,
+}
+
+#[derive(Parser, Debug)]
+pub enum NvlPartitionOptions {
+    #[clap(about = "Display NvLink partition information")]
+    Show(ShowNvlPartition),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowNvlPartition {
+    #[clap(
+        default_value(None),
+        help = "The NvLink Partition ID to query, leave empty for all (default)"
+    )]
+    pub id: String,
+
+    #[clap(short, long, help = "The Tenant Org ID to query")]
+    pub tenant_org_id: Option<String>,
+
+    #[clap(short, long, help = "The NvLink Partition name to query")]
+    pub name: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub enum LogicalPartitionOptions {
+    #[clap(about = "Display logical partition information")]
+    Show(ShowLogicalPartition),
+    #[clap(about = "Create logical partition")]
+    Create(CreateLogicalPartition),
+    #[clap(about = "Delete logical partition")]
+    Delete(DeleteLogicalPartition),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowLogicalPartition {
+    #[clap(
+        default_value(None),
+        help = "The partition ID to query, leave empty for all (default)"
+    )]
+    pub id: String,
+
+    #[clap(short, long, help = "The NvLink Partition name to query")]
+    pub name: Option<String>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct CreateLogicalPartition {
+    #[clap(short = 'n', long, help = "name of the partition")]
+    pub name: String,
+    #[clap(short, long, value_delimiter = ',', value_name = "list of members")]
+    pub members: Vec<String>,
+    #[clap(short, long, help = "The Tenant Org ID to create the partition for")]
+    pub tenant_organization_id: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct DeleteLogicalPartition {
+    #[clap(short = 'n', long, help = "name of the partition")]
+    pub name: String,
 }
 
 #[derive(Parser, Debug, Clone, PartialEq)]

@@ -25,6 +25,7 @@ use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
+use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::metadata::Metadata;
 use model::os::{OperatingSystem, OperatingSystemVariant};
@@ -418,6 +419,38 @@ pub async fn update_ib_config(
     }
 }
 
+/// Updates the desired nvlink configuration for an instance
+pub async fn update_nvlink_config(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+    expected_version: ConfigVersion,
+    new_state: &InstanceNvLinkConfig,
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    let next_version = if increment_version {
+        expected_version.increment()
+    } else {
+        expected_version
+    };
+
+    let query = "UPDATE instances SET nvlink_config_version=$1, nvlink_config=$2::json
+            WHERE id=$3 AND nvlink_config_version=$4
+            RETURNING id";
+
+    let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
+        .bind(next_version)
+        .bind(sqlx::types::Json(new_state))
+        .bind(instance_id)
+        .bind(expected_version)
+        .fetch_one(txn)
+        .await;
+
+    match query_result {
+        Ok((_instance_id,)) => Ok(()),
+        Err(e) => Err(DatabaseError::query(query, e)),
+    }
+}
+
 pub async fn trigger_update_network_config_request(
     instance_id: &InstanceId,
     current: &InstanceNetworkConfig,
@@ -534,12 +567,14 @@ pub async fn persist(
                         use_custom_pxe_on_boot,
                         instance_type_id,
                         extension_services_config,
-                        extension_services_config_version
+                        extension_services_config_version,
+                        nvlink_config,
+                        nvlink_config_version
                     )
                     SELECT 
-                            $1, $2, $3, $4, $5, $6, $7, $8::json, $9, $10::json,
-                            $11, $12, $13, $14, $15, $16::json, $17, $18,
-                            $19, true, m.instance_type_id, $22::json, $23
+                            $1, $2, $3, $4, $5, $6, $7, $8::json, $9, $10::json, 
+                            $11, $12, $13, $14, $15, $16::json, $17, $18, $19, true,
+                            m.instance_type_id, $22::json, $23, $24::json, $25
                     FROM machines m WHERE m.id=$20 AND ($21 IS NULL OR m.instance_type_id=$21) FOR UPDATE
                     RETURNING row_to_json(instances.*)";
     match sqlx::query_as(query)
@@ -566,6 +601,8 @@ pub async fn persist(
         .bind(&value.instance_type_id)
         .bind(sqlx::types::Json(&value.config.extension_services))
         .bind(value.extension_services_config_version)
+        .bind(sqlx::types::Json(&value.config.nvlink))
+        .bind(value.nvlink_config_version)
         .fetch_one(txn)
         .await
     {

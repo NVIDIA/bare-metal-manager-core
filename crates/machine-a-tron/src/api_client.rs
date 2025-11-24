@@ -339,6 +339,7 @@ impl ApiClient {
             network_security_group_id: None,
             infiniband: None,
             dpu_extension_services: None,
+            nvlink: None,
         };
 
         let instance_request = rpc::InstanceAllocationRequest {
@@ -450,6 +451,7 @@ impl ApiClient {
                         value: Some("Machine-a-tron".to_string()),
                     }],
                 }),
+                default_nvlink_logical_partition_id: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

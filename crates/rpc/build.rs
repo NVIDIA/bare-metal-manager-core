@@ -37,6 +37,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.NetworkPrefixId", "::forge_uuid::network::NetworkPrefixId")
         .extern_path(".common.NetworkSegmentId", "::forge_uuid::network::NetworkSegmentId")
         .extern_path(".common.PowerShelfId", "::forge_uuid::power_shelf::PowerShelfId")
+        .extern_path(".common.NVLinkPartitionId", "::forge_uuid::nvlink::NvLinkPartitionId")
+        .extern_path(".common.NVLinkLogicalPartitionId", "::forge_uuid::nvlink::NvLinkLogicalPartitionId")
+        .extern_path(".common.NVLinkDomainId", "::forge_uuid::nvlink::NvLinkDomainId")
         .extern_path(".common.RemediationId", "forge_uuid::dpu_remediations::RemediationId")
         .extern_path(".common.SwitchId", "::forge_uuid::switch::SwitchId")
         .extern_path(".common.VpcId", "::forge_uuid::vpc::VpcId")
@@ -111,6 +114,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.DpuExtensionServiceStatusObservation", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceComponent", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceStatus", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.InstanceNVLinkConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceNVLinkGpuConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceNVLinkStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceNVLinkGpuStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkPartition", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkPartitionList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkPartitionConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkPartitionStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkPartitionGpuStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkLogicalPartition", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkLogicalPartitionList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkLogicalPartitionConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkLogicalPartitionStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkLogicalPartitionGpuStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("common.NVLinkDomainId", "#[derive(serde::Serialize)]")
+        .type_attribute("common.NVLinkLogicalPartitionId", "#[derive(serde::Serialize)]")
+        .type_attribute("common.NVLinkPartitionId", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.MachineNVLinkInfo", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLinkGpu", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.InstanceInterfaceStatus",
             "#[derive(serde::Serialize)]",
@@ -642,6 +664,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "common.Uint32List",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
+        .type_attribute("forge.NVLPartitionConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLPartitionStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLPartition", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLPartitionList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLLogicalPartitionConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLLogicalPartitionStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLLogicalPartition", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NVLLogicalPartitionList", "#[derive(serde::Serialize)]")
+
         .type_attribute(
             "common.PowerShelfId",
             "#[derive(serde::Deserialize,serde::Serialize)]",
@@ -750,6 +781,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 ".common.PowerShelfId",
                 "::forge_uuid::power_shelf::PowerShelfId",
+            ),
+            (
+                ".common.NVLinkPartitionId",
+                "::forge_uuid::nvlink::NvLinkPartitionId",
+            ),
+            (
+                ".common.NVLinkLogicalPartitionId",
+                "::forge_uuid::nvlink::NvLinkLogicalPartitionId",
+            ),
+            (
+                ".common.NVLinkDomainId",
+                "::forge_uuid::nvlink::NvLinkDomainId",
             ),
             (
                 ".measured_boot.MeasurementSystemProfileId",

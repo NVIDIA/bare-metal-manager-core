@@ -412,7 +412,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -452,7 +452,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -485,7 +485,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -516,7 +516,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -538,7 +538,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -560,7 +560,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -593,7 +593,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -615,7 +615,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -639,7 +639,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None, None)
             .unwrap()
             .tenant
             .unwrap()

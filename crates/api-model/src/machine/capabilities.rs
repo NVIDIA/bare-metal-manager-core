@@ -146,6 +146,7 @@ pub struct MachineCapabilityGpu {
     pub memory_capacity: Option<String>,
     pub cores: Option<u32>,
     pub threads: Option<u32>,
+    pub device_type: Option<MachineCapabilityDeviceType>,
 }
 
 impl From<MachineCapabilityGpu> for rpc::MachineCapabilityAttributesGpu {
@@ -158,6 +159,9 @@ impl From<MachineCapabilityGpu> for rpc::MachineCapabilityAttributesGpu {
             capacity: cap.memory_capacity,
             cores: cap.cores,
             threads: cap.threads,
+            device_type: cap
+                .device_type
+                .map(|dt| rpc::MachineCapabilityDeviceType::from(dt).into()),
         }
     }
 }
@@ -389,6 +393,7 @@ impl From<MachineCapabilitiesSet> for rpc::MachineCapabilitiesSet {
 pub enum MachineCapabilityDeviceType {
     Unknown,
     Dpu,
+    NvLink,
 }
 
 impl fmt::Display for MachineCapabilityDeviceType {
@@ -396,6 +401,7 @@ impl fmt::Display for MachineCapabilityDeviceType {
         match self {
             MachineCapabilityDeviceType::Unknown => write!(f, "UNKNOWN"),
             MachineCapabilityDeviceType::Dpu => write!(f, "DPU"),
+            MachineCapabilityDeviceType::NvLink => write!(f, "NVLINK"),
         }
     }
 }
@@ -405,6 +411,7 @@ impl From<MachineCapabilityDeviceType> for rpc::MachineCapabilityDeviceType {
         match t {
             MachineCapabilityDeviceType::Unknown => rpc::MachineCapabilityDeviceType::Unknown,
             MachineCapabilityDeviceType::Dpu => rpc::MachineCapabilityDeviceType::Dpu,
+            MachineCapabilityDeviceType::NvLink => rpc::MachineCapabilityDeviceType::Nvlink,
         }
     }
 }
@@ -416,6 +423,7 @@ impl TryFrom<rpc::MachineCapabilityDeviceType> for MachineCapabilityDeviceType {
         match t {
             rpc::MachineCapabilityDeviceType::Unknown => Ok(MachineCapabilityDeviceType::Unknown),
             rpc::MachineCapabilityDeviceType::Dpu => Ok(MachineCapabilityDeviceType::Dpu),
+            rpc::MachineCapabilityDeviceType::Nvlink => Ok(MachineCapabilityDeviceType::NvLink),
         }
     }
 }
@@ -447,6 +455,7 @@ impl MachineCapabilitiesSet {
 
         let mut gpu_map = HashMap::<String, MachineCapabilityGpu>::new();
 
+        let is_gbx00 = hardware_info.is_gbx00();
         for gpu_info in hardware_info.gpus.into_iter() {
             match gpu_map.get_mut(&gpu_info.name) {
                 None => {
@@ -460,6 +469,11 @@ impl MachineCapabilitiesSet {
                             cores: None,   // hardware_info doesn't provide this.
                             threads: None, // hardware_info doesn't provide this.
                             memory_capacity: Some(gpu_info.total_memory),
+                            device_type: if is_gbx00 {
+                                Some(MachineCapabilityDeviceType::NvLink)
+                            } else {
+                                Some(MachineCapabilityDeviceType::Unknown)
+                            },
                         },
                     );
                 }
@@ -697,6 +711,7 @@ mod tests {
             cores: Some(1),
             threads: Some(2),
             capacity: Some("24 GB".to_string()),
+            device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
         };
 
         let machine_cap = MachineCapabilityGpu {
@@ -707,6 +722,7 @@ mod tests {
             cores: Some(1),
             threads: Some(2),
             memory_capacity: Some("24 GB".to_string()),
+            device_type: Some(MachineCapabilityDeviceType::Unknown),
         };
 
         assert_eq!(
@@ -841,6 +857,7 @@ mod tests {
                 vendor: Some("intel".to_string()),
                 cores: Some(4),
                 threads: Some(8),
+                device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
             }],
             memory: vec![rpc::MachineCapabilityAttributesMemory {
                 name: "ddr4".to_string(),
@@ -897,6 +914,7 @@ mod tests {
                 vendor: Some("intel".to_string()),
                 cores: Some(4),
                 threads: Some(8),
+                device_type: Some(MachineCapabilityDeviceType::Unknown),
             }],
             memory: vec![MachineCapabilityMemory {
                 name: "ddr4".to_string(),
@@ -958,6 +976,7 @@ mod tests {
                 memory_capacity: Some("81559 MiB".to_string()),
                 cores: None,
                 threads: None,
+                device_type: Some(MachineCapabilityDeviceType::Unknown),
             }],
             memory: vec![MachineCapabilityMemory {
                 name: "DDR4".to_string(),

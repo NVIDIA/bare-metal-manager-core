@@ -140,6 +140,7 @@ impl From<Vpc> for rpc::forge::Vpc {
                         .collect(),
                 })
             },
+            default_nvlink_logical_partition_id: None,
         }
     }
 }

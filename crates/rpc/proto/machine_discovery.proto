@@ -154,6 +154,15 @@ message DpuData {
   repeated LldpSwitchData switches = 7;
 }
 
+message GpuPlatformInfo {
+  string chassis_serial = 1;
+  uint32 slot_number = 2;
+  uint32 tray_index = 3;
+  uint32 host_id = 4;
+  uint32 module_id = 5;
+  string fabric_guid = 6;
+}
+
 message Gpu {
   string name = 1;
   string serial = 2;
@@ -163,6 +172,7 @@ message Gpu {
   string total_memory = 6;
   string frequency = 7;
   string pci_bus_id = 8;
+  GpuPlatformInfo platform_info = 9;
 }
 
 message MemoryDevice {
