@@ -1,0 +1,82 @@
+name: Carbide CI
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+
+env:
+  # Build configuration
+  CARGO_INCREMENTAL: 0
+  CARGO_HOME: ${{ github.workspace }}/cargo
+  FF_USE_FASTZIP: "true"
+  GIT_SUBMODULE_STRATEGY: recursive
+
+
+jobs:
+  # ============================================================================
+  # PREPARE STAGE
+  # ============================================================================
+
+  prepare:
+    runs-on: linux-amd64-cpu4
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Calculate version
+        id: version
+        run: |
+          # Get short SHA
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+          # Calculate version
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            VERSION="main-${SHORT_SHA}"
+          else
+            VERSION="dev-${SHORT_SHA}"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Calculated version: ${VERSION}"
+
+  # ============================================================================
+  # BUILD STAGE - Base Containers
+  # ============================================================================
+
+  build-container-x86_64:
+    needs:
+      - prepare
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.build-container-x86_64
+      image_name: nvcr.io/0837451325059433/carbide-dev/build-container-x86_64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: true
+      load: true
+    secrets: inherit
+
+  # ============================================================================
+  # BUILD STAGE - Publish Documentation
+  # ============================================================================
+
+  build-publish-documentation:
+    if: false
+    needs:
+      - prepare
+      - build-container-x86_64
+    uses: ./.github/workflows/docs.yml
+    with:
+      build_container: ${{ format('nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:{0}', (needs['build-container-x86_64'].result == 'success' && needs.prepare.outputs.version) || 'latest') }}
+      runner: linux-amd64-cpu4
+    secrets: inherit
