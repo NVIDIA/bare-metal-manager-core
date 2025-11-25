@@ -684,6 +684,7 @@ async fn get_system(
     let name = ResourceName::new(&inner_json);
     let bios = inner_json.get("Bios").cloned();
     let oem = inner_json.get("Oem").cloned();
+    let secure_boot = inner_json.get("SecureBoot").cloned();
     let mut system = serde_json::from_value::<ComputerSystem>(inner_json)?;
     system.serial_number = state.machine_info.product_serial();
     system.power_state = state.mock_power_state.get_power_state().into();
@@ -698,6 +699,9 @@ async fn get_system(
         }
         if let Some(oem) = oem {
             json_patch(&mut json, serde_json::json!({"Oem": oem}));
+        }
+        if let Some(secure_boot) = secure_boot {
+            json_patch(&mut json, serde_json::json!({"SecureBoot": secure_boot}));
         }
         return Ok(Bytes::from(json.to_string()));
     };
@@ -748,6 +752,9 @@ async fn get_system(
     }
     if let Some(oem) = oem {
         json_patch(&mut json, serde_json::json!({"Oem": oem}));
+    }
+    if let Some(secure_boot) = secure_boot {
+        json_patch(&mut json, serde_json::json!({"SecureBoot": secure_boot}));
     }
     Ok(Bytes::from(json.to_string()))
 }
