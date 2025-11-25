@@ -1,0 +1,266 @@
+name: Build Ephemeral Images
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        description: 'Target architecture: x86_64 or aarch64'
+        required: true
+        type: string
+      cargo_make_task:
+        description: 'Cargo make task to execute (e.g., create-ephemeral-image-x86-host-ci)'
+        required: true
+        type: string
+      version:
+        description: 'Build version string'
+        required: true
+        type: string
+      runner:
+        description: 'GitHub runner label to use'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+    outputs:
+      artifacts_json:
+        description: 'Artifacts paths as JSON array'
+        value: ${{ jobs.build.outputs.artifacts }}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
+    outputs:
+      artifacts: ${{ steps.collect-artifacts.outputs.paths }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Initialize submodules at pinned commits
+        run: |
+          set -e
+
+          # Try standard git submodule update first (respects pinned commits)
+          echo "Attempting git submodule update..."
+          git submodule update --init --recursive 2>&1 || echo "⚠️  git submodule command failed"
+
+          # Check if submodules were actually cloned (command can succeed but not clone anything)
+          if [ -f "pxe/ipxe/upstream/src/Makefile" ] && [ -d "pxe/mkosi/.git" ]; then
+            echo "✅ Submodules initialized via git submodule"
+          else
+            echo "⚠️  Submodules not present after git submodule, using manual fallback..."
+
+            # Get the pinned commits from the Git tree (matches GitLab's GIT_SUBMODULE_STRATEGY: recursive)
+            IPXE_COMMIT=$(git ls-tree HEAD pxe/ipxe/upstream | awk '{print $3}')
+            MKOSI_COMMIT=$(git ls-tree HEAD pxe/mkosi | awk '{print $3}')
+
+            # Fallback: If Git tree doesn't have submodule commits (sanitized repo),
+            # read from .gitmodules which has FIXME hardcoded commits
+            if [ -z "$IPXE_COMMIT" ]; then
+              echo "⚠️  Git tree missing submodule metadata, reading from .gitmodules..."
+              IPXE_COMMIT=$(git config -f .gitmodules --get submodule.pxe/ipxe/upstream.commit)
+              MKOSI_COMMIT=$(git config -f .gitmodules --get submodule.mkosi.commit)
+            fi
+
+            echo "📌 iPXE pinned to: ${IPXE_COMMIT}"
+            echo "📌 mkosi pinned to: ${MKOSI_COMMIT}"
+
+            # Clone iPXE at the specific pinned commit
+            if [ ! -f "pxe/ipxe/upstream/src/Makefile" ]; then
+              echo "📦 Cloning iPXE at pinned commit..."
+              rm -rf pxe/ipxe/upstream
+              git clone https://github.com/ipxe/ipxe.git pxe/ipxe/upstream
+              cd pxe/ipxe/upstream
+              git checkout ${IPXE_COMMIT}
+              cd ../../..
+            fi
+
+            # Clone mkosi at the specific pinned commit
+            if [ ! -d "pxe/mkosi/.git" ]; then
+              echo "📦 Cloning mkosi at pinned commit..."
+              rm -rf pxe/mkosi
+              git clone https://github.com/systemd/mkosi.git pxe/mkosi
+              cd pxe/mkosi
+              git checkout ${MKOSI_COMMIT}
+              cd ../..
+            fi
+          fi
+
+          # Verify submodules are present
+          [ -f "pxe/ipxe/upstream/src/Makefile" ] || { echo "❌ iPXE missing"; exit 1; }
+          [ -d "pxe/mkosi" ] || { echo "❌ mkosi missing"; exit 1; }
+
+          # Show what we got (for debugging)
+          echo "✅ iPXE commit: $(cd pxe/ipxe/upstream && git rev-parse --short HEAD)"
+          echo "✅ mkosi commit: $(cd pxe/mkosi && git rev-parse --short HEAD)"
+          echo "✅ Submodules ready"
+
+      - name: Setup mkosi build environment
+        uses: ./.github/actions/setup-mkosi-environment
+        with:
+          rust-version: '1.90.0'
+          arch: ${{ inputs.arch }}
+
+      - name: Download prerequisite build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          # Download artifacts from the boot artifacts build
+          # These contain the compiled scout binaries needed by ephemeral image builds
+          name: boot-artifacts-${{ inputs.arch }}-${{ github.run_id }}
+          path: .
+        continue-on-error: false
+
+      - name: Set up environment variables
+        run: |
+          echo "CARGO_HOME=${{ github.workspace }}/cargo" >> $GITHUB_ENV
+          echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+          echo "CACHE_DIRECTORY=${{ github.workspace }}/cache" >> $GITHUB_ENV
+          echo "LOGNAME=root" >> $GITHUB_ENV
+          echo "REPO_ROOT=${{ github.workspace }}" >> $GITHUB_ENV
+          echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+
+          # Add cargo to PATH
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+          # Add /sbin to PATH for mkosi
+          echo "/sbin" >> $GITHUB_PATH
+          echo "/usr/sbin" >> $GITHUB_PATH
+
+      - name: Create cache directories
+        run: |
+          mkdir -p ${{ github.workspace }}/cargo
+          mkdir -p ${{ github.workspace }}/cache
+          mkdir -p pxe/static/blobs/internal/${{ inputs.arch }}
+
+      - name: Display build information
+        run: |
+          echo "============================================"
+          echo "Building Ephemeral Images"
+          echo "============================================"
+          echo "Architecture: ${{ inputs.arch }}"
+          echo "Task: ${{ inputs.cargo_make_task }}"
+          echo "Version: ${{ inputs.version }}"
+          echo "Runner: ${{ inputs.runner }}"
+          echo "Working directory: $(pwd)"
+          echo "============================================"
+
+          # Show what artifacts we have from prerequisite builds
+          echo "Available artifacts from prerequisite builds:"
+          find target -name "forge-scout" -o -name "*.efi" -o -name "*.root" 2>/dev/null || echo "No target artifacts found yet"
+
+          echo ""
+          echo "Debian packages in target/debs/:"
+          ls -lah target/debs/*.deb 2>/dev/null || echo "No .deb files found"
+
+          # Show VERSION and PKG_VERSION
+          echo ""
+          echo "VERSION env var: ${VERSION}"
+          echo "PKG_VERSION would be calculated as:"
+          PKG_VERSION_TEST="${VERSION:-$(git describe --tags --first-parent --always --long | cut -c 2-)}"
+          echo "  ${PKG_VERSION_TEST}"
+          echo "============================================"
+
+      - name: Run ephemeral image build
+        run: |
+          set -euo pipefail
+
+          # Source cargo environment
+          source $HOME/.cargo/env
+
+          echo "Running: cargo make --cwd pxe ${{ inputs.cargo_make_task }}"
+
+          # Run the cargo make task with full output
+          cargo make --cwd pxe ${{ inputs.cargo_make_task }} 2>&1 | tee build.log
+
+          echo "Build completed!"
+
+      - name: Verify generated artifacts
+        run: |
+          echo "Checking generated artifacts..."
+
+          if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+            EXPECTED_FILES=(
+              "pxe/static/blobs/internal/x86_64/scout.efi"
+              "pxe/static/blobs/internal/x86_64/scout.cpio.zst"
+              "pxe/static/blobs/internal/x86_64/qcow-imager.efi"
+            )
+          else
+            EXPECTED_FILES=(
+              "pxe/static/blobs/internal/aarch64/scout.efi"
+              "pxe/static/blobs/internal/aarch64/scout.cpio.zst"
+              "pxe/static/blobs/internal/aarch64/qcow-imager.efi"
+            )
+          fi
+
+          ALL_FOUND=true
+          for file in "${EXPECTED_FILES[@]}"; do
+            if [[ -f "$file" ]]; then
+              size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
+              echo "✓ Found: $file (${size} bytes)"
+            else
+              echo "✗ Missing: $file"
+              ALL_FOUND=false
+            fi
+          done
+
+          if [[ "$ALL_FOUND" != "true" ]]; then
+            echo ""
+            echo "ERROR: Not all expected artifacts were generated!"
+            echo "Build may have failed. Check the build log above."
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ All expected artifacts generated successfully!"
+
+      - name: Collect artifacts metadata
+        id: collect-artifacts
+        run: |
+          # Determine artifacts based on architecture
+          if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+            ARTIFACTS='["pxe/static/blobs/internal/x86_64/scout.efi", "pxe/static/blobs/internal/x86_64/scout.cpio.zst", "pxe/static/blobs/internal/x86_64/qcow-imager.efi", "target/debs/*"]'
+          else
+            ARTIFACTS='["pxe/static/blobs/internal/aarch64/scout.efi", "pxe/static/blobs/internal/aarch64/scout.cpio.zst", "pxe/static/blobs/internal/aarch64/qcow-imager.efi", "pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/*", "target/debs/*"]'
+          fi
+
+          echo "paths=${ARTIFACTS}" >> $GITHUB_OUTPUT
+          echo "Artifacts to upload: ${ARTIFACTS}"
+
+      - name: Upload ephemeral image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ephemeral-artifacts-${{ inputs.arch }}-${{ github.run_id }}
+          path: |
+            pxe/static/blobs/internal/${{ inputs.arch }}/scout.efi
+            pxe/static/blobs/internal/${{ inputs.arch }}/scout.cpio.zst
+            pxe/static/blobs/internal/${{ inputs.arch }}/qcow-imager.efi
+            pxe/mkosi.profiles/*/mkosi.extra/build-output/
+            target/debs/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ephemeral-build-log-${{ inputs.arch }}-${{ github.run_id }}
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Display build summary
+        if: success()
+        run: |
+          echo "============================================"
+          echo "✅ Ephemeral Image Build Completed"
+          echo "============================================"
+          echo "Architecture: ${{ inputs.arch }}"
+          echo "Task: ${{ inputs.cargo_make_task }}"
+          echo "Version: ${{ inputs.version }}"
+          echo ""
+          echo "Generated Artifacts:"
+          ls -lh pxe/static/blobs/internal/${{ inputs.arch }}/*.efi pxe/static/blobs/internal/${{ inputs.arch }}/*.zst 2>/dev/null || true
+          echo "============================================"

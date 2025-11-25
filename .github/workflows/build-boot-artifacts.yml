@@ -1,0 +1,251 @@
+name: Build Boot Artifacts
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        description: 'Target architecture: x86_64 or aarch64'
+        required: true
+        type: string
+      cargo_make_task:
+        description: 'Cargo make task to execute'
+        required: true
+        type: string
+      build_container:
+        description: 'Build container image to use (full path with tag)'
+        required: true
+        type: string
+      runner:
+        description: 'Runner label to use'
+        required: true
+        type: string
+      version:
+        description: 'Build version string (used for debian packages)'
+        required: false
+        type: string
+        default: ''
+      use_shell_runner:
+        description: 'Run directly on shell runner (not in container) for mkosi'
+        required: false
+        default: false
+        type: boolean
+      runner_tags:
+        description: 'Additional runner tags as JSON array (e.g., ["shell", "mkosi"])'
+        required: false
+        default: '[]'
+        type: string
+    outputs:
+      artifacts_json:
+        description: 'Artifacts paths as JSON array'
+        value: ${{ jobs.build.outputs.artifacts }}
+
+jobs:
+  build:
+    # Use runner_tags if provided, otherwise use the basic runner
+    runs-on: ${{ inputs.use_shell_runner && fromJSON(inputs.runner_tags) || inputs.runner }}
+    outputs:
+      artifacts: ${{ steps.collect-artifacts.outputs.paths }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0  # Full git history needed for git describe
+
+      - name: Initialize submodules at pinned commits
+        run: |
+          set -e
+
+          # Try standard git submodule update first (respects pinned commits)
+          echo "Attempting git submodule update..."
+          git submodule update --init --recursive 2>&1 || echo "⚠️  git submodule command failed"
+
+          # Check if submodules were actually cloned (command can succeed but not clone anything)
+          if [ -f "pxe/ipxe/upstream/src/Makefile" ] && [ -d "pxe/mkosi/.git" ]; then
+            echo "✅ Submodules initialized via git submodule"
+          else
+            echo "⚠️  Submodules not present after git submodule, using manual fallback..."
+
+            # Get the pinned commits from the Git tree (matches GitLab's GIT_SUBMODULE_STRATEGY: recursive)
+            IPXE_COMMIT=$(git ls-tree HEAD pxe/ipxe/upstream | awk '{print $3}')
+            MKOSI_COMMIT=$(git ls-tree HEAD pxe/mkosi | awk '{print $3}')
+
+            # Fallback: If Git tree doesn't have submodule commits (sanitized repo),
+            # read from .gitmodules which has FIXME hardcoded commits
+            if [ -z "$IPXE_COMMIT" ]; then
+              echo "⚠️  Git tree missing submodule metadata, reading from .gitmodules..."
+              IPXE_COMMIT=$(git config -f .gitmodules --get submodule.pxe/ipxe/upstream.commit)
+              MKOSI_COMMIT=$(git config -f .gitmodules --get submodule.mkosi.commit)
+            fi
+
+            echo "📌 iPXE pinned to: ${IPXE_COMMIT}"
+            echo "📌 mkosi pinned to: ${MKOSI_COMMIT}"
+
+            # Clone iPXE at the specific pinned commit
+            if [ ! -f "pxe/ipxe/upstream/src/Makefile" ]; then
+              echo "📦 Cloning iPXE at pinned commit..."
+              rm -rf pxe/ipxe/upstream
+              git clone https://github.com/ipxe/ipxe.git pxe/ipxe/upstream
+              cd pxe/ipxe/upstream
+              git checkout ${IPXE_COMMIT}
+              cd ../../..
+            fi
+
+            # Clone mkosi at the specific pinned commit
+            if [ ! -d "pxe/mkosi/.git" ]; then
+              echo "📦 Cloning mkosi at pinned commit..."
+              rm -rf pxe/mkosi
+              git clone https://github.com/systemd/mkosi.git pxe/mkosi
+              cd pxe/mkosi
+              git checkout ${MKOSI_COMMIT}
+              cd ../..
+            fi
+          fi
+
+          # Verify submodules are present
+          [ -f "pxe/ipxe/upstream/src/Makefile" ] || { echo "❌ iPXE missing"; exit 1; }
+          [ -d "pxe/mkosi" ] || { echo "❌ mkosi missing"; exit 1; }
+
+          # Show what we got (for debugging)
+          echo "✅ iPXE commit: $(cd pxe/ipxe/upstream && git rev-parse --short HEAD)"
+          echo "✅ mkosi commit: $(cd pxe/mkosi && git rev-parse --short HEAD)"
+          echo "✅ Submodules ready"
+
+      - name: Setup build environment (shell runner mode)
+        if: inputs.use_shell_runner == true
+        run: |
+          echo "Running on shell runner for mkosi support"
+          echo "Architecture: ${{ inputs.arch }}"
+          echo "Task: ${{ inputs.cargo_make_task }}"
+
+      - name: Run cargo make task (shell runner)
+        if: inputs.use_shell_runner == true
+        run: |
+          # Configure git to trust the workspace (may be needed on self-hosted runners)
+          git config --global --add safe.directory "${{ github.workspace }}" || true
+
+          # Set up environment variables
+          export CARGO_HOME="${{ github.workspace }}/cargo"
+          export CARGO_INCREMENTAL=0
+          export CACHE_DIRECTORY="${{ github.workspace }}/cache"
+          export LOGNAME=root
+          export KEA_BIN_PATH=/usr/bin
+          export KEA_INCLUDE_PATH=/usr/include/kea
+
+          if [ -n "${{ inputs.version }}" ]; then
+            export VERSION="${{ inputs.version }}"
+            echo "Using provided version: ${{ inputs.version }}"
+          else
+            # Fallback to generating from git - must start with digit for Debian
+            GIT_VER=$(git describe --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            # Ensure version starts with digit
+            if [[ "$GIT_VER" =~ ^[0-9] ]]; then
+              export VERSION="${GIT_VER#v}"  # Remove leading 'v' if present
+            else
+              export VERSION="0.0.0-dev-${GIT_VER}"  # Prepend with 0.0.0-dev-
+            fi
+            echo "Warning: No version provided, using git-based version: ${VERSION}"
+          fi
+
+          # Run the cargo make task
+          cargo make --cwd pxe ${{ inputs.cargo_make_task }}
+
+      - name: Setup Docker authentication (container mode)
+        if: inputs.use_shell_runner == false
+        uses: ./.github/actions/docker-auth
+        with:
+          username: ${{ secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Pull build container (container mode)
+        if: inputs.use_shell_runner == false && inputs.build_container != ''
+        run: |
+          echo "Pulling build container: ${{ inputs.build_container }}"
+          docker pull ${{ inputs.build_container }}
+
+      - name: Run cargo make task (container mode)
+        if: inputs.use_shell_runner == false
+        run: |
+          # Set up environment variables for container
+          ENV_ARGS="-e CARGO_HOME=/workspace/cargo"
+          ENV_ARGS="$ENV_ARGS -e CARGO_INCREMENTAL=0"
+          ENV_ARGS="$ENV_ARGS -e CACHE_DIRECTORY=/workspace/cache"
+          ENV_ARGS="$ENV_ARGS -e LOGNAME=root"
+          ENV_ARGS="$ENV_ARGS -e KEA_BIN_PATH=/usr/bin"
+          ENV_ARGS="$ENV_ARGS -e KEA_INCLUDE_PATH=/usr/include/kea"
+
+          if [ -n "${{ inputs.version }}" ]; then
+            ENV_ARGS="$ENV_ARGS -e VERSION=${{ inputs.version }}"
+            echo "============================================"
+            echo "Setting VERSION=${{ inputs.version }}"
+            echo "============================================"
+          else
+            # Fallback to generating from git - must start with digit for Debian
+            GIT_VER=$(git describe --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            # Ensure version starts with digit
+            if [[ "$GIT_VER" =~ ^[0-9] ]]; then
+              GIT_VERSION="${GIT_VER#v}"  # Remove leading 'v' if present
+            else
+              GIT_VERSION="0.0.0-dev-${GIT_VER}"  # Prepend with 0.0.0-dev-
+            fi
+            ENV_ARGS="$ENV_ARGS -e VERSION=${GIT_VERSION}"
+            echo "Warning: No version provided, using git-based version: ${GIT_VERSION}"
+          fi
+
+          # Run cargo make in container
+          # Note: \${VERSION} is escaped to expand INSIDE the container, not on the host
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            ${ENV_ARGS} \
+            ${{ inputs.build_container }} \
+            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe ${{ inputs.cargo_make_task }}"
+
+      - name: Collect artifacts
+        id: collect-artifacts
+        run: |
+          # Determine artifacts based on architecture and task
+          ARTIFACTS="[]"
+
+          if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+            if [[ "${{ inputs.cargo_make_task }}" == *"boot-artifacts"* ]]; then
+              # Boot artifacts for x86_64
+              ARTIFACTS='["pxe/static/blobs/internal/x86_64/ipxe.efi", "target/debug/forge-admin-cli", "target/debs/*"]'
+            elif [[ "${{ inputs.cargo_make_task }}" == *"ephemeral-image"* ]]; then
+              # Ephemeral image artifacts for x86_64
+              ARTIFACTS='["pxe/static/blobs/internal/x86_64/scout.efi", "pxe/static/blobs/internal/x86_64/scout.cpio.zst", "pxe/static/blobs/internal/x86_64/qcow-imager.efi", "target/debs/*"]'
+            fi
+          elif [[ "${{ inputs.arch }}" == "aarch64" ]]; then
+            if [[ "${{ inputs.cargo_make_task }}" == *"bfb"* ]]; then
+              # BFB artifacts for aarch64
+              ARTIFACTS='["pxe/static/blobs/internal/aarch64/ipxe.efi", "pxe/static/blobs/internal/aarch64/carbide.efi", "pxe/static/blobs/internal/aarch64/carbide.root", "pxe/static/blobs/internal/aarch64/preingestion.bfb", "pxe/static/blobs/internal/aarch64/forge.bfb", "pxe/static/blobs/internal/apt", "target/aarch64-unknown-linux-gnu/release/forge-scout", "target/debs/*"]'
+            elif [[ "${{ inputs.cargo_make_task }}" == *"ephemeral-image"* ]]; then
+              # Ephemeral image artifacts for aarch64
+              ARTIFACTS='["pxe/static/blobs/internal/aarch64/scout.efi", "pxe/static/blobs/internal/aarch64/qcow-imager.efi", "pxe/static/blobs/internal/aarch64/scout.cpio.zst", "pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/*", "target/debs/*"]'
+            fi
+          fi
+
+          echo "paths=${ARTIFACTS}" >> $GITHUB_OUTPUT
+          echo "Artifacts to upload: ${ARTIFACTS}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-artifacts-${{ inputs.arch }}-${{ github.run_id }}
+          path: |
+            pxe/static/blobs/
+            target/debug/forge-admin-cli
+            target/debs/
+            target/aarch64-unknown-linux-gnu/
+            pxe/mkosi.profiles/
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Display build summary
+        run: |
+          echo "✅ Boot artifacts build completed"
+          echo "  Architecture: ${{ inputs.arch }}"
+          echo "  Task: ${{ inputs.cargo_make_task }}"
+          echo "  Shell runner mode: ${{ inputs.use_shell_runner }}"
+          echo "  Container: ${{ inputs.build_container }}"
