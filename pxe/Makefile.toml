@@ -12,8 +12,9 @@ REPO_ROOT = { script = [
   "dirname $(cargo locate-project --message-format plain --workspace)",
 ] }
 PKG_VERSION = { script = [
-  "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
+  "echo ${VERSION:-$(git describe --tags --first-parent --always --long | cut -c 2-)}",
 ] }
+
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BFB stuff
@@ -26,7 +27,7 @@ HBN_VERSION = "2.4.3"
 # As of 2.4.3, PID is used to download artifacts. A url like this http://pid/1138607 will be given to download the zip, which contains
 # the zip file, which was saved manually to the same name of teh hbn uri in the scripts/2.4.3/doca_hbn.yml which is also in the same zip.
 # once we know for sure the zip file in pid is the new way to get this file, we can automate all the manual steps that went in to upload
-# Such as making the doca_container_configs.zip manually from files inside the zip from pid and manually exporting the hbn image to 
+# Such as making the doca_container_configs.zip manually from files inside the zip from pid and manually exporting the hbn image to
 # the named DOCA_HBN_URI.
 HBN_UPSTREAM_CONFIG_URL = "/tmp/doca_container_configs.zip"
 IPXE_BANNER_VERSION = { script = [
@@ -72,32 +73,33 @@ args = [
 ]
 cwd = "${BUILD_LOCATION}" # jf will try to upload the full path specified if the tool is executed out of the target directory
 
+# FIXME: FORGE-7058 - Make authentication to scout & DPUs configurable by someone else
 [tasks.stage-nvinit]
 # Note that libnss-exec is located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
 description = "Stages files required for nvssh into the mkosi image for installation in postinst script"
 script = '''
-  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
-  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_amd64.deb mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
-  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
-  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+ cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+ cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_amd64.deb mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+ cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+ cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
 '''
 
 [tasks.stage-disk_imaging-script]
-description = "Copies the disk_imaging.sh script to the qcow profile directories"
+description="Copies the disk_imaging.sh script to the qcow profile directories"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager/mkosi.extra/opt/forge/disk_imaging.sh
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/forge/disk_imaging.sh
 '''
 
 [tasks.stage-scout-loader-rclocal]
-description = "Copies the rc.local script to the scout loader profile directories"
+description="Copies the rc.local script to the scout loader profile directories"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/etc/rc.local
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/etc/rc.local
 '''
 
 [tasks.stage-scout-update-check]
-description = "Copies the scout-update script and systemd files to build-output"
+description="Copies the scout-update script and systemd files to build-output"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
@@ -279,18 +281,18 @@ script = '''
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
-  "-f",
-  "${FORGE_CA_PATH}",
-  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+ "-f",
+ "${FORGE_CA_PATH}",
+ "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-prod-root-ca-aarch64]
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
-  "-f",
-  "${FORGE_CA_PATH}",
-  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+ "-f",
+ "${FORGE_CA_PATH}",
+ "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-dev-root-ca-x86_64]
@@ -308,7 +310,7 @@ command = "cp"
 args = [
   "-f",
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+  # "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-scout-x86_64]
@@ -337,12 +339,7 @@ args = ["--profile", "qcow-imager", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 [tasks.mkosi-clean-qcow-imager-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = [
-  "--profile",
-  "qcow-imager-aarch64",
-  "--output-dir=${MKOSI_BUILD_TMP}",
-  "clean",
-]
+args = ["--profile", "qcow-imager-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 
 [tasks.mkosi-clean-scout-x86_64]
 category = "Ephemeral Image"
@@ -352,32 +349,17 @@ args = ["--profile", "scout-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 [tasks.mkosi-clean-scout-loader-x86_64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = [
-  "--profile",
-  "scout-loader-x86_64",
-  "--output-dir=${MKOSI_BUILD_TMP}",
-  "clean",
-]
+args = ["--profile", "scout-loader-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 
 [tasks.mkosi-clean-scout-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = [
-  "--profile",
-  "scout-aarch64",
-  "--output-dir=${MKOSI_BUILD_TMP}",
-  "clean",
-]
+args = ["--profile", "scout-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 
 [tasks.mkosi-clean-scout-loader-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = [
-  "--profile",
-  "scout-loader-aarch64",
-  "--output-dir=${MKOSI_BUILD_TMP}",
-  "clean",
-]
+args = ["--profile", "scout-loader-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 
 [tasks.mkosi-generate-build-tmpdir]
 category = "Ephemeral Image"
@@ -389,12 +371,18 @@ set_env MKOSI_BUILD_TMP ${tmp_name}
 '''
 
 # `depmod` on our runners is in `/sbin`, so add to PATH
+# Note: mkosi requires root permissions, so we use sudo in GitHub Actions
+# Note: --no-sandbox is required for GitHub Actions CI because managed runners
+# enforce kernel security policies that prevent network namespace configuration,
+# even with sudo. Bubblewrap fails with "Operation not permitted" due to lack
+# of CAP_NET_ADMIN capability. This is safe in ephemeral CI environments.
+# The workflow overrides mkosi to v25+ which supports the --no-sandbox flag.
 [tasks.mkosi-build-scout-x86_64]
 category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --no-sandbox --profile scout-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-scout-loader-x86_64]
@@ -402,7 +390,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --no-sandbox --profile scout-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-scout-aarch64]
@@ -410,7 +398,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --no-sandbox --profile scout-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-scout-loader-aarch64]
@@ -418,7 +406,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --no-sandbox --profile scout-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-qcow-imager]
@@ -426,7 +414,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --no-sandbox --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-qcow-imager-aarch64]
@@ -434,7 +422,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --no-sandbox --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-copy-qcow-imager-to-webroot-x86_64]
@@ -852,6 +840,7 @@ script = '''
 '''
 dependencies = ["download-debs-for-bfb"]
 
+# FIXME: FORGE-7058 - Make authentication to scout & DPUs configurable by someone else
 [tasks.bfb-add-nvinit-setup-to-bfb]
 category = "iPXE Kernel"
 description = "Add nvinit_setup folder to the bfb"

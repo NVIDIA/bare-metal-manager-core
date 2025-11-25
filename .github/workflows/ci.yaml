@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
-      - "for-review/publish-image-update"
+      - "for-review/publish-x86-ephemeral-images"
 
 env:
   # Build configuration
@@ -63,15 +63,29 @@ jobs:
       - name: Calculate version
         id: version
         run: |
+
+          set -euo pipefail
+
+          # Fetch tags for accurate git describe
+          git fetch --tags --force
           # Get short SHA
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-          # Calculate version
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            VERSION="main-${SHORT_SHA}"
-          else
-            VERSION="dev-${SHORT_SHA}"
+          # Calculate VERSION using the same command as GitLab
+          # From gitlab-templates/scripts/get-version.sh line 15:
+          # VERSION=$(git describe --tags --first-parent --always --long)
+          VERSION=$(git describe --tags --first-parent --always --long 2>/dev/null || echo "0.0.0-dev-${SHORT_SHA}")
+
+          # Ensure Debian compatibility (version must start with digit)
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then
+            if [[ "$VERSION" =~ ^v ]]; then
+              # Remove leading 'v' (e.g., v1.2.3-45-gabc1234 → 1.2.3-45-gabc1234)
+              VERSION="${VERSION#v}"
+            else
+              # If still doesn't start with digit, prepend 0.0.0-dev-
+              VERSION="0.0.0-dev-${SHORT_SHA}"
+            fi
           fi
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -246,8 +260,6 @@ jobs:
       load: true
     secrets: inherit
 
-
-
   build-artifacts-container-x86_64:
     if: needs.prepare.outputs.build_artifacts_container_x86_64_run == 'true'
     needs:
@@ -282,7 +294,7 @@ jobs:
 
   # ============================================================================
   # BUILD STAGE - Release Container
-  # ============================================================================    
+  # ============================================================================
   build-release-container-x86_64:
     # if: ${{ always() && github.event_name != 'schedule' }}
     if: false
@@ -304,6 +316,159 @@ jobs:
       tag_latest: false
     secrets: inherit
 
+
+  # ============================================================================
+  # BUILD STAGE - Forge CLI (Multi-arch)
+  # ============================================================================
+
+  build-forge-cli:
+    needs:
+      - prepare
+    if: false
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: linux-amd64-cpu4
+            build_container_env: CONTAINER_BUILD_ARTIFACTS_X86_64
+          - arch: arm64
+            platform: linux/arm64
+            runner: linux-arm64-cpu4
+            build_container_env: CONTAINER_BUILD_ARTIFACTS_AARCH64
+
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-forge-cli
+      image_name: nvcr.io/0837451325059433/carbide-dev/forge-admin-cli
+      image_tag: ${{ matrix.arch }}
+      platforms: ${{ matrix.platform }}
+      runner: ${{ matrix.runner }}
+      push: false  # Don't push initially
+      load: true
+      build_args: |
+        {
+          "CI_COMMIT_SHORT_SHA": "${{ needs.prepare.outputs.short_sha }}",
+        }
+    secrets: inherit
+
+  # ============================================================================
+  # BUILD STAGE - Boot Artifacts
+  # ============================================================================
+
+  build-boot-artifacts-x86:
+    needs:
+      - prepare
+      - build-artifacts-container-x86_64
+    if: ${{ always() && github.event_name != 'schedule' }}
+    uses: ./.github/workflows/build-boot-artifacts.yml
+    with:
+      arch: x86_64
+      cargo_make_task: build-boot-artifacts-x86-host-ci
+      build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
+      runner: linux-amd64-cpu4
+      version: ${{ needs.prepare.outputs.version }}
+      use_shell_runner: false
+    secrets: inherit
+
+  build-boot-artifacts-aarch64:
+    needs:
+      - prepare
+      - build-artifacts-container-aarch64
+    if: ${{ always() && github.event_name != 'schedule' }}
+    uses: ./.github/workflows/build-boot-artifacts.yml
+    with:
+      arch: aarch64
+      cargo_make_task: build-boot-artifacts-bfb-ci
+      build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
+      runner: linux-arm64-cpu4
+      version: ${{ needs.prepare.outputs.version }}
+      use_shell_runner: false
+    secrets: inherit
+
+  # ============================================================================
+  # BUILD STAGE - Ephemeral Images
+  # ============================================================================
+  # These builds create bootable ephemeral images (scout.efi, qcow-imager.efi)
+  # using mkosi. They run on standard Ubuntu runners with mkosi installed.
+
+  build-ephemeral-image-x86:
+    needs:
+      - prepare
+      - build-boot-artifacts-x86
+    if: ${{ always() && github.event_name != 'schedule' }}
+    uses: ./.github/workflows/build-ephemeral-images.yml
+    with:
+      arch: x86_64
+      cargo_make_task: create-ephemeral-image-x86-host-ci
+      version: ${{ needs.prepare.outputs.version }}
+      runner: linux-amd64-cpu4
+    secrets: inherit
+
+  build-ephemeral-image-aarch64:
+    needs:
+      - prepare
+      - build-boot-artifacts-aarch64
+    uses: ./.github/workflows/build-ephemeral-images.yml
+    with:
+      arch: aarch64
+      cargo_make_task: create-ephemeral-image-arm-host-ci
+      version: ${{ needs.prepare.outputs.version }}
+      runner: linux-arm64-cpu4
+    secrets: inherit
+
+  # ============================================================================
+  # BUILD STAGE - Release Artifacts
+  # ============================================================================
+
+  build-release-artifacts-x86:
+    if: false
+    needs:
+      - prepare
+      - build-boot-artifacts-x86
+      - build-ephemeral-image-x86
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
+      image_name: nvcr.io/0837451325059433/carbide-dev/boot-artifacts-x86_64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: false  # Don't push initially
+      load: true
+      build_args: |
+        {
+          "VERSION": "${{ needs.prepare.outputs.version }}",
+          "CI_COMMIT_SHORT_SHA": "${{ needs.prepare.outputs.short_sha }}",
+          "CONTAINER_RUNTIME_X86_64": "alpine:latest"
+        }
+    secrets: inherit
+
+  build-release-artifacts-aarch64:
+    if: false
+    needs:
+      - prepare
+      - build-boot-artifacts-aarch64
+      - build-ephemeral-image-aarch64
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
+      image_name: nvcr.io/0837451325059433/carbide-dev/boot-artifacts-aarch64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/amd64  # Note: aarch64 artifacts packaged in x86_64 image
+      runner: linux-amd64-cpu4
+      push: false  # Don't push initially
+      load: true
+      build_args: |
+        {
+          "VERSION": "${{ needs.prepare.outputs.version }}",
+          "CI_COMMIT_SHORT_SHA": "${{ needs.prepare.outputs.short_sha }}",
+          "CONTAINER_RUNTIME_AARCH64": "alpine:latest"
+        }
+    secrets: inherit
+
   # ============================================================================
   # BUILD STAGE - Publish Documentation
   # ============================================================================
@@ -319,3 +484,44 @@ jobs:
       runner: linux-amd64-cpu4
     secrets: inherit
 
+  # ============================================================================
+  # SECURITY STAGE - Placeholders
+  # ============================================================================
+
+  security-source-scan:
+    needs: prepare
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Placeholder for nspect source scan
+        run: |
+          echo "============================================"
+          echo "Security Source Scan - Placeholder"
+          echo "============================================"
+          echo "TODO: Implement nspect source scanning"
+          echo "Version: ${{ needs.prepare.outputs.version }}"
+
+  security-container-scan:
+    needs:
+      - prepare
+      - build-release-container-x86_64
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Placeholder for nspect container scan
+        run: |
+          echo "============================================"
+          echo "Security Container Scan - Placeholder"
+          echo "============================================"
+          echo "TODO: Implement nspect container scanning"
+          echo "Container: nvcr.io/nvidian/nvforge-devel/nvmetal-carbide:${{ needs.prepare.outputs.version }}"
+
+  license-checks:
+    needs: prepare
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Placeholder for license checks
+        run: |
+          echo "============================================"
+          echo "License Checks - Placeholder"
+          echo "============================================"
+          echo "TODO: Implement license compliance checking"
+          echo "Version: ${{ needs.prepare.outputs.version }}"
