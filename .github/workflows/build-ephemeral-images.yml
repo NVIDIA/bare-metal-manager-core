@@ -43,6 +43,10 @@ jobs:
         run: |
           set -e
 
+          # Debug: Show what commits the repository expects
+          echo "🔍 DEBUG: Submodule commits registered in repository:"
+          git ls-tree HEAD pxe/ipxe/upstream pxe/mkosi || echo "No submodule info in git tree"
+
           # Try standard git submodule update first (respects pinned commits)
           echo "Attempting git submodule update..."
           git submodule update --init --recursive 2>&1 || echo "⚠️  git submodule command failed"
@@ -50,24 +54,25 @@ jobs:
           # Check if submodules were actually cloned (command can succeed but not clone anything)
           if [ -f "pxe/ipxe/upstream/src/Makefile" ] && [ -d "pxe/mkosi/.git" ]; then
             echo "✅ Submodules initialized via git submodule"
+            echo "🔍 DEBUG: Actual mkosi version checked out:"
+            grep '^version = ' pxe/mkosi/pyproject.toml || echo "Could not find version"
           else
             echo "⚠️  Submodules not present after git submodule, using manual fallback..."
 
             # Get the pinned commits from the Git tree (matches GitLab's GIT_SUBMODULE_STRATEGY: recursive)
             IPXE_COMMIT=$(git ls-tree HEAD pxe/ipxe/upstream | awk '{print $3}')
-            # Note: Override mkosi to v25 for GitHub Actions CI to get --no-sandbox support
-            # (v24.3 doesn't support disabling sandboxing, which is required for managed runners)
-            MKOSI_COMMIT="v25"
+            MKOSI_COMMIT=$(git ls-tree HEAD pxe/mkosi | awk '{print $3}')
 
             # Fallback: If Git tree doesn't have submodule commits (sanitized repo),
-            # read from .gitmodules
+            # read from .gitmodules which has FIXME hardcoded commits
             if [ -z "$IPXE_COMMIT" ]; then
               echo "⚠️  Git tree missing submodule metadata, reading from .gitmodules..."
               IPXE_COMMIT=$(git config -f .gitmodules --get submodule.pxe/ipxe/upstream.commit)
+              MKOSI_COMMIT=$(git config -f .gitmodules --get submodule.mkosi.commit)
             fi
 
             echo "📌 iPXE pinned to: ${IPXE_COMMIT}"
-            echo "📌 mkosi pinned to: ${MKOSI_COMMIT} (overridden for GitHub Actions)"
+            echo "📌 mkosi pinned to: ${MKOSI_COMMIT}"
 
             # Clone iPXE at the specific pinned commit
             if [ ! -f "pxe/ipxe/upstream/src/Makefile" ]; then
