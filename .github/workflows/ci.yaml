@@ -325,7 +325,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
       context_path: .
       build_args: ${{ needs.prepare.outputs.release_build_args }}
-      image_name: nvcr.io/0837451325059433/carbide-dev/carbide-x86_64
+      image_name: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu8
@@ -564,7 +564,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-x86_64
-    if: always() && github.event_name != 'schedule'
+    if: ${{ always() && github.event_name != 'schedule' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
@@ -581,7 +581,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-aarch64
-    if: always() && github.event_name != 'schedule'
+    if: ${{ always() && github.event_name != 'schedule' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
@@ -635,7 +635,8 @@ jobs:
   build-release-machine-validation-runner:
     needs:
       - prepare
-    if: always() && github.event_name != 'schedule'
+      - build-runtime-container-x86_64
+    if: ${{ always() && github.event_name != 'schedule' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.machine-validation-runner
@@ -652,7 +653,8 @@ jobs:
     needs:
       - prepare
       - build-release-machine-validation-runner
-    if: always() && github.event_name != 'schedule'
+      - build-runtime-container-x86_64
+    if: github.event_name != 'schedule'
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config
