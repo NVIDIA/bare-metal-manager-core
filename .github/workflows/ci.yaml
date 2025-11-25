@@ -690,7 +690,8 @@ jobs:
   proto-police:
     needs:
       - prepare
-    if: ${{ needs.prepare.outputs.proto_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
+    # if: ${{ needs.prepare.outputs.proto_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
+    if: true
     runs-on: linux-amd64-cpu4
     container:
       image: yoheimuta/protolint
