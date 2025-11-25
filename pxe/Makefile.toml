@@ -146,7 +146,9 @@ dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
   "ipxe-aarch64-ci",
-  "setup-apt-repo-arm64",
+  # Note: setup-apt-repo-arm64 removed - it requires forge-dpu which is not built in boot-artifacts workflow,
+  # and the apt repository is not needed for boot artifacts (only used in BFB builds)
+  # setup-apt-repo-arm64",
 ]
 
 [tasks.build-boot-artifacts-bfb]
@@ -156,7 +158,9 @@ dependencies = [
   { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
   # "bfb-aarch64",
   "ipxe-aarch64",
-  "setup-apt-repo-arm64",
+  # Note: setup-apt-repo-arm64 removed - bfb-aarch64 is commented out, so forge-dpu won't be built.
+  # When BFB build is re-enabled, uncomment this and the BFB task which builds forge-dpu.
+  # "setup-apt-repo-arm64",
 ]
 
 [tasks.build-boot-artifacts-bfb-ci]
@@ -165,7 +169,9 @@ dependencies = [
   { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
   # "bfb-aarch64-ci",
   "ipxe-aarch64-ci",
-  "setup-apt-repo-arm64",
+  # Note: setup-apt-repo-arm64 removed - bfb-aarch64-ci is commented out, so forge-dpu won't be built.
+  # When BFB build is re-enabled, uncomment this and the BFB task which builds forge-dpu.
+  # "setup-apt-repo-arm64",
 ]
 
 [tasks.create-ephemeral-image-x86-host-ci]
