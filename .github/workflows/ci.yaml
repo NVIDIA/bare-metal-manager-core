@@ -41,6 +41,7 @@ jobs:
       build_artifacts_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version }}
       powerdns_container_run: ${{ steps.base-container-gate.outputs.powerdns_container_run }}
       deploy_built_container: ${{ steps.release-gate.outputs.deploy_built_container }}
+      release_build_args: ${{ steps.release-metadata.outputs.build_args }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -200,6 +201,28 @@ jobs:
 
           echo "deploy_built_container=${DEPLOY}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare release container build args
+        id: release-metadata
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHORT_SHA: ${{ steps.version.outputs.short_sha }}
+          BUILD_VERSION: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
+          RUNTIME_VERSION: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
+        run: |
+          set -euo pipefail
+
+          BUILD_REF="nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:${BUILD_VERSION}"
+          RUNTIME_REF="nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${RUNTIME_VERSION}"
+
+          BUILD_ARGS=$(jq -n -c \
+            --arg VERSION "$VERSION" \
+            --arg SHORT_SHA "$SHORT_SHA" \
+            --arg BUILD "$BUILD_REF" \
+            --arg RUNTIME "$RUNTIME_REF" \
+            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME}')
+
+          echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
+
   # ============================================================================
   # BUILD STAGE - Base Containers
   # ============================================================================
@@ -287,49 +310,23 @@ jobs:
   # ============================================================================
   build-release-container-x86_64:
     if: ${{ always() && github.event_name != 'schedule' }}
-    runs-on: linux-amd64-cpu4
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
-    steps:
-
-      - name: Prepare release container build args
-        id: release-metadata
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
-          BUILD_VERSION: ${{ needs.prepare.outputs.build_container_x86_64_version }}
-          RUNTIME_VERSION: ${{ needs.prepare.outputs.runtime_container_x86_64_version }}
-        run: |
-          set -euo pipefail
-
-          BUILD_REF="nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:${BUILD_VERSION}"
-          RUNTIME_REF="nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${RUNTIME_VERSION}"
-
-          BUILD_ARGS=$(jq -n -c \
-            --arg VERSION "$VERSION" \
-            --arg SHORT_SHA "$SHORT_SHA" \
-            --arg BUILD "$BUILD_REF" \
-            --arg RUNTIME "$RUNTIME_REF" \
-            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME}')
-
-          echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
-          
-      - name: Build release container
-        uses: ./.github/workflows/docker-build.yml
-        with:
-          dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
-          context_path: .
-          build_args: ${{ steps.release-metadata.outputs.build_args }}
-          image_name: nvcr.io/0837451325059433/carbide-dev/carbide-x86_64
-          image_tag: ${{ needs.prepare.outputs.version }}
-          platforms: linux/amd64
-          runner: linux-amd64-cpu8
-          push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
-          load: true
-          tag_latest: false
-          secrets: inherit
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
+      context_path: .
+      build_args: ${{ needs.prepare.outputs.release_build_args }}
+      image_name: nvcr.io/0837451325059433/carbide-dev/carbide-x86_64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/amd64
+      runner: linux-amd64-cpu8
+      push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
+      load: true
+      tag_latest: false
+    secrets: inherit
 
 
   # ============================================================================
@@ -672,7 +669,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile-powerdns
-      image_name: nvcr.io/nvidian/nvforge/powerdns
+      image_name: nvcr.io/0837451325059433/carbide-dev/powerdns
       image_tag: "4.9.3"
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}"}'
       platforms: linux/amd64
