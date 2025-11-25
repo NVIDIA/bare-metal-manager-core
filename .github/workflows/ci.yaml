@@ -1,0 +1,321 @@
+name: Carbide CI
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+      - "feat/publish-image-update"
+
+env:
+  # Build configuration
+  CARGO_INCREMENTAL: 0
+  CARGO_HOME: ${{ github.workspace }}/cargo
+  FF_USE_FASTZIP: "true"
+  GIT_SUBMODULE_STRATEGY: recursive
+
+
+jobs:
+  # ============================================================================
+  # PREPARE STAGE
+  # ============================================================================
+
+  prepare:
+    runs-on: linux-amd64-cpu4
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+      build_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
+      build_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
+      runtime_container_x86_64_run: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_run }}
+      runtime_container_x86_64_version: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
+      build_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_container_aarch64_run }}
+      build_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_container_aarch64_version }}
+      build_artifacts_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_run }}
+      build_artifacts_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_version }}
+      build_artifacts_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_run }}
+      build_artifacts_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version }}
+      deploy_release_container: ${{ steps.release-gate.outputs.deploy_release_container }}
+      release_build_args: ${{ steps.release-metadata.outputs.build_args }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect build-container-x86_64 changes
+        id: build-container-changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            build_container:
+              - 'dev/docker/Dockerfile.build-container-x86_64'
+            runtime_container:
+              - 'dev/docker/Dockerfile.runtime-container-x86_64'
+            build_container_aarch64:
+              - 'dev/docker/Dockerfile.build-container-aarch64'
+            build_artifacts_x86_64:
+              - 'dev/docker/Dockerfile.build-artifacts-container-x86_64'
+            build_artifacts_aarch64:
+              - 'dev/docker/Dockerfile.build-artifacts-container-aarch64'
+
+      - name: Calculate version
+        id: version
+        run: |
+          # Get short SHA
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+          # Calculate version
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            VERSION="main-${SHORT_SHA}"
+          else
+            VERSION="dev-${SHORT_SHA}"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Calculated version: ${VERSION}"
+
+      - name: Decide if build-container-x86_64 must run
+        id: base-container-gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container }}
+          RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container }}
+          BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container_aarch64 }}
+          BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
+          BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
+        run: |
+          build_container_x86_64_run=false
+          runtime_container_x86_64_run=false
+          build_container_aarch64_run=false
+          build_artifacts_container_x86_64_run=false
+          build_artifacts_container_aarch64_run=false
+
+          if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-base-containers ]]; then
+            build_container_x86_64_run=true
+            runtime_container_x86_64_run=true
+            build_container_aarch64_run=true
+            build_artifacts_container_x86_64_run=true
+            build_artifacts_container_aarch64_run=true
+          elif [[ "${BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
+            build_container_x86_64_run=true
+          fi
+
+          if [[ "${RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
+            runtime_container_x86_64_run=true
+          fi
+
+          if [[ "${BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED}" == "true" ]]; then
+            build_container_aarch64_run=true
+          fi
+
+          if [[ "${BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
+            build_artifacts_container_x86_64_run=true
+          fi
+
+          if [[ "${BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED}" == "true" ]]; then
+            build_artifacts_container_aarch64_run=true
+          fi
+
+          echo "build_container_x86_64_run=${build_container_x86_64_run}" >> "$GITHUB_OUTPUT"
+          echo "runtime_container_x86_64_run=${runtime_container_x86_64_run}" >> "$GITHUB_OUTPUT"
+          echo "build_container_aarch64_run=${build_container_aarch64_run}" >> "$GITHUB_OUTPUT"
+          echo "build_artifacts_container_x86_64_run=${build_artifacts_container_x86_64_run}" >> "$GITHUB_OUTPUT"
+          echo "build_artifacts_container_aarch64_run=${build_artifacts_container_aarch64_run}" >> "$GITHUB_OUTPUT"
+
+          if [[ "$build_container_x86_64_run" == "true" ]]; then
+            echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "$runtime_container_x86_64_run" == "true" ]]; then
+            echo "runtime_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "runtime_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "$build_container_aarch64_run" == "true" ]]; then
+            echo "build_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "$build_artifacts_container_x86_64_run" == "true" ]]; then
+            echo "build_artifacts_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_artifacts_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "$build_artifacts_container_aarch64_run" == "true" ]]; then
+            echo "build_artifacts_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_artifacts_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Decide release container deploy strategy
+        id: release-gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+        run: |
+          DEPLOY=false
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            DEPLOY=false
+          elif [[ "${REF}" == "refs/heads/main" ]] || [[ "${REF}" =~ ^refs/heads/release/ ]] || [[ "${REF}" =~ ^refs/tags/ ]] || [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
+            DEPLOY=true
+          fi
+
+          echo "deploy_release_container=${DEPLOY}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release container build args
+        id: release-metadata
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHORT_SHA: ${{ steps.version.outputs.short_sha }}
+          BUILD_VERSION: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
+          RUNTIME_VERSION: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
+        run: |
+          set -euo pipefail
+
+          BUILD_REF="nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:${BUILD_VERSION}"
+          RUNTIME_REF="nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${RUNTIME_VERSION}"
+
+          BUILD_ARGS=$(jq -n -c \
+            --arg VERSION "$VERSION" \
+            --arg SHORT_SHA "$SHORT_SHA" \
+            --arg BUILD "$BUILD_REF" \
+            --arg RUNTIME "$RUNTIME_REF" \
+            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME}')
+
+          echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
+
+  # ============================================================================
+  # BUILD STAGE - Base Containers
+  # ============================================================================
+
+  build-container-x86_64:
+    if: needs.prepare.outputs.build_container_x86_64_run == 'true'
+    needs:
+      - prepare
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.build-container-x86_64
+      image_name: nvcr.io/0837451325059433/carbide-dev/build-container-x86_64
+      image_tag: ${{ needs.prepare.outputs.build_container_x86_64_version }}
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: true
+      load: true
+    secrets: inherit
+
+  build-container-aarch64:
+    if: needs.prepare.outputs.build_container_aarch64_run == 'true'
+    needs:
+      - prepare
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.build-container-aarch64
+      image_name: nvcr.io/0837451325059433/carbide-dev/build-container-aarch64
+      image_tag: ${{ needs.prepare.outputs.build_container_aarch64_version }}
+      platforms: linux/arm64
+      runner: linux-arm64-cpu4
+      push: true
+      load: false
+      tag_latest: true
+    secrets: inherit
+
+  build-runtime-container-x86_64:
+    if: needs.prepare.outputs.runtime_container_x86_64_run == 'true'
+    needs:
+      - prepare
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.runtime-container-x86_64
+      image_name: nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64
+      image_tag: ${{ needs.prepare.outputs.runtime_container_x86_64_version }}
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: true
+      load: true
+    secrets: inherit
+
+
+
+  build-artifacts-container-x86_64:
+    if: needs.prepare.outputs.build_artifacts_container_x86_64_run == 'true'
+    needs:
+      - prepare
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-x86_64
+      image_name: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64
+      image_tag: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: true
+      load: true
+    secrets: inherit
+
+  build-artifacts-container-aarch64:
+    if: needs.prepare.outputs.build_artifacts_container_aarch64_run == 'true'
+    needs:
+      - prepare
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-aarch64
+      image_name: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64
+      image_tag: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
+      platforms: linux/arm64
+      runner: linux-arm64-cpu4
+      push: true
+      load: false
+      tag_latest: true
+    secrets: inherit
+
+
+  # ============================================================================
+  # BUILD STAGE - Release Container
+  # ============================================================================    
+  build-release-container-x86_64:
+    # if: ${{ always() && github.event_name != 'schedule' }}
+    if: false
+    needs:
+      - prepare
+      - build-container-x86_64
+      - build-runtime-container-x86_64
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
+      context_path: .
+      build_args: ${{ needs.prepare.outputs.release_build_args }}
+      image_name: nvcr.io/0837451325059433/carbide-dev/carbide-x86_64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/amd64
+      runner: linux-amd64-cpu8
+      push: ${{ needs.prepare.outputs.deploy_release_container == 'true' }}
+      load: true
+      tag_latest: false
+    secrets: inherit
+
+  # ============================================================================
+  # BUILD STAGE - Publish Documentation
+  # ============================================================================
+
+  build-publish-documentation:
+    if: false
+    needs:
+      - prepare
+      - build-container-x86_64
+    uses: ./.github/workflows/docs.yml
+    with:
+      build_container: ${{ format('nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:{0}', (needs['build-container-x86_64'].result == 'success' && needs.prepare.outputs.version) || 'latest') }}
+      runner: linux-amd64-cpu4
+    secrets: inherit
+
