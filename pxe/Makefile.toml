@@ -154,7 +154,7 @@ dependencies = [
   "mkdir-static",
   "cleanup-pxe-submodule",
   { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
-  "bfb-aarch64",
+  # "bfb-aarch64",
   "ipxe-aarch64",
   "setup-apt-repo-arm64",
 ]
@@ -163,7 +163,7 @@ dependencies = [
 dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
-  "bfb-aarch64-ci",
+  # "bfb-aarch64-ci",
   "ipxe-aarch64-ci",
   "setup-apt-repo-arm64",
 ]
@@ -635,13 +635,15 @@ args = [
 ]
 cwd = "ipxe/upstream/src"
 
-[tasks.bfb-aarch64-ci]
-env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
-run_task = "internal-bfb-aarch64-ci"
+# FIXME: Bring back the step once URM migrated.
+# [tasks.bfb-aarch64-ci]
+# env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
+# run_task = "internal-bfb-aarch64-ci"
 
-[tasks.bfb-aarch64]
-env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
-run_task = "internal-bfb-aarch64"
+# FIXME: Bring back the step once URM migrated.
+# [tasks.bfb-aarch64]
+# env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
+# run_task = "internal-bfb-aarch64"
 
 [tasks.internal-bfb-aarch64-ci]
 category = "iPXE Kernel"
@@ -654,7 +656,7 @@ dependencies = [
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi-ci",
-  "download-docker-containers",
+  # "download-docker-containers",
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb-ci",
   "bfb-add-debs-to-bfb",
@@ -688,7 +690,7 @@ dependencies = [
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi",
-  "download-docker-containers",
+  # "download-docker-containers",
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb",
   "bfb-add-debs-to-bfb",
@@ -773,11 +775,11 @@ command = "docker"
 args = ["save", "--output=doca_hbn.tar", "${DOCA_HBN_URI}"]
 cwd = "${BUILD_LOCATION}"
 
-[tasks.download-docker-containers]
-category = "iPXE Kernel"
-description = "Download all the docker containers from artifactory"
-command = "wget"
-args = ["-Nnv", "${URM_LOCATION}/doca_hbn.tar", "-P", "${BUILD_LOCATION}"]
+# [tasks.download-docker-containers]
+# category = "iPXE Kernel"
+# description = "Download all the docker containers from artifactory"
+# command = "wget"
+# args = ["-Nnv", "${URM_LOCATION}/doca_hbn.tar", "-P", "${BUILD_LOCATION}"]
 
 [tasks.bfb-extract-ifconfig]
 category = "iPXE Kernel"
