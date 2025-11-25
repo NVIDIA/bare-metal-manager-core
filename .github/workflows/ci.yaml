@@ -5,7 +5,11 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
+<<<<<<< HEAD
       - "for-review/publish-x86-ephemeral-images"
+=======
+      - "for-review/admin-cli"
+>>>>>>> b111680b6 (chore: test release and cli build)
 
 env:
   # Build configuration
@@ -296,8 +300,7 @@ jobs:
   # BUILD STAGE - Release Container
   # ============================================================================
   build-release-container-x86_64:
-    # if: ${{ always() && github.event_name != 'schedule' }}
-    if: false
+    if: ${{ always() && github.event_name != 'schedule' }}
     needs:
       - prepare
       - build-container-x86_64
@@ -497,6 +500,7 @@ jobs:
     secrets: inherit
 
   # ============================================================================
+<<<<<<< HEAD
   # SECURITY STAGE - Placeholders
   # ============================================================================
 
@@ -537,3 +541,73 @@ jobs:
           echo "============================================"
           echo "TODO: Implement license compliance checking"
           echo "Version: ${{ needs.prepare.outputs.version }}"
+=======
+  # BUILD STAGE - Forge CLI
+  # ============================================================================
+
+  build-forge-cli-x86_64:
+    needs:
+      - prepare
+      - build-artifacts-container-x86_64
+    if: always() && github.event_name != 'schedule'
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-forge-cli
+      image_name: nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}"}'
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: github.event_name != 'pull_request'
+      load: true
+    secrets: inherit
+
+  build-forge-cli-aarch64:
+    needs:
+      - prepare
+      - build-artifacts-container-aarch64
+    if: always() && github.event_name != 'schedule'
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-forge-cli
+      image_name: nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}"}'
+      platforms: linux/arm64
+      runner: linux-arm64-cpu4
+      push: github.event_name != 'pull_request'
+      load: true
+    secrets: inherit
+
+  merge-manifests-forge-cli:
+    needs:
+      - prepare
+      - build-forge-cli-x86_64
+      - build-forge-cli-aarch64
+    if: always() && github.event_name != 'schedule' && github.event_name != 'pull_request'
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to NVCR
+        uses: ./.github/actions/docker-auth
+        with:
+          username: ${{ secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          docker buildx imagetools create -t \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:${{ needs.prepare.outputs.version }} \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
+          
+          docker buildx imagetools create -t \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:latest \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}  
+>>>>>>> b111680b6 (chore: test release and cli build)
