@@ -5,11 +5,7 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
-<<<<<<< HEAD
-      - "for-review/publish-x86-ephemeral-images"
-=======
       - "for-review/admin-cli"
->>>>>>> b111680b6 (chore: test release and cli build)
 
 env:
   # Build configuration
@@ -40,6 +36,7 @@ jobs:
       build_artifacts_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_run }}
       build_artifacts_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version }}
       powerdns_container_run: ${{ steps.base-container-gate.outputs.powerdns_container_run }}
+      proto_files_changed: ${{ steps.base-container-gate.outputs.proto_files_changed }}
       deploy_built_container: ${{ steps.release-gate.outputs.deploy_built_container }}
       release_build_args: ${{ steps.release-metadata.outputs.build_args }}
     steps:
@@ -65,6 +62,8 @@ jobs:
               - 'dev/docker/Dockerfile.build-artifacts-container-aarch64'
             powerdns_container:
               - 'dev/docker/Dockerfile-powerdns'
+            proto_files:
+              - '**/*.proto'
 
       - name: Calculate version
         id: version
@@ -109,6 +108,7 @@ jobs:
           BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
           BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
           POWERDNS_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.powerdns_container }}
+          PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.proto_files }}
         run: |
           build_container_x86_64_run=false
           runtime_container_x86_64_run=false
@@ -116,6 +116,7 @@ jobs:
           build_artifacts_container_x86_64_run=false
           build_artifacts_container_aarch64_run=false
           powerdns_container_run=false
+          proto_files_changed=false
 
           if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-base-containers ]]; then
             build_container_x86_64_run=true
@@ -129,6 +130,10 @@ jobs:
 
           if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-powerdns ]] || [[ "${POWERDNS_DOCKERFILE_CHANGED}" == "true" ]]; then
              powerdns_container_run=true
+          fi
+
+          if [[ "${PROTO_FILES_CHANGED}" == "true" ]]; then
+             proto_files_changed=true
           fi
 
           if [[ "${RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
@@ -153,6 +158,7 @@ jobs:
           echo "build_artifacts_container_x86_64_run=${build_artifacts_container_x86_64_run}" >> "$GITHUB_OUTPUT"
           echo "build_artifacts_container_aarch64_run=${build_artifacts_container_aarch64_run}" >> "$GITHUB_OUTPUT"
           echo "powerdns_container_run=${powerdns_container_run}" >> "$GITHUB_OUTPUT"
+          echo "proto_files_changed=${proto_files_changed}" >> "$GITHUB_OUTPUT"
 
           if [[ "$build_container_x86_64_run" == "true" ]]; then
             echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -193,7 +199,7 @@ jobs:
         run: |
           DEPLOY=false
 
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+          if [[ "${EVENT_NAME}" == "pull_request" ]] || [[ "${REF}" =~ pull-request/[0-9]+ ]] ; then
             DEPLOY=false
           elif [[ "${REF}" == "refs/heads/main" ]] || [[ "${REF}" =~ ^refs/heads/release/ ]] || [[ "${REF}" =~ ^refs/tags/ ]] || [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
             DEPLOY=true
@@ -272,6 +278,8 @@ jobs:
       push: true
       load: true
     secrets: inherit
+
+
 
   build-artifacts-container-x86_64:
     if: needs.prepare.outputs.build_artifacts_container_x86_64_run == 'true'
@@ -567,7 +575,7 @@ jobs:
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ github.event_name != 'pull_request' }}
+      push: ${{ !contains(github.ref, 'pull-request/') }}      
       load: true
     secrets: inherit
 
@@ -584,7 +592,7 @@ jobs:
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}"}'
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ github.event_name != 'pull_request' }}
+      push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
     secrets: inherit
 
@@ -593,7 +601,7 @@ jobs:
       - prepare
       - build-forge-cli-x86_64
       - build-forge-cli-aarch64
-    if: always() && github.event_name != 'schedule' && github.event_name != 'pull_request'
+    if: github.event_name != 'schedule' && !contains(github.ref, 'pull-request/')
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
@@ -619,9 +627,6 @@ jobs:
             nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:latest \
             nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
             nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}  
-<<<<<<< HEAD
->>>>>>> b111680b6 (chore: test release and cli build)
-=======
 
 
   # ============================================================================
@@ -641,7 +646,7 @@ jobs:
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${{ needs.prepare.outputs.runtime_container_x86_64_version }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ github.event_name != 'pull_request' }}
+      push: ${{ !contains(github.ref, 'pull-request/') }}
       load: false
     secrets: inherit
 
@@ -658,9 +663,13 @@ jobs:
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${{ needs.prepare.outputs.runtime_container_x86_64_version }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ github.event_name != 'pull_request' }}
+      push: ${{ !contains(github.ref, 'pull-request/') }}
       load: false
     secrets: inherit
+
+  # ============================================================================
+  # BUILD STAGE - PowerDNS
+  # ============================================================================
 
   build-powerdns-container:
     needs:
@@ -674,7 +683,20 @@ jobs:
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: true
+      push: ${{ !contains(github.ref, 'pull-request/') }}
       load: false
     secrets: inherit
->>>>>>> 2e3e07301 (chore: test machine valid build)
+
+  proto-police:
+    needs:
+      - prepare
+    if: ${{ needs.prepare.outputs.proto_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
+    runs-on: linux-amd64-cpu4
+    container:
+      image: yoheimuta/protolint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run Protolint
+        run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
