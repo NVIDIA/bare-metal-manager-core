@@ -558,7 +558,7 @@ jobs:
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: github.event_name != 'pull_request'
+      push: ${{ github.event_name != 'pull_request' }}
       load: true
     secrets: inherit
 
@@ -575,7 +575,7 @@ jobs:
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}"}'
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: github.event_name != 'pull_request'
+      push: ${{ github.event_name != 'pull_request' }}
       load: true
     secrets: inherit
 
