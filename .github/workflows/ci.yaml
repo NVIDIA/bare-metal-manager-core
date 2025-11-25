@@ -279,8 +279,6 @@ jobs:
       load: true
     secrets: inherit
 
-
-
   build-artifacts-container-x86_64:
     if: needs.prepare.outputs.build_artifacts_container_x86_64_run == 'true'
     needs:
