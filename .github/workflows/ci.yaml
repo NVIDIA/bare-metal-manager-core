@@ -362,7 +362,8 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-x86_64
-    if: ${{ always() && github.event_name != 'schedule' }}
+    # Run even if container build was skipped (uses 'latest' in that case), but not if prepare failed
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: x86_64
@@ -377,7 +378,8 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-aarch64
-    if: ${{ always() && github.event_name != 'schedule' }}
+    # Run even if container build was skipped (uses 'latest' in that case), but not if prepare failed
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: aarch64
@@ -398,7 +400,8 @@ jobs:
     needs:
       - prepare
       - build-boot-artifacts-x86
-    if: ${{ always() && github.event_name != 'schedule' }}
+    # Run only if boot artifacts succeeded (we need those artifacts)
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.build-boot-artifacts-x86.result == 'success' }}
     uses: ./.github/workflows/build-ephemeral-images.yml
     with:
       arch: x86_64
@@ -411,7 +414,8 @@ jobs:
     needs:
       - prepare
       - build-boot-artifacts-aarch64
-    if: ${{ always() && github.event_name != 'schedule' }}
+    # Run only if boot artifacts succeeded (we need those artifacts)
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.build-boot-artifacts-aarch64.result == 'success' }}
     uses: ./.github/workflows/build-ephemeral-images.yml
     with:
       arch: aarch64
@@ -429,7 +433,8 @@ jobs:
       - prepare
       - build-boot-artifacts-x86
       - build-ephemeral-image-x86
-    if: ${{ always() && github.event_name != 'schedule' }}
+    # Run if boot and ephemeral jobs succeeded or were skipped, but not if they failed
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.build-boot-artifacts-x86.result != 'failure' && needs.build-ephemeral-image-x86.result != 'failure' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
@@ -452,7 +457,8 @@ jobs:
       - prepare
       - build-boot-artifacts-aarch64
       - build-ephemeral-image-aarch64
-    if: ${{ always() && github.event_name != 'schedule' }}
+    # Run if boot and ephemeral jobs succeeded or were skipped, but not if they failed
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.build-boot-artifacts-aarch64.result != 'failure' && needs.build-ephemeral-image-aarch64.result != 'failure' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64

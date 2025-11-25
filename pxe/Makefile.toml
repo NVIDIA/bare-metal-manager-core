@@ -190,9 +190,11 @@ dependencies = [
   "mkosi-copy-qcow-imager-to-webroot-x86_64",
   "mkosi-copy-scout-to-webroot-x86_64",
   "mkosi-copy-scout-loader-to-webroot-x86_64",
-  "mkosi-clean-qcow-imager",
-  "mkosi-clean-scout-x86_64",
-  "mkosi-clean-scout-loader-x86_64",
+  # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in CI.
+  # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
+  # "mkosi-clean-qcow-imager",
+  # "mkosi-clean-scout-x86_64",
+  # "mkosi-clean-scout-loader-x86_64",
 ]
 
 [tasks.create-ephemeral-image-x86-host]
@@ -233,9 +235,11 @@ dependencies = [
   "mkosi-copy-scout-to-webroot-aarch64",
   "mkosi-copy-scout-loader-to-webroot-aarch64",
   "mkosi-copy-qcow-imager-to-webroot-aarch64",
-  "mkosi-clean-scout-aarch64",
-  "mkosi-clean-scout-loader-aarch64",
-  "mkosi-clean-qcow-imager-aarch64",
+  # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in CI.
+  # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
+  # "mkosi-clean-scout-aarch64",
+  # "mkosi-clean-scout-loader-aarch64",
+  # "mkosi-clean-qcow-imager-aarch64",
 ]
 
 [tasks.create-ephemeral-image-arm-host]

@@ -90,6 +90,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-${{ github.run_id }}'
+          merge-multiple: true
+
+      - name: Verify artifacts downloaded
+        run: |
+          echo "=== Verifying artifacts for Docker build ==="
+          if [ -d "pxe/static/blobs/internal" ]; then
+            echo "✅ pxe/static/blobs/internal directory exists"
+            echo "Contents:"
+            ls -lah pxe/static/blobs/internal/ || true
+            find pxe/static/blobs/internal/ -type f -ls || true
+          else
+            echo "❌ ERROR: pxe/static/blobs/internal directory not found!"
+            echo "Available directories:"
+            ls -lah pxe/static/ || echo "pxe/static/ not found"
+            ls -lah pxe/static/blobs/ || echo "pxe/static/blobs/ not found"
+            exit 1
+          fi
+
       - name: Set up Docker Buildx
         if: inputs.push
         uses: docker/setup-buildx-action@v3
@@ -165,4 +187,3 @@ jobs:
           echo "  Platforms: ${{ inputs.platforms }}"
           echo "  Pushed: ${{ inputs.push }}"
           echo "  Loaded locally: ${{ inputs.load && !inputs.push }}"
-
