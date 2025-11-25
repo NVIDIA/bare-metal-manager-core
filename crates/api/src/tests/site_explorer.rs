@@ -47,7 +47,7 @@ use rpc::site_explorer::{
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
-use crate::cfg::file::SiteExplorerConfig;
+use crate::cfg::file::{SiteExplorerConfig, SiteExplorerExploreMode};
 use crate::site_explorer::SiteExplorer;
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
@@ -889,6 +889,8 @@ async fn test_site_explorer_audit_exploration_results(
         switches_created_per_run: 1,
         rotate_switch_nvos_credentials: Arc::new(false.into()),
         use_onboard_nic: Arc::new(false.into()),
+        // Tests use MockEndpointExplorer. So this doesn't affect anything.
+        explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
