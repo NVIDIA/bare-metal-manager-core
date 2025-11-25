@@ -33,6 +33,7 @@ path = "src/main.rs"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
+bmc-explorer = { path = "../bmc-explorer" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-network = { path = "../network", features = ["sqlx"] }
@@ -99,6 +100,7 @@ mac_address = { workspace = true }
 md5 = { workspace = true }
 num-bigint-dig = { workspace = true }
 num_cpus = { workspace = true }
+nv-redfish = { workspace = true, features = [ "bmc-http", "oem-hpe" ] }
 oauth2 = { default-features = false, workspace = true }
 oid-registry = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }

@@ -31,8 +31,7 @@ use tokio::sync::Mutex;
 use crate::SecretsError;
 
 const PASSWORD_LEN: usize = 16;
-
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Credentials {
     UsernamePassword { username: String, password: String },
     //TODO: maybe add cert here?
