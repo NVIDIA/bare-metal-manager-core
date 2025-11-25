@@ -411,6 +411,7 @@ jobs:
     needs:
       - prepare
       - build-boot-artifacts-aarch64
+    if: ${{ always() && github.event_name != 'schedule' }}
     uses: ./.github/workflows/build-ephemeral-images.yml
     with:
       arch: aarch64
@@ -424,11 +425,11 @@ jobs:
   # ============================================================================
 
   build-release-artifacts-x86:
-    if: false
     needs:
       - prepare
       - build-boot-artifacts-x86
       - build-ephemeral-image-x86
+    if: ${{ always() && github.event_name != 'schedule' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
@@ -447,11 +448,11 @@ jobs:
     secrets: inherit
 
   build-release-artifacts-aarch64:
-    if: false
     needs:
       - prepare
       - build-boot-artifacts-aarch64
       - build-ephemeral-image-aarch64
+    if: ${{ always() && github.event_name != 'schedule' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
