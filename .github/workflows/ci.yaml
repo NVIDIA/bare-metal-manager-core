@@ -39,10 +39,8 @@ jobs:
       build_artifacts_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_version }}
       build_artifacts_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_run }}
       build_artifacts_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version }}
-      deploy_release_container: ${{ steps.release-gate.outputs.deploy_release_container }}
-      release_build_args: ${{ steps.release-metadata.outputs.build_args }}
       powerdns_container_run: ${{ steps.base-container-gate.outputs.powerdns_container_run }}
-
+      deploy_built_container: ${{ steps.release-gate.outputs.deploy_built_container }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -200,9 +198,7 @@ jobs:
             DEPLOY=true
           fi
 
-          echo "deploy_release_container=${DEPLOY}" >> "$GITHUB_OUTPUT"
-
-
+          echo "deploy_built_container=${DEPLOY}" >> "$GITHUB_OUTPUT"
 
   # ============================================================================
   # BUILD STAGE - Base Containers
@@ -297,13 +293,14 @@ jobs:
       - build-container-x86_64
       - build-runtime-container-x86_64
     steps:
+
       - name: Prepare release container build args
         id: release-metadata
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          SHORT_SHA: ${{ steps.version.outputs.short_sha }}
-          BUILD_VERSION: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
-          RUNTIME_VERSION: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+          BUILD_VERSION: ${{ needs.prepare.outputs.build_container_x86_64_version }}
+          RUNTIME_VERSION: ${{ needs.prepare.outputs.runtime_container_x86_64_version }}
         run: |
           set -euo pipefail
 
@@ -318,6 +315,7 @@ jobs:
             '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME}')
 
           echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
+          
       - name: Build release container
         uses: ./.github/workflows/docker-build.yml
         with:
@@ -328,7 +326,7 @@ jobs:
           image_tag: ${{ needs.prepare.outputs.version }}
           platforms: linux/amd64
           runner: linux-amd64-cpu8
-          push: ${{ needs.prepare.outputs.deploy_release_container == 'true' }}
+          push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
           load: true
           tag_latest: false
           secrets: inherit
@@ -627,6 +625,12 @@ jobs:
 <<<<<<< HEAD
 >>>>>>> b111680b6 (chore: test release and cli build)
 =======
+
+
+  # ============================================================================
+  # BUILD STAGE - Machine Validation
+  # ============================================================================
+
 
   build-release-machine-validation-runner:
     needs:
