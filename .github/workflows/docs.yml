@@ -1,0 +1,121 @@
+name: Publish Github Pages Documentation
+
+on:
+  # Force trigger on a non-protected branch. Useful for testing.
+  # push:
+  #   branches:
+  #     - feat/publish-gh-pages
+  #   paths:
+  #     - 'book/**'
+  #     - '.github/workflows/docs.yml'
+
+   # Allow manual trigger. It will only works on default branches.
+  workflow_dispatch:
+    inputs:
+      build_container:
+        description: 'Build container to use'
+        required: false
+        default: 'nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:latest'
+        type: string
+      runner:
+        description: 'Runner label to use'
+        required: false
+        default: 'linux-amd64-cpu4'
+        type: string
+
+  workflow_call:
+    inputs:
+      build_container:
+        description: 'Build container to use'
+        required: true
+        type: string
+      runner:
+        description: 'Runner label to use'
+        required: false
+        default: 'linux-amd64-cpu4'
+        type: string
+
+# Sets permissions for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  packages: read  # Required to pull Docker images from GHCR
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  # Default build container if not specified via workflow_dispatch
+  BUILD_CONTAINER: ${{ inputs.build_container || 'nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:latest' }}
+  RUNNER: ${{ inputs.runner || 'linux-amd64-cpu4' }}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner || 'linux-amd64-cpu4' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Docker authentication
+        uses: ./.github/actions/docker-auth
+        with:
+          username: ${{ secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Pull build container
+        run: |
+          echo "Pulling build container: ${BUILD_CONTAINER}"
+          docker pull ${BUILD_CONTAINER}
+
+      - name: Build documentation in container
+        run: |
+          # Set up environment variables for container
+          ENV_ARGS="-e CARGO_HOME=/workspace/cargo"
+          ENV_ARGS="$ENV_ARGS -e CARGO_INCREMENTAL=0"
+          ENV_ARGS="$ENV_ARGS -e CACHE_DIRECTORY=/workspace/cache"
+          ENV_ARGS="$ENV_ARGS -e LOGNAME=root"
+          ENV_ARGS="$ENV_ARGS -e KEA_BIN_PATH=/usr/bin"
+          ENV_ARGS="$ENV_ARGS -e KEA_INCLUDE_PATH=/usr/include/kea"
+
+          # Build documentation inside the build container
+          # The container already has mdbook, mdbook-mermaid, mdbook-plantuml, and cargo-make installed
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            ${ENV_ARGS} \
+            ${BUILD_CONTAINER} \
+            cargo make book-compile
+
+      - name: Verify build output
+        run: |
+          echo "Checking if documentation was built successfully..."
+          ls -lah ${{ github.workspace }}/public/
+          echo "✅ Documentation built successfully"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ github.workspace }}/public
+
+  # Before deploying, make sure the branch is allowed in gh-pages protection rules
+  # https://github.com/NVIDIA/carbide-core-snapshot/settings/environments
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ${{ inputs.runner || 'linux-amd64-cpu4' }}
+    needs: build
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
