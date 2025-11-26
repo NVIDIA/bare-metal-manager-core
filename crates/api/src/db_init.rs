@@ -221,6 +221,9 @@ pub(crate) async fn create_admin_vpc(
     let admin_vpc = NewVpc {
         id: uuid::Uuid::new_v4().into(),
         tenant_organization_id: "carbide_internal".to_string(),
+        // For consistency, but admin routing profile is defined in-line in the
+        // FNN config.
+        routing_profile_type: Some(model::tenant::RoutingProfileType::Admin),
         network_security_group_id: None,
         network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {

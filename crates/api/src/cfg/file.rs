@@ -412,6 +412,25 @@ pub struct FnnConfig {
     pub common_internal_route_target: Option<RouteTargetConfig>,
     #[serde(default)]
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
+
+    #[serde(default)]
+    pub routing_profiles: HashMap<String, FnnRoutingProfileConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
+pub struct FnnRoutingProfileConfig {
+    /// These are used for import policies to import routes
+    /// that match these targets.
+    #[serde(default)]
+    pub route_target_imports: Vec<RouteTargetConfig>,
+
+    /// These are used for tagging routes exported by the DPU
+    #[serde(default)]
+    pub route_targets_on_exports: Vec<RouteTargetConfig>,
+
+    /// Is this an internal or external tenant/VPC profile
+    #[serde(default)]
+    pub internal: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -426,6 +445,10 @@ pub struct AdminFnnConfig {
     // if a vpc with exiting vni exists and network_segment table has this vpc attached to admin
     // segment, do nothing else throw a error and panic.
     pub vpc_vni: Option<u32>,
+
+    /// The inline definition for the routing config to use for the admin network.
+    #[serde(default)]
+    pub routing_profile: FnnRoutingProfileConfig,
 }
 
 impl CarbideConfig {

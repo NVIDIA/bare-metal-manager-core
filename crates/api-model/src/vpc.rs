@@ -26,6 +26,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::metadata::Metadata;
+use crate::tenant::RoutingProfileType;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
@@ -38,6 +39,7 @@ pub struct Vpc {
     pub deleted: Option<DateTime<Utc>>,
     pub tenant_keyset_id: Option<String>,
     pub network_virtualization_type: VpcVirtualizationType,
+    pub routing_profile_type: Option<RoutingProfileType>,
     // Option because we can't allocate it until DB generates an id for us
     pub vni: Option<i32>,
     pub dpa_vni: Option<i32>,
@@ -51,6 +53,7 @@ pub struct NewVpc {
     pub network_virtualization_type: VpcVirtualizationType,
     pub metadata: Metadata,
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
+    pub routing_profile_type: Option<RoutingProfileType>,
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +84,8 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             labels: vpc_labels.0,
         };
 
+        let routing_profile_type: Option<String> = row.try_get("routing_profile_type")?;
+
         // TODO(chet): Once `tenant_keyset_id` is taken care of,
         // this entire FromRow implementation can go away with a
         // rename of `tenant_organization_id` to match (or just
@@ -95,6 +100,10 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             deleted: row.try_get("deleted")?,
             tenant_keyset_id: None, //TODO: fix this once DB gets updated
             network_virtualization_type: row.try_get("network_virtualization_type")?,
+            routing_profile_type: routing_profile_type
+                .map(|p| p.parse::<RoutingProfileType>())
+                .transpose()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
             vni: row.try_get("vni")?,
             dpa_vni: row.try_get("dpa_vni")?,
             metadata,
@@ -184,6 +193,7 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
                     RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
+            routing_profile_type: Some(RoutingProfileType::External),
             network_virtualization_type: virt_type,
             metadata,
         })

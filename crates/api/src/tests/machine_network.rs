@@ -196,6 +196,7 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: default_tenant_org.to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: default_tenant_org.to_string(),
                 description: "".to_string(),

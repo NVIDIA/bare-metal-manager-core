@@ -100,6 +100,7 @@ async fn test_network_security_group_create(
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: default_tenant_org.to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: default_tenant_org.to_string(),
                 description: "".to_string(),
@@ -114,6 +115,7 @@ async fn test_network_security_group_create(
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: tenant_org2.to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: tenant_org2.to_string(),
                 description: "".to_string(),

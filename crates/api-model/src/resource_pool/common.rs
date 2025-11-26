@@ -29,6 +29,8 @@ pub const VLANID: &str = "vlan-id";
 /// vpc-vni pool: L3VNI for the whole VPC
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VPC_VNI: &str = "vpc-vni";
+/// Must match a pool defined in dev/resource_pools.toml
+pub const EXTERNAL_VPC_VNI: &str = "external-vpc-vni";
 /// DPU Specific ASN for use with FNN
 /// Must match a pool defined in dev/resource_pools.toml
 pub const FNN_ASN: &str = "fnn-asn";
@@ -71,6 +73,7 @@ pub struct EthernetPools {
     pub pool_vlan_id: Arc<ResourcePool<i16>>,
     pub pool_vni: Arc<ResourcePool<i32>>,
     pub pool_vpc_vni: Arc<ResourcePool<i32>>,
+    pub pool_external_vpc_vni: Arc<ResourcePool<i32>>,
     pub pool_fnn_asn: Arc<ResourcePool<u32>>,
     pub pool_vpc_dpu_loopback_ip: Arc<ResourcePool<Ipv4Addr>>,
     pub pool_secondary_vtep_ip: Arc<ResourcePool<Ipv4Addr>>,

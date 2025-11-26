@@ -296,6 +296,27 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         Infrastructure: infra,
         HbnVersion: conf.hbn_version,
         Tenant: TmplComputeTenant {
+            RoutingProfile: conf
+                .ct_routing_profile
+                .as_ref()
+                .map(|rt| TmplRoutingProfile {
+                    RouteTargetImports: rt
+                        .route_target_imports
+                        .iter()
+                        .map(|rt| TmplRouteTargetConfig {
+                            ASN: rt.asn,
+                            VNI: rt.vni,
+                        })
+                        .collect(),
+                    RouteTargetsOnExports: rt
+                        .route_targets_on_exports
+                        .iter()
+                        .map(|rt| TmplRouteTargetConfig {
+                            ASN: rt.asn,
+                            VNI: rt.vni,
+                        })
+                        .collect(),
+                }),
             VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
             l3vniVLAN: 0, // unused -- TODO(chet): unique per DPU within a VPC
@@ -699,7 +720,7 @@ fn vni_to_svi_mac(vni: u32) -> eyre::Result<MacAddress> {
     sanitized_mac(&format!("{vni:012}"))
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct RouteTargetConfig {
     pub asn: u32,
     pub vni: u32,
@@ -754,6 +775,13 @@ pub struct NvueConfig {
     pub ct_access_vlans: Vec<VlanConfig>,
     pub ct_internet_l3_vni: Option<u32>,
     pub ct_network_security_group_rules: Option<Vec<NetworkSecurityGroupRule>>,
+    pub ct_routing_profile: Option<RoutingProfile>,
+}
+
+#[derive(Clone, Deserialize, Debug)]
+pub struct RoutingProfile {
+    pub route_target_imports: Vec<RouteTargetConfig>,
+    pub route_targets_on_exports: Vec<RouteTargetConfig>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -981,6 +1009,13 @@ struct TmplNetworkSecurityGroupRule {
 
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
+struct TmplRoutingProfile {
+    RouteTargetImports: Vec<TmplRouteTargetConfig>,
+    RouteTargetsOnExports: Vec<TmplRouteTargetConfig>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug)]
 struct TmplComputeTenant {
     /// Tenant name/id with a max of 15 chars, because it's also used for the interface name.
     /// Linux is limited to 15 chars for interface names.
@@ -999,9 +1034,10 @@ struct TmplComputeTenant {
     /// config as `vlan: {{ .l3vniVLAN }}`.
     l3vniVLAN: u32,
 
-    /// VrfLoopback is the tenant loopback IP assigned to each DPU,
-    /// which is allocated from the interface-specific /30 (it's the
-    /// first IP in the allocation).
+    /// VrfLoopback is the tenant loopback IP assigned to each DPU.
+    /// It was originall expected to be allocated from the interface-specific
+    /// /30 (it's the first IP in the allocation), but it's actually allocated
+    /// from a dedicated resource-pool, and interfaces get /31s.
     VrfLoopback: String, // XXX: This is in the Classic template -- where does the IP come from?
 
     PortConfigs: Vec<TmplConfigPort>,
@@ -1028,6 +1064,8 @@ struct TmplComputeTenant {
 
     HasVpcPeerVnis: bool,
     VpcPeerVnis: Vec<TmplVni>,
+
+    RoutingProfile: Option<TmplRoutingProfile>,
 }
 
 #[allow(non_snake_case)]
