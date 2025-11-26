@@ -10,9 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use model::ConfigValidationError;
 use model::metadata::Metadata;
+use model::tenant::RoutingProfileType;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -55,6 +57,7 @@ pub(crate) async fn create(
     let rpc::CreateTenantRequest {
         organization_id,
         metadata,
+        routing_profile_type,
     } = request.into_inner();
 
     let metadata: Metadata = metadata_to_valid_tenant_metadata(metadata)?;
@@ -63,11 +66,32 @@ pub(crate) async fn create(
 
     let mut txn = api.txn_begin("create_tenant").await?;
 
-    let response = db::tenant::create_and_persist(organization_id, metadata, &mut txn)
-        .await?
-        .try_into()
-        .map(Response::new)
-        .map_err(CarbideError::from)?;
+    let response = db::tenant::create_and_persist(
+        organization_id,
+        metadata,
+        if api.runtime_config.fnn.is_none() {
+            None
+        } else {
+            routing_profile_type
+                .map(rpc::RoutingProfileType::try_from)
+                .transpose()
+                .map_err(|e| {
+                    CarbideError::from(RpcDataConversionError::InvalidValue(
+                        e.to_string(),
+                        "RoutingProfileType".to_string(),
+                    ))
+                })?
+                .map(RoutingProfileType::try_from)
+                .transpose()
+                .map_err(CarbideError::from)?
+                .or(Some(RoutingProfileType::External))
+        },
+        &mut txn,
+    )
+    .await?
+    .try_into()
+    .map(Response::new)
+    .map_err(CarbideError::from)?;
 
     txn.commit().await?;
 

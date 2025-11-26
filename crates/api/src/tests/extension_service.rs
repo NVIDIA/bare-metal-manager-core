@@ -39,6 +39,7 @@ async fn create_test_tenants(env: &TestEnv) -> Result<(), eyre::Report> {
         .api
         .create_tenant(tonic::Request::new(rpc::CreateTenantRequest {
             organization_id: "best_org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::Metadata {
                 name: "best_org".to_string(),
                 description: "".to_string(),
@@ -52,6 +53,7 @@ async fn create_test_tenants(env: &TestEnv) -> Result<(), eyre::Report> {
         .api
         .create_tenant(tonic::Request::new(rpc::CreateTenantRequest {
             organization_id: "another_org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::Metadata {
                 name: "another_org".to_string(),
                 description: "".to_string(),

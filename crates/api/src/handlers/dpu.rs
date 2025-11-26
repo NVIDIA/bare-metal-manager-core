@@ -162,13 +162,20 @@ pub(crate) async fn get_managed_host_network_config_inner(
         None
     };
 
-    let tenant_interfaces = match &snapshot.instance {
-        None => vec![],
+    let admin_vpc_routing_profile = api
+        .runtime_config
+        .fnn
+        .as_ref()
+        .and_then(|f| f.admin_vpc.as_ref())
+        .map(|v| &v.routing_profile);
+
+    let (routing_profile, tenant_interfaces) = match &snapshot.instance {
+        None => (admin_vpc_routing_profile, vec![]),
         // We don't support secondary DPU yet.
         // If admin network is to be used for this managedhost, why to send old tenant data, which
         // is just to be deleted.
         Some(_instance) if use_admin_network => {
-            vec![]
+            (admin_vpc_routing_profile, vec![])
         }
         Some(_instance)
             // If instance is waiting for network segment to come up in READY state, stay on admin
@@ -182,7 +189,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         {
             // Should/Can we still query and return the NSG of the VPC so that
             // policies can be configured on the DPU while interfaces are still coming up?
-            vec![]
+            (admin_vpc_routing_profile, vec![])
         }
         Some(instance) => {
             let interfaces = &instance.config.network.interfaces;
@@ -193,6 +200,29 @@ pub(crate) async fn get_managed_host_network_config_inner(
             };
             let vpc = db::vpc::find_by_segment(txn, network_segment_id)
                 .await?;
+
+            let routing_profile =  if vpc.network_virtualization_type == VpcVirtualizationType::Fnn {
+                api
+                    .runtime_config
+                    .fnn
+                    .as_ref()
+                    .map(|f| {
+                        let Some(profile_type) = vpc.routing_profile_type.map(|t| t.to_string()) else {
+                            return Err(CarbideError::Internal{ message: "tenant routing profile type not found in tenant record".to_string()});
+                        };
+
+                        let Some(profile) = f.routing_profiles.get(&profile_type) else {
+                            return Err(CarbideError::NotFoundError {
+                                kind: "routing profile type found in tenant record is not defined",
+                                id: profile_type,
+                            });
+                        };
+                    Ok(profile)
+                })
+                .transpose()?
+            } else {
+                None
+            };
 
             // So the network_virtualization_type historically didn't come from the VPC table,
             // even though the value was being set there, and we're in the process of changing
@@ -413,7 +443,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 tenant_interfaces.push(tenant_interface);
             }
 
-            tenant_interfaces
+            (routing_profile, tenant_interfaces)
         }
     };
 
@@ -603,6 +633,24 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     asn: rt.asn,
                     vni: rt.vni,
                 })
+        }),
+        routing_profile: routing_profile.map(|p| rpc::RoutingProfile {
+            route_target_imports: p
+                .route_target_imports
+                .iter()
+                .map(|rt| rpc_common::RouteTarget {
+                    asn: rt.asn,
+                    vni: rt.vni,
+                })
+                .collect(),
+            route_targets_on_exports: p
+                .route_targets_on_exports
+                .iter()
+                .map(|rt| rpc_common::RouteTarget {
+                    asn: rt.asn,
+                    vni: rt.vni,
+                })
+                .collect(),
         }),
         traffic_intercept_config: api.runtime_config.vmaas_config.as_ref().map(|c| {
             rpc::TrafficInterceptConfig {

@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use config_version::ConfigVersion;
 use model::resource_pool;
 use model::resource_pool::common::{
-    CommonPools, DPA_VNI, DpaPools, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
+    CommonPools, DPA_VNI, DpaPools, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
     SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
 use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
@@ -452,6 +452,12 @@ pub async fn create_common_pools(
     ));
     optional_pool_names.push(pool_secondary_vtep_ip.name().to_string());
 
+    let pool_external_vpc_vni: Arc<ResourcePool<i32>> = Arc::new(ResourcePool::new(
+        EXTERNAL_VPC_VNI.to_string(),
+        ValueType::Integer,
+    ));
+    optional_pool_names.push(pool_external_vpc_vni.name().to_string());
+
     // We can't run if any of the mandatory pools are missing
     for name in &pool_names {
         if stats(&db, name).await?.free == 0 {
@@ -516,6 +522,7 @@ pub async fn create_common_pools(
             pool_vlan_id,
             pool_vni,
             pool_vpc_vni,
+            pool_external_vpc_vni,
             pool_fnn_asn,
             pool_vpc_dpu_loopback_ip,
             pool_secondary_vtep_ip,

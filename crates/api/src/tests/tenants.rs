@@ -26,6 +26,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "Org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: "x".to_string(),
                 description: "".to_string(),
@@ -42,6 +43,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "Org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: "Name".to_string(),
                 description: "should not be stored".to_string(),
@@ -57,11 +59,29 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert_eq!(tenant_create.code(), Code::InvalidArgument);
     assert!(tenant_create.message().contains("description"));
 
+    // Test the legacy case of creating a tenant by using a known bad
+    // routing-profile, which should be ignored because FNN isn't configured.
+    // TODO:  We need another set of tests that covers FNN.
+    let _tenant_create = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "Organic".to_string(),
+            routing_profile_type: Some(rpc::forge::RoutingProfileType::Admin as i32),
+            metadata: Some(rpc::forge::Metadata {
+                name: "Name".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+
     // Now perform a good create
     let tenant_create = env
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "Org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: "Name".to_string(),
                 description: "".to_string(),
@@ -96,6 +116,16 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .into_inner();
 
     let tenant = find_tenant.tenant.unwrap();
+
+    // We should only see a default profile type if FNN is configured.
+    // Otherwise, we should not.
+    assert_eq!(
+        env.api.runtime_config.fnn.is_some(),
+        matches!(
+            tenant.routing_profile_type,
+            Some(t) if t == rpc::forge::RoutingProfileType::External as i32,
+        )
+    );
 
     assert_eq!(tenant.organization_id, "Org");
     assert_eq!(
@@ -208,6 +238,7 @@ async fn test_find_tenant_ids(pool: sqlx::PgPool) {
             .api
             .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
                 organization_id: format!("fh{x}{x}abcdw"),
+                routing_profile_type: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("tenant_{x}"),
                     description: "".to_string(),

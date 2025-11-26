@@ -3020,6 +3020,15 @@ message ManagedHostNetworkConfigResponse {
   // All config related to traffic interception on
   // the DPU: intermediate bridging, additional VTEPs, etc.
   optional TrafficInterceptConfig traffic_intercept_config = 113;
+
+  // Route imports and tagging details for exports
+  // used by FNN configs.
+  // NOTE: This will replace internet_l3_vni and common_internal_route_target but could allow
+  //       common_internal_route_target to be renamed/repurposed as a site-level RT.
+  //       to become a site-level common route target.
+  //       This does _not_ replace additional_route_target_imports, which are global
+  //       imports 
+  optional RoutingProfile routing_profile = 114;
 }
 
 message TrafficInterceptConfig {
@@ -3800,13 +3809,14 @@ message Tenant {
   Metadata metadata = 2;
   // this string is used to verify that the client has the most updated "view" of a keyset when attempting to modify it
   string version = 3;
+  optional RoutingProfileType routing_profile_type = 4;
 }
 
 message CreateTenantRequest {
   // this organization ID must be globally unique
   string organization_id = 1;
   Metadata metadata = 2;
-
+  optional RoutingProfileType routing_profile_type = 3;
 }
 message CreateTenantResponse {  
   Tenant tenant = 1;
@@ -6044,4 +6054,18 @@ message ScoutStreamError {
 // with troubleshooting and debugging.
 enum ScoutStreamErrorStatus {
   SCOUT_STREAM_ERROR_STATUS_INTERNAL = 0;
+}
+
+
+enum RoutingProfileType {
+  ROUTING_PROFILE_TYPE_EXTERNAL            = 0; // Default to least privileged
+  ROUTING_PROFILE_TYPE_ADMIN               = 1;
+  ROUTING_PROFILE_TYPE_INTERNAL            = 2;
+  ROUTING_PROFILE_TYPE_PRIVILEGED_INTERNAL = 3;
+  ROUTING_PROFILE_TYPE_MAINTENANCE         = 4;
+}
+
+message RoutingProfile {
+  repeated common.RouteTarget route_target_imports     = 1;
+  repeated common.RouteTarget route_targets_on_exports = 2;
 }

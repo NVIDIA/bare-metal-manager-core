@@ -393,6 +393,33 @@ pub async fn update_nvue(
         } else {
             None
         },
+        ct_routing_profile: if nc.network_virtualization_type()
+            == ::rpc::forge::VpcVirtualizationType::Fnn
+            && nc.routing_profile.is_none()
+        {
+            return Err(eyre::eyre!(
+                "BUG: FNN config provided without routing-profile"
+            ));
+        } else {
+            nc.routing_profile.as_ref().map(|rp| nvue::RoutingProfile {
+                route_target_imports: rp
+                    .route_target_imports
+                    .iter()
+                    .map(|rt| nvue::RouteTargetConfig {
+                        asn: rt.asn,
+                        vni: rt.vni,
+                    })
+                    .collect(),
+                route_targets_on_exports: rp
+                    .route_targets_on_exports
+                    .iter()
+                    .map(|rt| nvue::RouteTargetConfig {
+                        asn: rt.asn,
+                        vni: rt.vni,
+                    })
+                    .collect(),
+            })
+        },
     };
 
     // Cleanup any left over non-NVUE temp files
@@ -2240,7 +2267,16 @@ mod tests {
                 asn: 11111,
                 vni: 22222,
             }],
-
+            routing_profile: Some(rpc::RoutingProfile {
+                route_target_imports: vec![rpc_common::RouteTarget {
+                    asn: 44444,
+                    vni: 55555,
+                }],
+                route_targets_on_exports: vec![rpc_common::RouteTarget {
+                    asn: 77415,
+                    vni: 800,
+                }],
+            }),
             network_security_policy_overrides: vec![rpc::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["7.7.7.0/24".to_string()],
                 dst_prefixes: vec!["7.7.7.0/24".to_string()],
@@ -2456,6 +2492,16 @@ mod tests {
                 network: "10.217.4.70/32".to_string(),
                 ip: "10.217.4.70".to_string(),
             }],
+            ct_routing_profile: Some(nvue::RoutingProfile {
+                route_target_imports: vec![nvue::RouteTargetConfig {
+                    asn: 44444,
+                    vni: 55555,
+                }],
+                route_targets_on_exports: vec![nvue::RouteTargetConfig {
+                    asn: 11415,
+                    vni: 200,
+                }],
+            }),
 
             network_security_policy_override_rules: vec![nvue::NetworkSecurityGroupRule {
                 id: "6313f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
@@ -2711,6 +2757,16 @@ mod tests {
                 vni: 22222,
             }],
 
+            routing_profile: Some(rpc::RoutingProfile {
+                route_target_imports: vec![rpc_common::RouteTarget {
+                    asn: 44444,
+                    vni: 55555,
+                }],
+                route_targets_on_exports: vec![rpc_common::RouteTarget {
+                    asn: 77415,
+                    vni: 800,
+                }],
+            }),
             traffic_intercept_config: None,
 
             // yes it's in there twice I dunno either

@@ -13,7 +13,7 @@
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use model::metadata::Metadata;
-use model::tenant::{Tenant, TenantPublicKeyValidationRequest};
+use model::tenant::{RoutingProfileType, Tenant, TenantPublicKeyValidationRequest};
 use sqlx::PgConnection;
 
 use super::ObjectFilter;
@@ -24,15 +24,17 @@ type OrganizationID = String;
 pub async fn create_and_persist(
     organization_id: String,
     metadata: Metadata,
+    routing_profile_type: Option<RoutingProfileType>,
     txn: &mut PgConnection,
 ) -> Result<Tenant, DatabaseError> {
     let version = ConfigVersion::initial();
-    let query = "INSERT INTO tenants (organization_id, organization_name, version) VALUES ($1, $2, $3) RETURNING *";
+    let query = "INSERT INTO tenants (organization_id, organization_name, version, routing_profile_type) VALUES ($1, $2, $3, $4) RETURNING *";
 
     sqlx::query_as(query)
         .bind(organization_id)
         .bind(metadata.name)
         .bind(version)
+        .bind(routing_profile_type.map(|p| p.to_string()))
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))

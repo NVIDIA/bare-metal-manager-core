@@ -5161,6 +5161,7 @@ async fn test_allocate_instance_with_extension_services(
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "best_org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::Metadata {
                 name: "best_org".to_string(),
                 description: "".to_string(),
@@ -5248,6 +5249,7 @@ async fn create_dpu_extension_services(
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "best_org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::Metadata {
                 name: "best_org".to_string(),
                 description: "".to_string(),

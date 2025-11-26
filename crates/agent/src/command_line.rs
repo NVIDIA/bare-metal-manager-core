@@ -195,6 +195,12 @@ pub struct NvueOptions {
         help = "Full JSON representation of a NetworkSecurityGroupRule (see nvue.rs) that will be evaluated before any tenant-defined rules. Repeats with multiple --network_security_policy_override_rule."
     )]
     pub network_security_policy_override_rule: Vec<String>,
+
+    #[clap(
+        long,
+        help = "Full JSON representation of a RoutingProfile (see nvue.rs)."
+    )]
+    pub ct_routing_profile: Option<String>,
 }
 
 #[derive(Parser, Debug)]

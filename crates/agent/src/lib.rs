@@ -404,6 +404,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     ct_access_vlans: access_vlans,
                     ct_internet_l3_vni: opts.ct_internet_l3_vni,
                     ct_network_security_group_rules: nsg_rules,
+                    ct_routing_profile: opts
+                        .ct_routing_profile
+                        .map(|r| serde_json::from_str::<nvue::RoutingProfile>(&r))
+                        .transpose()?,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;

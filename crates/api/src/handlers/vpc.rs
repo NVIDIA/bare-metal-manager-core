@@ -11,14 +11,14 @@
  */
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc};
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter, network_security_group};
 use forge_uuid::network_security_group::NetworkSecurityGroupId;
 use forge_uuid::vpc::VpcId;
 use model::resource_pool;
-use model::tenant::InvalidTenantOrg;
+use model::tenant::{InvalidTenantOrg, RoutingProfileType};
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization};
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -44,6 +44,35 @@ pub(crate) async fn create(
     }
 
     let mut txn = api.txn_begin("create_vpc").await?;
+
+    let mut tenant = db::tenant::load_by_organization_ids(
+        &mut txn,
+        std::slice::from_ref(&vpc_creation_request.tenant_organization_id.clone()),
+    )
+    .await?;
+
+    if tenant.len() > 1 {
+        return Err(CarbideError::Internal {
+            message: format!(
+                "too many tenant records found for `{}`",
+                vpc_creation_request.tenant_organization_id
+            ),
+        }
+        .into());
+    }
+
+    // A lot of tests seem to still allow tenant IDs for tenants that don't
+    // exist.  We should audit and see if there are still sites with missing tenants
+    // if we expect Carbide-core to have knowledge of tenants.  Otherwise, this would just go away
+    // when we _remove_ any expectation of tenant knowledge from Carbide-core, and the details we
+    // need from tenant would just come in from the VPC creation request.
+    let tenant = tenant.pop();
+    if tenant.is_none() {
+        tracing::warn!(
+            tenant_organization_id = vpc_creation_request.tenant_organization_id.clone(),
+            "Database record for tenant ID in VPC creation request not found"
+        );
+    };
 
     if let Some(ref nsg_id) = vpc_creation_request.network_security_group_id {
         let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
@@ -79,9 +108,25 @@ pub(crate) async fn create(
         }
     }
 
-    let mut vpc = db::vpc::persist(NewVpc::try_from(request.into_inner())?, &mut txn).await?;
+    let mut new_vpc = NewVpc::try_from(request.into_inner())?;
 
-    vpc.vni = Some(allocate_vpc_vni(api, &mut txn, &vpc.id.to_string()).await?);
+    // Default to the tenant's routing-profile.
+    // If we choose to allow the gRPC consumer to control routing profiles
+    // at the VPC-level, this would be the spot after updating the
+    // VpcCreationRequest proto.
+    new_vpc.routing_profile_type = tenant.and_then(|t| t.routing_profile_type);
+
+    let mut vpc = db::vpc::persist(new_vpc, &mut txn).await?;
+
+    vpc.vni = Some(
+        allocate_vpc_vni(
+            api,
+            &mut txn,
+            &vpc.id.to_string(),
+            vpc.routing_profile_type.clone(),
+        )
+        .await?,
+    );
 
     // We will allocate an dpa_vni for this VPC when the first instance with DPA NICs gets added
     // to this VPC.
@@ -228,9 +273,44 @@ pub(crate) async fn delete(
     };
 
     if let Some(vni) = vpc.vni {
-        db::resource_pool::release(&api.common_pools.ethernet.pool_vpc_vni, &mut txn, vni)
+        // We can just keep deriving int/ext from the routing profile
+        // because a VPC is not allowed to change its profile after
+        // creation.
+        let internal = api.runtime_config.fnn.is_none()
+            || api
+                .runtime_config
+                .fnn
+                .as_ref()
+                .map(|f| {
+                    let Some(profile_type) = vpc.routing_profile_type.map(|t| t.to_string()) else {
+                        return Err(CarbideError::MissingArgument("routing_profile_type"));
+                    };
+
+                    let Some(profile) = f.routing_profiles.get(&profile_type) else {
+                        return Err(CarbideError::NotFoundError {
+                            kind: "routing_profile_type",
+                            id: profile_type,
+                        });
+                    };
+
+                    Ok(profile.internal)
+                })
+                .transpose()?
+                .unwrap_or_default();
+
+        if internal {
+            db::resource_pool::release(&api.common_pools.ethernet.pool_vpc_vni, &mut txn, vni)
+                .await
+                .map_err(CarbideError::from)?;
+        } else {
+            db::resource_pool::release(
+                &api.common_pools.ethernet.pool_external_vpc_vni,
+                &mut txn,
+                vni,
+            )
             .await
             .map_err(CarbideError::from)?;
+        }
     }
 
     if let Some(dpa_vni) = vpc.dpa_vni {
@@ -302,26 +382,56 @@ async fn allocate_vpc_vni(
     api: &Api,
     txn: &mut PgConnection,
     owner_id: &str,
+    routing_profile_type: Option<RoutingProfileType>,
 ) -> Result<i32, CarbideError> {
-    match db::resource_pool::allocate(
-        &api.common_pools.ethernet.pool_vpc_vni,
-        txn,
-        resource_pool::OwnerType::Vpc,
-        owner_id,
-    )
-    .await
+    // If FNN is not configured, then there is no distinction between internal
+    // and external tenants: they're all internal.  This matches how things are
+    // deployed today.
+    let internal = api.runtime_config.fnn.is_none()
+        || api
+            .runtime_config
+            .fnn
+            .as_ref()
+            .map(|f| {
+                let Some(profile_type) = routing_profile_type.map(|t| t.to_string()) else {
+                    return Err(CarbideError::MissingArgument("routing_profile_type"));
+                };
+
+                let Some(profile) = f.routing_profiles.get(&profile_type) else {
+                    return Err(CarbideError::NotFoundError {
+                        kind: "routing_profile_type",
+                        id: profile_type,
+                    });
+                };
+
+                Ok(profile.internal)
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+    let source_pool = if internal {
+        &api.common_pools.ethernet.pool_vpc_vni
+    } else {
+        &api.common_pools.ethernet.pool_external_vpc_vni
+    };
+
+    match db::resource_pool::allocate(source_pool, txn, resource_pool::OwnerType::Vpc, owner_id)
+        .await
     {
         Ok(val) => Ok(val),
         Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
             tracing::error!(
                 owner_id,
-                pool = "vpc_vni",
+                pool = source_pool.name(),
                 "Pool exhausted, cannot allocate"
             );
-            Err(CarbideError::ResourceExhausted("pool vpc_vni".to_string()))
+            Err(CarbideError::ResourceExhausted(format!(
+                "pool {}",
+                source_pool.name
+            )))
         }
         Err(err) => {
-            tracing::error!(owner_id, error = %err, pool = "vpc_vni", "Error allocating from resource pool");
+            tracing::error!(owner_id, error = %err, pool = source_pool.name, "Error allocating from resource pool");
             Err(err.into())
         }
     }

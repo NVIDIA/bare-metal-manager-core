@@ -60,7 +60,7 @@ pub async fn persist(value: NewVpc, txn: &mut PgConnection) -> Result<Vpc, Datab
     let query =
                 "INSERT INTO vpcs (id, name, organization_id, network_security_group_id, version, network_virtualization_type,
                 description,
-                labels) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *";
+                labels, routing_profile_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *";
     sqlx::query_as(query)
         .bind(value.id)
         .bind(&value.metadata.name)
@@ -70,6 +70,7 @@ pub async fn persist(value: NewVpc, txn: &mut PgConnection) -> Result<Vpc, Datab
         .bind(value.network_virtualization_type)
         .bind(&value.metadata.description)
         .bind(sqlx::types::Json(&value.metadata.labels))
+        .bind(value.routing_profile_type.map(|p| p.to_string()))
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))

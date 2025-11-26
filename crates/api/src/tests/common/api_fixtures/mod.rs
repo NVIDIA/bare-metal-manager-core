@@ -1471,6 +1471,7 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
     let _ = api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: default_tenant_org.to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: default_tenant_org.to_string(),
                 description: "".to_string(),
@@ -1484,6 +1485,7 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
     let _ = api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: tenant_org2.to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: tenant_org2.to_string(),
                 description: "".to_string(),
@@ -1672,6 +1674,18 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 20001.to_string(),
                 end: (20001 + fabric_len as u16 - 1).to_string(),
+            }],
+            prefix: None,
+        },
+    );
+
+    defs.insert(
+        model::resource_pool::common::EXTERNAL_VPC_VNI.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: 50001.to_string(),
+                end: (50001 + fabric_len as u16 - 1).to_string(),
             }],
             prefix: None,
         },

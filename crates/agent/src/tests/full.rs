@@ -824,6 +824,16 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             asn: 11111,
             vni: 22222,
         }],
+        routing_profile: Some(rpc::forge::RoutingProfile {
+            route_target_imports: vec![rpc_common::RouteTarget {
+                asn: 44444,
+                vni: 55555,
+            }],
+            route_targets_on_exports: vec![rpc_common::RouteTarget {
+                asn: 77415,
+                vni: 800,
+            }],
+        }),
 
         traffic_intercept_config: Some(rpc::forge::TrafficInterceptConfig {
             bridging: Some(rpc::forge::TrafficInterceptBridging {
