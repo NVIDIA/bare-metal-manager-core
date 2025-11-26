@@ -78,28 +78,28 @@ cwd = "${BUILD_LOCATION}" # jf will try to upload the full path specified if the
 # Note that libnss-exec is located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
 description = "Stages files required for nvssh into the mkosi image for installation in postinst script"
 script = '''
- cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
- cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_amd64.deb mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
- cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
- cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_amd64.deb mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
 '''
 
 [tasks.stage-disk_imaging-script]
-description="Copies the disk_imaging.sh script to the qcow profile directories"
+description = "Copies the disk_imaging.sh script to the qcow profile directories"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager/mkosi.extra/opt/forge/disk_imaging.sh
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/forge/disk_imaging.sh
 '''
 
 [tasks.stage-scout-loader-rclocal]
-description="Copies the rc.local script to the scout loader profile directories"
+description = "Copies the rc.local script to the scout loader profile directories"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/etc/rc.local
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/etc/rc.local
 '''
 
 [tasks.stage-scout-update-check]
-description="Copies the scout-update script and systemd files to build-output"
+description = "Copies the scout-update script and systemd files to build-output"
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
@@ -146,9 +146,7 @@ dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
   "ipxe-aarch64-ci",
-  # Note: setup-apt-repo-arm64 removed - it requires forge-dpu which is not built in boot-artifacts workflow,
-  # and the apt repository is not needed for boot artifacts (only used in BFB builds)
-  # setup-apt-repo-arm64",
+  "setup-apt-repo-arm64",
 ]
 
 [tasks.build-boot-artifacts-bfb]
@@ -156,22 +154,18 @@ dependencies = [
   "mkdir-static",
   "cleanup-pxe-submodule",
   { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
-  # "bfb-aarch64", # FIXME: Bring back the step once URM migrated.
+  "bfb-aarch64",
   "ipxe-aarch64",
-  # Note: setup-apt-repo-arm64 removed - bfb-aarch64 is commented out, so forge-dpu won't be built.
-  # When BFB build is re-enabled, uncomment this and the BFB task which builds forge-dpu.
-  # "setup-apt-repo-arm64",
+  "setup-apt-repo-arm64",
 ]
 
 [tasks.build-boot-artifacts-bfb-ci]
 dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
-  # "bfb-aarch64-ci", # FIXME: Bring back the step once URM migrated.
+  # "bfb-aarch64-ci", # FIXME: Disabled until URM migration completed
   "ipxe-aarch64-ci",
-  # Note: setup-apt-repo-arm64 removed - bfb-aarch64-ci is commented out, so forge-dpu won't be built.
-  # When BFB build is re-enabled, uncomment this and the BFB task which builds forge-dpu.
-  # "setup-apt-repo-arm64",
+  # "setup-apt-repo-arm64", # FIXME: Disabled until URM migration completed, due to bfb-aarch64-ci
 ]
 
 [tasks.create-ephemeral-image-x86-host-ci]
@@ -236,7 +230,7 @@ dependencies = [
   "mkosi-copy-scout-to-webroot-aarch64",
   "mkosi-copy-scout-loader-to-webroot-aarch64",
   "mkosi-copy-qcow-imager-to-webroot-aarch64",
-  # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in CI.
+  # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in Github CI.
   # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
   # TODO: Need to double confirm
   # "mkosi-clean-scout-aarch64",
@@ -351,7 +345,12 @@ args = ["--profile", "qcow-imager", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 [tasks.mkosi-clean-qcow-imager-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "qcow-imager-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "qcow-imager-aarch64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-clean-scout-x86_64]
 category = "Ephemeral Image"
@@ -361,17 +360,32 @@ args = ["--profile", "scout-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 [tasks.mkosi-clean-scout-loader-x86_64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "scout-loader-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "scout-loader-x86_64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-clean-scout-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "scout-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "scout-aarch64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-clean-scout-loader-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "scout-loader-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "scout-loader-aarch64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-generate-build-tmpdir]
 category = "Ephemeral Image"
@@ -647,12 +661,10 @@ args = [
 ]
 cwd = "ipxe/upstream/src"
 
-# FIXME: Bring back the step once URM migrated.
 [tasks.bfb-aarch64-ci]
 env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
 run_task = "internal-bfb-aarch64-ci"
 
-# FIXME: Bring back the step once URM migrated.
 [tasks.bfb-aarch64]
 env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
 run_task = "internal-bfb-aarch64"
@@ -668,7 +680,7 @@ dependencies = [
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi-ci",
-  # "download-docker-containers",
+  "download-docker-containers",
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb-ci",
   "bfb-add-debs-to-bfb",
@@ -702,7 +714,7 @@ dependencies = [
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi",
-  # "download-docker-containers",
+  "download-docker-containers",
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb",
   "bfb-add-debs-to-bfb",

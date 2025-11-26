@@ -362,8 +362,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-x86_64
-    # Run even if container build was skipped (uses 'latest'), but not if failed/cancelled
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-x86_64.result == 'success' || needs.build-artifacts-container-x86_64.result == 'skipped') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-x86_64.result == 'success' || needs.build-artifacts-container-x86_64.result == 'success') }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: x86_64
@@ -379,7 +378,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-aarch64
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-aarch64.result == 'success' || needs.build-artifacts-container-aarch64.result == 'skipped') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-aarch64.result == 'success' || needs.build-artifacts-container-aarch64.result == 'success') }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: aarch64
@@ -401,7 +400,6 @@ jobs:
     needs:
       - prepare
       - build-boot-artifacts-x86
-    # Run only if boot artifacts succeeded (we need those artifacts); skip if cancelled
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-x86.result == 'success' }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
@@ -449,6 +447,7 @@ jobs:
       runner: linux-amd64-cpu4
       push: false  # Don't push initially
       load: true
+      download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
         {
           "VERSION": "${{ needs.prepare.outputs.version }}",
@@ -473,6 +472,7 @@ jobs:
       runner: linux-amd64-cpu4
       push: false  # Don't push initially
       load: true
+      download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
         {
           "VERSION": "${{ needs.prepare.outputs.version }}",
