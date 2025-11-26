@@ -38,6 +38,8 @@ impl StateControllerIO for IBPartitionStateControllerIO {
     type ContextObjects = IBPartitionStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "ib_partition_controller_lock";
+    const DB_ITERATION_ID_TABLE_NAME: &'static str = "ib_partition_controller_iteration_ids";
+    const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "ib_partition_controller_queued_objects";
 
     const LOG_SPAN_CONTROLLER_NAME: &'static str = "ib_partition_controller";
 

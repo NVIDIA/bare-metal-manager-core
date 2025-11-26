@@ -23,7 +23,14 @@ use crate::state_controller::state_handler::StateHandlerContextObjects;
 #[async_trait::async_trait]
 pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     /// Uniquely identifies the object that is controlled
-    type ObjectId: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static + Clone;
+    /// The type needs to be convertible into a String
+    type ObjectId: std::fmt::Display
+        + std::fmt::Debug
+        + std::str::FromStr
+        + Send
+        + Sync
+        + 'static
+        + Clone;
     /// The full state of the object.
     /// This might contain all kinds of information, which different pieces of the full
     /// state being updated by various components.
@@ -44,7 +51,19 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     ///
     /// This lock will prevent multiple instances of controller running on multiple nodes
     /// from making changes to objects at the same time
+    /// TODO: This table will be removed in favor of `DB_ITERATION_ID_TABLE_NAME` in
+    /// a future revision. It is kept around until all deployments have both fields,
+    /// which would guarantee that all deployments lock on both tables. That way
+    /// the exclusion mechanism will still work after the first lock is removed.
     const DB_LOCK_NAME: &'static str;
+
+    /// The name of the table in the database that will be used to generate run IDs
+    /// The table will be locked whenever a new iteration is started
+    const DB_ITERATION_ID_TABLE_NAME: &'static str;
+
+    /// The name of the table in the database that will be used to enqueue objects
+    /// within a certain iteration.
+    const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str;
 
     /// The name that will be used for the logging span created by the State Controller
     const LOG_SPAN_CONTROLLER_NAME: &'static str;

@@ -37,6 +37,8 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     type ContextObjects = NetworkSegmentStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "network_segments_controller_lock";
+    const DB_ITERATION_ID_TABLE_NAME: &'static str = "network_segments_controller_iteration_ids";
+    const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "network_segments_controller_queued_objects";
 
     const LOG_SPAN_CONTROLLER_NAME: &'static str = "network_segments_controller";
 
