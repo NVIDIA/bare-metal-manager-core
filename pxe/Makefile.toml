@@ -156,7 +156,7 @@ dependencies = [
   "mkdir-static",
   "cleanup-pxe-submodule",
   { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
-  # "bfb-aarch64",
+  # "bfb-aarch64", # FIXME: Bring back the step once URM migrated.
   "ipxe-aarch64",
   # Note: setup-apt-repo-arm64 removed - bfb-aarch64 is commented out, so forge-dpu won't be built.
   # When BFB build is re-enabled, uncomment this and the BFB task which builds forge-dpu.
@@ -167,7 +167,7 @@ dependencies = [
 dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
-  # "bfb-aarch64-ci",
+  # "bfb-aarch64-ci", # FIXME: Bring back the step once URM migrated.
   "ipxe-aarch64-ci",
   # Note: setup-apt-repo-arm64 removed - bfb-aarch64-ci is commented out, so forge-dpu won't be built.
   # When BFB build is re-enabled, uncomment this and the BFB task which builds forge-dpu.
@@ -192,6 +192,7 @@ dependencies = [
   "mkosi-copy-scout-loader-to-webroot-x86_64",
   # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in CI.
   # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
+  # TODO: Need to double confirm
   # "mkosi-clean-qcow-imager",
   # "mkosi-clean-scout-x86_64",
   # "mkosi-clean-scout-loader-x86_64",
@@ -237,6 +238,7 @@ dependencies = [
   "mkosi-copy-qcow-imager-to-webroot-aarch64",
   # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in CI.
   # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
+  # TODO: Need to double confirm
   # "mkosi-clean-scout-aarch64",
   # "mkosi-clean-scout-loader-aarch64",
   # "mkosi-clean-qcow-imager-aarch64",
@@ -292,7 +294,7 @@ category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
  "-f",
- "${FORGE_CA_PATH}",
+ "${FORGE_CA_PATH}", # FIXME: Removed root CA before externalize
  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
@@ -301,7 +303,7 @@ category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
  "-f",
- "${FORGE_CA_PATH}",
+ "${FORGE_CA_PATH}", # FIXME: Removed root CA before externalize
  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
@@ -320,7 +322,7 @@ command = "cp"
 args = [
   "-f",
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-  # "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-scout-x86_64]
@@ -646,14 +648,14 @@ args = [
 cwd = "ipxe/upstream/src"
 
 # FIXME: Bring back the step once URM migrated.
-# [tasks.bfb-aarch64-ci]
-# env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
-# run_task = "internal-bfb-aarch64-ci"
+[tasks.bfb-aarch64-ci]
+env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
+run_task = "internal-bfb-aarch64-ci"
 
 # FIXME: Bring back the step once URM migrated.
-# [tasks.bfb-aarch64]
-# env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
-# run_task = "internal-bfb-aarch64"
+[tasks.bfb-aarch64]
+env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
+run_task = "internal-bfb-aarch64"
 
 [tasks.internal-bfb-aarch64-ci]
 category = "iPXE Kernel"
@@ -785,11 +787,11 @@ command = "docker"
 args = ["save", "--output=doca_hbn.tar", "${DOCA_HBN_URI}"]
 cwd = "${BUILD_LOCATION}"
 
-# [tasks.download-docker-containers]
-# category = "iPXE Kernel"
-# description = "Download all the docker containers from artifactory"
-# command = "wget"
-# args = ["-Nnv", "${URM_LOCATION}/doca_hbn.tar", "-P", "${BUILD_LOCATION}"]
+[tasks.download-docker-containers]
+category = "iPXE Kernel"
+description = "Download all the docker containers from artifactory"
+command = "wget"
+args = ["-Nnv", "${URM_LOCATION}/doca_hbn.tar", "-P", "${BUILD_LOCATION}"]
 
 [tasks.bfb-extract-ifconfig]
 category = "iPXE Kernel"
