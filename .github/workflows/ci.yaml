@@ -362,32 +362,33 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-x86_64
-    # Run even if container build was skipped (uses 'latest' in that case), but not if prepare failed
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    # Run even if container build was skipped (uses 'latest'), but not if failed/cancelled
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-x86_64.result == 'success' || needs.build-artifacts-container-x86_64.result == 'skipped') }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: x86_64
+      build_type: boot
       cargo_make_task: build-boot-artifacts-x86-host-ci
       build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
       runner: linux-amd64-cpu4
       version: ${{ needs.prepare.outputs.version }}
-      use_shell_runner: false
+      use_container: true
     secrets: inherit
 
-  build-boot-artifacts-aarch64:
+  build-boot-artifacts-bfb:
     needs:
       - prepare
       - build-artifacts-container-aarch64
-    # Run even if container build was skipped (uses 'latest' in that case), but not if prepare failed
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-aarch64.result == 'success' || needs.build-artifacts-container-aarch64.result == 'skipped') }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: aarch64
+      build_type: boot
       cargo_make_task: build-boot-artifacts-bfb-ci
       build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
       runner: linux-arm64-cpu4
       version: ${{ needs.prepare.outputs.version }}
-      use_shell_runner: false
+      use_container: true
     secrets: inherit
 
   # ============================================================================
@@ -396,45 +397,49 @@ jobs:
   # These builds create bootable ephemeral images (scout.efi, qcow-imager.efi)
   # using mkosi. They run on standard Ubuntu runners with mkosi installed.
 
-  build-ephemeral-image-x86:
+  build-boot-artifacts-ephemeral-image-x86-host:
     needs:
       - prepare
       - build-boot-artifacts-x86
-    # Run only if boot artifacts succeeded (we need those artifacts)
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.build-boot-artifacts-x86.result == 'success' }}
-    uses: ./.github/workflows/build-ephemeral-images.yml
+    # Run only if boot artifacts succeeded (we need those artifacts); skip if cancelled
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-x86.result == 'success' }}
+    uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: x86_64
+      build_type: ephemeral
       cargo_make_task: create-ephemeral-image-x86-host-ci
       version: ${{ needs.prepare.outputs.version }}
       runner: linux-amd64-cpu4
+      use_container: false
     secrets: inherit
 
-  build-ephemeral-image-aarch64:
+  build-boot-artifacts-ephemeral-image-arm-host:
     needs:
       - prepare
-      - build-boot-artifacts-aarch64
-    # Run only if boot artifacts succeeded (we need those artifacts)
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.build-boot-artifacts-aarch64.result == 'success' }}
-    uses: ./.github/workflows/build-ephemeral-images.yml
+      - build-boot-artifacts-bfb
+    # Run only if boot artifacts succeeded (we need those artifacts); skip if cancelled
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-bfb.result == 'success' }}
+    uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: aarch64
+      build_type: ephemeral
       cargo_make_task: create-ephemeral-image-arm-host-ci
       version: ${{ needs.prepare.outputs.version }}
       runner: linux-arm64-cpu4
+      use_container: false
     secrets: inherit
 
   # ============================================================================
   # BUILD STAGE - Release Artifacts
   # ============================================================================
 
-  build-release-artifacts-x86:
+  build-release-artifacts-x86-host:
     needs:
       - prepare
       - build-boot-artifacts-x86
-      - build-ephemeral-image-x86
-    # Run if boot and ephemeral jobs succeeded or were skipped, but not if they failed
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.build-boot-artifacts-x86.result != 'failure' && needs.build-ephemeral-image-x86.result != 'failure' }}
+      - build-boot-artifacts-ephemeral-image-x86-host
+    # Run only if both boot and ephemeral jobs succeeded (we need those artifacts); skip if failed/cancelled
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-x86.result == 'success' && needs.build-boot-artifacts-ephemeral-image-x86-host.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
@@ -452,13 +457,13 @@ jobs:
         }
     secrets: inherit
 
-  build-release-artifacts-aarch64:
+  build-release-artifacts-arm-host:
     needs:
       - prepare
-      - build-boot-artifacts-aarch64
-      - build-ephemeral-image-aarch64
-    # Run if boot and ephemeral jobs succeeded or were skipped, but not if they failed
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.build-boot-artifacts-aarch64.result != 'failure' && needs.build-ephemeral-image-aarch64.result != 'failure' }}
+      - build-boot-artifacts-bfb
+      - build-boot-artifacts-ephemeral-image-arm-host
+    # Run only if both boot and ephemeral jobs succeeded (we need those artifacts); skip if failed/cancelled
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-bfb.result == 'success' && needs.build-boot-artifacts-ephemeral-image-arm-host.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
