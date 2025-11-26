@@ -46,6 +46,8 @@ impl StateControllerIO for MachineStateControllerIO {
     type ContextObjects = MachineStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "machine_state_controller_lock";
+    const DB_ITERATION_ID_TABLE_NAME: &'static str = "machine_state_controller_iteration_ids";
+    const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "machine_state_controller_queued_objects";
 
     const LOG_SPAN_CONTROLLER_NAME: &'static str = "machine_state_controller";
 

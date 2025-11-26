@@ -38,6 +38,8 @@ impl StateControllerIO for PowerShelfStateControllerIO {
     type ContextObjects = PowerShelfStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "power_shelf_controller_lock";
+    const DB_ITERATION_ID_TABLE_NAME: &'static str = "power_shelf_controller_iteration_ids";
+    const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "power_shelf_controller_queued_objects";
 
     const LOG_SPAN_CONTROLLER_NAME: &'static str = "power_shelf_controller";
 

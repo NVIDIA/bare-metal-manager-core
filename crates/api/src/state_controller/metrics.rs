@@ -19,6 +19,7 @@ use opentelemetry::metrics::{Counter, Histogram, Meter};
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::logging::sqlx_query_tracing;
+use crate::state_controller::controller::ControllerIterationId;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::state_handler::StateHandlerError;
 
@@ -93,6 +94,10 @@ pub struct CommonIterationMetrics {
     pub recording_started_at: std::time::Instant,
     /// When we finished recording the metrics
     pub recording_finished_at: std::time::Instant,
+    /// The iteration ID
+    pub iteration_id: Option<ControllerIterationId>,
+    /// The amount of objects which have been enqueued in this run
+    pub num_enqueued_objects: usize,
     /// Aggregated metrics per state, with optional next state information
     /// Key: FullState containing current_state, current_substate before the transition
     pub state_metrics: HashMap<FullState, StateMetrics>,
@@ -103,6 +108,8 @@ impl Default for CommonIterationMetrics {
         Self {
             recording_started_at: std::time::Instant::now(),
             recording_finished_at: std::time::Instant::now(),
+            iteration_id: None,
+            num_enqueued_objects: 0,
             state_metrics: Default::default(),
         }
     }
@@ -582,6 +589,14 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
         let mut error_types: HashMap<String, HashMap<String, usize>> = HashMap::new();
         let mut times_in_state: HashMap<String, LatencyStats> = HashMap::new();
         let mut handler_latencies: HashMap<String, LatencyStats> = HashMap::new();
+
+        span.record(
+            "num_enqueued_objects",
+            iteration_metrics.common.num_enqueued_objects,
+        );
+        if let Some(iteration_id) = iteration_metrics.common.iteration_id.as_ref() {
+            span.record("iteration_id", iteration_id.0);
+        }
 
         for (full_state, state_metrics) in iteration_metrics.common.state_metrics.iter() {
             total_objects += state_metrics.num_objects;

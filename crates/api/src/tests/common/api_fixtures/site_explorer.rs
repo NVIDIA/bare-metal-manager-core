@@ -1434,11 +1434,3 @@ pub async fn new_switch(
 
     Ok(switch_id)
 }
-
-pub async fn new_switches(env: &TestEnv, count: u32) -> eyre::Result<Vec<SwitchId>> {
-    let mut switch_ids = Vec::new();
-    for i in 0..count {
-        switch_ids.push(new_switch(env, Some(format!("Test Switch {}", i)), None).await?);
-    }
-    Ok(switch_ids)
-}

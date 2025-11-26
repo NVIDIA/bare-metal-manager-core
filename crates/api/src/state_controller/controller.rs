@@ -10,11 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use db::DatabaseError;
+use ::db::DatabaseError;
+use chrono::{DateTime, Utc};
 use model::controller_outcome::PersistentStateHandlerOutcome;
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tracing::Instrument;
@@ -29,6 +33,51 @@ use crate::state_controller::state_handler::{
 };
 
 mod builder;
+pub mod db;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ControllerIterationId(pub i64);
+
+/// Metadata for a single state controller iteration
+#[derive(Debug, Clone)]
+pub struct ControllerIteration {
+    /// The ID of the iteration
+    pub id: ControllerIterationId,
+    /// When the iteration started
+    #[allow(dead_code)]
+    pub started_at: DateTime<Utc>,
+}
+
+impl<'r> FromRow<'r, PgRow> for ControllerIteration {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let id: i64 = row.try_get("id")?;
+        let started_at = row.try_get("started_at")?;
+        Ok(ControllerIteration {
+            id: ControllerIterationId(id),
+            started_at,
+        })
+    }
+}
+
+/// Metadata for a single state controller iteration
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueuedObject {
+    /// The ID of the object which should get scheduled
+    pub object_id: String,
+    /// The ID of the run for which the object was scheduled
+    pub iteration_id: ControllerIterationId,
+}
+
+impl<'r> FromRow<'r, PgRow> for QueuedObject {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let object_id = row.try_get("object_id")?;
+        let iteration_id: i64 = row.try_get("iteration_id")?;
+        Ok(QueuedObject {
+            object_id,
+            iteration_id: ControllerIterationId(iteration_id),
+        })
+    }
+}
 
 /// The object static controller evaluates the current state of all objects of a
 /// certain type in a Forge site, and decides which actions the system should
@@ -129,9 +178,11 @@ impl<IO: StateControllerIO> StateController<IO> {
             "state_controller_iteration",
             span_id,
             controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            iteration_id = tracing::field::Empty,
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
             skipped_iteration = tracing::field::Empty,
+            num_enqueued_objects = tracing::field::Empty,
             num_objects = tracing::field::Empty,
             num_errors = tracing::field::Empty,
             states = tracing::field::Empty,
@@ -234,16 +285,43 @@ impl<IO: StateControllerIO> StateController<IO> {
             "State controller acquired the lock",
         );
 
-        self.handle_iteration(iteration_metrics).await?;
+        let iteration_data = match db::lock_iteration_table_and_start_iteration(
+            &mut txn,
+            IO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        {
+            Ok(iteration_data) => iteration_data,
+            Err(e) => {
+                tracing::error!(
+                    iteration_table_id = IO::DB_ITERATION_ID_TABLE_NAME,
+                    error = %e,
+                    "State controller was not able to start run"
+                );
+                return Err(IterationError::LockError);
+            }
+        };
 
+        tracing::trace!(iteration_data = ?iteration_data, "Starting iteration with ID ");
+        iteration_metrics.common.iteration_id = Some(iteration_data.id);
+
+        self.enqueue_objects(iteration_metrics, iteration_data.id)
+            .await?;
+
+        self.process_enqueued_objects(iteration_metrics).await?;
+
+        // Drops the run lock which controls concurrency
         txn.commit().await?;
 
         Ok(())
     }
 
-    async fn handle_iteration(
+    /// Identifies all active objects that the state controller manages
+    /// and enqueues them for state handler execution
+    async fn enqueue_objects(
         &mut self,
         iteration_metrics: &mut IterationMetrics<IO>,
+        iteration_id: ControllerIterationId,
     ) -> Result<(), IterationError> {
         // We start by grabbing a list of objects that should be active
         // The list might change until we fetch more data. However that should be ok:
@@ -252,6 +330,46 @@ impl<IO: StateControllerIO> StateController<IO> {
         // outside of the state controller
         let mut txn = self.pool.begin().await?;
         let object_ids = self.io.list_objects(&mut txn).await?;
+        iteration_metrics.common.num_enqueued_objects = object_ids.len();
+
+        let queued_objects: Vec<_> = object_ids
+            .iter()
+            .map(|object_id| (object_id.to_string(), iteration_id))
+            .collect();
+        db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queued_objects).await?;
+
+        txn.commit().await?;
+
+        Ok(())
+    }
+
+    /// Executes the state handling function for all objects for which it has
+    /// been enqueued
+    async fn process_enqueued_objects(
+        &mut self,
+        iteration_metrics: &mut IterationMetrics<IO>,
+    ) -> Result<(), IterationError> {
+        // Remove the current set of enqueued objects from the queue
+        // Note that if the process crashes after dequeuing it won't be a big issue,
+        // since the objects will be re-enqueued by the next controller iteration.
+        let mut txn = self.pool.begin().await?;
+        let object_ids =
+            db::dequeue_queued_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME).await?;
+        let object_ids: Vec<IO::ObjectId> = object_ids
+            .into_iter()
+            .filter_map(|object| match IO::ObjectId::from_str(&object.object_id) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    tracing::error!(
+                        controller = IO::LOG_SPAN_CONTROLLER_NAME,
+                        "Can not convert queued object ID \"{}\" to IO::ObjectID format",
+                        object.object_id
+                    );
+                    None
+                }
+            })
+            .collect();
+
         txn.commit().await?;
 
         let mut task_set = JoinSet::new();
@@ -463,7 +581,7 @@ enum IterationError {
     TransactionError(#[from] sqlx::Error),
     #[error("Unable to perform database transaction: {0}")]
     DatabaseError(#[from] DatabaseError),
-    #[error("Unable to acquire lock")]
+    #[error("Unable to acquire lock and start iteration")]
     LockError,
     #[error("A task panicked: {0}")]
     Panic(#[from] tokio::task::JoinError),
