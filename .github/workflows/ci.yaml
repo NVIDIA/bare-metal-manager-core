@@ -395,16 +395,21 @@ jobs:
           token: ${{ secrets.NVCR_TOKEN }}
 
       - name: Create and push multi-arch manifest
-        run: |
-          docker buildx imagetools create -t \
-            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:${{ needs.prepare.outputs.version }} \
-            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
-            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
-          
-          docker buildx imagetools create -t \
-            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:latest \
-            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
-            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}  
+        uses: nick-fields/retry@v3
+        with:
+          max_attempts: 3
+          retry_wait_seconds: 20
+          retry_wait_multiplier: 2
+          command: |
+            docker buildx imagetools create -t \
+              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:${{ needs.prepare.outputs.version }} \
+              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
+
+            docker buildx imagetools create -t \
+              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:latest \
+              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
 
   # ============================================================================
   # BUILD STAGE - Boot Artifacts
