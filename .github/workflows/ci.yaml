@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
-      - "for-review/publish-x86-ephemeral-images"
+      - "for-review/code-scan"
 
 env:
   # Build configuration
@@ -497,34 +497,84 @@ jobs:
     secrets: inherit
 
   # ============================================================================
-  # SECURITY STAGE - Placeholders
+  # SECURITY STAGE
   # ============================================================================
 
-  security-source-scan:
+  security-secret-scan:
+    name: Secret Scan with TruffleHog
     needs: prepare
     runs-on: linux-amd64-cpu4
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
     steps:
-      - name: Placeholder for nspect source scan
-        run: |
-          echo "============================================"
-          echo "Security Source Scan - Placeholder"
-          echo "============================================"
-          echo "TODO: Implement nspect source scanning"
-          echo "Version: ${{ needs.prepare.outputs.version }}"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secret scanning
 
-  security-container-scan:
-    needs:
-      - prepare
-      - build-release-container-x86_64
+      - name: Run TruffleHog Scan
+        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
+        with:
+          extra-args: '--results=verified,unknown'
+          post-pr-comment: 'true'
+          fail-on-findings: 'true'
+
+  security-codeql-scan:
+    name: CodeQL Security Analysis
+    needs: prepare
     runs-on: linux-amd64-cpu4
+    timeout-minutes: 360
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+      packages: read
+      pull-requests: write
     steps:
-      - name: Placeholder for nspect container scan
-        run: |
-          echo "============================================"
-          echo "Security Container Scan - Placeholder"
-          echo "============================================"
-          echo "TODO: Implement nspect container scanning"
-          echo "Container: nvcr.io/nvidian/nvforge-devel/nvmetal-carbide:${{ needs.prepare.outputs.version }}"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run CodeQL Scan
+        uses: NVIDIA/dsx-github-actions/.github/actions/codeql-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
+        with:
+          languages: 'rust'
+          build-mode: 'none'
+          category: '/language:rust'
+          upload-sarif: 'false'  # Disable upload until GHAS is enabled, such as the repo be public
+          post-pr-comment: 'true'
+          fail-on-findings: 'true'  # Enforce quality gate
+          fail-on-severity: 'error' # Only fail on critical/high severity issues
+
+  security-trivy-scan:
+    name: Trivy Vulnerability Scan
+    needs: prepare
+    runs-on: linux-amd64-cpu4
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy Scan
+        uses: NVIDIA/dsx-github-actions/.github/actions/trivy-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          vuln-type: 'os,library'
+          scanners: 'vuln,secret,misconfig'
+          severity: 'HIGH,CRITICAL'
+          skip-dirs: 'crates/bmc-mock'
+          ignore-unfixed: 'true'
+          upload-sarif: 'false'  # Disable upload until GHAS is enabled, such as the repo be public
+          post-pr-comment: 'true'
+          fail-on-findings: 'false' # FIXME: Disabled until all issues are fixed
 
   license-checks:
     needs: prepare
