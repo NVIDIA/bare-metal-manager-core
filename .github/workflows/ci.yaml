@@ -682,6 +682,9 @@ jobs:
       - merge-manifests-forge-cli
       - build-release-machine-validation-runner
       - build-release-machine-validation-artifacts-x86-host
+      - build-powerdns-container
+      - build-release-artifacts-x86-host
+      - build-release-artifacts-arm-host
     steps:
       - name: Generate summary
         run: |
