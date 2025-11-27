@@ -127,18 +127,18 @@ pub struct Gpu {
     #[serde(rename = "LocationInfo", skip_serializing_if = "Option::is_none")]
     pub location_info: Option<Box<LocationInfo>>,
     #[serde(rename = "DeviceUID")]
-    pub device_uid: i32,
+    pub device_uid: u64,
     #[serde(rename = "DeviceID")]
     pub device_id: i32,
     #[serde(rename = "DevicePcieID")]
     pub device_pcie_id: i32,
     #[serde(rename = "SystemUID")]
-    pub system_uid: i32,
+    pub system_uid: u64,
     #[serde(rename = "VendorID")]
     pub vendor_id: i32,
     /// List of device labels for internal routing
     #[serde(rename = "ALIDList")]
-    pub alid_list: Vec<String>,
+    pub alid_list: Vec<i32>,
     #[serde(rename = "PartitionID", skip_serializing_if = "Option::is_none")]
     pub partition_id: Option<i32>,
     /// List of device ports

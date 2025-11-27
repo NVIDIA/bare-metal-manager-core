@@ -1810,8 +1810,8 @@ components:
         InternalDescription: InternalDescription
         SystemUID: 2147483647
         ALIDList:
-        - "abcd" 
-        - "defg"
+        - 1111
+        - 2222
       properties:
         ID:
           description: System unique identifier.

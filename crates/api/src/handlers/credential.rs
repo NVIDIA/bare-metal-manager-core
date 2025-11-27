@@ -31,7 +31,7 @@ const DPU_ADMIN_USERNAME: &str = "forge";
 /// Default Username for the admin BMC account.
 const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
 
-const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
+pub const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
 
 pub(crate) async fn create_credential(
     api: &Api,

@@ -2714,6 +2714,10 @@ pub enum CredentialAction {
     AddHostFactoryDefault(AddHostFactoryDefaultCredential),
     #[clap(about = "Add manufacturer factory default BMC user/pass for the DPUs")]
     AddDpuFactoryDefault(AddDpuFactoryDefaultCredential),
+    #[clap(about = "Add NmxM credentials")]
+    AddNmxM(AddNmxMCredential),
+    #[clap(about = "Delete NmxM credentials")]
+    DeleteNmxM(DeleteNmxMCredential),
 }
 
 #[derive(Parser, Debug)]
@@ -2829,6 +2833,20 @@ pub struct AddDpuFactoryDefaultCredential {
     pub username: String,
     #[clap(long, required(true), help = "DPU manufacturer default password")]
     pub password: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct AddNmxMCredential {
+    #[clap(long, required(true), help = "Username")]
+    pub username: String,
+    #[clap(long, required(true), help = "password")]
+    pub password: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct DeleteNmxMCredential {
+    #[clap(long, required(true), help = "NmxM url")]
+    pub username: String,
 }
 
 #[derive(Parser, Debug)]

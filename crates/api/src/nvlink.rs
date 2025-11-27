@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::ToSocketAddrs;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use db::DatabaseError;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use libnmxm::{Nmxm, NmxmApiError};
+
+use crate::handlers::credential::DEFAULT_NMX_M_NAME;
 
 #[allow(dead_code)]
 #[derive(thiserror::Error, Debug)]
@@ -69,7 +70,7 @@ impl<C: CredentialProvider + 'static> NmxmClientPool for NmxmClientPoolImpl<C> {
         endpoint: &str,
         nmxm_id: Option<String>,
     ) -> Result<Box<dyn Nmxm>, NvLinkPartitionError> {
-        let id = nmxm_id.unwrap_or("default".to_string());
+        let id = nmxm_id.unwrap_or(DEFAULT_NMX_M_NAME.to_string());
         let credentials = self
             .credential_provider
             .get_credentials(&CredentialKey::NmxM { nmxm_id: id })
@@ -81,19 +82,13 @@ impl<C: CredentialProvider + 'static> NmxmClientPool for NmxmClientPoolImpl<C> {
         let (user, pass) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
-        let Some(addr) = endpoint
-            .to_socket_addrs()
-            .map_err(|_| NvLinkPartitionError::InvalidArguments)?
-            .next()
-        else {
+        if endpoint.parse::<http::Uri>().is_err() {
             return Err(NvLinkPartitionError::InvalidArguments);
         };
         let endpoint = libnmxm::Endpoint {
-            host: addr.ip().to_string(),
-            port: Some(addr.port()),
+            host: endpoint.to_string(),
             username: Some(user),
             password: Some(pass),
-            use_https: None,
         };
 
         self.pool
@@ -209,7 +204,8 @@ pub mod test_support {
                 device_pcie_id: 1001,
                 system_uid: 10001,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-1"), String::from("ALID-2")],
+                //alid_list: vec![String::from("ALID-1"), String::from("ALID-2")],
+                alid_list: vec![1111, 2222],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -229,7 +225,7 @@ pub mod test_support {
                 device_pcie_id: 1002,
                 system_uid: 10002,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-3"), String::from("ALID-4")],
+                alid_list: vec![3333, 4444],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -249,7 +245,7 @@ pub mod test_support {
                 device_pcie_id: 1003,
                 system_uid: 10003,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-5"), String::from("ALID-6")],
+                alid_list: vec![5555, 6666],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -269,7 +265,7 @@ pub mod test_support {
                 device_pcie_id: 1004,
                 system_uid: 10004,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-7"), String::from("ALID-8")],
+                alid_list: vec![7777, 8888],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -289,7 +285,7 @@ pub mod test_support {
                 device_pcie_id: 1001,
                 system_uid: 10001,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-1"), String::from("ALID-2")],
+                alid_list: vec![1111, 2222],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -309,7 +305,7 @@ pub mod test_support {
                 device_pcie_id: 1002,
                 system_uid: 10002,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-3"), String::from("ALID-4")],
+                alid_list: vec![3333, 4444],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -329,7 +325,7 @@ pub mod test_support {
                 device_pcie_id: 1003,
                 system_uid: 10003,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-5"), String::from("ALID-6")],
+                alid_list: vec![5555, 6666],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -349,7 +345,7 @@ pub mod test_support {
                 device_pcie_id: 1004,
                 system_uid: 10004,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-7"), String::from("ALID-8")],
+                alid_list: vec![7777, 8888],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -369,7 +365,7 @@ pub mod test_support {
                 device_pcie_id: 1005,
                 system_uid: 10005,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-9"), String::from("ALID-10")],
+                alid_list: vec![9999, 9888],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -389,7 +385,7 @@ pub mod test_support {
                 device_pcie_id: 1006,
                 system_uid: 10006,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-11"), String::from("ALID-12")],
+                alid_list: vec![1212, 2121],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -409,7 +405,7 @@ pub mod test_support {
                 device_pcie_id: 1007,
                 system_uid: 10007,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-13"), String::from("ALID-14")],
+                alid_list: vec![1313, 1414],
                 partition_id: None,
                 port_id_list: None,
                 health: None,
@@ -429,7 +425,7 @@ pub mod test_support {
                 device_pcie_id: 1008,
                 system_uid: 10008,
                 vendor_id: 4318,
-                alid_list: vec![String::from("ALID-15"), String::from("ALID-16")],
+                alid_list: vec![1515, 1616],
                 partition_id: None,
                 port_id_list: None,
                 health: None,

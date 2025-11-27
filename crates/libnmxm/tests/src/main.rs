@@ -4,11 +4,9 @@ use uuid::Uuid;
 async fn main() -> Result<(), anyhow::Error> {
     // talk to prism mock server statndard endpoint
     let endpoint = libnmxm::Endpoint {
-        host: "127.0.0.1".to_string(),
-        port: Some(4010),
+        host: "http://127.0.0.1:4010".to_string(),
         username: None,
         password: None,
-        use_https: None,
     };
 
     let pool = libnmxm::NmxmClientPool::builder().build()?;
