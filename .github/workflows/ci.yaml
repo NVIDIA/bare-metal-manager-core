@@ -502,7 +502,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: false  # Don't push initially
+      push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
       load: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
@@ -527,7 +527,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64  # Note: aarch64 artifacts packaged in x86_64 image
       runner: linux-amd64-cpu4
-      push: false  # Don't push initially
+      push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
       load: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
