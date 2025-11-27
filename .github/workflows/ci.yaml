@@ -430,7 +430,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-aarch64
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-aarch64.result == 'success' || needs.build-artifacts-container-aarch64.result == 'success') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-aarch64.result) }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: aarch64
@@ -662,3 +662,34 @@ jobs:
       
       - name: Run Protolint
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
+
+  build-summary:
+    runs-on: linux-amd64-cpu4
+    if: ${{ always() && github.event_name != 'schedule' }}
+    needs:
+      - build-container-x86_64
+      - build-container-aarch64
+      - build-runtime-container-x86_64
+      - build-artifacts-container-x86_64
+      - build-artifacts-container-aarch64
+      - build-release-container-x86_64
+      - build-boot-artifacts-x86
+      - build-boot-artifacts-bfb
+      - build-boot-artifacts-ephemeral-image-x86-host
+      - build-boot-artifacts-ephemeral-image-arm-host
+      - build-forge-cli-x86_64
+      - build-forge-cli-aarch64
+      - merge-manifests-forge-cli
+      - build-release-machine-validation-runner
+      - build-release-machine-validation-artifacts-x86-host
+    steps:
+      - name: Generate summary
+        run: |
+          NEEDS='${{ toJson(needs) }}'
+          echo "## build-* jobs" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "$NEEDS" | jq -r '
+            to_entries[]
+            | select(.key | startswith("build-"))
+            | "- **\(.key)** → `\(.value.result)`"
+          ' >> "$GITHUB_STEP_SUMMARY"        
