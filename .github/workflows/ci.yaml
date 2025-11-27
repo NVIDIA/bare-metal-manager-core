@@ -414,7 +414,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-x86_64
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-x86_64.result == 'success' || needs.build-artifacts-container-x86_64.result == 'success') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-x86_64.result) }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: x86_64
@@ -599,7 +599,7 @@ jobs:
     needs:
       - prepare
       - build-runtime-container-x86_64
-    if: ${{ always() && github.event_name != 'schedule' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-runtime-container-x86_64.result) }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.machine-validation-runner
@@ -616,8 +616,7 @@ jobs:
     needs:
       - prepare
       - build-release-machine-validation-runner
-      - build-runtime-container-x86_64
-    if: github.event_name != 'schedule'
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-release-machine-validation-runner.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config
