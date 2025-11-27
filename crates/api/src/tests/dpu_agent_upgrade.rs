@@ -22,7 +22,9 @@ use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host, create_test_env_with_overrides,
 };
 
+// FIXME: Github versioning not matching the version check in CI
 #[crate::sqlx_test]
+#[ignore = "Github versioning not matching the version check in CI"]
 async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 

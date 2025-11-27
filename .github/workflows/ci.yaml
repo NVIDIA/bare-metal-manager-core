@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
-      - "for-review/code-scan"
+      - "for-review/build-stage"
 
 env:
   # Build configuration
@@ -35,9 +35,10 @@ jobs:
       build_artifacts_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_version }}
       build_artifacts_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_run }}
       build_artifacts_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version }}
-      deploy_release_container: ${{ steps.release-gate.outputs.deploy_release_container }}
+      powerdns_container_run: ${{ steps.base-container-gate.outputs.powerdns_container_run }}
+      proto_files_changed: ${{ steps.base-container-gate.outputs.proto_files_changed }}
+      deploy_built_container: ${{ steps.release-gate.outputs.deploy_built_container }}
       release_build_args: ${{ steps.release-metadata.outputs.build_args }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -59,6 +60,10 @@ jobs:
               - 'dev/docker/Dockerfile.build-artifacts-container-x86_64'
             build_artifacts_aarch64:
               - 'dev/docker/Dockerfile.build-artifacts-container-aarch64'
+            powerdns_container:
+              - 'dev/docker/Dockerfile-powerdns'
+            proto_files:
+              - '**/*.proto'
 
       - name: Calculate version
         id: version
@@ -102,12 +107,16 @@ jobs:
           BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container_aarch64 }}
           BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
           BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
+          POWERDNS_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.powerdns_container }}
+          PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.proto_files }}
         run: |
           build_container_x86_64_run=false
           runtime_container_x86_64_run=false
           build_container_aarch64_run=false
           build_artifacts_container_x86_64_run=false
           build_artifacts_container_aarch64_run=false
+          powerdns_container_run=false
+          proto_files_changed=false
 
           if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-base-containers ]]; then
             build_container_x86_64_run=true
@@ -117,6 +126,14 @@ jobs:
             build_artifacts_container_aarch64_run=true
           elif [[ "${BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
             build_container_x86_64_run=true
+          fi
+
+          if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-powerdns ]] || [[ "${POWERDNS_DOCKERFILE_CHANGED}" == "true" ]]; then
+             powerdns_container_run=true
+          fi
+
+          if [[ "${PROTO_FILES_CHANGED}" == "true" ]]; then
+             proto_files_changed=true
           fi
 
           if [[ "${RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
@@ -140,6 +157,8 @@ jobs:
           echo "build_container_aarch64_run=${build_container_aarch64_run}" >> "$GITHUB_OUTPUT"
           echo "build_artifacts_container_x86_64_run=${build_artifacts_container_x86_64_run}" >> "$GITHUB_OUTPUT"
           echo "build_artifacts_container_aarch64_run=${build_artifacts_container_aarch64_run}" >> "$GITHUB_OUTPUT"
+          echo "powerdns_container_run=${powerdns_container_run}" >> "$GITHUB_OUTPUT"
+          echo "proto_files_changed=${proto_files_changed}" >> "$GITHUB_OUTPUT"
 
           if [[ "$build_container_x86_64_run" == "true" ]]; then
             echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -180,13 +199,13 @@ jobs:
         run: |
           DEPLOY=false
 
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+          if [[ "${EVENT_NAME}" == "pull_request" ]] || [[ "${REF}" =~ pull-request/[0-9]+ ]] ; then
             DEPLOY=false
           elif [[ "${REF}" == "refs/heads/main" ]] || [[ "${REF}" =~ ^refs/heads/release/ ]] || [[ "${REF}" =~ ^refs/tags/ ]] || [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
             DEPLOY=true
           fi
 
-          echo "deploy_release_container=${DEPLOY}" >> "$GITHUB_OUTPUT"
+          echo "deploy_built_container=${DEPLOY}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release container build args
         id: release-metadata
@@ -227,6 +246,7 @@ jobs:
       runner: linux-amd64-cpu4
       push: true
       load: true
+      tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
 
   build-container-aarch64:
@@ -242,7 +262,7 @@ jobs:
       runner: linux-arm64-cpu4
       push: true
       load: false
-      tag_latest: true
+      tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
 
   build-runtime-container-x86_64:
@@ -258,6 +278,7 @@ jobs:
       runner: linux-amd64-cpu4
       push: true
       load: true
+      tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
 
   build-artifacts-container-x86_64:
@@ -273,6 +294,7 @@ jobs:
       runner: linux-amd64-cpu4
       push: true
       load: true
+      tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
 
   build-artifacts-container-aarch64:
@@ -288,16 +310,14 @@ jobs:
       runner: linux-arm64-cpu4
       push: true
       load: false
-      tag_latest: true
+      tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
-
 
   # ============================================================================
   # BUILD STAGE - Release Container
   # ============================================================================
   build-release-container-x86_64:
-    # if: ${{ always() && github.event_name != 'schedule' }}
-    if: false
+    if: ${{ always() && github.event_name != 'schedule' }}
     needs:
       - prepare
       - build-container-x86_64
@@ -307,11 +327,11 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
       context_path: .
       build_args: ${{ needs.prepare.outputs.release_build_args }}
-      image_name: nvcr.io/0837451325059433/carbide-dev/carbide-x86_64
+      image_name: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu8
-      push: ${{ needs.prepare.outputs.deploy_release_container == 'true' }}
+      push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
       load: true
       tag_latest: false
     secrets: inherit
@@ -320,39 +340,71 @@ jobs:
   # ============================================================================
   # BUILD STAGE - Forge CLI (Multi-arch)
   # ============================================================================
-
-  build-forge-cli:
+  build-forge-cli-x86_64:
     needs:
       - prepare
-    if: false
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-        include:
-          - arch: amd64
-            platform: linux/amd64
-            runner: linux-amd64-cpu4
-            build_container_env: CONTAINER_BUILD_ARTIFACTS_X86_64
-          - arch: arm64
-            platform: linux/arm64
-            runner: linux-arm64-cpu4
-            build_container_env: CONTAINER_BUILD_ARTIFACTS_AARCH64
-
+      - build-artifacts-container-x86_64
+    if: ${{ always() && github.event_name != 'schedule' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
-      image_name: nvcr.io/0837451325059433/carbide-dev/forge-admin-cli
-      image_tag: ${{ matrix.arch }}
-      platforms: ${{ matrix.platform }}
-      runner: ${{ matrix.runner }}
-      push: false  # Don't push initially
+      image_name: nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}"}'
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: ${{ !contains(github.ref, 'pull-request/') }}      
       load: true
-      build_args: |
-        {
-          "CI_COMMIT_SHORT_SHA": "${{ needs.prepare.outputs.short_sha }}",
-        }
     secrets: inherit
+
+  build-forge-cli-aarch64:
+    needs:
+      - prepare
+      - build-artifacts-container-aarch64
+    if: ${{ always() && github.event_name != 'schedule' }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-forge-cli
+      image_name: nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}"}'
+      platforms: linux/arm64
+      runner: linux-arm64-cpu4
+      push: ${{ !contains(github.ref, 'pull-request/') }}
+      load: true
+    secrets: inherit
+
+  merge-manifests-forge-cli:
+    needs:
+      - prepare
+      - build-forge-cli-x86_64
+      - build-forge-cli-aarch64
+    if: github.event_name != 'schedule' && !contains(github.ref, 'pull-request/')
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to NVCR
+        uses: ./.github/actions/docker-auth
+        with:
+          username: ${{ secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          docker buildx imagetools create -t \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:${{ needs.prepare.outputs.version }} \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
+          
+          docker buildx imagetools create -t \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:latest \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+            nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}  
 
   # ============================================================================
   # BUILD STAGE - Boot Artifacts
@@ -362,7 +414,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-x86_64
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-x86_64.result == 'success' || needs.build-artifacts-container-x86_64.result == 'success') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-x86_64.result) }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: x86_64
@@ -378,7 +430,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-aarch64
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && (needs.build-artifacts-container-aarch64.result == 'success' || needs.build-artifacts-container-aarch64.result == 'success') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-aarch64.result) }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
       arch: aarch64
@@ -407,7 +459,7 @@ jobs:
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-x86-host-ci
       version: ${{ needs.prepare.outputs.version }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       use_container: false
     secrets: inherit
 
@@ -423,7 +475,7 @@ jobs:
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-arm-host-ci
       version: ${{ needs.prepare.outputs.version }}
-      runner: linux-arm64-cpu4
+      runner: linux-arm64-cpu8
       use_container: false
     secrets: inherit
 
@@ -587,3 +639,110 @@ jobs:
           echo "============================================"
           echo "TODO: Implement license compliance checking"
           echo "Version: ${{ needs.prepare.outputs.version }}"
+
+  # ============================================================================
+  # BUILD STAGE - Machine Validation
+  # ============================================================================
+
+
+  build-release-machine-validation-runner:
+    needs:
+      - prepare
+      - build-runtime-container-x86_64
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-runtime-container-x86_64.result) }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.machine-validation-runner
+      image_name: nvcr.io/0837451325059433/carbide-dev/machine-validation-runner
+      image_tag: ${{ needs.prepare.outputs.version }}
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${{ needs.prepare.outputs.runtime_container_x86_64_version }}"}'
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: ${{ !contains(github.ref, 'pull-request/') }}
+      load: false
+    secrets: inherit
+
+  build-release-machine-validation-artifacts-x86-host:
+    needs:
+      - prepare
+      - build-release-machine-validation-runner
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-release-machine-validation-runner.result == 'success' }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.machine-validation-config
+      image_name: nvcr.io/0837451325059433/carbide-dev/machine_validation
+      image_tag: ${{ needs.prepare.outputs.version }}
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${{ needs.prepare.outputs.runtime_container_x86_64_version }}"}'
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: ${{ !contains(github.ref, 'pull-request/') }}
+      load: false
+    secrets: inherit
+
+  # ============================================================================
+  # BUILD STAGE - PowerDNS
+  # ============================================================================
+
+  build-powerdns-container:
+    needs:
+      - prepare
+    if: needs.prepare.outputs.powerdns_container_run == 'true'
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile-powerdns
+      image_name: nvcr.io/0837451325059433/carbide-dev/powerdns
+      image_tag: "4.9.3"
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}"}'
+      platforms: linux/amd64
+      runner: linux-amd64-cpu4
+      push: ${{ !contains(github.ref, 'pull-request/') }}
+      load: false
+    secrets: inherit
+
+  proto-police:
+    needs:
+      - prepare
+    if: ${{ needs.prepare.outputs.proto_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
+    runs-on: linux-amd64-cpu4
+    container:
+      image: yoheimuta/protolint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run Protolint
+        run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
+
+  build-summary:
+    runs-on: linux-amd64-cpu4
+    if: ${{ always() && github.event_name != 'schedule' }}
+    needs:
+      - build-container-x86_64
+      - build-container-aarch64
+      - build-runtime-container-x86_64
+      - build-artifacts-container-x86_64
+      - build-artifacts-container-aarch64
+      - build-release-container-x86_64
+      - build-boot-artifacts-x86
+      - build-boot-artifacts-bfb
+      - build-boot-artifacts-ephemeral-image-x86-host
+      - build-boot-artifacts-ephemeral-image-arm-host
+      - build-forge-cli-x86_64
+      - build-forge-cli-aarch64
+      - merge-manifests-forge-cli
+      - build-release-machine-validation-runner
+      - build-release-machine-validation-artifacts-x86-host
+      - build-powerdns-container
+      - build-release-artifacts-x86-host
+      - build-release-artifacts-arm-host
+    steps:
+      - name: Generate summary
+        run: |
+          NEEDS='${{ toJson(needs) }}'
+          echo "## build-* jobs" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "$NEEDS" | jq -r '
+            to_entries[]
+            | select(.key | startswith("build-"))
+            | "- **\(.key)** → `\(.value.result)`"
+          ' >> "$GITHUB_STEP_SUMMARY"        
