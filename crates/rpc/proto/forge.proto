@@ -5501,7 +5501,7 @@ message NVLinkGpu {
   int32 tray_index = 2;
   int32 slot_id = 3;
   int32 device_id = 4;
-  int32 guid = 5;
+  uint64 guid = 5;
 }
 
 // Describe an NVLink based Partition configuration and status

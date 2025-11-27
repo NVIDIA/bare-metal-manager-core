@@ -40,7 +40,7 @@ pub struct MachineNvLinkGpuStatusObservation {
     pub logical_partition_id: Option<NvLinkLogicalPartitionId>,
     pub device_instance: u32,
     pub domain_id: NvLinkDomainId,
-    pub guid: i32,
+    pub guid: u64,
 }
 
 impl Default for MachineNvLinkGpuStatusObservation {

@@ -1054,7 +1054,7 @@ pub struct NvLinkGpu {
     pub tray_index: i32,
     pub slot_id: i32,
     pub device_id: i32, // For GB200s, 1-based index of GPU in compute tray.
-    pub guid: i32,
+    pub guid: u64,
 }
 
 impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {

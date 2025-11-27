@@ -74,20 +74,16 @@ pub enum NmxmApiError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
     pub host: String,
-    pub port: Option<u16>,
     pub username: Option<String>,
     pub password: Option<String>,
-    pub use_https: Option<bool>,
 }
 
 impl Default for Endpoint {
     fn default() -> Self {
         Endpoint {
             host: "".to_string(),
-            port: None,
             username: None,
             password: None,
-            use_https: None,
         }
     }
 }
@@ -123,6 +119,7 @@ impl NmxmClientPool {
     pub fn builder() -> NmxmClientPoolBuilder {
         NmxmClientPoolBuilder {
             timeout: DEFAULT_TIMEOUT,
+            //nmx-m probably has self-signed certs, need this set to false
             accept_invalid_certs: false,
         }
     }
@@ -240,17 +237,7 @@ impl NmxmApiClient {
         T: DeserializeOwned + ::std::fmt::Debug,
         B: Serialize + ::std::fmt::Debug,
     {
-        let host = if let Some(p) = self.endpoint.port {
-            format!("{}:{}", self.endpoint.host, p)
-        } else {
-            self.endpoint.host.to_string()
-        };
-        let protocol = if self.endpoint.use_https.unwrap_or(false) {
-            "https:"
-        } else {
-            "http:"
-        };
-        let url = format!("{}//{}/{}", protocol, host, api);
+        let url = format!("{}/{}", self.endpoint.host, api);
 
         let body_enc = match body {
             Some(b) => {
@@ -278,6 +265,10 @@ impl NmxmApiClient {
         req_b = req_b.header(ACCEPT, HeaderValue::from_static("*/*"));
         req_b = req_b.header(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         req_b = req_b.header(USER_AGENT, HeaderValue::from_static("libnmxm/0.1"));
+        if let Some(username) = self.endpoint.username.as_ref() {
+            req_b = req_b.basic_auth(username, self.endpoint.password.as_ref());
+        }
+
         if let Some(t) = override_timeout {
             req_b = req_b.timeout(t);
         }

@@ -1155,6 +1155,24 @@ async fn main() -> color_eyre::Result<()> {
                 };
                 api_client.0.create_credential(req).await?;
             }
+            CredentialAction::AddNmxM(c) => {
+                let req = forgerpc::CredentialCreationRequest {
+                    credential_type: CredentialType::NmxM.into(),
+                    username: Some(c.username),
+                    password: c.password,
+                    mac_address: None,
+                    vendor: None,
+                };
+                api_client.0.create_credential(req).await?;
+            }
+            CredentialAction::DeleteNmxM(c) => {
+                let req = forgerpc::CredentialDeletionRequest {
+                    credential_type: CredentialType::NmxM.into(),
+                    username: Some(c.username),
+                    mac_address: None,
+                };
+                api_client.0.delete_credential(req).await?;
+            }
         },
         CliCommand::RouteServer(cmd) => {
             route_server::dispatch(&cmd, &api_client, config.format).await?
