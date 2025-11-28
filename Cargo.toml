@@ -220,6 +220,9 @@ x509-parser = "0.17.0"
 urlencoding = "2.1"
 zip = "0.6"
 serde_derive = "1"
+fmt = "0.1.0"
+jsonwebtoken = "10.2.0"
+mockito = "1.7.0"
 
 [profile.release]
 debug = true            # Enable debuginfo
