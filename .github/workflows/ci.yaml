@@ -751,3 +751,20 @@ jobs:
             | select(.key | startswith("build-"))
             | "- **\(.key)** → `\(.value.result)`"
           ' >> "$GITHUB_STEP_SUMMARY"        
+
+  promote-to-be-scanned-image:
+    if: ${{ always() && github.event_name != 'schedule' }}
+    needs:
+      - prepare
+      - build-release-container-x86_64
+    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@feat/add-regctl
+    with:
+      source: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
+      source_tag: ${{ needs.prepare.outputs.version }}
+      destination: nvcr.io/0837451325059433/carbide/nvmetal-carbide
+      destination_tag: "to-be-scanned"
+    secrets:
+      SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
+      DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
+      DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
