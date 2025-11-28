@@ -757,7 +757,7 @@ jobs:
     needs:
       - prepare
       - build-release-container-x86_64
-    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@feat/add-regctl
+    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@760d2d7964b479fde431cd3e0b980bc6b6a26ccd
     with:
       source: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
       source_tag: ${{ needs.prepare.outputs.version }}
