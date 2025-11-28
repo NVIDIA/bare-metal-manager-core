@@ -37,7 +37,6 @@ jobs:
       build_artifacts_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version }}
       powerdns_container_run: ${{ steps.base-container-gate.outputs.powerdns_container_run }}
       proto_files_changed: ${{ steps.base-container-gate.outputs.proto_files_changed }}
-      deploy_built_container: ${{ steps.release-gate.outputs.deploy_built_container }}
       release_build_args: ${{ steps.release-metadata.outputs.build_args }}
     steps:
       - name: Checkout code
@@ -80,17 +79,10 @@ jobs:
           # Calculate VERSION using the same command as GitLab
           # From gitlab-templates/scripts/get-version.sh line 15:
           # VERSION=$(git describe --tags --first-parent --always --long)
-          VERSION=$(git describe --tags --first-parent --always --long 2>/dev/null || echo "0.0.0-dev-${SHORT_SHA}")
+          VERSION=dev-${SHORT_SHA}
 
-          # Ensure Debian compatibility (version must start with digit)
-          if ! [[ "$VERSION" =~ ^[0-9] ]]; then
-            if [[ "$VERSION" =~ ^v ]]; then
-              # Remove leading 'v' (e.g., v1.2.3-45-gabc1234 → 1.2.3-45-gabc1234)
-              VERSION="${VERSION#v}"
-            else
-              # If still doesn't start with digit, prepend 0.0.0-dev-
-              VERSION="0.0.0-dev-${SHORT_SHA}"
-            fi
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            VERSION="main-${SHORT_SHA}"
           fi
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -190,22 +182,22 @@ jobs:
             echo "build_artifacts_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Decide release container deploy strategy
+      - name: Decide release container publish strategy
         id: release-gate
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
         run: |
-          DEPLOY=false
+          PUBLISH=false
 
           if [[ "${EVENT_NAME}" == "pull_request" ]] || [[ "${REF}" =~ pull-request/[0-9]+ ]] ; then
-            DEPLOY=false
+            PUBLISH=false
           elif [[ "${REF}" == "refs/heads/main" ]] || [[ "${REF}" =~ ^refs/heads/release/ ]] || [[ "${REF}" =~ ^refs/tags/ ]] || [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
-            DEPLOY=true
+            PUBLISH=true
           fi
 
-          echo "deploy_built_container=${DEPLOY}" >> "$GITHUB_OUTPUT"
+          echo "publish_built_container=${PUBLISH}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release container build args
         id: release-metadata
@@ -331,7 +323,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu8
-      push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
+      push: true
       load: true
       tag_latest: false
     secrets: inherit
@@ -427,7 +419,7 @@ jobs:
       cargo_make_task: build-boot-artifacts-x86-host-ci
       build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
       runner: linux-amd64-cpu4
-      version: ${{ needs.prepare.outputs.version }}
+      version: 0.0.0-${{ needs.prepare.outputs.version }}
       use_container: true
     secrets: inherit
 
@@ -443,7 +435,7 @@ jobs:
       cargo_make_task: build-boot-artifacts-bfb-ci
       build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
       runner: linux-arm64-cpu4
-      version: ${{ needs.prepare.outputs.version }}
+      version: 0.0.0-${{ needs.prepare.outputs.version }}
       use_container: true
     secrets: inherit
 
@@ -463,7 +455,7 @@ jobs:
       arch: x86_64
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-x86-host-ci
-      version: ${{ needs.prepare.outputs.version }}
+      version: 0.0.0-${{ needs.prepare.outputs.version }}
       runner: linux-amd64-cpu8
       use_container: false
     secrets: inherit
@@ -479,7 +471,7 @@ jobs:
       arch: aarch64
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-arm-host-ci
-      version: ${{ needs.prepare.outputs.version }}
+      version: 0.0.0-${{ needs.prepare.outputs.version }}
       runner: linux-arm64-cpu8
       use_container: false
     secrets: inherit
@@ -502,7 +494,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
+      push: true
       load: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
@@ -527,7 +519,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64  # Note: aarch64 artifacts packaged in x86_64 image
       runner: linux-amd64-cpu4
-      push: ${{ needs.prepare.outputs.deploy_built_container == 'true' }}
+      push: true
       load: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
