@@ -70,7 +70,8 @@ use model::resource_pool::common::CommonPools;
 use model::site_explorer::ExploredEndpoint;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
-use tokio::io::AsyncBufReadExt;
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 use tokio::sync::{Mutex, Semaphore};
 use tracing::instrument;
 use version_compare::Cmp;
@@ -3087,7 +3088,7 @@ impl DpuMachineStateHandler {
                 self.set_secure_boot(
                     *count,
                     state,
-                    *enable_secure_boot_state,
+                    enable_secure_boot_state.clone(),
                     true,
                     dpu_snapshot,
                     dpu_redfish_client.as_ref(),
@@ -3102,7 +3103,9 @@ impl DpuMachineStateHandler {
                 self.set_secure_boot(
                     *count,
                     state,
-                    disable_secure_boot_state.unwrap_or(SetSecureBootState::CheckSecureBootStatus),
+                    disable_secure_boot_state
+                        .clone()
+                        .unwrap_or(SetSecureBootState::CheckSecureBootStatus),
                     false,
                     dpu_snapshot,
                     dpu_redfish_client.as_ref(),
@@ -3532,6 +3535,46 @@ impl DpuMachineStateHandler {
         };
 
         match set_secure_boot_state {
+            SetSecureBootState::WaitCertificateUpload { task_id } => {
+                let task = dpu_redfish_client
+                    .get_task(task_id.as_str())
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "get_task",
+                        error: e,
+                    })?;
+                match task.clone().task_state {
+                    Some(TaskState::New)
+                    | Some(TaskState::Starting)
+                    | Some(TaskState::Running)
+                    | Some(TaskState::Pending) => {
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "Waiting for certificate upload task {task_id} to complete",
+                        )));
+                    }
+                    Some(TaskState::Completed) => {
+                        next_state = DpuDiscoveringState::EnableSecureBoot {
+                            enable_secure_boot_state: SetSecureBootState::SetSecureBoot,
+                            count: 0,
+                        }
+                        .next_state(&state.managed_state, dpu_machine_id)?;
+                    }
+                    None => {
+                        return Err(StateHandlerError::RedfishError {
+                            operation: "get_task",
+                            error: RedfishError::NoContent,
+                        });
+                    }
+                    Some(e) => {
+                        return Err(StateHandlerError::RedfishError {
+                            operation: "get_task",
+                            error: RedfishError::GenericError {
+                                error: format!("Task {task:#?} error: {e:#?}"),
+                            },
+                        });
+                    }
+                }
+            }
             SetSecureBootState::CheckSecureBootStatus => {
                 // This is the logic:
                 // CheckSecureBootStatus -> DisableSecureBoot -> DisableSecureBootState::RebootDPU{0} -> DisableSecureBootState::RebootDPU{1}
@@ -3561,11 +3604,58 @@ impl DpuMachineStateHandler {
                     }
                     Ok(is_secure_boot_disabled) => {
                         if is_secure_boot_disabled {
-                            next_state = DpuDiscoveringState::EnableSecureBoot {
-                                enable_secure_boot_state: SetSecureBootState::SetSecureBoot,
-                                count,
+                            let pk_certs = dpu_redfish_client
+                                .get_secure_boot_certificates("PK")
+                                .await
+                                .map_err(|e| StateHandlerError::RedfishError {
+                                    operation: "get_secure_boot_certificates",
+                                    error: e,
+                                })?;
+
+                            if pk_certs.is_empty() {
+                                let mut cert_file = File::open("/forge-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem").await.map_err(|e| StateHandlerError::RedfishError {
+                                    operation: "open_secure_boot_certificate_file",
+                                    error: RedfishError::FileError(format!("Error opening secure boot certificate file: {e}")),
+                                })?;
+                                let mut cert_string = String::new();
+                                cert_file
+                                    .read_to_string(&mut cert_string)
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "read_secure_boot_certificate_file",
+                                        error: RedfishError::FileError(format!(
+                                            "Error reading secure boot certificate file: {e}"
+                                        )),
+                                    })?;
+                                let task = dpu_redfish_client
+                                    .add_secure_boot_certificate(cert_string.as_str(), "PK")
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "add_secure_boot_certificate",
+                                        error: e,
+                                    })?;
+                                dpu_redfish_client
+                                    .power(SystemPowerControl::ForceRestart)
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "force_restart",
+                                        error: e,
+                                    })?;
+                                next_state = DpuDiscoveringState::EnableSecureBoot {
+                                    enable_secure_boot_state:
+                                        SetSecureBootState::WaitCertificateUpload {
+                                            task_id: task.id,
+                                        },
+                                    count: 0,
+                                }
+                                .next_state(&state.managed_state, dpu_machine_id)?;
+                            } else {
+                                next_state = DpuDiscoveringState::EnableSecureBoot {
+                                    enable_secure_boot_state: SetSecureBootState::SetSecureBoot,
+                                    count,
+                                }
+                                .next_state(&state.managed_state, dpu_machine_id)?;
                             }
-                            .next_state(&state.managed_state, dpu_machine_id)?;
                         } else {
                             next_state = DpuInitState::InstallDpuOs {
                                 substate: InstallDpuOsState::InstallingBFB,

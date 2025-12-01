@@ -1656,7 +1656,7 @@ pub mod test_support {
             &self,
             _database_id: &str,
         ) -> Result<Vec<String>, RedfishError> {
-            Ok(Vec::new())
+            Ok(vec!["1".to_string()])
         }
 
         async fn get_component_integrities(

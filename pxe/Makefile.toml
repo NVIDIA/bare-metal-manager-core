@@ -155,6 +155,7 @@ dependencies = [
   "bfb-aarch64",
   "ipxe-aarch64",
   "setup-apt-repo-arm64",
+  "add-secure-boot-pk-pem",
 ]
 
 [tasks.build-boot-artifacts-bfb-ci]
@@ -164,6 +165,7 @@ dependencies = [
   "bfb-aarch64-ci",
   "ipxe-aarch64-ci",
   "setup-apt-repo-arm64",
+  "add-secure-boot-pk-pem",
 ]
 
 [tasks.create-ephemeral-image-x86-host-ci]
@@ -1108,3 +1110,11 @@ category = "iPXE Kernel"
 description = "Switch bfpxe script from bfb to custom one"
 command = "cp"
 args = ["${REPO_ROOT}/pxe/bfpxe", "${BUILD_LOCATION}/usr/bin/bfpxe"]
+
+
+[tasks.add-secure-boot-pk-pem]
+category = "iPXE Kernel"
+description = "Get secure boot pk from bfb and convert to pem"
+command = "openssl"
+args = ["x509", "-inform", "der", "-in", "/tmp/bfb-dump/initramfs-tmp/lib/firmware/mellanox/boot/capsule/certs/prod/pk.cer", "-outform", "pem", "-out", "static/blobs/internal/aarch64/secure-boot-pk.pem"]
+dependencies = ["bfb-rebuild-rootfs"]

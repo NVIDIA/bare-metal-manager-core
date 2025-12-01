@@ -1529,13 +1529,14 @@ pub enum InstallDpuOsState {
     InstallationError { msg: String },
 }
 
-#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Copy, Clone, Ord, PartialOrd)]
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Clone, Ord, PartialOrd)]
 #[serde(tag = "disablesecurebootstate", rename_all = "lowercase")]
 pub enum SetSecureBootState {
     CheckSecureBootStatus,
     DisableSecureBoot, // Deprecated
     SetSecureBoot,
     RebootDPU { reboot_count: u32 },
+    WaitCertificateUpload { task_id: String },
 }
 
 // Since order is derived, Enum members must be in initial to last state sequence.
