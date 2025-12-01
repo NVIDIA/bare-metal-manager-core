@@ -77,6 +77,63 @@ async fn test_start_iteration(pool: sqlx::PgPool) -> sqlx::Result<()> {
 }
 
 #[crate::sqlx_test]
+async fn test_delete_outdated_iterations(pool: sqlx::PgPool) -> sqlx::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+
+    // If we insert up to 10 iterations, all of them shoudl be visible
+    for i in 1..=10 {
+        let mut txn = pool.begin().await?;
+        let result = controller::db::lock_iteration_table_and_start_iteration(
+            &mut txn,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.id.0, i);
+
+        let results = controller::db::fetch_iterations(
+            &mut txn,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), i as usize);
+        for j in 0..i {
+            assert_eq!(results[j as usize].id.0, j + 1);
+        }
+
+        txn.commit().await.unwrap();
+    }
+
+    // Once we are above 10, we retain the latest 10 iterations
+    for i in 11..=20 {
+        let mut txn = pool.begin().await?;
+        let result = controller::db::lock_iteration_table_and_start_iteration(
+            &mut txn,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.id.0, i);
+
+        let results = controller::db::fetch_iterations(
+            &mut txn,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), 10);
+        for j in 0..10 {
+            assert_eq!(results[j as usize].id.0, i - 9 + j);
+        }
+
+        txn.commit().await.unwrap();
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     create_test_state_controller_tables(&pool).await;
 

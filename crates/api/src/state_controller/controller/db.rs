@@ -46,6 +46,43 @@ pub async fn create_iteration(
         .map_err(|e| DatabaseError::new("ControllerIteration::insert", e))
 }
 
+/// Loads all iterations, with the latest iteration being the last entry in the results
+#[cfg(test)]
+pub async fn fetch_iterations(
+    txn: &mut PgConnection,
+    table_id: &str,
+) -> Result<Vec<ControllerIteration>, DatabaseError> {
+    let query = format!("SELECT * FROM {table_id} ORDER BY id ASC");
+    sqlx::query_as::<_, ControllerIteration>(&query)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("ControllerIteration::fetch_iterations", e))
+}
+
+/// Deletes entries from the iteration table that are no longer required in order
+/// to cap the maximum length of the table. By default 10 entries are retained.
+/// The minimum amount required is 2 (current iteration and last iteration that is
+/// still in progress).
+pub async fn delete_old_iterations(
+    txn: &mut PgConnection,
+    table_id: &str,
+    current_iteration_id: ControllerIterationId,
+) -> Result<(), DatabaseError> {
+    /// Iterations to retain
+    const NUM_RETAINED: u64 = 10;
+
+    let last_retained = (current_iteration_id.0 as u64).saturating_sub(NUM_RETAINED) + 1;
+
+    let query = format!("DELETE FROM {table_id} WHERE id < $1");
+    sqlx::query(&query)
+        .bind(last_retained as i64)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("ControllerIteration::delete_old_iterations", e))?;
+
+    Ok(())
+}
+
 /// Locks the iteration table for the duration of the current transaction and
 /// creates a new entry in it.
 pub async fn lock_iteration_table_and_start_iteration(
@@ -53,7 +90,9 @@ pub async fn lock_iteration_table_and_start_iteration(
     table_id: &str,
 ) -> Result<ControllerIteration, DatabaseError> {
     lock_iteration_table(txn, table_id).await?;
-    create_iteration(txn, table_id).await
+    let result = create_iteration(txn, table_id).await?;
+    delete_old_iterations(txn, table_id, result.id).await?;
+    Ok(result)
 }
 
 /// Enqueues object IDs for processing into the queued objects table with name `table_id`
