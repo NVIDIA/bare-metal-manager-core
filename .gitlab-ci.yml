@@ -605,6 +605,7 @@ build-boot-artifacts-bfb:
     - cargo make --cwd pxe build-boot-artifacts-bfb-ci
   artifacts:
     paths:
+      - pxe/static/blobs/internal/aarch64/secure-boot-pk.pem
       - pxe/static/blobs/internal/aarch64/ipxe.efi
       - pxe/static/blobs/internal/aarch64/carbide.efi
       - pxe/static/blobs/internal/aarch64/carbide.root
@@ -1079,6 +1080,7 @@ dev-env-test-with-carbide:
     max: 1
   needs:
     - job: export-docker-json-config
+    - job: build-boot-artifacts-bfb
   variables:
     VAULT_NAMESPACE: ngc-forge
     DEBUG_JUST: #true # Uncomment value for additional logs. Checks test for the presence of variable, therefore setting to false is not equivalent
