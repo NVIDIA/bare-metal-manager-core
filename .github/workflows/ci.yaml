@@ -762,6 +762,7 @@ jobs:
       DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
 
   # ============================================================================
+<<<<<<< HEAD
   # NOTIFICATION STAGE
   # ============================================================================
 
@@ -802,3 +803,24 @@ jobs:
       notify-on-failure: true
     secrets:
       slack-bot-token: ${{ secrets.CDS_SLACK_BOT_OAUTH_TOKEN }}
+=======
+  # PUSH MAIN TAG
+  # ============================================================================
+  push-main-tag:
+    runs-on: linux-amd64-cpu4
+    if: github.ref == 'refs/heads/main'
+    needs:
+      - build-summary
+      - prepare
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.TAG_PAT_TOKEN }}
+      - name: Push tag
+        uses: NVIDIA/dsx-github-actions/.github/actions/git-tag@d6403ae4ccd610fa110e64726d5f0c16737a769d
+        with:
+          tag: main-${{ needs.prepare.outputs.short_sha }}
+          github_token: ${{ secrets.TAG_PAT_TOKEN }}
+>>>>>>> d6b31a168 (feat: add promotion and release workflow)

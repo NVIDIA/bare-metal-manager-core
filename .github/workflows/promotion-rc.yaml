@@ -1,0 +1,148 @@
+name: Carbide Promotion to Release Candidate
+
+on:
+  push:
+    tags:
+      - 'main-[0-9a-f]{7}'
+
+jobs:
+  # ============================================================================
+  # PROMOTE TO RELEASE CANDIDATE
+  # ============================================================================
+  qa-promote-to-release-candidate:
+    runs-on: linux-amd64-cpu4
+    environment: 
+      name: promote-release-candidate
+    steps:
+      - name: QA promote to release candidate
+        run: echo "QA promoting to release candidate registry ngcr.io/0837451325059433/carbide"  
+  # ============================================================================
+  # Calculate release candidate version
+  # ============================================================================
+  calculate-release-candidate-version:
+    runs-on: linux-amd64-cpu4
+    needs:
+      - qa-promote-to-release-candidate
+    outputs:
+      rc_version: ${{ steps.calc.outputs.rc_version }}
+      short_sha: ${{ steps.calc.outputs.short_sha }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Calculate release candidate version
+        id: calc
+        run: |
+          set -euo pipefail
+          
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+          # 1. Find the latest stable tag (e.g. v0.1.0 or 0.1.0)
+          # Sort by version, filtering for standard semver patterns
+          LATEST_TAG=$(git tag -l | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || echo "0.0.0")
+          
+          # Normalize tag (remove 'v' prefix if present for calculation)
+          VERSION_NUM=${LATEST_TAG#v}
+          
+          echo "Latest stable tag: $LATEST_TAG (normalized: $VERSION_NUM)"
+          
+          # Split into Major.Minor.Patch
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_NUM"
+          
+          # 2. Determine Bump Type
+          # Scan commit messages since the last stable tag for "minor" keyword
+          if [ "$LATEST_TAG" == "0.0.0" ]; then
+            # If no previous tag, we are starting from scratch. 
+            # Assuming we bump patch to 0.0.1 or minor to 0.1.0 based on log? 
+            # Spec says: "0.1.0 -> 0.1.1 (patch) unless 'minor' in commit msg -> 0.2.0"
+            # For initial 0.0.0, let's check log from beginning.
+            LOG_RANGE="HEAD"
+          else
+            LOG_RANGE="$LATEST_TAG..HEAD"
+          fi
+          
+          # Check for "^minor:" (case insensitive) in commit messages
+          if git log "$LOG_RANGE" --pretty=format:%B | grep -i -q "^minor:"; then
+            BUMP_TYPE="minor"
+            NEW_MINOR=$((MINOR + 1))
+            NEW_PATCH=0
+            NEW_VERSION="$MAJOR.$NEW_MINOR.$NEW_PATCH"
+          elif git log "$LOG_RANGE" --pretty=format:%B | grep -i -q "^major:"; then
+            BUMP_TYPE="major"
+            NEW_MAJOR=$((MAJOR + 1))
+            NEW_MINOR=0
+            NEW_PATCH=0
+            NEW_VERSION="$NEW_MAJOR.$NEW_MINOR.$NEW_PATCH"
+          else
+            BUMP_TYPE="patch"
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          fi
+          
+          echo "Bump type: $BUMP_TYPE"
+          echo "Target new version: $NEW_VERSION"
+          
+          # 3. Calculate RC Number
+          # Search for existing RC tags for this target version: X.Y.Z-rc.*
+          # Example: if NEW_VERSION is 0.1.1, look for 0.1.1-rc.1, 0.1.1-rc.2, etc.
+          
+          # Find highest existing rc for this version
+          # We grep for exact version match followed by -rc.N
+          EXISTING_RCS=$(git tag -l | grep -E "^v?${NEW_VERSION}-rc\.[0-9]+$" | sort -V | tail -n 1 || echo "")
+          echo "Existing RCs: $EXISTING_RCS"
+          if [ -z "$EXISTING_RCS" ]; then
+            # No RC exists yet, start at 1
+            NEXT_RC=1
+          else
+            # Extract the RC number
+            # Remove everything up to the last dot
+            LAST_RC_NUM=${EXISTING_RCS##*.}
+            NEXT_RC=$((LAST_RC_NUM + 1))
+          fi
+          
+          FINAL_RC_VERSION="${NEW_VERSION}-rc.${NEXT_RC}"
+          
+          echo "Final RC Version: $FINAL_RC_VERSION"
+          echo "rc_version=${FINAL_RC_VERSION}" >> "$GITHUB_OUTPUT"
+
+
+  # ============================================================================
+  # ReTag To Release Candidate
+  # ============================================================================
+  promote-carbide-core-release-candidate:
+    needs:
+      - calculate-release-candidate-version
+    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@d6403ae4ccd610fa110e64726d5f0c16737a769d
+    with:
+      source: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
+      source_tag: main-${{ needs.calculate-release-candidate-version.outputs.short_sha }}      
+      destination: nvcr.io/0837451325059433/carbide/nvmetal-carbide
+      destination_tag: ${{ needs.calculate-release-candidate-version.outputs.rc_version }}
+    secrets:
+      SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
+      DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
+      DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
+
+  # ============================================================================
+  # Push Git Tag
+  # ============================================================================
+  push-git-tag:
+    runs-on: linux-amd64-cpu4
+    needs:
+      - promote-carbide-core-release-candidate
+      - calculate-release-candidate-version
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.TAG_PAT_TOKEN }}
+
+      - name: Push Git Tag
+        uses: NVIDIA/dsx-github-actions/.github/actions/git-tag@d6403ae4ccd610fa110e64726d5f0c16737a769d
+        with:
+          tag: v${{ needs.calculate-release-candidate-version.outputs.rc_version }}
+          github_token: ${{ secrets.TAG_PAT_TOKEN }}
