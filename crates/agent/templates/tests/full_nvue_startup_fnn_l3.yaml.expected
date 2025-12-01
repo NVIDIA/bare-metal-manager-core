@@ -95,6 +95,10 @@
                 action: permit
                 match:
                   7.8.0.0/16: {}
+              '65535':
+                action: deny
+                match:
+                  any: {}
           DPU_TO_EVPN_DROP_PREFIX_LIST:
             rule:
               '10':
