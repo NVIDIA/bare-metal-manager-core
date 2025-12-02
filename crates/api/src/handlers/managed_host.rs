@@ -204,6 +204,7 @@ pub(crate) async fn set_primary_dpu(
 
 /// Maintenance mode: Put a machine into maintenance mode or take it out.
 /// Switching a host into maintenance mode prevents an instance being assigned to it.
+#[allow(txn_held_across_await)]
 pub(crate) async fn set_maintenance(
     api: &Api,
     request: Request<rpc::MaintenanceRequest>,

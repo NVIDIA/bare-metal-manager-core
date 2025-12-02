@@ -87,6 +87,7 @@ pub(crate) async fn list_machines_under_attestation(
 }
 
 #[cfg(feature = "linux-build")]
+#[allow(txn_held_across_await)]
 pub(crate) async fn attest_quote(
     api: &Api,
     request: Request<rpc::AttestQuoteRequest>,

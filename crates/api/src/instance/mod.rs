@@ -361,6 +361,7 @@ pub fn sort_ib_by_slot(
 }
 
 /// Allocates an instance for a tenant
+#[allow(txn_held_across_await)]
 pub async fn allocate_instance(
     api: &Api,
     mut request: InstanceAllocationRequest,

@@ -210,6 +210,7 @@ impl SiteExplorer {
         Ok(db::Transaction::begin(&self.database_connection, name).await?)
     }
 
+    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = SiteExplorationMetrics::new();
 
@@ -1414,6 +1415,7 @@ impl SiteExplorer {
             .map_err(|e| CarbideError::internal(e.to_string()))
     }
 
+    #[allow(txn_held_across_await)]
     async fn update_explored_endpoints(
         &self,
         metrics: &mut SiteExplorationMetrics,
@@ -2004,6 +2006,7 @@ impl SiteExplorer {
             })
     }
 
+    #[allow(txn_held_across_await)]
     async fn update_explored_endpoints_power_shelf(
         &self,
         metrics: &mut SiteExplorationMetrics,

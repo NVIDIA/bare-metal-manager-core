@@ -167,6 +167,7 @@ pub async fn redfish_approve_action(
     ))
 }
 
+#[allow(txn_held_across_await)]
 pub async fn redfish_apply_action(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishActionId>,

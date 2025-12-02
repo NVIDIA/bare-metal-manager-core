@@ -27,6 +27,7 @@ use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::{CarbideError, attestation as attest};
 
+#[allow(txn_held_across_await)]
 pub(crate) async fn discover_machine(
     api: &Api,
     request: Request<rpc::MachineDiscoveryInfo>,
@@ -443,6 +444,7 @@ pub(crate) async fn discover_machine(
 }
 
 // Host has completed discovery
+#[allow(txn_held_across_await)]
 pub(crate) async fn discovery_completed(
     api: &Api,
     request: Request<rpc::MachineDiscoveryCompletedRequest>,

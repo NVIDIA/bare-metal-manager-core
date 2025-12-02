@@ -18,6 +18,7 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
+#[allow(txn_held_across_await)]
 pub(crate) async fn clear_host_uefi_password(
     api: &Api,
     request: Request<rpc::ClearHostUefiPasswordRequest>,
@@ -68,6 +69,7 @@ pub(crate) async fn clear_host_uefi_password(
     Ok(Response::new(rpc::ClearHostUefiPasswordResponse { job_id }))
 }
 
+#[allow(txn_held_across_await)]
 pub(crate) async fn set_host_uefi_password(
     api: &Api,
     request: Request<rpc::SetHostUefiPasswordRequest>,

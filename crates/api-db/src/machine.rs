@@ -1958,7 +1958,7 @@ pub async fn update_dpu_asns(
 ) -> Result<(), DatabaseError> {
     let mut txn = Transaction::begin(db_pool, "agent upgrade policy").await?;
 
-    if crate::resource_pool::stats(db_pool, common_pools.ethernet.pool_fnn_asn.name())
+    if crate::resource_pool::stats(txn.as_pgconn(), common_pools.ethernet.pool_fnn_asn.name())
         .await?
         .free
         == 0

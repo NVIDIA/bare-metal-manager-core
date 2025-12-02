@@ -33,6 +33,8 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
   createdb root && \
   cargo make --no-workspace clippy-flow && \
   echo "$(date): Finished cargo make clippy-flow\n" && \
+  cargo make carbide-lints && \
+  echo "$(date): Finished cargo make carbide-lints\n" && \
   (taplo fmt --check || echo "Please format toml files") && \
   echo "$(date): Finished taplo fmt \n" && \
   cargo make --no-workspace check-format-nightly && \

@@ -1140,6 +1140,7 @@ async fn update_instance_network_config(
     Ok(())
 }
 
+#[allow(txn_held_across_await)]
 async fn update_instance_infiniband_config(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,
@@ -1257,6 +1258,7 @@ fn snapshot_to_instance(
         })
 }
 
+#[allow(txn_held_across_await)]
 pub async fn force_delete_instance(
     instance_id: InstanceId,
     ib_fabric_manager: &Arc<dyn IBFabricManager>,

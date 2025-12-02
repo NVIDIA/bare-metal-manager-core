@@ -135,6 +135,7 @@ impl IbFabricMonitor {
         }
     }
 
+    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
         let mut metrics = IbFabricMonitorMetrics::new();
 
