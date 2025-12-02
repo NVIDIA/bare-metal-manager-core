@@ -59,7 +59,7 @@ impl InternalRBACRules {
         x.perm("FindDomain", vec![ForgeAdminCLI]);
         x.perm("CreateVpc", vec![SiteAgent, Machineatron]);
         x.perm("UpdateVpc", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("UpdateVpcVirtualization", vec![ForgeAdminCLI]);
+        x.perm("UpdateVpcVirtualization", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteVpc", vec![Machineatron, SiteAgent]);
         x.perm("FindVpcIds", vec![SiteAgent, ForgeAdminCLI, Machineatron]);
         x.perm("FindVpcsByIds", vec![ForgeAdminCLI, SiteAgent]);
@@ -106,7 +106,7 @@ impl InternalRBACRules {
         x.perm("RecordObservedInstanceNetworkStatus", vec![]);
         x.perm(
             "GetManagedHostNetworkConfig",
-            vec![ForgeAdminCLI, Agent, Machineatron],
+            vec![ForgeAdminCLI, Agent, Machineatron, SiteAgent],
         );
         x.perm("RecordDpuNetworkStatus", vec![Agent, Machineatron]);
         x.perm("RecordHardwareHealthReport", vec![Health]);
@@ -216,11 +216,11 @@ impl InternalRBACRules {
         x.perm("UpdateInstancePhoneHomeLastContact", vec![Agent]);
         x.perm("SetHostUefiPassword", vec![ForgeAdminCLI]);
         x.perm("ClearHostUefiPassword", vec![ForgeAdminCLI]);
-        x.perm("AddExpectedMachine", vec![ForgeAdminCLI]);
-        x.perm("DeleteExpectedMachine", vec![ForgeAdminCLI]);
-        x.perm("UpdateExpectedMachine", vec![ForgeAdminCLI]);
+        x.perm("AddExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdateExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("GetExpectedMachine", vec![ForgeAdminCLI]);
-        x.perm("GetAllExpectedMachines", vec![ForgeAdminCLI]);
+        x.perm("GetAllExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ReplaceAllExpectedMachines", vec![ForgeAdminCLI]);
         x.perm("DeleteAllExpectedMachines", vec![ForgeAdminCLI]);
         x.perm("GetAllExpectedMachinesLinked", vec![ForgeAdminCLI]);
@@ -422,8 +422,8 @@ impl InternalRBACRules {
         x.perm("AssignSkuToMachine", vec![ForgeAdminCLI]);
         x.perm("VerifySkuForMachine", vec![ForgeAdminCLI]);
         x.perm("RemoveSkuAssociation", vec![ForgeAdminCLI]);
-        x.perm("GetAllSkuIds", vec![ForgeAdminCLI]);
-        x.perm("FindSkusByIds", vec![ForgeAdminCLI]);
+        x.perm("GetAllSkuIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindSkusByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteSku", vec![ForgeAdminCLI]);
         x.perm("UpdateSkuMetadata", vec![ForgeAdminCLI]);
         x.perm("UpdateMachineHardwareInfo", vec![ForgeAdminCLI]);
