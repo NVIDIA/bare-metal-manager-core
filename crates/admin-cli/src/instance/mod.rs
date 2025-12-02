@@ -55,6 +55,9 @@ impl Dispatch for Cmd {
             Cmd::UpdateIbConfig(args) => {
                 cmds::update_ib_config(&ctx.api_client, args, opts).await?
             }
+            Cmd::UpdateNvLinkConfig(args) => {
+                cmds::update_nvlink_config(&ctx.api_client, args, &opts).await?
+            }
         }
         Ok(())
     }

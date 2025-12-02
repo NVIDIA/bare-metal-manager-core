@@ -33,6 +33,8 @@ pub enum Cmd {
     UpdateOS(UpdateInstanceOS),
     #[clap(about = "Update instance IB configuration")]
     UpdateIbConfig(UpdateIbConfig),
+    #[clap(about = "Update instance NVLink configuration")]
+    UpdateNvLinkConfig(UpdateNvLinkConfig),
 }
 
 /// ShowInstance is used for `cli instance show` configuration,
