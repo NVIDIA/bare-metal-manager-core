@@ -14,7 +14,7 @@ FROM rust:1.90.0-slim-bookworm
 # Set in gitlab-templates/scripts/build-push-container-image.sh
 ARG CI_COMMIT_SHORT_SHA
 ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
-ENV RUST_NIGHTLY nightly-2025-10-07
+ENV RUST_NIGHTLY nightly-2025-11-14
 
 # Change CACHEKEY to whatever so docker doesn't re-use the cache from before if you want apt to actually run.
 #
@@ -69,7 +69,7 @@ RUN rustup component add rustfmt
 
 # Install a nightly toolchain just for running cargo fmt
 RUN rustup toolchain install ${RUST_NIGHTLY} --profile minimal
-RUN rustup component add --toolchain ${RUST_NIGHTLY} rustfmt
+RUN rustup component add --toolchain ${RUST_NIGHTLY} rustfmt rust-src rustc-dev llvm-tools-preview
 
 # The mdbook crates need to be installed with matching version numbers
 # in order to be compatible

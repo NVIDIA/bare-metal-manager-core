@@ -18,7 +18,7 @@ use regex::Regex;
 use rpc::machine_discovery::{DpuData, LldpSwitchData};
 use serde::{Deserialize, Serialize};
 use serde_with::{OneOrMany, serde_as};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 use utils::cmd::{Cmd, CmdError};
 
 const LLDP_PORTS: &[&str] = &["p0", "p1", "oob_net0"];

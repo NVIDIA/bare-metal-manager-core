@@ -23,7 +23,6 @@ use uzers::{get_group_by_name, get_user_by_name};
 
 use super::log::{build_diff, maybe_colorize};
 use super::{FileEnsure, FileSpec, SummaryFormat, SyncOptions, SyncStatus};
-use crate::logln;
 
 /// sync is the main entrypoint into duppet doing a sync. It
 /// takes the hashmap of file output path and content, as well

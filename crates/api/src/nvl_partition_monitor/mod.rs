@@ -452,6 +452,7 @@ impl NvlPartitionMonitor {
         }
     }
 
+    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
         let mut txn =
             self.db_pool.begin().await.map_err(|e| {

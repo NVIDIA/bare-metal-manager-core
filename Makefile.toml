@@ -27,7 +27,7 @@ FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
 #
 # Make sure to update the RUST_NIGHTLY variable in
 # dev/docker/Dockerfile.build-container-x86_64 if you change this.
-RUST_NIGHTLY = "nightly-2025-10-07"
+RUST_NIGHTLY = "nightly-2025-11-14"
 
 [tasks.book]
 workspace = false
@@ -348,6 +348,7 @@ category = "CI"
 # NOTE: If you add something here, and you also want it to be checked by CI, make sure to call it from dev/docker/Dockerfile.release-container-x86_64 too.
 dependencies = [
   "clippy-flow",
+  "carbide-lints",
   "check-format-flow",
   "check-format-nightly",
   "check-workspace-deps",
@@ -458,19 +459,21 @@ workspace = false
 env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
 run_task = "package-component-in-container"
 
-[tasks.setup-nightly-rustfmt]
-description = "Install pinned nightly toolchain and rustfmt component for running format-nightly and check-format-nightly"
-category = "Formatting"
+[tasks.setup-nightly-rust]
+description = "Install pinned nightly toolchain and components for running format-nightly and carbide-lints tasks"
 script = [
-  "rustup toolchain install ${RUST_NIGHTLY} --profile minimal",
-  "rustup component add --toolchain ${RUST_NIGHTLY} rustfmt",
+  # Don't waste cycles, only install what isn't installed
+  "rustup toolchain list | grep -Fq ${RUST_NIGHTLY} || rustup toolchain install ${RUST_NIGHTLY} --profile minimal",
+  "for component in rustfmt rust-src rustc-dev; do rustup component list --installed --toolchain ${RUST_NIGHTLY} | grep -q \"^${component}\" || rustup component add --toolchain ${RUST_NIGHTLY} ${component}; done",
+  # llvm-tools is installed via a different name than it's queried
+  "rustup component list --installed --toolchain ${RUST_NIGHTLY} | grep -q '^llvm-tools' || rustup component add --toolchain ${RUST_NIGHTLY} llvm-tools-preview",
 ]
 
 [tasks.format-nightly]
 workspace = false
 description = "Format with nightly rustfmt options for grouping and sorting import statements"
 category = "Formatting"
-dependencies = ["setup-nightly-rustfmt"]
+dependencies = ["setup-nightly-rust"]
 script = [
   "cargo +${RUST_NIGHTLY} fmt --all -- --config imports_granularity=Module,group_imports=StdExternalCrate",
 ]
@@ -479,9 +482,26 @@ script = [
 workspace = false
 description = "Check format with nightly rustfmt options for grouping and sorting import statements"
 category = "Formatting"
-dependencies = ["setup-nightly-rustfmt"]
+dependencies = ["setup-nightly-rust"]
 script = [
   "cargo +${RUST_NIGHTLY} fmt --all -- --config imports_granularity=Module,group_imports=StdExternalCrate --check",
+]
+
+[tasks.setup-carbide-lints]
+workspace = false
+description = "Set up the `cargo carbide-lints` command"
+dependencies = ["setup-nightly-rust"]
+script = [
+  # Don't waste cycles, only install what isn't installed
+  "which cargo-carbide-lints >/dev/null 2>&1 || (cd \"${REPO_ROOT}/lints/carbide-lints\" && cargo +${RUST_NIGHTLY} install --path .)",
+]
+
+[tasks.carbide-lints]
+workspace = false
+description = "Run custom lints defined in lints/carbide-lints"
+dependencies = ["setup-carbide-lints"]
+script = [
+  "cargo carbide-lints",
 ]
 
 [tasks.check-workspace-deps]

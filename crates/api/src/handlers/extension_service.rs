@@ -27,6 +27,7 @@ use crate::api::{Api, log_request_data};
 const MAX_POD_SPEC_SIZE: usize = 2 << 15; // 64 KB
 
 /// Creates a new extension service with an initial version.
+#[allow(txn_held_across_await)]
 pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::CreateDpuExtensionServiceRequest>,
@@ -152,6 +153,7 @@ pub(crate) async fn create(
 /// - Update will fail if new name conflicts with an existing service name
 /// - Stores the new credential in Vault if provided
 /// - Commits the transaction, or rolls back and deletes the credential on failure
+#[allow(txn_held_across_await)]
 pub(crate) async fn update(
     api: &Api,
     request: Request<rpc::UpdateDpuExtensionServiceRequest>,

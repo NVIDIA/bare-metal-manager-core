@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use chrono::Utc;
 use db::machine::find_machine_ids_by_sku_id;
 use forge_uuid::machine::MachineId;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -195,10 +194,6 @@ pub(crate) async fn verify_for_machine(
             .into());
         }
     }
-
-    let mut sku_status = machine.hw_sku_status.unwrap_or_default();
-
-    sku_status.verify_request_time = Some(Utc::now());
 
     db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 

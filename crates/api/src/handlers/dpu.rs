@@ -41,6 +41,7 @@ use crate::{CarbideError, ethernet_virtualization};
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
 
+#[allow(txn_held_across_await)]
 pub(crate) async fn get_managed_host_network_config_inner(
     api: &Api,
     dpu_machine_id: MachineId,

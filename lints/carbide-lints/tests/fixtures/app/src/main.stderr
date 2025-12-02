@@ -1,0 +1,135 @@
+error: A sqlx::Transaction is being held across this 'await' point
+  --> src/main.rs:24:33
+   |
+24 |     unrelated_async_work("bad").await;
+   |                                 ^^^^^
+   |
+note: Transaction declared here
+  --> src/main.rs:23:10
+   |
+23 |     let (mut txn, ..) = make_transaction_tuple_1();
+   |          ^^^^^^^
+   = note: `-D txn-held-across-await` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(txn_held_across_await)]`
+
+error: A sqlx::Transaction is being held across this 'await' point
+  --> src/main.rs:28:33
+   |
+28 |     unrelated_async_work("bad").await;
+   |                                 ^^^^^
+   |
+note: Transaction declared here
+  --> src/main.rs:23:10
+   |
+23 |     let (mut txn, ..) = make_transaction_tuple_1();
+   |          ^^^^^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+  --> src/main.rs:28:33
+   |
+28 |     unrelated_async_work("bad").await;
+   |                                 ^^^^^
+   |
+note: Transaction declared here
+  --> src/main.rs:27:13
+   |
+27 |     let (_, mut txn, _) = make_transaction_tuple_2();
+   |             ^^^^^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+  --> src/main.rs:32:33
+   |
+32 |     unrelated_async_work("bad").await;
+   |                                 ^^^^^
+   |
+note: Transaction declared here
+  --> src/main.rs:23:10
+   |
+23 |     let (mut txn, ..) = make_transaction_tuple_1();
+   |          ^^^^^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+  --> src/main.rs:32:33
+   |
+32 |     unrelated_async_work("bad").await;
+   |                                 ^^^^^
+   |
+note: Transaction declared here
+  --> src/main.rs:27:13
+   |
+27 |     let (_, mut txn, _) = make_transaction_tuple_2();
+   |             ^^^^^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+  --> src/main.rs:32:33
+   |
+32 |     unrelated_async_work("bad").await;
+   |                                 ^^^^^
+   |
+note: Transaction declared here
+  --> src/main.rs:31:14
+   |
+31 |     let (.., mut txn) = make_transaction_tuple_3();
+   |              ^^^^^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+  --> src/main.rs:55:33
+   |
+55 |     unrelated_async_work("bad").await;
+   |                                 ^^^^^
+   |
+note: Transaction declared here
+  --> src/main.rs:54:9
+   |
+54 |     let mut txn = make_transaction();
+   |         ^^^^^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+  --> src/main.rs:77:33
+   |
+77 |     unrelated_async_work("bad").await;
+   |                                 ^^^^^
+   |
+note: Transaction declared here
+  --> src/main.rs:75:27
+   |
+75 | async fn bad_txn_by_value(mut txn: PgTransaction<'_>) {
+   |                           ^^^^^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+   --> src/main.rs:132:33
+    |
+132 |     unrelated_async_work("bad").await;
+    |                                 ^^^^^
+    |
+note: Transaction declared here
+   --> src/main.rs:131:25
+    |
+131 | async fn bad_db_wrapper(txn: &mut PgTransaction<'_>) {
+    |                         ^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+   --> src/main.rs:134:33
+    |
+134 |     unrelated_async_work("bad").await;
+    |                                 ^^^^^
+    |
+note: Transaction declared here
+   --> src/main.rs:131:25
+    |
+131 | async fn bad_db_wrapper(txn: &mut PgTransaction<'_>) {
+    |                         ^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+   --> src/main.rs:166:37
+    |
+166 |         unrelated_async_work("bad").await;
+    |                                     ^^^^^
+    |
+note: Transaction declared here
+   --> src/main.rs:165:32
+    |
+165 |     pub async fn bad_fn(&self, _txn: &mut PgTransaction<'_>) {
+    |                                ^^^^
+
+error: could not compile `sqlx_app` (bin "sqlx_app") due to 11 previous errors

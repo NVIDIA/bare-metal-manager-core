@@ -25,7 +25,7 @@ use base64::prelude::*;
 use libudev::Device;
 use procfs::{CpuInfo, FromRead};
 use rpc::machine_discovery::MemoryDevice;
-use tracing::{error, warn};
+use tracing::warn;
 use uname::uname;
 use utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
 

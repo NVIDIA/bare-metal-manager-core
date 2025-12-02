@@ -82,7 +82,7 @@ impl Workspace {
         let workspace_cargo_toml = workspace_cargo_toml_string.parse::<DocumentMut>()?;
 
         // Find any Cargo.toml file throughout the workspace, excluding the toplevel one
-        let non_workspace_cargo_tomls = WalkDir::new(&path)
+        let non_workspace_cargo_tomls = WalkDir::new(path.join("crates"))
             .into_iter()
             .filter_entry(|e| {
                 e.file_name()

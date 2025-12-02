@@ -9,6 +9,8 @@ rustflags = [
   "tokio_unstable",
   "-A",
   "dependency-on-unit-never-type-fallback",
+  "-A",
+  "unknown_lints", # Needed so that prior cargo checks tolerate custom lints like txn_held_across_await
 ]
 
 # This linker seems faster than default, but not everyone is using it yet

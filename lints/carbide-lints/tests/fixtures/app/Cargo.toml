@@ -1,0 +1,11 @@
+[package]
+name = "sqlx_app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres"] }
+tokio = { version = "1", features = ["full"] }
+
+[workspace]
+# Needs empty workspace to not confuse Cargo

@@ -163,6 +163,7 @@ impl MachineUpdateManager {
         .map_err(Into::into)
     }
 
+    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut updates_started_count = 0;
         let mut current_updating_count = 0;
