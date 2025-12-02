@@ -248,10 +248,9 @@ pub(crate) async fn discover_machine(
             .gpus
             .first()
             .and_then(|gpu| gpu.platform_info.as_ref())
+        && let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref()
+        && nvlink_config.enabled
     {
-        let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref() else {
-            return Err(Status::internal("NvLink config not found".to_string()));
-        };
         let nmx_m_client = api
             .nmxm_pool
             .create_client(&nvlink_config.nmx_m_endpoint, None)

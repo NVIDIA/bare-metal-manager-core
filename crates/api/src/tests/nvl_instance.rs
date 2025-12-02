@@ -29,7 +29,10 @@ use crate::tests::common::api_fixtures::nvl_logical_partition::NvlLogicalPartiti
 
 #[crate::sqlx_test]
 async fn test_create_instance_with_nvl_config(pool: sqlx::PgPool) {
-    let config = common::api_fixtures::get_config();
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
 
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -192,7 +195,10 @@ async fn test_create_instance_with_nvl_config(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_with_multiple_nv_link_logical_partitions(pool: sqlx::PgPool) {
-    let config = common::api_fixtures::get_config();
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
 
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -293,7 +299,10 @@ async fn test_with_multiple_nv_link_logical_partitions(pool: sqlx::PgPool) {
 async fn test_create_instances_with_nvl_configs_same_logical_partition_different_domains(
     pool: sqlx::PgPool,
 ) {
-    let config = common::api_fixtures::get_config();
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
 
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -498,7 +507,10 @@ async fn test_create_instances_with_nvl_configs_same_logical_partition_different
 
 #[crate::sqlx_test]
 async fn test_update_instance_with_nvl_config(pool: sqlx::PgPool) {
-    let config = common::api_fixtures::get_config();
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
 
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
