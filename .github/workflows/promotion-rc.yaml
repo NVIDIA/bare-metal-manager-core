@@ -54,9 +54,8 @@ jobs:
           # 2. Determine Bump Type
           # Scan commit messages since the last stable tag for "minor" keyword
           if [ "$LATEST_TAG" == "0.0.0" ]; then
-            # If no previous tag, we are starting from scratch. 
-            # Assuming we bump patch to 0.0.1 or minor to 0.1.0 based on log? 
-            # Spec says: "0.1.0 -> 0.1.1 (patch) unless 'minor' in commit msg -> 0.2.0"
+            # If no previous tag, we are starting from scratch.
+            # "0.1.0 -> 0.1.1 (patch) unless 'minor' in commit msg -> 0.2.0 or major: in commit msg -> 1.0.0"
             # For initial 0.0.0, let's check log from beginning.
             LOG_RANGE="HEAD"
           else
@@ -117,7 +116,7 @@ jobs:
     uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@d6403ae4ccd610fa110e64726d5f0c16737a769d
     with:
       source: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
-      source_tag: main-${{ needs.calculate-release-candidate-version.outputs.short_sha }}      
+      source_tag: main-${{ needs.calculate-release-candidate-version.outputs.short_sha }}
       destination: nvcr.io/0837451325059433/carbide/nvmetal-carbide
       destination_tag: ${{ needs.calculate-release-candidate-version.outputs.rc_version }}
     secrets:
