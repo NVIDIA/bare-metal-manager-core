@@ -75,8 +75,6 @@ pub struct MachineStateControllerIterationMetrics {
     /// machines which run that version combination
     pub machine_inventory_component_versions: HashMap<MachineInventorySoftwareComponent, usize>,
     pub client_certificate_expiration_times: HashMap<String, i64>,
-    pub machine_reboot_attempts_in_booting_with_discovery_image: Vec<u64>,
-    pub machine_reboot_attempts_in_failed_during_discovery: Vec<u64>,
     pub gpus_usable: usize,
     pub gpus_total: usize,
     pub gpus_in_use_by_tenant: HashMap<TenantOrganizationId, usize>,
@@ -678,21 +676,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .or_default() += 1;
         }
 
-        if let Some(machine_reboot_attempts_in_booting_with_discovery_image) =
-            object_metrics.machine_reboot_attempts_in_booting_with_discovery_image
-        {
-            iteration_metrics
-                .machine_reboot_attempts_in_booting_with_discovery_image
-                .push(machine_reboot_attempts_in_booting_with_discovery_image);
-        }
-
-        if let Some(machine_reboot_attempts_in_failed_during_discovery) =
-            object_metrics.machine_reboot_attempts_in_failed_during_discovery
-        {
-            iteration_metrics
-                .machine_reboot_attempts_in_failed_during_discovery
-                .push(machine_reboot_attempts_in_failed_during_discovery);
-        }
         for ((probe_id, target), count) in &object_metrics.dpu_health_probe_alerts {
             *iteration_metrics
                 .unhealthy_dpus_by_probe_id
@@ -781,22 +764,20 @@ impl MetricsEmitter for MachineMetricsEmitter {
         }
     }
 
-    fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
-        iteration_metrics
-            .machine_reboot_attempts_in_booting_with_discovery_image
-            .iter()
-            .for_each(|x| {
-                self.machine_reboot_attempts_in_booting_with_discovery_image
-                    .record(*x, &[]);
-            });
+    fn emit_object_counters_and_histograms(&self, object_metrics: &Self::ObjectMetrics) {
+        if let Some(machine_reboot_attempts_in_booting_with_discovery_image) =
+            object_metrics.machine_reboot_attempts_in_booting_with_discovery_image
+        {
+            self.machine_reboot_attempts_in_booting_with_discovery_image
+                .record(machine_reboot_attempts_in_booting_with_discovery_image, &[]);
+        }
 
-        iteration_metrics
-            .machine_reboot_attempts_in_failed_during_discovery
-            .iter()
-            .for_each(|x| {
-                self.machine_reboot_attempts_in_failed_during_discovery
-                    .record(*x, &[]);
-            });
+        if let Some(machine_reboot_attempts_in_failed_during_discovery) =
+            object_metrics.machine_reboot_attempts_in_failed_during_discovery
+        {
+            self.machine_reboot_attempts_in_failed_during_discovery
+                .record(machine_reboot_attempts_in_failed_during_discovery, &[]);
+        }
     }
 }
 
@@ -1133,14 +1114,6 @@ mod tests {
         assert_eq!(iteration_metrics.gpus_total, 11);
         assert_eq!(iteration_metrics.dpus_up, 6);
         assert_eq!(iteration_metrics.dpus_healthy, 2);
-        assert_eq!(
-            &iteration_metrics.machine_reboot_attempts_in_booting_with_discovery_image,
-            &[0, 1, 2]
-        );
-        assert_eq!(
-            &iteration_metrics.machine_reboot_attempts_in_failed_during_discovery,
-            &[0, 1, 2]
-        );
         assert_eq!(
             iteration_metrics.unhealthy_dpus_by_probe_id,
             HashMap::from_iter([

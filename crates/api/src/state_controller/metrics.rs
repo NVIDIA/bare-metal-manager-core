@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::Duration;
 
 use opentelemetry::KeyValue;
@@ -137,10 +138,6 @@ impl CommonIterationMetrics {
             .or_default();
 
         // The first set of metrics is always related to the initial state
-        state_metrics
-            .handler_latencies
-            .push(object_metrics.handler_latency);
-
         if let Some(error) = &object_metrics.error {
             let error_label = error.metric_label();
             *state_metrics
@@ -163,20 +160,6 @@ impl CommonIterationMetrics {
             // Get the metric names for the next state
             let (next_state_name, next_substate_name) = IO::metric_state_names(next_state);
 
-            // time_in_state now represents the entire time cost for the machine in a certain state
-            state_metrics
-                .state_transition_records
-                .push(StateTransitionRecord {
-                    time_in_state: object_metrics.time_in_state,
-                    target_state: FullState {
-                        state: next_state_name,
-                        substate: next_substate_name,
-                    },
-                });
-
-            // We exited the initial state
-            state_metrics.num_exited += 1;
-
             // We have to emit additional metrics for the next state
             let next_state_metrics = self
                 .state_metrics
@@ -185,7 +168,6 @@ impl CommonIterationMetrics {
                     substate: next_substate_name,
                 })
                 .or_default();
-            next_state_metrics.num_entered += 1;
             next_state_metrics.num_objects += 1;
             // The object will never be above sla in the new state,
             // given it just entered this state
@@ -206,19 +188,11 @@ pub struct StateMetrics {
     pub num_objects: usize,
     /// Amount of objects that have been in the state for more than the SLA allows
     pub num_objects_above_sla: usize,
-    /// The time the objects had been in that state
-    pub state_transition_records: Vec<StateTransitionRecord>,
-    /// How long we took to execute state handlers in this state
-    pub handler_latencies: Vec<Duration>,
     /// Counts the errors per error type in this state
     pub handling_errors_per_type: HashMap<&'static str, usize>,
-    /// The amount of objects which entered this state
-    pub num_entered: usize,
-    /// The amount of objects which exited this state
-    pub num_exited: usize,
 }
 
-/// Metrics that are produced by a state controller iteration
+/// Iteration Metrics that are produced by a state controller iteration
 #[derive(Debug)]
 pub struct IterationMetrics<IO: StateControllerIO> {
     /// Metrics that are emitted for all types of state controllers
@@ -289,9 +263,9 @@ pub trait MetricsEmitter: std::fmt::Debug + Send + Sync + 'static {
         object_metrics: &Self::ObjectMetrics,
     );
 
-    /// This function is called on called `IterationMetrics` in every state controller
+    /// This function is called on `ObjectMetrics` in every state controller
     /// iteration to emit captured counters and histograms
-    fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics);
+    fn emit_object_counters_and_histograms(&self, object_metrics: &Self::ObjectMetrics);
 }
 
 /// A [MetricsEmitter] that can be used if no custom metrics are required.
@@ -319,7 +293,7 @@ impl MetricsEmitter for NoopMetricsEmitter {
         Self {}
     }
 
-    fn emit_counters_and_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
+    fn emit_object_counters_and_histograms(&self, _object_metrics: &Self::ObjectMetrics) {}
 }
 
 /// Holds the OpenTelemetry data structures that are used to submit
@@ -514,61 +488,74 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         iteration_metrics.merge_object_handling_metrics(object_metrics)
     }
 
-    fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
+    fn emit_object_counters_and_histograms(&self, object_metrics: &Self::ObjectMetrics) {
+        let (initial_state_name, initial_substate_name) = object_metrics
+            .initial_state
+            .as_ref()
+            .map(IO::metric_state_names)
+            .unwrap_or(("unknown", ""));
+
+        let initial_state_attr = KeyValue::new("state", initial_state_name.to_string());
+        let initial_substate_attr = KeyValue::new("substate", initial_substate_name.to_string());
+
+        // If a follow-up state is defined, emit metrics for exiting and leaving the state
+        if let Some(next_state) = object_metrics.next_state.as_ref() {
+            let (next_state_name, next_substate_name) = IO::metric_state_names(next_state);
+
+            let attrs = &[initial_state_attr.clone(), initial_substate_attr.clone()];
+            self.state_exited_counter.add(1, attrs);
+            let next_state_attr = KeyValue::new("state", next_state_name.to_string());
+            let next_substate_attr = KeyValue::new("substate", next_substate_name.to_string());
+            let attrs = &[next_state_attr, next_substate_attr];
+            self.state_entered_counter.add(1, attrs);
+
+            let transition_record = StateTransitionRecord {
+                time_in_state: object_metrics.time_in_state,
+                target_state: FullState {
+                    state: next_state_name,
+                    substate: next_substate_name,
+                },
+            };
+
+            // Record time_in_state histogram with next_state information
+            let attrs_with_next_state = &[
+                initial_state_attr.clone(),
+                initial_substate_attr.clone(),
+                KeyValue::new(
+                    "next_state",
+                    transition_record.target_state.state.to_string(),
+                ),
+                KeyValue::new(
+                    "next_substate",
+                    transition_record.target_state.substate.to_string(),
+                ),
+            ];
+            self.time_in_state_histogram.record(
+                transition_record.time_in_state.as_secs_f64(),
+                attrs_with_next_state,
+            );
+        }
+
+        let attrs = &[initial_state_attr, initial_substate_attr];
+        self.handler_latency_in_state_histogram
+            .record(1000.0 * object_metrics.handler_latency.as_secs_f64(), attrs);
+    }
+}
+
+impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
+    /// Emits iteration related counters and histograms
+    fn emit_iteration_counters_and_histograms(&self, iteration_metrics: &IterationMetrics<IO>) {
         self.controller_iteration_latency.record(
             1000.0
                 * iteration_metrics
+                    .common
                     .recording_started_at
                     .elapsed()
                     .as_secs_f64(),
             &[],
         );
-
-        for (full_state, state_metrics) in iteration_metrics.state_metrics.iter() {
-            let state_attr = KeyValue::new("state", full_state.state.to_string());
-            let substate_attr = KeyValue::new("substate", full_state.substate.to_string());
-            let attrs = &[state_attr.clone(), substate_attr.clone()];
-
-            // Record how often this state was entered and exited from in the current
-            // controller iteration
-            if state_metrics.num_entered != 0 {
-                self.state_entered_counter
-                    .add(state_metrics.num_entered as u64, attrs);
-            }
-            if state_metrics.num_exited != 0 {
-                self.state_exited_counter
-                    .add(state_metrics.num_exited as u64, attrs);
-            }
-
-            // Record time_in_state histogram with next_state information
-            for state_transition_record in state_metrics.state_transition_records.iter() {
-                let attrs_with_next_state = &[
-                    state_attr.clone(),
-                    substate_attr.clone(),
-                    KeyValue::new(
-                        "next_state",
-                        state_transition_record.target_state.state.to_string(),
-                    ),
-                    KeyValue::new(
-                        "next_substate",
-                        state_transition_record.target_state.substate.to_string(),
-                    ),
-                ];
-
-                self.time_in_state_histogram.record(
-                    state_transition_record.time_in_state.as_secs_f64(),
-                    attrs_with_next_state,
-                );
-            }
-            for handler_latency in state_metrics.handler_latencies.iter() {
-                self.handler_latency_in_state_histogram
-                    .record(1000.0 * handler_latency.as_secs_f64(), attrs);
-            }
-        }
     }
-}
 
-impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
     /// Emits the metrics that had been collected during a state controller iteration
     /// as attributes on the tracing/OpenTelemetry span.
     ///
@@ -587,8 +574,6 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
         let mut states: HashMap<String, usize> = HashMap::new();
         let mut states_above_sla: HashMap<String, usize> = HashMap::new();
         let mut error_types: HashMap<String, HashMap<String, usize>> = HashMap::new();
-        let mut times_in_state: HashMap<String, LatencyStats> = HashMap::new();
-        let mut handler_latencies: HashMap<String, LatencyStats> = HashMap::new();
 
         span.record(
             "num_enqueued_objects",
@@ -606,41 +591,6 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
             } else {
                 full_state.state.to_string()
             };
-
-            if !state_metrics.state_transition_records.is_empty() {
-                // Group transitions by target state to preserve target_state information in span attributes
-                let mut transitions_by_target: std::collections::HashMap<String, Vec<Duration>> =
-                    std::collections::HashMap::new();
-
-                for record in &state_metrics.state_transition_records {
-                    let next_full_state_name = format!(
-                        "{}.{}",
-                        record.target_state.state, record.target_state.substate
-                    );
-                    let transition_key = format!("{full_state_name} -> {next_full_state_name}");
-                    transitions_by_target
-                        .entry(transition_key)
-                        .or_default()
-                        .push(record.time_in_state);
-                }
-
-                // Create stats for each target state transition
-                for (transition_key, durations) in transitions_by_target {
-                    times_in_state.insert(
-                        transition_key,
-                        LatencyStats::from_latencies(&durations, Duration::as_secs),
-                    );
-                }
-            };
-
-            if !state_metrics.handler_latencies.is_empty() {
-                handler_latencies.insert(
-                    full_state_name.clone(),
-                    LatencyStats::from_latencies(&state_metrics.handler_latencies, |duration| {
-                        duration.as_micros().min(u64::MAX as u128) as u64
-                    }),
-                );
-            }
 
             for (error, &count) in state_metrics.handling_errors_per_type.iter() {
                 total_errors += count;
@@ -672,18 +622,6 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
             span.record(
                 "error_types",
                 serde_json::to_string(&error_types).unwrap_or_else(|_| "{}".to_string()),
-            );
-        }
-        if !times_in_state.is_empty() {
-            span.record(
-                "times_in_state_s",
-                serde_json::to_string(&times_in_state).unwrap_or_else(|_| "{}".to_string()),
-            );
-        }
-        if !handler_latencies.is_empty() {
-            span.record(
-                "handler_latencies_us",
-                serde_json::to_string(&handler_latencies).unwrap_or_else(|_| "{}".to_string()),
             );
         }
     }
@@ -719,19 +657,26 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
         }
     }
 
+    /// Emits counters and histogram metrics that are captured during a single
+    /// object handling iteration.
+    pub fn emit_object_counters_and_histograms(&self, object_metrics: &ObjectHandlerMetrics<IO>) {
+        self.common
+            .emit_object_counters_and_histograms(&object_metrics.common);
+        self.specific
+            .emit_object_counters_and_histograms(&object_metrics.specific);
+    }
+
     /// Emits counters and histogram metrics that are captured during a single state handler
     /// iteration. Those are emitted immediately, whereas the values of gauges
     /// is cached and emitted when queried.
-    pub fn emit_counters_and_histograms(
+    pub fn emit_iteration_counters_and_histograms(
         &self,
         log_span_name: &str,
         iteration_metrics: &IterationMetrics<IO>,
         db_metrics: &sqlx_query_tracing::SqlxQueryDataAggregation,
     ) {
         self.common
-            .emit_counters_and_histograms(&iteration_metrics.common);
-        self.specific
-            .emit_counters_and_histograms(&iteration_metrics.specific);
+            .emit_iteration_counters_and_histograms(iteration_metrics);
 
         // We use an attribute to distinguish the query counter from the
         // ones that are used for other state controller and for gRPC requests
@@ -759,7 +704,7 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
 
 /// Stores Metric data shared between the Controller and the OpenTelemetry background task
 pub struct MetricHolder<IO: StateControllerIO> {
-    pub emitter: Option<StateControllerMetricEmitter<IO>>,
+    pub emitter: Option<Arc<StateControllerMetricEmitter<IO>>>,
     pub last_iteration_common_metrics: SharedMetricsHolder<CommonIterationMetrics>,
     pub last_iteration_specific_metrics:
         SharedMetricsHolder<<IO::MetricsEmitter as MetricsEmitter>::IterationMetrics>,
@@ -774,53 +719,18 @@ impl<IO: StateControllerIO> MetricHolder<IO> {
         >::with_fresh_period(MAX_FRESH_DURATION);
 
         let emitter = meter.as_ref().map(|meter| {
-            StateControllerMetricEmitter::new(
+            Arc::new(StateControllerMetricEmitter::new(
                 object_type_for_metrics,
                 meter.clone(),
                 last_iteration_common_metrics.clone(),
                 last_iteration_specific_metrics.clone(),
-            )
+            ))
         });
 
         Self {
             emitter,
             last_iteration_common_metrics,
             last_iteration_specific_metrics,
-        }
-    }
-}
-
-/// Stores statistics for the invocation latencies of state handler that will
-/// get emitted as part of controller span attributes
-#[derive(Debug, serde::Serialize, Clone)]
-struct LatencyStats {
-    pub min: u64,
-    pub max: u64,
-    pub avg: u64,
-}
-
-impl LatencyStats {
-    pub fn from_latencies(latencies: &[Duration], convert_duration: fn(&Duration) -> u64) -> Self {
-        let mut max_latency = 0u64;
-        let mut min_latency = u64::MAX;
-        let mut total_latency = 0u64;
-
-        for latency in latencies.iter() {
-            let l = convert_duration(latency);
-            total_latency = total_latency.saturating_add(l);
-            min_latency = min_latency.min(l);
-            max_latency = max_latency.max(l);
-        }
-        min_latency = min_latency.min(max_latency);
-        let avg_latency = match latencies.is_empty() {
-            false => total_latency / latencies.len() as u64,
-            true => 0,
-        };
-
-        Self {
-            min: min_latency,
-            max: max_latency,
-            avg: avg_latency,
         }
     }
 }

@@ -51,5 +51,5 @@ impl MetricsEmitter for DpaInterfaceMetricsEmitter {
     ) {
     }
 
-    fn emit_counters_and_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
+    fn emit_object_counters_and_histograms(&self, _object_metrics: &Self::ObjectMetrics) {}
 }
