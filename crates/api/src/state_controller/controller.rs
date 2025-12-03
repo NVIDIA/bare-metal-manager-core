@@ -188,8 +188,6 @@ impl<IO: StateControllerIO> StateController<IO> {
             states = tracing::field::Empty,
             states_above_sla = tracing::field::Empty,
             error_types = tracing::field::Empty,
-            times_in_state_s = tracing::field::Empty,
-            handler_latencies_us = tracing::field::Empty,
             app_timing_start_time = format!("{:?}", chrono::Utc::now()),
             app_timing_end_time = tracing::field::Empty,
             sql_queries = 0,
@@ -236,7 +234,7 @@ impl<IO: StateControllerIO> StateController<IO> {
         // latter case doesn't handle any objects it will be a no-op apart
         // from emitting the latency for not getting the lock.
         if let Some(emitter) = self.metric_holder.emitter.as_ref() {
-            emitter.emit_counters_and_histograms(
+            emitter.emit_iteration_counters_and_histograms(
                 IO::LOG_SPAN_CONTROLLER_NAME,
                 &metrics,
                 &db_query_metrics,
@@ -387,6 +385,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             let handler = self.state_handler.clone();
             let concurrency_limiter = concurrency_limiter.clone();
             let max_object_handling_time = self.iteration_config.max_object_handling_time;
+            let metrics_emitter = self.metric_holder.emitter.clone();
 
             let _abort_handle = task_set
                 .build_task()
@@ -519,6 +518,11 @@ impl<IO: StateControllerIO> StateController<IO> {
                         })
                         .await;
                         metrics.common.handler_latency = start.elapsed();
+
+                        // Emit the object handling metrics for this state handler invocation
+                        if let Some(emitter) = metrics_emitter {
+                            emitter.emit_object_counters_and_histograms(&metrics);
+                        }
 
                         let result = match result {
                             Ok(Ok(result)) => Ok(result),
