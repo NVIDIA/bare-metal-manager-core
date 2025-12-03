@@ -1080,7 +1080,6 @@ dev-env-test-with-carbide:
     max: 1
   needs:
     - job: export-docker-json-config
-    - job: build-boot-artifacts-bfb
   variables:
     VAULT_NAMESPACE: ngc-forge
     DEBUG_JUST: #true # Uncomment value for additional logs. Checks test for the presence of variable, therefore setting to false is not equivalent
@@ -1103,6 +1102,9 @@ dev-env-test-with-carbide:
     - set -euo pipefail
     - cp /tmp/argo_watch.log .
     - cp /tmp/argo_logs.log .
+    - cp /tmp/container-build.log .
+    - cp /tmp/pxe-build-aarch.log .
+    - cp /tmp/pxe-build-x86.log .
     - cd ../forged
     - source /root/.bashrc
     - eval "$(direnv export bash)"
@@ -1114,3 +1116,6 @@ dev-env-test-with-carbide:
     paths:
       - argo_logs.log
       - argo_watch.log
+      - container-build.log
+      - pxe-build-aarch.log
+      - pxe-build-x86.log
