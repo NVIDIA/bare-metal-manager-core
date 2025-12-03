@@ -13,6 +13,11 @@
 set -euo pipefail
 echo "Current working directory is: $(pwd)"
 
+# Log file paths
+PXE_BUILD_X86_LOG="/tmp/pxe-build-x86.log"
+PXE_BUILD_AARCH_LOG="/tmp/pxe-build-aarch.log"
+CONTAINER_BUILD_LOG="/tmp/container-build.log"
+
 # Merge trunk into branch to improve test reliability
 if [[ "$CI_COMMIT_REF_NAME" != "trunk" ]]; then
   echo "Merging 'trunk' into current branch to ensure it's up-to-date..."
@@ -53,27 +58,22 @@ function cleanup_build {
   echo "just rmi" && just rmi
 }
 
-# Conditionally build the PXE boot-artifacts (if the current branch has changes to the relevant files, or if branch is trunk)
-directories_pattern="pxe/*|scout/*"
-if git diff --name-only HEAD origin/trunk | grep -qE "${directories_pattern}" || [[ "$CI_COMMIT_REF_NAME" = "trunk" ]]; then
-  # Sequentially run cargo make commands in the background, and wait for completion at the end
-  {
+# Build the PXE boot-artifacts in the background
+{
   # Run the x86_64 build
   echo "Starting build for PXE boot-artifacts (x86_64)..."
-  cargo make --cwd pxe build-boot-artifacts-x86-host > /tmp/pxe-build-x86.log 2>&1 || exit_code_x86=$?
+  cargo make --cwd pxe build-boot-artifacts-x86-host > "$PXE_BUILD_X86_LOG" 2>&1 || exit_code_x86=$?
   exit_code_x86=${exit_code_x86:-0}
-  echo "Log dump from the build of build-boot-artifacts-x86-host: "
-  cat /tmp/pxe-build-x86.log
+  echo "See $PXE_BUILD_X86_LOG for log dump from the build of build-boot-artifacts-x86-host"
 
   git submodule deinit -f --all
   git submodule update --init --recursive
 
   # Run the aarch64 build
   echo "Starting build for PXE boot-artifacts (aarch64)..."
-  cargo make --cwd pxe build-boot-artifacts-bfb > /tmp/pxe-build-aarch.log 2>&1 || exit_code_aarch=$?
+  cargo make --cwd pxe build-boot-artifacts-bfb > "$PXE_BUILD_AARCH_LOG" 2>&1 || exit_code_aarch=$?
   exit_code_aarch=${exit_code_aarch:-0}
-  echo "Log dump from the build of build-boot-artifacts-bfb: "
-  cat /tmp/pxe-build-aarch.log
+  echo "See $PXE_BUILD_AARCH_LOG for log dump from the build of build-boot-artifacts-bfb"
 
   # Check exit codes and handle failures
   if [[ "$exit_code_x86" -ne 0 ]] || [[ "$exit_code_aarch" -ne 0 ]]; then
@@ -85,14 +85,9 @@ if git diff --name-only HEAD origin/trunk | grep -qE "${directories_pattern}" ||
   else
     echo "SUCCESS: Finished building PXE boot-artifacts (x86 and aarch)."
   fi
-  } > /tmp/pxe-build.log 2>&1 &
-  pxe_build_pid=$!
-  echo "Started background process for PXE boot-artifacts build."
-  pxe_build=true
-else
-  echo "No changes in pxe/* or scout/*. Skipping build of PXE boot-artifacts..."
-  pxe_build=false
-fi
+} > /tmp/pxe-build.log 2>&1 &
+pxe_build_pid=$!
+echo "Started background process for PXE boot-artifacts build."
 
 # Build the build container images in the background
 {
@@ -103,7 +98,7 @@ fi
   # TODO: Temporary workaround - manually pull these due to a bug preventing them being pulled during skaffold deploy
   docker pull nvcr.io/nvidian/nvforge-devel/frr:8.5.0
   docker pull nvcr.io/nvidian/nvforge-devel/nvmetal-scout-burn-in:1.3.0
-} > /tmp/container-build.log 2>&1 &
+} > "$CONTAINER_BUILD_LOG" 2>&1 &
 container_build_pid=$!
 echo "Started background process to build the build containers."
 
@@ -143,8 +138,7 @@ eval "$(direnv export bash)"
 echo "Waiting for container build to complete before continuing (PID: $container_build_pid)..."
 wait $container_build_pid || exit_code=$?
 exit_code=${exit_code:-0}
-echo "Log dump from the background build of the build containers: "
-cat /tmp/container-build.log
+echo "See $CONTAINER_BUILD_LOG for log dump from the build of the build containers"
 
 if [[ $exit_code -ne 0 ]]; then
   echo "ERROR: Building the build containers failed with exit code $exit_code. Aborting test..."
@@ -156,6 +150,20 @@ fi
 # Build the carbide images (carbide-dns, carbide-api, etc.)
 echo "Building the carbide images..."
 echo "just build" && just build
+
+# Wait for boot artifacts to complete before deploying
+echo "Waiting for PXE boot-artifacts build to complete before deployment (PID: $pxe_build_pid)..."
+wait "$pxe_build_pid" || pxe_exit_code=$?
+pxe_exit_code=${pxe_exit_code:-0}
+echo "See $PXE_BUILD_AARCH_LOG and $PXE_BUILD_X86_LOG for log dumps from the PXE boot-artifacts builds"
+
+if [[ "$pxe_exit_code" -ne 0 ]]; then
+  echo "ERROR: Building the PXE boot-artifacts failed with exit code $pxe_exit_code. Aborting test..."
+  cleanup_build_boot_artifacts
+  cleanup_build
+  cleanup_build_containers_last
+  exit 1
+fi
 
 # Deploy the images to the k3s node
 echo "Deploying the carbide images to k3s..."
@@ -215,23 +223,6 @@ eval "$(direnv export bash)"
 # Verify k3s health again now that carbide is deployed
 echo "Checking health of all kubernetes resources..."
 just check-k3s-resource-health
-
-# Finally wait for the PXE boot-artifacts builds to complete (if applicable)
-if [[ "$pxe_build" == "true" ]]; then
-  echo "Waiting for PXE boot-artifacts build to complete before continuing (PID: $pxe_build_pid)..."
-  wait "$pxe_build_pid" || pxe_exit_code=$?
-  pxe_exit_code=${pxe_exit_code:-0}
-  echo "Log dump from the PXE boot-artifacts build: "
-  cat /tmp/pxe-build.log
-
-  if [[ "$pxe_exit_code" -ne 0 ]]; then
-    echo "ERROR: Building the PXE boot-artifacts failed with exit code $pxe_exit_code. Aborting test..."
-    cleanup_build_boot_artifacts
-    cleanup_build
-    cleanup_build_containers_last
-    exit 1
-  fi
-fi
 
 popd
 
