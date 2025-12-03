@@ -39,12 +39,7 @@ impl InstanceNvLinkConfig {
     }
 
     pub fn is_nvlink_config_update_requested(&self, new_config: &Self) -> bool {
-        let current = self.clone();
-        current
-            .gpu_configs
-            .iter()
-            .zip(new_config.gpu_configs.iter())
-            .any(|(g1, g2)| g1.logical_partition_id != g2.logical_partition_id)
+        self != new_config
     }
 }
 
