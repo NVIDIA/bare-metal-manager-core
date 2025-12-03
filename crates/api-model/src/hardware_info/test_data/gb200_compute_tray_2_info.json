@@ -24,7 +24,7 @@
         "product_serial": "Host12345",
         "board_serial": "HostBoard12345",
         "chassis_serial": "HostChassis12345",
-        "product_name": "GB200 NVL",
+        "product_name": "DGX GB200 Compute Tray",
         "sys_vendor": "Dell Inc."
     },
     "block_devices": [
