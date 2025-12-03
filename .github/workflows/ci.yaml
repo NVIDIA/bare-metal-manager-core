@@ -345,7 +345,7 @@ jobs:
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}      
+      push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
     secrets: inherit
 
@@ -706,7 +706,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Run Protolint
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
 
@@ -742,7 +742,7 @@ jobs:
             to_entries[]
             | select(.key | startswith("build-"))
             | "- **\(.key)** → `\(.value.result)`"
-          ' >> "$GITHUB_STEP_SUMMARY"        
+          ' >> "$GITHUB_STEP_SUMMARY"
 
   promote-to-be-scanned-image:
     if: ${{ always() && github.event_name != 'schedule' }}
@@ -760,3 +760,45 @@ jobs:
       SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
       DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
       DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
+
+  # ============================================================================
+  # NOTIFICATION STAGE
+  # ============================================================================
+
+  notify-build-status:
+    if: ${{ always() && github.event_name != 'schedule' }}
+    needs:
+      - prepare
+      - build-container-x86_64
+      - build-container-aarch64
+      - build-runtime-container-x86_64
+      - build-artifacts-container-x86_64
+      - build-artifacts-container-aarch64
+      - build-release-container-x86_64
+      - build-boot-artifacts-x86
+      - build-boot-artifacts-bfb
+      - build-boot-artifacts-ephemeral-image-x86-host
+      - build-boot-artifacts-ephemeral-image-arm-host
+      - build-forge-cli-x86_64
+      - build-forge-cli-aarch64
+      - merge-manifests-forge-cli
+      - build-release-machine-validation-runner
+      - build-release-machine-validation-artifacts-x86-host
+      - build-powerdns-container
+      - build-release-artifacts-x86-host
+      - build-release-artifacts-arm-host
+      - security-secret-scan
+      - security-codeql-scan
+      - security-trivy-scan
+      - promote-to-be-scanned-image
+    uses: ./.github/workflows/notify-build-status.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      workflow-name: "Carbide Core CI"
+      channel-id: C0A0TSKJKSB # #dsx-carbide-feed
+      needs-context: ${{ toJson(needs) }}
+      notify-on-success: true
+      notify-on-partial: true
+      notify-on-failure: true
+    secrets:
+      slack-bot-token: ${{ secrets.CDS_SLACK_BOT_OAUTH_TOKEN }}
