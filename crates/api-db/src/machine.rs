@@ -1674,7 +1674,7 @@ pub async fn find_machine_ids(
 
     if search_config.mnnvl_only {
         qb.push(
-            " AND mt.topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' = 'GB200 NVL'",
+            " AND mt.topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' LIKE '%GB200%'",
         );
     }
 
