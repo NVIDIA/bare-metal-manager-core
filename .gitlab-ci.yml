@@ -755,7 +755,6 @@ build-release-machine-validation-runner:
 # This relies on the bfb build to get an arm version of scout
 build-boot-artifacts-ephemeral-image-arm-host:
   extends: .build-boot-artifacts
-  allow_failure: true # TEMP
   needs:
     - job: prepare-ci
       optional: false
