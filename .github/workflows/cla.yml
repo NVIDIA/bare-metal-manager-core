@@ -1,0 +1,29 @@
+name: "DCO Assistant"
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened,closed,synchronize]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  CLAAssistant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "CLA Assistant"
+        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the DCO Document and I hereby sign the DCO') || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: '.github/cla/version1/signatures.json'
+          path-to-document: 'https://developercertificate.org/'
+          branch: 'cla-do-not-remove' # Branch to store the CLA Signatures
+          allowlist: user1,bot*,NVIDIA/*
+          use-dco-flag: true
+          custom-notsigned-prcomment: '<br/>Thank you for your submission. Before we can accept your contribution, please sign our [Developer Certificate of Origin](https://developercertificate.org) by posting a comment with the content exactly as below.<br/>'
