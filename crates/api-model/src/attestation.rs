@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
-use forge_uuid::machine::MachineId;
 use sqlx::FromRow;
 
 #[derive(FromRow, Debug)]

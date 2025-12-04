@@ -17,12 +17,12 @@
 
 use std::str::FromStr;
 
-use chrono::Utc;
-use forge_uuid::UuidEmptyStringError;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{
+use carbide_uuid::UuidEmptyStringError;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
 };
+use chrono::Utc;
 use rpc::errors::RpcDataConversionError;
 use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
 use serde::Serialize;

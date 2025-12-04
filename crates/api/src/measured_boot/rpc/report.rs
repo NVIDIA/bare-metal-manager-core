@@ -17,11 +17,11 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::machine::MachineId;
 use db::measured_boot::interface::report::{
     get_all_measurement_report_records, get_measurement_report_records_for_machine_id,
     match_latest_reports,
 };
-use forge_uuid::machine::MachineId;
 use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,

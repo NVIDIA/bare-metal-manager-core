@@ -12,10 +12,10 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
 use db::{extension_service, instance};
 use forge_secrets::credentials::{CredentialKey, Credentials};
-use forge_uuid::extension_service::ExtensionServiceId;
 use model::extension_service::ExtensionServiceType;
 use model::tenant::TenantOrganizationId;
 use tonic::{Request, Response, Status};

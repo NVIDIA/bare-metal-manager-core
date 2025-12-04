@@ -12,9 +12,9 @@
 
 use std::borrow::Cow;
 
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use forge_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 

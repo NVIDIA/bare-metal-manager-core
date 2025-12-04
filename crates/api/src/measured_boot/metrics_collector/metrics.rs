@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use opentelemetry::KeyValue;

@@ -15,7 +15,7 @@ use ::rpc::protos::mlx_device::{
     PublishMlxDeviceReportResponse, PublishMlxObservationReportRequest,
     PublishMlxObservationReportResponse,
 };
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use mlxconfig_device::discovery;
 use mlxconfig_device::report::MlxDeviceReport;
 use mlxconfig_lockdown::{LockStatus, LockdownManager, MlxResult, StatusReport};

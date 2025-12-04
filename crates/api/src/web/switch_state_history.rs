@@ -17,7 +17,7 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use forge_uuid::switch::SwitchId;
+use carbide_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
@@ -95,7 +95,10 @@ pub async fn fetch_state_history_records(
     api: &Api,
     switch_id: &str,
 ) -> Result<
-    (forge_uuid::switch::SwitchId, Vec<::rpc::forge::SwitchEvent>),
+    (
+        carbide_uuid::switch::SwitchId,
+        Vec<::rpc::forge::SwitchEvent>,
+    ),
     (http::StatusCode, String),
 > {
     let Ok(switch_id) = SwitchId::from_str(switch_id) else {

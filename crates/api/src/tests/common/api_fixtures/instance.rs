@@ -13,10 +13,10 @@
 use std::ops::DerefMut;
 use std::time::SystemTime;
 
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcPrefixId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcPrefixId;
 use model::instance::config::network::DeviceLocator;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::snapshot::InstanceSnapshot;

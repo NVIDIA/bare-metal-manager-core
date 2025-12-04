@@ -12,7 +12,7 @@
 
 use std::net::SocketAddr;
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 
 use super::grpcurl::{grpcurl, grpcurl_id};
 use super::machine::wait_for_state;

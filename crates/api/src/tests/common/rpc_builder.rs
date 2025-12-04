@@ -34,11 +34,11 @@ pub struct VpcCreationRequest {
     pub tenant_organization_id: ::prost::alloc::string::String,
     pub tenant_keyset_id: ::core::option::Option<::prost::alloc::string::String>,
     pub network_virtualization_type: ::core::option::Option<i32>,
-    pub id: ::core::option::Option<::forge_uuid::vpc::VpcId>,
+    pub id: ::core::option::Option<::carbide_uuid::vpc::VpcId>,
     pub metadata: ::core::option::Option<rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
     pub default_nvlink_logical_partition_id:
-        ::core::option::Option<::forge_uuid::nvlink::NvLinkLogicalPartitionId>,
+        ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
 }
 
 // Reflection of rpc::forge::VpcUpdateRequest. It should contain exactly
@@ -46,13 +46,13 @@ pub struct VpcCreationRequest {
 // produce error on carbide_prost_builder::Builder derivation.
 #[derive(carbide_prost_builder::Builder)]
 pub struct VpcUpdateRequest {
-    pub id: ::core::option::Option<::forge_uuid::vpc::VpcId>,
+    pub id: ::core::option::Option<::carbide_uuid::vpc::VpcId>,
     pub if_version_match: ::core::option::Option<::prost::alloc::string::String>,
     pub name: ::prost::alloc::string::String,
     pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
     pub default_nvlink_logical_partition_id:
-        ::core::option::Option<::forge_uuid::nvlink::NvLinkLogicalPartitionId>,
+        ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
 }
 
 // Reflection of rpc::forge::InstanceAllocationRequest. It should contain exactly
@@ -60,9 +60,9 @@ pub struct VpcUpdateRequest {
 // produce error on carbide_prost_builder::Builder derivation.
 #[derive(carbide_prost_builder::Builder)]
 pub struct InstanceAllocationRequest {
-    pub machine_id: ::core::option::Option<::forge_uuid::machine::MachineId>,
+    pub machine_id: ::core::option::Option<::carbide_uuid::machine::MachineId>,
     pub config: ::core::option::Option<::rpc::forge::InstanceConfig>,
-    pub instance_id: ::core::option::Option<::forge_uuid::instance::InstanceId>,
+    pub instance_id: ::core::option::Option<::carbide_uuid::instance::InstanceId>,
     pub instance_type_id: ::core::option::Option<::prost::alloc::string::String>,
     pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
     pub allow_unhealthy_machine: bool,

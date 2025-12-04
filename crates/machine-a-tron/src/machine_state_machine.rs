@@ -20,7 +20,7 @@ use bmc_mock::{
     POWER_CYCLE_DELAY, PowerStateQuerying, SetSystemPowerError, SetSystemPowerReq,
     SetSystemPowerResult, SystemPowerControl,
 };
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use rand::Rng;
 use rpc::forge::{

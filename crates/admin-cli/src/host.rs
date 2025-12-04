@@ -12,7 +12,7 @@
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::host_reprovisioning_request::Mode;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
 use crate::cfg::cli_options::HealthOverrideTemplates;

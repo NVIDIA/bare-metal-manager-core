@@ -16,8 +16,8 @@ use std::io::Write;
 use std::process::Command;
 
 use byteorder::{BigEndian, ByteOrder};
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementReportId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::MeasurementReportId;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::MeasuringState;
 use num_bigint_dig::BigUint;

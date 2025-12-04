@@ -15,8 +15,8 @@
  *  tables in the database, leveraging the site-specific record types.
 */
 
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };

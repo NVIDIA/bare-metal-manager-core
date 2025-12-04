@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use db::attestation as db_attest;
 use db::attestation::ek_cert_verification_status;
-use forge_uuid::machine::MachineId;
 use model::hardware_info::TpmEkCertificate;
 use sha2::{Digest, Sha256};
 use sqlx::PgConnection;

@@ -14,8 +14,8 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use ::rpc::forge as rpc;
+use carbide_uuid::machine::MachineId;
 use db::machine_interface::find_by_ip;
-use forge_uuid::machine::MachineId;
 use libredfish::RoleId;
 use mac_address::MacAddress;
 use model::machine::machine_id::try_parse_machine_id;

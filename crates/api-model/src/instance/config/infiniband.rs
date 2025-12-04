@@ -13,7 +13,7 @@
 use std::collections::HashSet;
 
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::infiniband::IBPartitionId;
+use carbide_uuid::infiniband::IBPartitionId;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 

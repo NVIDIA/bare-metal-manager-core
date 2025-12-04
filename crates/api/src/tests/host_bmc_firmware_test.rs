@@ -17,12 +17,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::str::FromStr;
 use std::time::Duration;
 
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::{
     self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
 };
 use db::{self, DatabaseError};
-use forge_uuid::machine::MachineId;
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::instance::status::tenant::TenantState;
 use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};

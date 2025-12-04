@@ -570,7 +570,7 @@ mod test {
 
         let host_config: utils::models::dhcp::HostConfig = utils::models::dhcp::HostConfig {
             host_interface_id:
-                <forge_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
+                <carbide_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
                     "959888da-cdc8-4079-8d23-8a09832447ce",
                 )
                 .ok()

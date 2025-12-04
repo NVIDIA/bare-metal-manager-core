@@ -17,6 +17,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
+use carbide_uuid::switch::{SwitchIdSource, SwitchType};
 use chrono::Utc;
 use config_version::ConfigVersion;
 use db::{
@@ -24,10 +28,6 @@ use db::{
     power_shelf as db_power_shelf, switch as db_switch,
 };
 use forge_network::sanitized_mac;
-use forge_uuid::machine::{MachineId, MachineType};
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
-use forge_uuid::switch::{SwitchIdSource, SwitchType};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;

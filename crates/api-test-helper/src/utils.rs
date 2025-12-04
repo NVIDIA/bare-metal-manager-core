@@ -221,8 +221,8 @@ pub async fn start_api_server(
     // We should setup logging here but:
     // - try_init sets a global logger and can only be called once.
     // Error is: "a global default trace dispatcher has already been set".
-    // forge_host_support::init_logging() calls try_init, but so does carbide-api when it starts.
-    // - Even if we could get around that (forge_host_support::subscriber().set_default() should
+    // carbide_host_support::init_logging() calls try_init, but so does carbide-api when it starts.
+    // - Even if we could get around that (carbide_host_support::subscriber().set_default() should
     // set a thread-specific logger), tracing will attempt to initialize the `log` crate (via tracing-log)
     // which can also only be initialized once. What a mess.
     // Error is: "attempted to set a logger after the logging system was already initialized"

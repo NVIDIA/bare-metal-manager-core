@@ -13,10 +13,10 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
+use carbide_uuid::domain::DomainId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use chrono::{DateTime, Utc};
-use forge_uuid::domain::DomainId;
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
-use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;

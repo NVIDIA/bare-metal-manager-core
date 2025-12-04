@@ -26,7 +26,7 @@ static KEEP_RPCS: &[&str] = &[
 static RPC_CRATE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../rpc");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    forge_version::build();
+    carbide_version::build();
 
     // Copy protos from the rpc crate first
     copy_protos_from_rpc_crate()?;
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(false) // we're using ForgeApiClient from rpc crate
-        .extern_path(".common.MachineId", "::forge_uuid::machine::MachineId")
+        .extern_path(".common.MachineId", "::carbide_uuid::machine::MachineId")
         .protoc_arg("--experimental_allow_proto3_optional")
         .out_dir("src/generated")
         .compile_protos(

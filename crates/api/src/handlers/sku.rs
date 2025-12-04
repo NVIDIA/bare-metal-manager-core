@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::machine::MachineId;
 use db::machine::find_machine_ids_by_sku_id;
-use forge_uuid::machine::MachineId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;

@@ -17,8 +17,8 @@
 use std::net::{IpAddr, Ipv4Addr};
 
 use ::rpc::forge::forge_server::Forge;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 
@@ -173,7 +173,7 @@ pub async fn create_network_segment(
             .domains
             .first()
             .and_then(|d| d.id)
-            .map(::forge_uuid::domain::DomainId::try_from)
+            .map(::carbide_uuid::domain::DomainId::try_from)
             .unwrap()
             .unwrap();
 

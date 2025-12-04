@@ -14,8 +14,8 @@
 
 use std::sync::Arc;
 
+use carbide_uuid::network::NetworkSegmentId;
 use db::{self};
-use forge_uuid::network::NetworkSegmentId;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentDeletionState, NetworkSegmentType,
 };

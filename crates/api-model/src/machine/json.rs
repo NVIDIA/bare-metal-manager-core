@@ -11,10 +11,10 @@
  */
 use std::collections::HashMap;
 
+use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::instance_type::InstanceTypeId;
-use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};

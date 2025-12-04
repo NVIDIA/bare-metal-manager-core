@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::infiniband::IBPartitionId;
+use carbide_uuid::infiniband::IBPartitionId;
 use tonic::Request;
 
 use super::TestEnv;

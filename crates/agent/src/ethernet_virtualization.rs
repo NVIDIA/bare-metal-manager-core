@@ -1684,7 +1684,7 @@ mod tests {
     use crate::{HBNDeviceNames, dhcp, nvue};
     #[ctor::ctor]
     fn setup() {
-        forge_host_support::init_logging().unwrap();
+        carbide_host_support::init_logging().unwrap();
     }
 
     #[test]

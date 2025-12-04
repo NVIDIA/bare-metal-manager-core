@@ -18,6 +18,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use db::host_machine_update::clear_host_reprovisioning_request;
@@ -27,7 +28,6 @@ use eyre::eyre;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
-use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,

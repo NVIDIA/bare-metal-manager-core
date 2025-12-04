@@ -21,9 +21,9 @@ use std::convert::{From, Into};
 use std::str::FromStr;
 use std::vec::Vec;
 
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::MeasurementBundleId;
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementBundleId;
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
 use rpc::protos::measured_boot::{

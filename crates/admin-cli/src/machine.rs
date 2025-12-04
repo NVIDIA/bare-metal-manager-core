@@ -18,8 +18,8 @@ use std::time::Duration;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
+use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };

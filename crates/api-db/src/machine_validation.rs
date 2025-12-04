@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use model::machine::MachineValidationFilter;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_validation::{

@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
 use model::hardware_info::LldpSwitchData;
 use model::network_devices::{

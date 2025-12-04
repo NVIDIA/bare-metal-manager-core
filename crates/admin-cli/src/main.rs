@@ -27,6 +27,8 @@ use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::{CredentialType, forge as forgerpc};
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
 use cfg::cli_options::DpuAction::{AgentUpgradePolicy, Reprovision, Versions};
 use cfg::cli_options::{
     AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
@@ -50,8 +52,6 @@ use forge_tls::client_config::{
     get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
     get_proxy_info,
 };
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use machine::{handle_show_machine_hardware_info, handle_update_machine_hardware_info_gpus};
 use serde::{Deserialize, Serialize};
@@ -132,7 +132,7 @@ async fn main() -> color_eyre::Result<()> {
 
     let config = CliOptions::load();
     if config.version {
-        println!("{}", forge_version::version!());
+        println!("{}", carbide_version::version!());
         return Ok(());
     }
     let file_config = get_config_from_file();

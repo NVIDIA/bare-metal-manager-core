@@ -11,8 +11,8 @@ use std::net::IpAddr;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::machine::MachineId;
 use db::DatabaseError;
-use forge_uuid::machine::MachineId;
 use model::site_explorer::ExploredManagedHost;
 use sqlx::PgConnection;
 

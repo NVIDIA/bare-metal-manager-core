@@ -17,14 +17,14 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::TrustedMachineId;
 use db::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
     insert_into_approved_profiles, list_attestation_summary,
     remove_from_approved_machines_by_approval_id, remove_from_approved_machines_by_machine_id,
     remove_from_approved_profiles_by_approval_id, remove_from_approved_profiles_by_profile_id,
 };
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::TrustedMachineId;
 use measured_boot::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };

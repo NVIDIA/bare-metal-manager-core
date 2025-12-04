@@ -11,9 +11,9 @@
  */
 use std::collections::HashMap;
 
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use db::DatabaseError;
-use forge_uuid::machine::MachineId;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;

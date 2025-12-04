@@ -12,11 +12,11 @@
 
 use std::str::FromStr;
 
+use carbide_uuid::machine::MachineInterfaceId;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
 };
 use db::{self, ObjectColumnFilter, dhcp_entry};
-use forge_uuid::machine::MachineInterfaceId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigRequest;

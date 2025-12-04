@@ -17,13 +17,13 @@ use std::ops::Deref;
 
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
+use carbide_uuid::domain::DomainId;
+use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use carbide_uuid::network::NetworkSegmentId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use duration_str::deserialize_duration_chrono;
-use forge_uuid::domain::DomainId;
-use forge_uuid::instance_type::InstanceTypeId;
-use forge_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
-use forge_uuid::network::NetworkSegmentId;
 use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
 use libredfish::{PowerState, SystemPowerControl};

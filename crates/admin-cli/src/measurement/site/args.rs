@@ -24,11 +24,11 @@
  *  - `site trusted-profile list`: List all trusted profile approvals.
 */
 
-use clap::Parser;
-use forge_uuid::measured_boot::{
+use carbide_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };
+use clap::Parser;
 use measured_boot::records::MeasurementApprovedType;
 
 /// CmdSite provides a container for the `site` subcommand, which itself

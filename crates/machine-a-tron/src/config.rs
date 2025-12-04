@@ -17,9 +17,9 @@ use std::time::Duration;
 
 use axum::Router;
 use bmc_mock::{DpuMachineInfo, HostMachineInfo};
+use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use duration_str::deserialize_duration;
-use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use rpc::forge::DesiredFirmwareVersionEntry;
 use rpc::forge_tls_client::ForgeClientConfig;

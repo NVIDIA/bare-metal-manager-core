@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-pub use forge_uuid::vpc::{VpcId, VpcPrefixId};
+pub use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NetworkPrefix;

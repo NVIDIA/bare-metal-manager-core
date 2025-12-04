@@ -18,9 +18,9 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use carbide_uuid::UuidEmptyStringError;
+use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use forge_uuid::UuidEmptyStringError;
-use forge_uuid::machine::MachineId;
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
 use rpc::protos::measured_boot::{CandidateMachinePb, MeasurementMachineStatePb};

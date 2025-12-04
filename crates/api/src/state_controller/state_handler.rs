@@ -11,8 +11,8 @@
  */
 use std::panic::Location;
 
+use carbide_uuid::machine::MachineId;
 use db::DatabaseError;
-use forge_uuid::machine::MachineId;
 use libredfish::RedfishError;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::ManagedHostState;

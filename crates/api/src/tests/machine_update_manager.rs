@@ -15,10 +15,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_test_env;
 use figment::Figment;
 use figment::providers::{Format, Toml};
-use forge_uuid::machine::MachineId;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::ManagedHostStateSnapshot;
 use model::machine_update_module::{

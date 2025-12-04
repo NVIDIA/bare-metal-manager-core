@@ -11,8 +11,8 @@
  */
 use std::str::FromStr;
 
+use carbide_uuid::switch::SwitchId;
 use color_eyre::Result;
-use forge_uuid::switch::SwitchId;
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::Switch;
 

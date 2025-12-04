@@ -13,14 +13,14 @@
 //! Tests for batch instance allocation API
 
 use ::rpc::forge::forge_server::Forge;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
 };
 use common::api_fixtures::{
     TestEnv, create_managed_host, create_test_env, populate_network_security_groups,
 };
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::tests::common;

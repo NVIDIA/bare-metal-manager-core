@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::vpc::VpcId;
 use clap::Parser;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::vpc::VpcId;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab_case")]

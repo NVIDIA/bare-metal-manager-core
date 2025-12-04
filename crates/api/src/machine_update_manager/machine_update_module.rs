@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use async_trait::async_trait;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use model::machine::ManagedHostStateSnapshot;
 use model::machine_update_module::{
     AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,

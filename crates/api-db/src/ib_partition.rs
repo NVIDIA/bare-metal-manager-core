@@ -11,9 +11,9 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_uuid::infiniband::IBPartitionId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::infiniband::IBPartitionId;
 use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};

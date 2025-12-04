@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
 use russh::ChannelMsg;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;

@@ -22,8 +22,8 @@ pub use measured_boot::{
 };
 
 pub mod tpm_ca_cert;
+use carbide_uuid::machine::MachineId;
 use db::{ObjectFilter, Transaction};
-use forge_uuid::machine::MachineId;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::machine_search_config::MachineSearchConfig;
 use sqlx::{PgConnection, Pool, Postgres};
@@ -69,7 +69,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
 
     let mut txn = Transaction::begin(db_pool, "begin backfill ek cert status").await?;
 
-    let machines: Vec<::forge_uuid::machine::MachineId> =
+    let machines: Vec<::carbide_uuid::machine::MachineId> =
         db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
             .await?
             .iter()

@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use forge_uuid::vpc::{VpcId, VpcPrefixId};
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use rpc::errors::RpcDataConversionError;
 use sqlx::Row;

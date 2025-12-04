@@ -15,10 +15,10 @@ use std::time::Duration;
 use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
 use ::rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT, ForgeTlsClient};
 use ::rpc::{MachineDiscoveryInfo, forge as rpc, machine_discovery as rpc_discovery};
+use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use forge_tls::default as tls_default;
-use forge_uuid::machine::MachineId;
 use tryhard::RetryFutureConfig;
 
 #[derive(thiserror::Error, Debug)]

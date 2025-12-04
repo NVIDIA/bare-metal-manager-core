@@ -23,10 +23,10 @@
  *  - `bundle list machines`: List all matchines matching a given bundle.
 */
 
-use clap::Parser;
-use forge_uuid::measured_boot::{
+use carbide_uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
 };
+use clap::Parser;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 

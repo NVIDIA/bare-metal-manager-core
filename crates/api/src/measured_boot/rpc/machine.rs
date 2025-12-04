@@ -17,8 +17,8 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::machine::MachineId;
 use db::measured_boot::interface::machine::get_candidate_machine_records;
-use forge_uuid::machine::MachineId;
 use measured_boot::pcr::PcrRegisterValue;
 use rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, AttestCandidateMachineResponse, ListCandidateMachinesRequest,

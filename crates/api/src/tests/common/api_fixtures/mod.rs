@@ -18,6 +18,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
@@ -25,11 +30,6 @@ use dpu::DpuConfig;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
-use forge_uuid::instance::InstanceId;
-use forge_uuid::instance_type::InstanceTypeId;
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
 use futures::FutureExt as _;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
@@ -563,7 +563,7 @@ impl TestEnv {
     // Returns all machines using FindMachinesByIds call.
     pub async fn find_machine(
         &self,
-        id: forge_uuid::machine::MachineId,
+        id: carbide_uuid::machine::MachineId,
     ) -> Vec<rpc::forge::Machine> {
         self.api
             .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
@@ -1387,7 +1387,7 @@ pub async fn create_test_env_with_overrides(
         .unwrap()
         .into_inner()
         .id
-        .map(::forge_uuid::domain::DomainId::try_from)
+        .map(::carbide_uuid::domain::DomainId::try_from)
         .unwrap()
         .unwrap()
         .into();
@@ -1724,7 +1724,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
-pub async fn discovery_completed(env: &TestEnv, machine_id: forge_uuid::machine::MachineId) {
+pub async fn discovery_completed(env: &TestEnv, machine_id: carbide_uuid::machine::MachineId) {
     let _response = env
         .api
         .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
@@ -1936,7 +1936,7 @@ pub async fn remove_health_report_override(env: &TestEnv, machine_id: &MachineId
 
 pub async fn forge_agent_control(
     env: &TestEnv,
-    machine_id: forge_uuid::machine::MachineId,
+    machine_id: carbide_uuid::machine::MachineId,
 ) -> rpc::forge::ForgeAgentControlResponse {
     let _ = reboot_completed(env, machine_id).await;
 
@@ -2087,7 +2087,7 @@ pub async fn update_time_params(
 
 pub async fn reboot_completed(
     env: &TestEnv,
-    machine_id: forge_uuid::machine::MachineId,
+    machine_id: carbide_uuid::machine::MachineId,
 ) -> rpc::forge::MachineRebootCompletedResponse {
     tracing::info!("Machine ={} rebooted", machine_id);
     env.api
@@ -2129,7 +2129,7 @@ pub async fn machine_validation_completed(
 /// if needed, as part of the auto-approval process.
 pub async fn inject_machine_measurements(
     env: &TestEnv,
-    machine_id: forge_uuid::machine::MachineId,
+    machine_id: carbide_uuid::machine::MachineId,
 ) {
     let _response = env
         .api
@@ -2225,7 +2225,7 @@ pub async fn get_machine_validation_runs(
 // Emulates the `OnDemandMachineValidation` request of a Host
 pub async fn on_demand_machine_validation(
     env: &TestEnv,
-    machine_id: forge_uuid::machine::MachineId,
+    machine_id: carbide_uuid::machine::MachineId,
     tags: Vec<String>,
     allowed_tests: Vec<String>,
     run_unverfied_tests: bool,

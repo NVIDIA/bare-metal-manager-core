@@ -13,10 +13,10 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::extension_service::ExtensionServiceId;
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::extension_service::ExtensionServiceId;
-use forge_uuid::machine::MachineId;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 

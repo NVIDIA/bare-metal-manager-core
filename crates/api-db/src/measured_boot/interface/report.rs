@@ -15,8 +15,8 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementReportId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::MeasurementReportId;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
 use sqlx::{PgConnection, Postgres, QueryBuilder};

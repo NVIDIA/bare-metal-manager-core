@@ -17,8 +17,8 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
-use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
 use nix::unistd;

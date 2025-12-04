@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::ConfigVersion;
-use forge_uuid::power_shelf::PowerShelfId;
 use model::power_shelf::{PowerShelfControllerState, PowerShelfStateHistory};
 use model::power_shelf_state_history::DbPowerShelfStateHistory;
 use sqlx::PgConnection;

@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::domain::DomainId;
 use db::ObjectColumnFilter;
 use db::domain::{self};
-use forge_uuid::domain::DomainId;
 use model::domain::{Domain, NewDomain, Soa};
 
 use crate::{DatabaseError, DatabaseResult};

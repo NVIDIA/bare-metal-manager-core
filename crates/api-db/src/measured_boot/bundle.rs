@@ -17,8 +17,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use itertools::Itertools;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::journal::MeasurementJournal;
@@ -788,7 +788,7 @@ async fn get_matching_bundles(
 
 #[cfg(test)]
 mod tests {
-    use forge_uuid::measured_boot::MeasurementBundleValueId;
+    use carbide_uuid::measured_boot::MeasurementBundleValueId;
 
     use super::*;
 

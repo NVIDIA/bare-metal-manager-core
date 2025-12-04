@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::dpa_interface::DpaInterfaceId;
 use config_version::ConfigVersion;
-use forge_uuid::dpa_interface::DpaInterfaceId;
 use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceStateHistory};
 use sqlx::PgConnection;
 

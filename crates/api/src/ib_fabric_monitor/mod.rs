@@ -16,11 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::Arc;
 
+use carbide_uuid::infiniband::IBPartitionId;
+use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use db::ib_partition::IBPartition;
 use db::{self, DatabaseError};
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::machine::MachineId;
 use health_report::OverrideMode;
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,

@@ -12,9 +12,9 @@
 
 //! State Controller IO implementation for dpa interfaces
 
+use carbide_uuid::dpa_interface::DpaInterfaceId;
 use config_version::{ConfigVersion, Versioned};
 use db::DatabaseError;
-use forge_uuid::dpa_interface::DpaInterfaceId;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpa_interface::{self, DpaInterface, DpaInterfaceControllerState};

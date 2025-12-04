@@ -12,8 +12,8 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
+use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
 use futures_util::stream::StreamExt;
 use itertools::Itertools;
 use model::hardware_info::HardwareInfo;

@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::switch::SwitchId;
 use config_version::ConfigVersion;
-use forge_uuid::switch::SwitchId;
 use model::switch::{SwitchControllerState, SwitchStateHistory};
 use model::switch_state_history::DbSwitchStateHistory;
 use sqlx::PgConnection;

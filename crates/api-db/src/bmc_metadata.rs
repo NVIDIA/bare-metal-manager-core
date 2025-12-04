@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use model::bmc_info::BmcInfo;
 use serde_json::json;
 use sqlx::PgConnection;

@@ -16,7 +16,7 @@
 
 use std::str::FromStr;
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use measured_boot::machine::CandidateMachine;
 use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostState;

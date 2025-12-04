@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::infiniband::IBPartitionId;
 use db::ib_partition::{IBPartition, IBPartitionStatus};
-use forge_uuid::infiniband::IBPartitionId;
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
 use model::ib_partition::IBPartitionControllerState;
 use sqlx::PgConnection;

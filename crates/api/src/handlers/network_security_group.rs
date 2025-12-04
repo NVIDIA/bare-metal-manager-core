@@ -14,11 +14,11 @@ use std::collections::HashSet;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::network_security_group::NetworkSecurityGroupId;
+use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
 use db::network_security_group;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::network_security_group::NetworkSecurityGroupId;
-use forge_uuid::vpc::VpcId;
 use model::metadata::Metadata;
 use model::network_security_group::{NetworkSecurityGroupRule, NetworkSecurityGroupRuleNet};
 use model::tenant::{InvalidTenantOrg, TenantOrganizationId};

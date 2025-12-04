@@ -11,6 +11,7 @@
  */
 pub mod attestation;
 pub mod bmc_metadata;
+pub mod carbide_version;
 pub mod desired_firmware;
 pub mod dhcp_entry;
 pub mod dhcp_record;
@@ -26,7 +27,6 @@ pub mod expected_switch;
 pub mod explored_endpoints;
 pub mod explored_managed_host;
 pub mod extension_service;
-pub mod forge_version;
 pub mod host_machine_update;
 pub mod ib_partition;
 pub mod instance;
@@ -333,7 +333,7 @@ pub enum DatabaseError {
     #[error("Uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
     #[error("RPC Uuid type conversion error: {0}")]
-    RpcUuidConversionError(#[from] forge_uuid::UuidConversionError),
+    RpcUuidConversionError(#[from] carbide_uuid::UuidConversionError),
     #[error(
         "An object of type {0} was intended to be modified did not have the expected version {1}"
     )]

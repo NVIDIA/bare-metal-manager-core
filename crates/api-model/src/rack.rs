@@ -11,10 +11,10 @@
  */
 use std::fmt::Display;
 
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::machine::MachineId;
-use forge_uuid::power_shelf::PowerShelfId;
 use mac_address::MacAddress;
 use rpc::Timestamp;
 use serde::{Deserialize, Serialize};

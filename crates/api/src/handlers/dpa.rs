@@ -11,10 +11,10 @@
  */
 
 use ::rpc::protos::mlx_device as mlx_device_pb;
+use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
+use carbide_uuid::machine::MachineId;
 use db::dpa_interface;
 use eyre::eyre;
-use forge_host_support::dpa_cmds::{DpaCommand, OpCode};
-use forge_uuid::machine::MachineId;
 use mlxconfig_device::report::MlxDeviceReport;
 use model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,

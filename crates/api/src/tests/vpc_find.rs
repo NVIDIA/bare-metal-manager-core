@@ -12,7 +12,7 @@
 use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
-use forge_uuid::vpc::VpcId;
+use carbide_uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
 
 use crate::tests::common::api_fixtures::instance::default_tenant_config;

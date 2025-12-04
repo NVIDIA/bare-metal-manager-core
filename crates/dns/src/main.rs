@@ -23,7 +23,7 @@ mod dns;
 async fn main() -> Result<(), eyre::Report> {
     let config = Options::load();
     if config.version {
-        println!("{}", forge_version::version!());
+        println!("{}", carbide_version::version!());
         return Ok(());
     }
 

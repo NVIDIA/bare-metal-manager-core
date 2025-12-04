@@ -33,10 +33,10 @@ const SIZE_BUCKETS: &[f64; 9] = &[
 pub(crate) async fn setup_prometheus() -> PrometheusHandle {
     let prometheus_builder = PrometheusBuilder::new()
         .add_global_label("system", "carbide-pxe")
-        .add_global_label("build_version", forge_version::v!(build_version))
-        .add_global_label("build_date", forge_version::v!(build_date))
-        .add_global_label("rust_version", forge_version::v!(rust_version))
-        .add_global_label("build_hostname", forge_version::v!(build_hostname))
+        .add_global_label("build_version", carbide_version::v!(build_version))
+        .add_global_label("build_date", carbide_version::v!(build_date))
+        .add_global_label("rust_version", carbide_version::v!(rust_version))
+        .add_global_label("build_hostname", carbide_version::v!(build_hostname))
         .set_buckets_for_metric(
             Matcher::Suffix("duration_seconds".to_string()),
             TIME_BUCKETS,

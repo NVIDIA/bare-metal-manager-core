@@ -11,8 +11,8 @@
  */
 use std::net::Ipv4Addr;
 
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::{VpcId, VpcPrefixId};
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use model::network_prefix::NewNetworkPrefix;

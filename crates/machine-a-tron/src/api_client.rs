@@ -12,8 +12,8 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use base64::prelude::*;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
@@ -246,7 +246,7 @@ impl ApiClient {
         let dpu_agent_version = machine_config
             .dpu_agent_version
             .clone()
-            .or(Some(forge_version::v!(build_version).to_string()));
+            .or(Some(carbide_version::v!(build_version).to_string()));
 
         self.0
             .record_dpu_network_status(rpc::forge::DpuNetworkStatus {

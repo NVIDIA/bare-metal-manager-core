@@ -14,7 +14,7 @@ use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
-use forge_uuid::vpc::VpcId;
+use carbide_uuid::vpc::VpcId;
 use prettytable::{Table, row};
 
 use crate::cfg::cli_options::{SetVpcVirt, ShowVpc};

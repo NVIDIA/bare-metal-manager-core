@@ -7,7 +7,7 @@ authors.workspace = true
 
 [[bin]]
 # TODO: rename to carbide-admin-cli
-name = "forge-admin-cli"
+name = "carbide-admin-cli"
 path = "src/main.rs"
 
 [dependencies]

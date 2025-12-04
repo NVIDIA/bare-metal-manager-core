@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_version::v;
+use carbide_version::v;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 

@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use lazy_static::lazy_static;
 use rpc::forge::ValidateTenantPublicKeyRequest;
 use rpc::forge_api_client::ForgeApiClient;

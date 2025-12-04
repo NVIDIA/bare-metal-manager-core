@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
-use forge_uuid::switch::SwitchId;
 use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{SwitchDeletionRequest, SwitchQuery};

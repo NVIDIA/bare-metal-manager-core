@@ -12,8 +12,8 @@
 pub mod tests {
     use std::collections::HashMap;
 
+    use carbide_uuid::machine::MachineId;
     use db::attestation::spdm::insert_device;
-    use forge_uuid::machine::MachineId;
     use model::attestation::spdm::{
         AttestationDeviceState, FetchMeasurementDeviceStates, SpdmAttestationStatus,
         SpdmMachineAttestationHistory, SpdmMachineHistoryState, VerificationDeviceStates,

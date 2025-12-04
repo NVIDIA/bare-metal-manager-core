@@ -23,9 +23,9 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use forge_uuid::dpu_remediations::RemediationId;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::{MachineId, MachineIdParseError};
+use carbide_uuid::dpu_remediations::RemediationId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::{MachineId, MachineIdParseError};
 pub use output::{Destination, OutputFormat};
 use serde::Serialize;
 #[cfg(feature = "sqlx")]

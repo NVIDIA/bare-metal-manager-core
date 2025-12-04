@@ -12,9 +12,9 @@
 pub mod tests {
     use std::time::Duration;
 
+    use carbide_uuid::machine::MachineId;
     use db::sku::CURRENT_SKU_VERSION;
     use db::{self, DatabaseError, ObjectFilter};
-    use forge_uuid::machine::MachineId;
     use model::expected_machine::ExpectedMachineData;
     use model::machine::machine_search_config::MachineSearchConfig;
     use model::machine::{

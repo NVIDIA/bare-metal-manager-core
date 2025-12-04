@@ -15,9 +15,9 @@
  *  tables in the database, leveraging the bundle-specific record types.
 */
 
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use forge_uuid::{DbPrimaryUuid, DbTable};
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use carbide_uuid::{DbPrimaryUuid, DbTable};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,

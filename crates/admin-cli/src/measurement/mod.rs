@@ -24,7 +24,7 @@ pub mod report;
 pub mod site;
 
 use ::rpc::admin_cli::{ToTable, set_summary};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use serde::Serialize;
 
 use crate::cfg::measurement::{Cmd, GlobalOptions};

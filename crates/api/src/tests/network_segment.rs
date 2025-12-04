@@ -15,6 +15,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
+use carbide_uuid::network::NetworkSegmentId;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
@@ -23,7 +24,6 @@ use db::ObjectColumnFilter;
 use db::network_segment::VpcColumn;
 use db::vpc::IdColumn;
 use forge_network::virtualization::VpcVirtualizationType;
-use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::network_prefix::NewNetworkPrefix;

@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
+use carbide_uuid::machine::{MachineInterfaceId, MachineType};
 use db::{self};
-use forge_uuid::machine::{MachineInterfaceId, MachineType};
 use mac_address::MacAddress;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{

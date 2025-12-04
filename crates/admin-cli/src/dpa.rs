@@ -14,7 +14,7 @@ use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
-use forge_uuid::dpa_interface::DpaInterfaceId;
+use carbide_uuid::dpa_interface::DpaInterfaceId;
 use prettytable::{Table, row};
 
 use crate::cfg::cli_options::ShowDpa;

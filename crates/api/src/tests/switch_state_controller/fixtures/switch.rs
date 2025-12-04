@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::switch::SwitchId;
+use carbide_uuid::switch::SwitchId;
 use model::switch::{SwitchConfig, SwitchControllerState, SwitchStatus};
 use sqlx::PgConnection;
 

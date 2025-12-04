@@ -22,7 +22,7 @@ use crate::CarbideResult;
 use crate::cfg::file::MeasuredBootMetricsCollectorConfig;
 
 pub(crate) mod metrics;
-use forge_uuid::measured_boot::MeasurementBundleId;
+use carbide_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;
 
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.

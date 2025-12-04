@@ -13,7 +13,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
-use forge_host_support::agent_config::FmdsDpuNetworkingConfig;
+use carbide_host_support::agent_config::FmdsDpuNetworkingConfig;
 use ipnetwork::IpNetwork;
 
 pub mod interface;

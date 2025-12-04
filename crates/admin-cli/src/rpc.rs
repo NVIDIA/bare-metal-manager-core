@@ -33,15 +33,15 @@ use ::rpc::forge::{
 };
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::{Machine, NetworkSegment};
-use forge_uuid::dpa_interface::DpaInterfaceId;
-use forge_uuid::dpu_remediations::RemediationId;
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
-use forge_uuid::vpc::VpcId;
-use forge_uuid::vpc_peering::VpcPeeringId;
+use carbide_uuid::dpa_interface::DpaInterfaceId;
+use carbide_uuid::dpu_remediations::RemediationId;
+use carbide_uuid::infiniband::IBPartitionId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
+use carbide_uuid::vpc::VpcId;
+use carbide_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
 use crate::cfg::cli_options::{self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate};
@@ -354,7 +354,7 @@ impl ApiClient {
 
     pub async fn get_domains(
         &self,
-        id: Option<::forge_uuid::domain::DomainId>,
+        id: Option<::carbide_uuid::domain::DomainId>,
     ) -> CarbideCliResult<rpc::DomainList> {
         let request = rpc::DomainSearchQuery { id, name: None };
         Ok(self.0.find_domain(request).await?)

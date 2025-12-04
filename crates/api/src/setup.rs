@@ -387,8 +387,11 @@ pub async fn initialize_and_start_controllers(
     {
         let mut txn = Transaction::begin(db_pool, "observe forge_version").await?;
 
-        db::forge_version::observe_as_latest_version(&mut txn, forge_version::v!(build_version))
-            .await?;
+        db::carbide_version::observe_as_latest_version(
+            &mut txn,
+            carbide_version::v!(build_version),
+        )
+        .await?;
 
         txn.commit().await?;
     }

@@ -14,10 +14,10 @@
 
 use std::sync::Arc;
 
+use carbide_uuid::dpa_interface::DpaInterfaceId;
 use chrono::{Duration, TimeDelta};
 use db::dpa_interface::get_dpa_vni;
 use eyre::eyre;
-use forge_uuid::dpa_interface::DpaInterfaceId;
 use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
 use model::resource_pool::ResourcePool;

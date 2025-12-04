@@ -11,7 +11,7 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 
 use crate::cfg::cli_options::MachineQuery;
 use crate::rpc::ApiClient;

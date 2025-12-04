@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
-use forge_uuid::power_shelf::PowerShelfId;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig, PowerShelfStatus};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{PowerShelfDeletionRequest, PowerShelfQuery};

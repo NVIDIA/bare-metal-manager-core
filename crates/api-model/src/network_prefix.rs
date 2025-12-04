@@ -11,8 +11,8 @@
  */
 use std::net::IpAddr;
 
-use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use forge_uuid::vpc::VpcPrefixId;
+use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use carbide_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};

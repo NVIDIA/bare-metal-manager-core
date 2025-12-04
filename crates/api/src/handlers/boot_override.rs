@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::MachineInterfaceId;
 use model::machine_boot_override::MachineBootOverride;
 
 use crate::api::Api;

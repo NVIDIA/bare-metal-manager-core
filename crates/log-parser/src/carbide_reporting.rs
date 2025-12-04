@@ -15,8 +15,8 @@ use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
+use carbide_uuid::machine::MachineId;
 use forge_tls::client_config::ClientCert;
-use forge_uuid::machine::MachineId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };

@@ -7,7 +7,7 @@ authors.workspace = true
 
 [lib]
 # TODO: rename to carbide_version in source
-name = "forge_version"
+name = "carbide_version"
 
 [dependencies]
 # Nothing should be here. The crate needs to be very lightweight

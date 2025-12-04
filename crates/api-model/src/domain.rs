@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::domain::DomainId;
 use chrono::{DateTime, Utc};
-use forge_uuid::domain::DomainId;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;

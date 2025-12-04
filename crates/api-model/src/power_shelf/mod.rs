@@ -12,9 +12,9 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_uuid::power_shelf::PowerShelfId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::power_shelf::PowerShelfId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};

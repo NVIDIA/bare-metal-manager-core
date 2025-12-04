@@ -25,8 +25,8 @@ use ::rpc::protos::measured_boot::{
     rename_measurement_bundle_request, show_measurement_bundle_request,
     update_measurement_bundle_request,
 };
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementBundleId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::MeasurementBundleId;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleRecord;

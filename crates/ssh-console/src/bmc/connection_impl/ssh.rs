@@ -17,8 +17,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
+use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
 use ringbuf::LocalRb;
 use ringbuf::storage::Array;

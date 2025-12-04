@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use carbide_uuid::network::NetworkSegmentId;
 use forge_network::ip::prefix::Ipv4Network;
-use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery};
 use serde::{Deserialize, Serialize};
 

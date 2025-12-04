@@ -17,10 +17,10 @@
 
 use std::str::FromStr;
 
+use carbide_uuid::UuidEmptyStringError;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::MeasurementReportId;
 use chrono::Utc;
-use forge_uuid::UuidEmptyStringError;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementReportId;
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
 use rpc::errors::RpcDataConversionError;

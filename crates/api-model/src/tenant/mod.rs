@@ -13,9 +13,9 @@ use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
+use carbide_uuid::UuidConversionError;
+use carbide_uuid::instance::InstanceId;
 use config_version::ConfigVersion;
-use forge_uuid::UuidConversionError;
-use forge_uuid::instance::InstanceId;
 use itertools::Itertools;
 use rpc::errors::RpcDataConversionError;
 use rpc::forge as rpc_forge;

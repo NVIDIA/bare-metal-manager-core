@@ -16,7 +16,7 @@ use std::fs;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::site_explorer::ExploredManagedHost;
 use ::rpc::{InstanceList, MachineList};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::cli_options::InventoryAction;

@@ -7,7 +7,7 @@ authors.workspace = true
 
 # TODO: rename to carbide_systemd in source
 [lib]
-name = "forge_systemd"
+name = "carbide_systemd"
 
 [dependencies]
 eyre = { workspace = true }

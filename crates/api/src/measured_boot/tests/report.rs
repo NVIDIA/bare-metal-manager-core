@@ -22,11 +22,11 @@
 mod tests {
     use std::collections::{HashMap, HashSet};
 
+    use carbide_uuid::measured_boot::MeasurementReportId;
     use db::measured_boot::interface::common::pcr_register_values_to_map;
     use db::measured_boot::interface::report::{
         get_all_measurement_report_records, get_all_measurement_report_value_records,
     };
-    use forge_uuid::measured_boot::MeasurementReportId;
     use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
     use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
     use rand::prelude::*;

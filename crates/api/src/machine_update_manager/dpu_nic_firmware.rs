@@ -15,8 +15,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+use carbide_uuid::machine::MachineId;
 use db::dpu_machine_update;
-use forge_uuid::machine::MachineId;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::machine::ManagedHostStateSnapshot;
 use sqlx::PgConnection;

@@ -16,11 +16,11 @@
 
 use std::collections::HashMap;
 
+use carbide_uuid::measured_boot::MeasurementSystemProfileId;
 use db::measured_boot::interface::profile::{
     export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
     get_machines_for_profile_id, get_machines_for_profile_name,
 };
-use forge_uuid::measured_boot::MeasurementSystemProfileId;
 use measured_boot::profile::MeasurementSystemProfile;
 use rpc::protos::measured_boot::{
     CreateMeasurementSystemProfileRequest, CreateMeasurementSystemProfileResponse,

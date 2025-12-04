@@ -11,9 +11,9 @@
  */
 use std::net::IpAddr;
 
-use forge_uuid::domain::DomainId;
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
-use forge_uuid::network::NetworkSegmentId;
+use carbide_uuid::domain::DomainId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::FromRow;

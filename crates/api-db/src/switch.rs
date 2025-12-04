@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::switch::SwitchId;
 use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::switch::{NewSwitch, Switch, SwitchControllerState};

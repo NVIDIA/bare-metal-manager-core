@@ -14,12 +14,12 @@ use std::future::Future;
 use std::iter;
 use std::net::IpAddr;
 
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use db::machine_interface::find_by_mac_address;
 use db::{power_shelf as db_power_shelf, switch as db_switch};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
-use forge_uuid::machine::MachineId;
-use forge_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
-use forge_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use futures_util::FutureExt;
 use health_report::HealthReport;
 use model::hardware_info::HardwareInfo;

@@ -17,9 +17,9 @@ use std::{env, fs};
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use carbide_uuid::machine::MachineId;
 use data_encoding::BASE64;
 use eyre::WrapErr;
-use forge_uuid::machine::MachineId;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
@@ -91,11 +91,11 @@ pub async fn upgrade(
 
     let upgrade_cmd = override_upgrade_cmd.unwrap_or(UPGRADE_CMD);
     tracing::info!(
-        local_build = forge_version::v!(build_version),
+        local_build = carbide_version::v!(build_version),
         remote_build = resp.server_version,
         to_package_version = resp.package_version,
         upgrade_cmd,
-        version = forge_version::v!(build_version),
+        version = carbide_version::v!(build_version),
         "Upgrading myself, goodbye.",
     );
     if let Err(err) = clear_apt_metadata_cache() {
@@ -184,7 +184,7 @@ async fn network_upgrade_check(
     binary_mtime: SystemTime,
     binary_hash: String,
 ) -> eyre::Result<UpgradeCheckResult> {
-    let local_build = forge_version::v!(build_version);
+    let local_build = carbide_version::v!(build_version);
     let req = rpc::DpuAgentUpgradeCheckRequest {
         machine_id: machine_id.to_string(),
         current_agent_version: local_build.to_string(),

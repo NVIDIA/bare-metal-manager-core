@@ -9,10 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::instance_type::InstanceTypeId;
-use forge_uuid::machine::MachineId;
 use rpc::errors::RpcDataConversionError;
 
 use crate::instance::config::InstanceConfig;

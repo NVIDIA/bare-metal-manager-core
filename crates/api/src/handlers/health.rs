@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge::{self as rpc, HealthReportOverride};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use health_report::OverrideMode;
 use model::machine::machine_search_config::MachineSearchConfig;
 use sqlx::PgConnection;

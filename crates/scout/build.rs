@@ -11,5 +11,5 @@
  */
 
 fn main() {
-    forge_version::build();
+    carbide_version::build();
 }

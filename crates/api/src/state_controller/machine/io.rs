@@ -12,9 +12,9 @@
 
 //! State Controller IO implementation for Machines
 
+use carbide_uuid::machine::MachineId;
 use config_version::{ConfigVersion, Versioned};
 use db::{self, DatabaseError};
-use forge_uuid::machine::MachineId;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::machine_search_config::MachineSearchConfig;

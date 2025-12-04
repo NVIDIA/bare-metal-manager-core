@@ -528,7 +528,7 @@ merge-manifests-forge-cli:
       when: never
 
 # Copy the final multi-arch container to urm for use in QA automation
-copy-forge-admin-cli-to-urm:
+copy-carbide-admin-cli-to-urm:
   stage: build
   needs:
     - job: prepare-ci
@@ -584,7 +584,7 @@ build-boot-artifacts-x86-host:
   artifacts:
     paths:
       - pxe/static/blobs/internal/x86_64/ipxe.efi
-      - target/debug/forge-admin-cli
+      - target/debug/carbide-admin-cli
       - target/debs/*
     when: always
     expire_in: 1 day

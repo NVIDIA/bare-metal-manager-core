@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::network::NetworkSegmentId;
+use carbide_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
 use model::dhcp_record::DhcpRecord;
 use sqlx::PgConnection;

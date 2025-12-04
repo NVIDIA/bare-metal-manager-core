@@ -101,9 +101,9 @@ pub async fn run(
 
     tracing::info!(
         address = carbide_config.listen.to_string(),
-        build_version = forge_version::v!(build_version),
-        build_date = forge_version::v!(build_date),
-        rust_version = forge_version::v!(rust_version),
+        build_version = carbide_version::v!(build_version),
+        build_date = carbide_version::v!(build_date),
+        rust_version = carbide_version::v!(rust_version),
         "Start carbide-api",
     );
 

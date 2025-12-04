@@ -11,8 +11,8 @@
  */
 use std::str::FromStr;
 
+use carbide_uuid::power_shelf::PowerShelfId;
 use color_eyre::Result;
-use forge_uuid::power_shelf::PowerShelfId;
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::PowerShelf;
 

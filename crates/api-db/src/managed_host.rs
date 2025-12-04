@@ -16,8 +16,8 @@
 use std::collections::HashMap;
 use std::ops::Deref;
 
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use model::machine::{LoadSnapshotOptions, ManagedHostStateSnapshot};

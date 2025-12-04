@@ -17,8 +17,8 @@
 
 use std::collections::HashMap;
 
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
 };
 use measured_boot::bundle::MeasurementBundle;

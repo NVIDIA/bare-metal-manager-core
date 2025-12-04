@@ -13,11 +13,11 @@ use std::backtrace::{Backtrace, BacktraceStatus};
 use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
 use db::ip_allocator::DhcpError;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::{AnnotatedSqlxError, DatabaseError};
-use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use model::errors::ModelError;
 use model::hardware_info::HardwareInfoError;
@@ -51,7 +51,7 @@ pub enum CarbideError {
     UuidConversionError(#[from] uuid::Error),
 
     #[error("RPC Uuid type conversion error: {0}")]
-    RpcUuidConversionError(#[from] forge_uuid::UuidConversionError),
+    RpcUuidConversionError(#[from] carbide_uuid::UuidConversionError),
 
     #[error("{kind} already exists: {id}")]
     AlreadyFoundError {

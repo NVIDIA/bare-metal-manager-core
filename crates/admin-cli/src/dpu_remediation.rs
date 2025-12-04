@@ -13,8 +13,8 @@ use std::fmt::Write;
 use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use forge_uuid::dpu_remediations::RemediationId;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::dpu_remediations::RemediationId;
+use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 use rpc::forge::{AppliedRemediationIdList, AppliedRemediationList, Remediation, RemediationList};
 

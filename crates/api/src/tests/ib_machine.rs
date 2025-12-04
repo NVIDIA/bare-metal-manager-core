@@ -12,8 +12,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_managed_host;
-use forge_uuid::machine::MachineId;
 use model::ib::{IBNetwork, IBQosConf};
 use model::ib_partition::PartitionKey;
 

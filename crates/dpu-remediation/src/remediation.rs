@@ -15,8 +15,8 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use forge_uuid::dpu_remediations::RemediationId;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::dpu_remediations::RemediationId;
+use carbide_uuid::machine::MachineId;
 use rand::Rng;
 use rpc::Metadata;
 use rpc::forge::{

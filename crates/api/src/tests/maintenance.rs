@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
 };
-use forge_uuid::machine::MachineId;
 use rpc::forge as rpcf;
 use rpc::forge::forge_server::Forge;
 

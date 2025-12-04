@@ -12,10 +12,10 @@
 
 //! State Controller IO implementation for PowerShelves
 
+use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::{ConfigVersion, Versioned};
 use db::power_shelf::PowerShelfSearchConfig;
 use db::{DatabaseError, ObjectColumnFilter, power_shelf as db_power_shelf};
-use forge_uuid::power_shelf::PowerShelfId;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, state_sla};

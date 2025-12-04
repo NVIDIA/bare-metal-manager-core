@@ -26,9 +26,9 @@
  *  - `report match``
 */
 
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::MeasurementReportId;
 use clap::Parser;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementReportId;
 use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 
 use crate::cfg::measurement::parse_pcr_register_values;

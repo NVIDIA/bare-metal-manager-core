@@ -111,7 +111,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         resp.should_upgrade,
         "DPU reported old version so should be asked to upgrade"
     );
-    let current_version = forge_version::v!(build_version);
+    let current_version = carbide_version::v!(build_version);
     assert_eq!(
         resp.package_version,
         current_version[1..],
@@ -136,23 +136,23 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
 
     let stale_version = "stale_version";
     let recently_superseded_version = "recently_superseded_version";
-    let current_version = forge_version::v!(build_version);
+    let current_version = carbide_version::v!(build_version);
 
     {
         let mut txn = env.pool.begin().await?;
-        db::forge_version::make_mock_observation(
+        db::carbide_version::make_mock_observation(
             &mut txn,
             stale_version,
             Some(Utc::now() - Duration::hours(25)),
         )
         .await?;
-        db::forge_version::make_mock_observation(
+        db::carbide_version::make_mock_observation(
             &mut txn,
             recently_superseded_version,
             Some(Utc::now() - Duration::hours(23)),
         )
         .await?;
-        db::forge_version::make_mock_observation(&mut txn, current_version, None).await?;
+        db::carbide_version::make_mock_observation(&mut txn, current_version, None).await?;
         txn.commit().await?;
     }
 

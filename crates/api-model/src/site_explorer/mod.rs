@@ -15,11 +15,11 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use forge_uuid::machine::{MachineId, MachineType};
-use forge_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
-use forge_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use libredfish::RedfishError;

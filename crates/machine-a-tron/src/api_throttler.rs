@@ -11,7 +11,7 @@
  */
 use std::collections::{HashMap, HashSet};
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use rpc::Machine;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;

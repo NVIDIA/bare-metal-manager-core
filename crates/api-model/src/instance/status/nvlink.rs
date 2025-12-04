@@ -13,8 +13,8 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId};
 use config_version::Versioned;
-use forge_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId};
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 

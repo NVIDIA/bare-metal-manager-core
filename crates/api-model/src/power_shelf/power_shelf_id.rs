@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use sha2::{Digest, Sha256};
 
 /// Generates a Power Shelf ID from the hardware fingerprint

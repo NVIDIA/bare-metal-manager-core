@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_uuid::network::NetworkSegmentId;
+use carbide_uuid::network::NetworkSegmentId;
 use rpc::forge_server::Forge;
 
 use crate::tests::common::api_fixtures::network_segment::create_network_segment;

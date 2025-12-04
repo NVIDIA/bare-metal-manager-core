@@ -15,9 +15,9 @@ use std::fmt::Display;
 use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use forge_uuid::vpc::VpcPrefixId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use carbide_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;

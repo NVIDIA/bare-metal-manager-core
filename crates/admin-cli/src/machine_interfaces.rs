@@ -15,7 +15,7 @@ use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use prettytable::{Cell, Row, Table};
 use tracing::warn;
 

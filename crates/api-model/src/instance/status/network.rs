@@ -15,9 +15,9 @@ use std::convert::Into;
 use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -614,7 +614,7 @@ mod tests {
     use std::fmt::Write;
     use std::str::FromStr;
 
-    use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+    use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 
     use super::*;
     use crate::instance::config::network::InstanceInterfaceConfig;

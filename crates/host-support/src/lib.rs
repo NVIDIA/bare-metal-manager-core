@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-//! forge-host-support is a library that is used by applications that run on
-//! Forge managed hosts
+//! carbide-host-support is a library that is used by applications that run on
+//! carbide managed hosts
 
 use std::sync::Once;
 

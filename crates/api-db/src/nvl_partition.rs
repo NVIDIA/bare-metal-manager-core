@@ -11,8 +11,8 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::prelude::*;
-use forge_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};

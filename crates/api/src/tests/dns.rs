@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use const_format::concatcp;
-use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use sqlx::{Postgres, Row};
 

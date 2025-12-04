@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentType};
 use sqlx::PgConnection;

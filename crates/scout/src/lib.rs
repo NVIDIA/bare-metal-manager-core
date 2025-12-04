@@ -36,11 +36,11 @@ pub enum CarbideClientError {
 
     #[error("Hardware enumeration error: {0}")]
     HardwareEnumerationError(
-        #[from] forge_host_support::hardware_enumeration::HardwareEnumerationError,
+        #[from] carbide_host_support::hardware_enumeration::HardwareEnumerationError,
     ),
 
     #[error("Registration error: {0}")]
-    RegistrationError(#[from] forge_host_support::registration::RegistrationError),
+    RegistrationError(#[from] carbide_host_support::registration::RegistrationError),
 
     #[error("Error decoding gRPC enum value: {0}")]
     RpcDecodeError(String), // This should be '#[from] prost::DecodeError)' but don't work

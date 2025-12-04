@@ -21,8 +21,8 @@
  *  - `mock-machine list``: Lists all mock machines.
 */
 
+use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use forge_uuid::machine::MachineId;
 use measured_boot::pcr::PcrRegisterValue;
 
 use crate::cfg::measurement::parse_pcr_register_values;

@@ -18,6 +18,8 @@ use ::rpc::forge::forge_server::Forge;
 use ::rpc::forge::{
     AdminForceDeleteMachineRequest, IbPartitionStatus, InstancesByIdsRequest, TenantState,
 };
+use carbide_uuid::infiniband::IBPartitionId;
+use carbide_uuid::machine::{MachineId, MachineType};
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::host_discover_dhcp;
 use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
@@ -27,8 +29,6 @@ use common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu, create_test_env,
     get_instance_type_fixture_id,
 };
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::machine::{MachineId, MachineType};
 use model::hardware_info::TpmEkCertificate;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -299,7 +299,7 @@ fn validate_delete_response(
 fn validate_delete_response_multi_dpu(
     response: &rpc::forge::AdminForceDeleteMachineResponse,
     host_machine_id: Option<&MachineId>,
-    dpu_machine_ids: &[forge_uuid::machine::MachineId],
+    dpu_machine_ids: &[carbide_uuid::machine::MachineId],
 ) {
     assert_eq!(
         response
@@ -576,7 +576,7 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
         .dpu_ids
         .clone()
         .into_iter()
-        .collect::<Vec<forge_uuid::machine::MachineId>>();
+        .collect::<Vec<carbide_uuid::machine::MachineId>>();
     assert_eq!(
         mh.dpu_ids.len(),
         2,

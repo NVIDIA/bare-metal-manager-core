@@ -16,8 +16,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bmc_mock::HostnameQuerying;
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use eyre::Context;
-use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use futures::future::join_all;
 use futures_util::future::BoxFuture;
 use machine_a_tron::{MockSshServerHandle, PromptBehavior};
@@ -111,7 +111,7 @@ pub async fn run_baseline_test_environment(
     let mock_bmc_handles: Vec<(MockBmcHandle, MachineId)> =
         join_all(machines.iter().map(|bmc_type| {
             // Generate random machine ID's for each mocked host
-            let machine_id = forge_uuid::machine::MachineId::new(
+            let machine_id = carbide_uuid::machine::MachineId::new(
                 MachineIdSource::Tpm,
                 rand::random(),
                 match bmc_type {

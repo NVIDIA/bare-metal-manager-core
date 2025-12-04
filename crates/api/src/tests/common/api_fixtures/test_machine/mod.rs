@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use model::machine::Machine;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;

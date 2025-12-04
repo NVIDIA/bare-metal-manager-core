@@ -14,10 +14,10 @@ use std::convert::TryFrom;
 use std::fmt::Display;
 use std::str::FromStr;
 
+use carbide_uuid::dpa_interface::DpaInterfaceId;
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::dpa_interface::DpaInterfaceId;
-use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::errors::RpcDataConversionError;

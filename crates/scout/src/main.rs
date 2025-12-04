@@ -15,12 +15,12 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 
+use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
+use carbide_host_support::registration;
+use carbide_uuid::machine::MachineId;
 use cfg::{AutoDetect, Command, MlxAction, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
-use forge_host_support::dpa_cmds::{DpaCommand, OpCode};
-use forge_host_support::registration;
-use forge_uuid::machine::MachineId;
 use mlxconfig_device::cmd::device::args::DeviceArgs;
 use mlxconfig_device::cmd::device::cmds::handle as handle_mlx_device;
 use mlxconfig_device::discovery::discover_device;
@@ -79,13 +79,13 @@ async fn check_if_running_in_qemu() {
 async fn main() -> Result<(), eyre::Report> {
     let config = Options::load();
     if config.version {
-        println!("{}", forge_version::version!());
+        println!("{}", carbide_version::version!());
         return Ok(());
     }
 
     check_if_running_in_qemu().await;
 
-    forge_host_support::init_logging()?;
+    carbide_host_support::init_logging()?;
 
     tracing::info!("Running as {}...{}", config.mode, config.version);
 

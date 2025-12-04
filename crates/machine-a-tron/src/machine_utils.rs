@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};

@@ -12,10 +12,10 @@
 
 //! State Controller IO implementation for Infiniband Partitions
 
+use carbide_uuid::infiniband::IBPartitionId;
 use config_version::{ConfigVersion, Versioned};
 use db::ib_partition::IBPartition;
 use db::{self, DatabaseError, ObjectColumnFilter};
-use forge_uuid::infiniband::IBPartitionId;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::ib_partition::{self, IBPartitionControllerState};

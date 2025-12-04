@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use forge_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::MachineInterfaceId;
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;

@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::power_shelf::PowerShelfId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::power_shelf::PowerShelfId;
 use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
