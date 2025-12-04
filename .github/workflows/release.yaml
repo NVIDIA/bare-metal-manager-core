@@ -67,7 +67,7 @@ jobs:
           tag: ${{ needs.fetch-new-version.outputs.version }}
       - name: Release
         uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
+        if: false
         with:
           name: ${{ needs.fetch-new-version.outputs.version }}
           tag_name: ${{ needs.fetch-new-version.outputs.version }}

@@ -41,7 +41,7 @@ jobs:
 
           # 1. Find the latest stable tag (e.g. v0.1.0 or 0.1.0)
           # Sort by version, filtering for standard semver patterns
-          LATEST_TAG=$(git tag -l | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || echo "0.0.0")
+          LATEST_TAG=$(git tag -l | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || echo "0.1.0")
           
           # Normalize tag (remove 'v' prefix if present for calculation)
           VERSION_NUM=${LATEST_TAG#v}
