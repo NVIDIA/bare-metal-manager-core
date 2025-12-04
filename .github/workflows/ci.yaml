@@ -802,14 +802,22 @@ jobs:
       notify-on-failure: true
     secrets:
       slack-bot-token: ${{ secrets.CDS_SLACK_BOT_OAUTH_TOKEN }}
+
+  # ============================================================================
   # PUSH MAIN TAG
   # ============================================================================
   push-main-tag:
     runs-on: linux-amd64-cpu4
     if: github.ref == 'refs/heads/main'
     needs:
-      - build-summary
       - prepare
+      - build-summary
+      - build-release-container-x86_64
+      - build-release-artifacts-x86-host
+      - build-release-artifacts-arm-host
+      - build-boot-artifacts-ephemeral-image-x86-host
+      - build-boot-artifacts-ephemeral-image-arm-host
+      - merge-manifests-forge-cli
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
