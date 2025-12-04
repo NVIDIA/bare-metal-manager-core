@@ -141,7 +141,7 @@ jobs:
           token: ${{ secrets.TAG_PAT_TOKEN }}
 
       - name: Push Git Tag
-        uses: NVIDIA/dsx-github-actions/.github/actions/git-tag@d6403ae4ccd610fa110e64726d5f0c16737a769d
+        uses: NVIDIA/dsx-github-actions/.github/actions/git-tag@95e609360851cfc141918c2c21e57762d77394ac
         with:
           tag: v${{ needs.calculate-release-candidate-version.outputs.rc_version }}
           github_token: ${{ secrets.TAG_PAT_TOKEN }}
