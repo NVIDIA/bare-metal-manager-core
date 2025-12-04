@@ -2569,6 +2569,12 @@ pub struct AllocateInstance {
         help = "The machine ids for the machines to use (instead of searching)"
     )]
     pub machine_id: Vec<MachineId>,
+
+    #[clap(
+        long,
+        help = "Use batch API for all-or-nothing allocation (requires --number > 1)"
+    )]
+    pub transactional: bool,
 }
 
 #[derive(Parser, Debug)]

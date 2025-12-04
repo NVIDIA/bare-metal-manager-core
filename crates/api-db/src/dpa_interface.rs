@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
+
 use config_version::ConfigVersion;
 use eyre::eyre;
 use forge_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
@@ -343,15 +345,38 @@ pub async fn is_machine_dpa_capable(
     txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<bool, DatabaseError> {
-    let query = "SELECT COUNT(*) from dpa_interfaces where deleted is NULL and machine_id = $1";
+    let result = batch_is_machine_dpa_capable(txn, &[machine_id]).await?;
+    Ok(result.contains(&machine_id))
+}
 
-    let (ifc_count,): (i64,) = sqlx::query_as(query)
-        .bind(machine_id)
-        .fetch_one(txn)
+/// Batch check which machines are DPA capable.
+/// Returns a HashSet of machine IDs that have DPA interfaces.
+pub async fn batch_is_machine_dpa_capable(
+    txn: &mut PgConnection,
+    machine_ids: &[MachineId],
+) -> Result<HashSet<MachineId>, DatabaseError> {
+    if machine_ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    let query = "SELECT DISTINCT machine_id FROM dpa_interfaces 
+                 WHERE deleted IS NULL AND machine_id = ANY($1)";
+
+    let rows: Vec<(String,)> = sqlx::query_as(query)
+        .bind(
+            machine_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>(),
+        )
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    Ok(ifc_count != 0)
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id,)| id.parse::<MachineId>().ok())
+        .collect())
 }
 
 /// Updates the desired network configuration for a host

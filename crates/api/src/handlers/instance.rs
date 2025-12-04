@@ -68,6 +68,67 @@ pub(crate) async fn allocate(
     Ok(Response::new(snapshot_to_instance(mh_snapshot)?))
 }
 
+pub(crate) async fn batch_allocate(
+    api: &Api,
+    request: Request<rpc::BatchInstanceAllocationRequest>,
+) -> Result<Response<rpc::BatchInstanceAllocationResponse>, Status> {
+    log_request_data(&request);
+
+    let batch_request = request.into_inner();
+
+    if batch_request.instance_requests.is_empty() {
+        return Err(Status::invalid_argument(
+            "Batch request must contain at least one instance",
+        ));
+    }
+
+    tracing::info!(
+        count = batch_request.instance_requests.len(),
+        "Received batch instance allocation request"
+    );
+
+    // Convert all requests
+    let requests = batch_request
+        .instance_requests
+        .into_iter()
+        .map(InstanceAllocationRequest::try_from)
+        .collect::<Result<Vec<_>, _>>()
+        .inspect_err(|e| {
+            tracing::error!(error = ?e, "Failed to convert batch request");
+        })?;
+
+    // Log all machine IDs
+    for request in &requests {
+        log_machine_id(&request.machine_id);
+    }
+
+    // Call batch allocation logic
+    let snapshots =
+        crate::instance::batch_allocate_instances(api, requests, api.runtime_config.host_health)
+            .await
+            .inspect_err(|e| {
+                tracing::error!(error = %e, "Batch instance allocation failed");
+            })?;
+
+    // Convert all snapshots to Instance responses
+    let instances = snapshots
+        .into_iter()
+        .map(snapshot_to_instance)
+        .collect::<Result<Vec<_>, _>>()
+        .inspect_err(|e| {
+            tracing::error!(error = ?e, "Failed to convert snapshots to instances");
+        })?;
+
+    tracing::info!(
+        count = instances.len(),
+        "Successfully allocated batch of instances"
+    );
+
+    Ok(Response::new(rpc::BatchInstanceAllocationResponse {
+        instances,
+    }))
+}
+
 pub(crate) async fn find_ids(
     api: &Api,
     request: Request<rpc::InstanceSearchFilter>,
@@ -1176,7 +1237,7 @@ async fn update_instance_infiniband_config(
     .await?;
 
     // Allocate GUID for infiniband interfaces/ports.
-    let ib_config_with_ports = allocate_ib_port_guid(ib_config, &mh_snapshot.host_snapshot).await?;
+    let ib_config_with_ports = allocate_ib_port_guid(ib_config, &mh_snapshot.host_snapshot)?;
 
     *ib_config = ib_config_with_ports;
 

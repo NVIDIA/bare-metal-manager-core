@@ -37,6 +37,7 @@ mod ib_partition_find;
 mod ib_partition_lifecycle;
 mod instance;
 mod instance_allocate;
+mod instance_batch_allocate;
 mod instance_config_update;
 mod instance_find;
 mod instance_ipxe_behaviors;

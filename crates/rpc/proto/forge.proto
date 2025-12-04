@@ -78,6 +78,8 @@ service Forge {
   // Manage instances on machines
   // Allocates a Machine as Instance for tenant, with the given configuration
   rpc AllocateInstance(InstanceAllocationRequest) returns (Instance);
+  // Allocates multiple Machines as Instances for tenant in a single transaction
+  rpc AllocateInstances(BatchInstanceAllocationRequest) returns (BatchInstanceAllocationResponse);
   // Releases an instance that has been allocated by a tenant
   rpc ReleaseInstance(InstanceReleaseRequest) returns (InstanceReleaseResult);
   // Updates the network interface configuration for an instance
@@ -1812,6 +1814,19 @@ message InstanceAllocationRequest {
 
   // Allow allocation on unhealthy machines
   bool allow_unhealthy_machine = 13;
+}
+
+// Batch instance allocation request
+message BatchInstanceAllocationRequest {
+  // List of instance allocation requests to be processed in a single transaction
+  // All instances will be allocated atomically - if any fails, all will be rolled back
+  repeated InstanceAllocationRequest instance_requests = 1;
+}
+
+// Batch instance allocation response
+message BatchInstanceAllocationResponse {
+  // List of successfully allocated instances
+  repeated Instance instances = 1;
 }
 
 // Tenant related configuration that is set once the instance is allocated

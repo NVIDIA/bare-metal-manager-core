@@ -1315,13 +1315,14 @@ impl ApiClient {
         Ok(network_segment_ids)
     }
 
-    pub async fn allocate_instance(
+    /// Build an InstanceAllocationRequest from CLI args and machine info.
+    pub async fn build_instance_request(
         &self,
         machine: Machine,
         allocate_instance: &AllocateInstance,
         instance_name: &str,
         modified_by: Option<String>,
-    ) -> CarbideCliResult<rpc::Instance> {
+    ) -> CarbideCliResult<rpc::InstanceAllocationRequest> {
         let mut vf_function_id = 0;
         let (interface_configs, tenant_org) = if !allocate_instance.subnet.is_empty() {
             if !allocate_instance.vf_vpc_prefix_id.is_empty() {
@@ -1578,7 +1579,34 @@ impl ApiClient {
         };
 
         tracing::trace!("{}", serde_json::to_string(&instance_request).unwrap());
-        Ok(self.0.allocate_instance(instance_request).await?)
+        Ok(instance_request)
+    }
+
+    pub async fn allocate_instance(
+        &self,
+        machine: Machine,
+        allocate_instance: &AllocateInstance,
+        instance_name: &str,
+        modified_by: Option<String>,
+    ) -> CarbideCliResult<rpc::Instance> {
+        let request = self
+            .build_instance_request(machine, allocate_instance, instance_name, modified_by)
+            .await?;
+        Ok(self.0.allocate_instance(request).await?)
+    }
+
+    /// Batch allocate instances (all-or-nothing).
+    pub async fn allocate_instances(
+        &self,
+        requests: Vec<rpc::InstanceAllocationRequest>,
+    ) -> CarbideCliResult<Vec<rpc::Instance>> {
+        let response = self
+            .0
+            .allocate_instances(rpc::BatchInstanceAllocationRequest {
+                instance_requests: requests,
+            })
+            .await?;
+        Ok(response.instances)
     }
 
     /// Applies patches to a running instances configuration
