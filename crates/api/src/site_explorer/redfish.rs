@@ -145,7 +145,11 @@ impl RedfishClient {
                     .await
                     .map_err(map_redfish_error)?;
             }
-            RedfishVendor::NvidiaDpu | RedfishVendor::NvidiaGBx00 => {
+            RedfishVendor::NvidiaDpu
+            | RedfishVendor::NvidiaGH200
+            | RedfishVendor::NvidiaGBSwitch
+            | RedfishVendor::P3809
+            | RedfishVendor::NvidiaGBx00 => {
                 // change_password does things that require a password and DPUs need a first
                 // password use to be change, so just change it directly
                 //
