@@ -585,6 +585,7 @@ impl FromStr for RoutingProfileType {
         Ok(match s {
             "ADMIN" => RoutingProfileType::Admin,
             "INTERNAL" => RoutingProfileType::Internal,
+            "PRIVILEGED_INTERNAL" => RoutingProfileType::PrivilegedInternal,
             "MAINTENANCE" => RoutingProfileType::Maintenance,
             "EXTERNAL" => RoutingProfileType::External,
             _ => return Err(InvalidRoutingProfileType(s.to_string())),
