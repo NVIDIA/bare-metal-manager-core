@@ -3,7 +3,7 @@ name: Carbide Promotion to Release Candidate
 on:
   push:
     tags:
-      - 'main-[0-9a-f]{7}'
+      - 'main-[0-9a-f]*'
 
 jobs:
   # ============================================================================
