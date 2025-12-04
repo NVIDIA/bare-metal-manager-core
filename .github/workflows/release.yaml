@@ -72,6 +72,7 @@ jobs:
           name: ${{ needs.fetch-new-version.outputs.version }}
           tag_name: ${{ needs.fetch-new-version.outputs.version }}
       - name: Release new version
+        if: false
         run: |
           VERSION="${{ needs.fetch-new-version.outputs.version }}"
           REPO="${{ github.repository }}"

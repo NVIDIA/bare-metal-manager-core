@@ -371,7 +371,7 @@ jobs:
       - prepare
       - build-forge-cli-x86_64
       - build-forge-cli-aarch64
-    if: github.event_name != 'schedule' && !contains(github.ref, 'pull-request/')
+    if: ${{ github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
