@@ -11,7 +11,7 @@
  */
 use std::collections::HashMap;
 
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};

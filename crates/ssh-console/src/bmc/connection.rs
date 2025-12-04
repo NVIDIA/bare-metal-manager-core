@@ -16,8 +16,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
 use tokio::sync::{broadcast, mpsc, oneshot};

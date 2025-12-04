@@ -28,32 +28,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
-        .extern_path(".common.DomainId", "::forge_uuid::domain::DomainId")
-        .extern_path(".common.DpaInterfaceId", "::forge_uuid::dpa_interface::DpaInterfaceId")
-        .extern_path(".common.IBPartitionId", "::forge_uuid::infiniband::IBPartitionId")
-        .extern_path(".common.InstanceId", "::forge_uuid::instance::InstanceId")
-        .extern_path(".common.MachineId", "::forge_uuid::machine::MachineId")
-        .extern_path(".common.MachineInterfaceId", "::forge_uuid::machine::MachineInterfaceId")
-        .extern_path(".common.NetworkPrefixId", "::forge_uuid::network::NetworkPrefixId")
-        .extern_path(".common.NetworkSegmentId", "::forge_uuid::network::NetworkSegmentId")
-        .extern_path(".common.PowerShelfId", "::forge_uuid::power_shelf::PowerShelfId")
-        .extern_path(".common.NVLinkPartitionId", "::forge_uuid::nvlink::NvLinkPartitionId")
-        .extern_path(".common.NVLinkLogicalPartitionId", "::forge_uuid::nvlink::NvLinkLogicalPartitionId")
-        .extern_path(".common.NVLinkDomainId", "::forge_uuid::nvlink::NvLinkDomainId")
-        .extern_path(".common.RemediationId", "forge_uuid::dpu_remediations::RemediationId")
-        .extern_path(".common.SwitchId", "::forge_uuid::switch::SwitchId")
-        .extern_path(".common.VpcId", "::forge_uuid::vpc::VpcId")
-        .extern_path(".common.VpcPeeringId", "::forge_uuid::vpc_peering::VpcPeeringId")
-        .extern_path(".common.VpcPrefixId", "::forge_uuid::vpc::VpcPrefixId")
-        .extern_path(".measured_boot.MeasurementSystemProfileId", "::forge_uuid::measured_boot::MeasurementSystemProfileId")
-        .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::forge_uuid::measured_boot::MeasurementSystemProfileAttrId")
-        .extern_path(".measured_boot.MeasurementBundleId", "::forge_uuid::measured_boot::MeasurementBundleId")
-        .extern_path(".measured_boot.MeasurementBundleValueId", "::forge_uuid::measured_boot::MeasurementBundleValueId")
-        .extern_path(".measured_boot.MeasurementReportId", "::forge_uuid::measured_boot::MeasurementReportId")
-        .extern_path(".measured_boot.MeasurementReportValueId", "::forge_uuid::measured_boot::MeasurementReportValueId")
-        .extern_path(".measured_boot.MeasurementJournalId", "::forge_uuid::measured_boot::MeasurementJournalId")
-        .extern_path(".measured_boot.MeasurementApprovedMachineId", "::forge_uuid::measured_boot::MeasurementApprovedMachineId")
-        .extern_path(".measured_boot.MeasurementApprovedProfileId", "::forge_uuid::measured_boot::MeasurementApprovedProfileId")
+        .extern_path(".common.DomainId", "::carbide_uuid::domain::DomainId")
+        .extern_path(".common.DpaInterfaceId", "::carbide_uuid::dpa_interface::DpaInterfaceId")
+        .extern_path(".common.IBPartitionId", "::carbide_uuid::infiniband::IBPartitionId")
+        .extern_path(".common.InstanceId", "::carbide_uuid::instance::InstanceId")
+        .extern_path(".common.MachineId", "::carbide_uuid::machine::MachineId")
+        .extern_path(".common.MachineInterfaceId", "::carbide_uuid::machine::MachineInterfaceId")
+        .extern_path(".common.NetworkPrefixId", "::carbide_uuid::network::NetworkPrefixId")
+        .extern_path(".common.NetworkSegmentId", "::carbide_uuid::network::NetworkSegmentId")
+        .extern_path(".common.PowerShelfId", "::carbide_uuid::power_shelf::PowerShelfId")
+        .extern_path(".common.NVLinkPartitionId", "::carbide_uuid::nvlink::NvLinkPartitionId")
+        .extern_path(".common.NVLinkLogicalPartitionId", "::carbide_uuid::nvlink::NvLinkLogicalPartitionId")
+        .extern_path(".common.NVLinkDomainId", "::carbide_uuid::nvlink::NvLinkDomainId")
+        .extern_path(".common.RemediationId", "carbide_uuid::dpu_remediations::RemediationId")
+        .extern_path(".common.SwitchId", "::carbide_uuid::switch::SwitchId")
+        .extern_path(".common.VpcId", "::carbide_uuid::vpc::VpcId")
+        .extern_path(".common.VpcPeeringId", "::carbide_uuid::vpc_peering::VpcPeeringId")
+        .extern_path(".common.VpcPrefixId", "::carbide_uuid::vpc::VpcPrefixId")
+        .extern_path(".measured_boot.MeasurementSystemProfileId", "::carbide_uuid::measured_boot::MeasurementSystemProfileId")
+        .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::carbide_uuid::measured_boot::MeasurementSystemProfileAttrId")
+        .extern_path(".measured_boot.MeasurementBundleId", "::carbide_uuid::measured_boot::MeasurementBundleId")
+        .extern_path(".measured_boot.MeasurementBundleValueId", "::carbide_uuid::measured_boot::MeasurementBundleValueId")
+        .extern_path(".measured_boot.MeasurementReportId", "::carbide_uuid::measured_boot::MeasurementReportId")
+        .extern_path(".measured_boot.MeasurementReportValueId", "::carbide_uuid::measured_boot::MeasurementReportValueId")
+        .extern_path(".measured_boot.MeasurementJournalId", "::carbide_uuid::measured_boot::MeasurementJournalId")
+        .extern_path(".measured_boot.MeasurementApprovedMachineId", "::carbide_uuid::measured_boot::MeasurementApprovedMachineId")
+        .extern_path(".measured_boot.MeasurementApprovedProfileId", "::carbide_uuid::measured_boot::MeasurementApprovedProfileId")
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -748,91 +748,91 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_paths: vec!["proto".to_string()],
         generated_types_path_within_crate: "protos".to_string(),
         extern_paths: vec![
-            (".common.MachineId", "::forge_uuid::machine::MachineId"),
-            (".common.DomainId", "::forge_uuid::domain::DomainId"),
+            (".common.MachineId", "::carbide_uuid::machine::MachineId"),
+            (".common.DomainId", "::carbide_uuid::domain::DomainId"),
             (
                 ".common.RemediationId",
-                "::forge_uuid::dpu_remediations::RemediationId",
+                "::carbide_uuid::dpu_remediations::RemediationId",
             ),
             (
                 ".common.MachineInterfaceId",
-                "::forge_uuid::machine::MachineInterfaceId",
+                "::carbide_uuid::machine::MachineInterfaceId",
             ),
-            (".common.VpcId", "::forge_uuid::vpc::VpcId"),
-            (".common.VpcPrefixId", "::forge_uuid::vpc::VpcPrefixId"),
+            (".common.VpcId", "::carbide_uuid::vpc::VpcId"),
+            (".common.VpcPrefixId", "::carbide_uuid::vpc::VpcPrefixId"),
             (
                 ".common.VpcPeeringId",
-                "::forge_uuid::vpc_peering::VpcPeeringId",
+                "::carbide_uuid::vpc_peering::VpcPeeringId",
             ),
             (
                 ".common.IBPartitionId",
-                "::forge_uuid::infiniband::IBPartitionId",
+                "::carbide_uuid::infiniband::IBPartitionId",
             ),
-            (".common.InstanceId", "::forge_uuid::instance::InstanceId"),
+            (".common.InstanceId", "::carbide_uuid::instance::InstanceId"),
             (
                 ".common.NetworkSegmentId",
-                "::forge_uuid::network::NetworkSegmentId",
+                "::carbide_uuid::network::NetworkSegmentId",
             ),
             (
                 ".common.DpaInterfaceId",
-                "::forge_uuid::dpa_interface::DpaInterfaceId",
+                "::carbide_uuid::dpa_interface::DpaInterfaceId",
             ),
             (
                 ".common.NetworkPrefixId",
-                "::forge_uuid::network::NetworkPrefixId",
+                "::carbide_uuid::network::NetworkPrefixId",
             ),
-            (".common.SwitchId", "::forge_uuid::switch::SwitchId"),
+            (".common.SwitchId", "::carbide_uuid::switch::SwitchId"),
             (
                 ".common.PowerShelfId",
-                "::forge_uuid::power_shelf::PowerShelfId",
+                "::carbide_uuid::power_shelf::PowerShelfId",
             ),
             (
                 ".common.NVLinkPartitionId",
-                "::forge_uuid::nvlink::NvLinkPartitionId",
+                "::carbide_uuid::nvlink::NvLinkPartitionId",
             ),
             (
                 ".common.NVLinkLogicalPartitionId",
-                "::forge_uuid::nvlink::NvLinkLogicalPartitionId",
+                "::carbide_uuid::nvlink::NvLinkLogicalPartitionId",
             ),
             (
                 ".common.NVLinkDomainId",
-                "::forge_uuid::nvlink::NvLinkDomainId",
+                "::carbide_uuid::nvlink::NvLinkDomainId",
             ),
             (
                 ".measured_boot.MeasurementSystemProfileId",
-                "::forge_uuid::measured_boot::MeasurementSystemProfileId",
+                "::carbide_uuid::measured_boot::MeasurementSystemProfileId",
             ),
             (
                 ".measured_boot.MeasurementSystemProfileAttrId",
-                "::forge_uuid::measured_boot::MeasurementSystemProfileAttrId",
+                "::carbide_uuid::measured_boot::MeasurementSystemProfileAttrId",
             ),
             (
                 ".measured_boot.MeasurementBundleId",
-                "::forge_uuid::measured_boot::MeasurementBundleId",
+                "::carbide_uuid::measured_boot::MeasurementBundleId",
             ),
             (
                 ".measured_boot.MeasurementBundleValueId",
-                "::forge_uuid::measured_boot::MeasurementBundleValueId",
+                "::carbide_uuid::measured_boot::MeasurementBundleValueId",
             ),
             (
                 ".measured_boot.MeasurementReportId",
-                "::forge_uuid::measured_boot::MeasurementReportId",
+                "::carbide_uuid::measured_boot::MeasurementReportId",
             ),
             (
                 ".measured_boot.MeasurementReportValueId",
-                "::forge_uuid::measured_boot::MeasurementReportValueId",
+                "::carbide_uuid::measured_boot::MeasurementReportValueId",
             ),
             (
                 ".measured_boot.MeasurementJournalId",
-                "::forge_uuid::measured_boot::MeasurementJournalId",
+                "::carbide_uuid::measured_boot::MeasurementJournalId",
             ),
             (
                 ".measured_boot.MeasurementApprovedMachineId",
-                "::forge_uuid::measured_boot::MeasurementApprovedMachineId",
+                "::carbide_uuid::measured_boot::MeasurementApprovedMachineId",
             ),
             (
                 ".measured_boot.MeasurementApprovedProfileId",
-                "::forge_uuid::measured_boot::MeasurementApprovedProfileId",
+                "::carbide_uuid::measured_boot::MeasurementApprovedProfileId",
             ),
         ],
     })?;

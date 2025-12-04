@@ -21,13 +21,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::{forge as rpc, forge_tls_client};
+use carbide_host_support::agent_config::AgentConfig;
+use carbide_systemd::systemd;
+use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
-use forge_host_support::agent_config::AgentConfig;
 use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
-use forge_systemd::systemd;
-use forge_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use tokio::signal::unix::{SignalKind, signal};
@@ -71,7 +71,7 @@ pub async fn setup_and_run(
 ) -> eyre::Result<()> {
     systemd::notify_start().await?;
     tracing::info!(
-        version = forge_version::version!(),
+        version = carbide_version::version!(),
         "Started forge-dpu-agent"
     );
 
@@ -168,7 +168,7 @@ pub async fn setup_and_run(
         // We have eight cores. Letting ovs_vswitchd have one is OK.
     };
 
-    let build_version = forge_version::v!(build_version).to_string();
+    let build_version = carbide_version::v!(build_version).to_string();
 
     let periodic_config_fetcher = periodic_config_fetcher::PeriodicConfigFetcher::new(
         periodic_config_fetcher::PeriodicConfigFetcherConfig {
@@ -375,7 +375,7 @@ impl MainLoop {
                     if let Some(handle) = self.network_monitor_handle.take() {
                         let _ = handle.await;
                     }
-                    tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
+                    tracing::info!(version=carbide_version::v!(build_version), "TERM signal received, clean exit");
                     return Ok(());
                 }
                 _ = hup_signal.recv() => {

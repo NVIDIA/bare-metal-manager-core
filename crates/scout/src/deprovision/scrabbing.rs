@@ -13,8 +13,8 @@ use std::fs;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use forge_host_support::hardware_enumeration::discovery_ibs;
-use forge_uuid::machine::MachineId;
+use carbide_host_support::hardware_enumeration::discovery_ibs;
+use carbide_uuid::machine::MachineId;
 use regex::Regex;
 use scout::CarbideClientError;
 use serde::Deserialize;

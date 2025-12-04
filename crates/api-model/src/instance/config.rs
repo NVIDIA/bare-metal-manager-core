@@ -16,7 +16,7 @@ pub mod network;
 pub mod nvlink;
 pub mod tenant_config;
 
-use forge_uuid::network_security_group::{
+use carbide_uuid::network_security_group::{
     NetworkSecurityGroupId, NetworkSecurityGroupIdParseError,
 };
 use rpc::errors::RpcDataConversionError;

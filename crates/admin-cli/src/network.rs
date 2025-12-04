@@ -14,8 +14,8 @@ use std::str::FromStr as _;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
-use forge_uuid::domain::DomainId;
-use forge_uuid::network::NetworkSegmentId;
+use carbide_uuid::domain::DomainId;
+use carbide_uuid::network::NetworkSegmentId;
 use prettytable::{Table, row};
 use serde::Deserialize;
 

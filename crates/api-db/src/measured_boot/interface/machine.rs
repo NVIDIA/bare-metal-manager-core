@@ -15,7 +15,7 @@
  *  database, leveraging the machine-specific record types.
 */
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
 

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use axum::extract::{FromRequestParts, Path, Query};
 use axum::http::request::Parts;
-use forge_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::MachineInterfaceId;
 use serde::{Deserialize, Serialize};
 
 use crate::common::MachineInterface;

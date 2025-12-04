@@ -24,7 +24,7 @@ const ROOT_CERT_PATH: &str = "dev/certs/forge_developer_local_only_root_cert_pem
 
 #[tokio::test]
 async fn test_upgrade_check() -> eyre::Result<()> {
-    forge_host_support::init_logging()?;
+    carbide_host_support::init_logging()?;
 
     unsafe {
         env::set_var("DISABLE_TLS_ENFORCEMENT", "true");

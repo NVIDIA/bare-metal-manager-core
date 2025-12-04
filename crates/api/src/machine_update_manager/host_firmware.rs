@@ -16,8 +16,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
+use carbide_uuid::machine::MachineId;
 use db::{self, desired_firmware};
-use forge_uuid::machine::MachineId;
 use model::machine::ManagedHostStateSnapshot;
 use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
 use opentelemetry::metrics::Meter;

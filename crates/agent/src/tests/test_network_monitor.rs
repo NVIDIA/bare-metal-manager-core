@@ -21,8 +21,8 @@ use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
+use carbide_host_support::agent_config::AgentConfig;
 use eyre::{Context, Result};
-use forge_host_support::agent_config::AgentConfig;
 use forge_tls::client_config::ClientCert;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics;
@@ -47,7 +47,7 @@ struct State {
 
 #[tokio::test]
 pub async fn test_network_monitor() -> eyre::Result<()> {
-    forge_host_support::init_logging()?;
+    carbide_host_support::init_logging()?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
 

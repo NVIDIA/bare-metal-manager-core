@@ -180,7 +180,7 @@ impl DnsServer {
         info!(
             "Started DNS server on {:?} version {}",
             &daemon_config.listen,
-            forge_version::version!()
+            carbide_version::version!()
         );
 
         match server.block_until_done().await {

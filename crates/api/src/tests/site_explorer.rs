@@ -15,6 +15,8 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use config_version::ConfigVersion;
@@ -23,8 +25,6 @@ use db::{
     self, DatabaseError, ObjectColumnFilter, ObjectFilter,
     explored_endpoints as db_explored_endpoints,
 };
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -5223,10 +5223,10 @@ async fn test_power_shelf_state_history_error_handling(
 
     // Test finding history for non-existent power shelf
     let mut txn = env.pool.begin().await?;
-    let non_existent_id = forge_uuid::power_shelf::PowerShelfId::new(
-        forge_uuid::power_shelf::PowerShelfIdSource::ProductBoardChassisSerial,
+    let non_existent_id = carbide_uuid::power_shelf::PowerShelfId::new(
+        carbide_uuid::power_shelf::PowerShelfIdSource::ProductBoardChassisSerial,
         [0; 32],
-        forge_uuid::power_shelf::PowerShelfType::Host,
+        carbide_uuid::power_shelf::PowerShelfType::Host,
     );
     let empty_history =
         db::power_shelf_state_history::for_power_shelf(&mut txn, &non_existent_id).await?;

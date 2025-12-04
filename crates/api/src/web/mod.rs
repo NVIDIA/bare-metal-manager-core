@@ -713,7 +713,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         .unwrap_or("<None>".to_string());
 
     let index = Index {
-        version: forge_version::v!(build_version),
+        version: carbide_version::v!(build_version),
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
         create_machines,

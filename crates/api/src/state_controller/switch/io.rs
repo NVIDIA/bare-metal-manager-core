@@ -12,10 +12,10 @@
 
 //! State Controller IO implementation for Switches
 
+use carbide_uuid::switch::SwitchId;
 use config_version::{ConfigVersion, Versioned};
 use db::switch::SwitchSearchConfig;
 use db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
-use forge_uuid::switch::SwitchId;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::switch::{Switch, SwitchControllerState, state_sla};

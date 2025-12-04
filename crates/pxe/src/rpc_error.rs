@@ -14,7 +14,7 @@ use std::fmt::{Debug, Display};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_client_ip::Rejection;
-use forge_uuid::UuidConversionError;
+use carbide_uuid::UuidConversionError;
 use rpc::errors::RpcDataConversionError;
 
 pub enum PxeRequestError {

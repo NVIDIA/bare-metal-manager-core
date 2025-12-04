@@ -14,10 +14,10 @@ use std::net::IpAddr;
 use std::ops::Deref;
 
 use ::rpc::forge as rpc;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
@@ -308,7 +308,7 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>>(
 /// Find network segments attached to a machine through machine_interfaces, optionally of a certain type
 pub async fn find_ids_by_machine_id(
     txn: &mut PgConnection,
-    machine_id: &::forge_uuid::machine::MachineId,
+    machine_id: &::carbide_uuid::machine::MachineId,
     network_segment_type: Option<NetworkSegmentType>,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     let result = batch_find_ids_by_machine_ids(txn, &[*machine_id], network_segment_type).await?;

@@ -13,7 +13,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use ::rpc::Timestamp;
-use forge_uuid::vpc::VpcId;
+use carbide_uuid::vpc::VpcId;
 
 use crate::config::MachineATronContext;
 use crate::tui::{UiUpdate, VpcDetails};

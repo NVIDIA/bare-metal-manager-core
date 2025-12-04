@@ -19,8 +19,8 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum_template::TemplateEngine;
 use base64::Engine as _;
-use forge_host_support::agent_config;
-use forge_uuid::machine::MachineInterfaceId;
+use carbide_host_support::agent_config;
+use carbide_uuid::machine::MachineInterfaceId;
 use rpc::forge;
 
 use crate::common::{AppState, Machine};

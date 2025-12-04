@@ -17,7 +17,7 @@ use std::vec::Vec;
 
 use ::rpc::machine_discovery::TpmDescription;
 use ::rpc::{forge as rpc, machine_discovery as rpc_md};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use tss_esapi::abstraction::{ak, ek};
 use tss_esapi::attributes::session::SessionAttributesBuilder;
 use tss_esapi::constants::{CapabilityType, PropertyTag, SessionType};

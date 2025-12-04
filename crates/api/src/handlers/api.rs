@@ -28,12 +28,12 @@ pub(crate) async fn version(
     let version_request = request.into_inner();
 
     let v = rpc::BuildInfo {
-        build_version: forge_version::v!(build_version).to_string(),
-        build_date: forge_version::v!(build_date).to_string(),
-        git_sha: forge_version::v!(git_sha).to_string(),
-        rust_version: forge_version::v!(rust_version).to_string(),
-        build_user: forge_version::v!(build_user).to_string(),
-        build_hostname: forge_version::v!(build_hostname).to_string(),
+        build_version: carbide_version::v!(build_version).to_string(),
+        build_date: carbide_version::v!(build_date).to_string(),
+        git_sha: carbide_version::v!(git_sha).to_string(),
+        rust_version: carbide_version::v!(rust_version).to_string(),
+        build_user: carbide_version::v!(build_user).to_string(),
+        build_hostname: carbide_version::v!(build_hostname).to_string(),
 
         runtime_config: if version_request.display_config {
             Some(api.runtime_config.redacted().into())

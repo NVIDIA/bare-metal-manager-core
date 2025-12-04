@@ -14,8 +14,8 @@ use std::cmp::min;
 use std::io::Write;
 use std::time::Duration;
 
+use carbide_uuid::machine::MachineId;
 use errors::MachineValidationError;
-use forge_uuid::machine::MachineId;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 

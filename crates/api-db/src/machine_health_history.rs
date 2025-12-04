@@ -11,8 +11,8 @@
 */
 use std::hash::Hasher;
 
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
-use forge_uuid::machine::MachineId;
 use model::machine::MachineHealthHistoryRecord;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};

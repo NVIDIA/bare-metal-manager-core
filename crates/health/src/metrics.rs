@@ -16,8 +16,8 @@ use std::time::SystemTime;
 
 use base64::Engine as _;
 use base64::engine::general_purpose;
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
-use forge_uuid::machine::MachineId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
 };

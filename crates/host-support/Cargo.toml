@@ -7,7 +7,7 @@ authors.workspace = true
 
 # TODO: rename to carbide_host_support in source
 [lib]
-name = "forge_host_support"
+name = "carbide_host_support"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -36,8 +36,8 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = [
-  "env-filter",
-  "local-time",
+    "env-filter",
+    "local-time",
 ], workspace = true }
 tryhard = { workspace = true }
 uname = { workspace = true }

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use askama::Template;
 use axum::extract::{Path as AxumPath, Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse};
-use forge_uuid::measured_boot::MeasurementReportId;
+use carbide_uuid::measured_boot::MeasurementReportId;
 use hyper::http::StatusCode;
 use measured_boot::site::{MachineAttestationSummary, MachineAttestationSummaryList};
 use measured_boot::{

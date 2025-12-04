@@ -16,10 +16,10 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::time::Duration;
 
+use carbide_uuid::machine::MachineId;
 use diff::Result as DiffResult;
 use eyre::{OptionExt, WrapErr};
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
-use forge_uuid::machine::MachineId;
 use hickory_resolver::Name;
 use hickory_resolver::config::ResolverConfig;
 use hyper::service::Service;

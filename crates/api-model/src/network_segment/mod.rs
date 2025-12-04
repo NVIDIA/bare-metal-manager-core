@@ -12,11 +12,11 @@
 use std::fmt;
 use std::str::FromStr;
 
+use carbide_uuid::domain::DomainId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::domain::DomainId;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
 use itertools::Itertools;
 use rpc::TenantState;
 use rpc::errors::RpcDataConversionError;

@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::forge_uuid::machine::MachineId;
+use ::carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

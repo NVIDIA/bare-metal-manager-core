@@ -13,7 +13,7 @@ use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use forge_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigResponse;
 use tokio::sync::{RwLock, mpsc, oneshot};

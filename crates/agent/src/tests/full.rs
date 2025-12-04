@@ -288,7 +288,7 @@ async fn run_common_parts(
     virtualization_type: VpcVirtualizationType,
     test_metadata_service: bool,
 ) -> eyre::Result<TestOut> {
-    forge_host_support::init_logging()?;
+    carbide_host_support::init_logging()?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
     state.lock().await.virtualization_type = virtualization_type;
@@ -904,8 +904,8 @@ async fn handle_dpu_agent_upgrade_check(
     state.lock().await.has_checked_for_upgrade = true;
     common::respond(rpc::forge::DpuAgentUpgradeCheckResponse {
         should_upgrade: false,
-        package_version: forge_version::v!(build_version)[1..].to_string(),
-        server_version: forge_version::v!(build_version).to_string(),
+        package_version: carbide_version::v!(build_version)[1..].to_string(),
+        server_version: carbide_version::v!(build_version).to_string(),
     })
 }
 

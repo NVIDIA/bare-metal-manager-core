@@ -25,8 +25,8 @@ use ::rpc::protos::measured_boot::{
     list_measurement_system_profile_machines_request, rename_measurement_system_profile_request,
     show_measurement_system_profile_request,
 };
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::MeasurementSystemProfileRecord;
 use serde::Serialize;

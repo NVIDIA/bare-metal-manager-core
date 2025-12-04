@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::Utc;
 use db::machine::find_machine_ids;
 use db::managed_host::load_by_machine_ids;
 use db::nvl_logical_partition::{IdColumn as LpIdColumn, LogicalPartition};
 use db::nvl_partition::{IdColumn, NvlPartition, NvlPartitionName};
 use db::{self, ObjectColumnFilter, machine};
-use forge_uuid::machine::MachineId;
-use forge_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use model::hardware_info::{MachineNvLinkInfo, NvLinkGpu};
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;

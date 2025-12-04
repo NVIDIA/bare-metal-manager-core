@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{MachineId, MachineType};
 use model::host_machine_update::HostMachineUpdate;
 use model::machine::HostReprovisionRequest;
 use sqlx::PgConnection;

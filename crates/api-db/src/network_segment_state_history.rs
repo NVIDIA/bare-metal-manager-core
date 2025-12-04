@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::network::NetworkSegmentId;
 use config_version::ConfigVersion;
-use forge_uuid::network::NetworkSegmentId;
 use model::network_segment::NetworkSegmentControllerState;
 use sqlx::PgConnection;
 

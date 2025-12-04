@@ -12,8 +12,8 @@
 
 use std::collections::HashMap;
 
+use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
-use forge_uuid::extension_service::ExtensionServiceId;
 use model::extension_service::{
     ExtensionService, ExtensionServiceSnapshot, ExtensionServiceType, ExtensionServiceVersionInfo,
 };

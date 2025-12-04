@@ -13,8 +13,8 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
+use carbide_uuid::machine::MachineId;
 use chrono::{TimeDelta, Utc};
-use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use model::bmc_info::BmcInfo;
 use model::hardware_info::HardwareInfo;

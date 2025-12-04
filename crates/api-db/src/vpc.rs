@@ -11,9 +11,9 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
 use model::resource_pool;
 use model::resource_pool::ResourcePool;
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};

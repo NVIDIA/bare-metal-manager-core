@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::{TestEnv, TestManagedHost, create_test_env};
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;

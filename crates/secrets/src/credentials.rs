@@ -14,7 +14,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use rand::Rng;
 use rand::seq::SliceRandom;

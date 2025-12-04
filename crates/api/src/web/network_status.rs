@@ -18,7 +18,7 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -270,7 +270,7 @@ async fn fetch_network_status(
             network_config_version: status.network_config_version.unwrap_or_default(),
             is_healthy: health.alerts.is_empty(),
             health,
-            is_agent_updated: agent_version == forge_version::v!(build_version),
+            is_agent_updated: agent_version == carbide_version::v!(build_version),
             agent_version,
         });
     }

@@ -17,7 +17,7 @@ use axum::Extension;
 use axum::extract::{Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum_extra::extract::PrivateCookieJar;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use http::HeaderMap;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;

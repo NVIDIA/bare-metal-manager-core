@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use ::rpc::forge as rpc;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::infiniband::MachineInfinibandStatusObservation;

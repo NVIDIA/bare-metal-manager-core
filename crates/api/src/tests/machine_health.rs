@@ -696,7 +696,7 @@ fn hr(
 /// Loads machine snapshot
 async fn load_snapshot(
     env: &TestEnv,
-    host_machine_id: &::forge_uuid::machine::MachineId,
+    host_machine_id: &::carbide_uuid::machine::MachineId,
 ) -> Result<model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
     let host_health_config = HostHealthConfig {
@@ -718,7 +718,7 @@ async fn load_snapshot(
 /// Calls get_machine api
 async fn find_machine(
     env: &TestEnv,
-    machine_id: &::forge_uuid::machine::MachineId,
+    machine_id: &::carbide_uuid::machine::MachineId,
 ) -> rpc::Machine {
     env.api
         .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
@@ -734,7 +734,7 @@ async fn find_machine(
 
 async fn load_host_health_history(
     env: &TestEnv,
-    machine_id: &::forge_uuid::machine::MachineId,
+    machine_id: &::carbide_uuid::machine::MachineId,
 ) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
     env.api
         .find_machine_health_histories(tonic::Request::new(
@@ -759,7 +759,7 @@ fn aggregate(m: rpc::Machine) -> Option<health_report::HealthReport> {
 /// Loads aggregate health via FindMachinesByIds api
 async fn load_health_via_find_machines_by_ids(
     env: &TestEnv,
-    machine_id: &::forge_uuid::machine::MachineId,
+    machine_id: &::carbide_uuid::machine::MachineId,
 ) -> Option<health_report::HealthReport> {
     env.api
         .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {

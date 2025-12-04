@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use axum_template::engine::Engine;
-use forge_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::MachineInterfaceId;
 use metrics_exporter_prometheus::PrometheusHandle;
 use rpc::forge::CloudInitInstructions;
 use serde::{Deserialize, Serialize};

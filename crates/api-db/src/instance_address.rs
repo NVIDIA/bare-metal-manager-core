@@ -12,9 +12,9 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
 
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use forge_network::virtualization::get_host_ip;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
@@ -574,9 +574,9 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
+    use carbide_uuid::vpc::VpcId;
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
-    use forge_uuid::vpc::VpcId;
     use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
     use model::network_segment::NetworkSegmentType;
     use uuid::Uuid;

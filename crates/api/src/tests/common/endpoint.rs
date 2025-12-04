@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
+use carbide_uuid::machine::MachineId;
 use db::{self, DatabaseError};
-use forge_uuid::machine::MachineId;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     Inventory, PowerState, Service,

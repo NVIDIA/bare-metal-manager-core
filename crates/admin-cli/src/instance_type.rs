@@ -12,7 +12,7 @@
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc, FindInstanceTypesByIdsRequest};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 use rpc::TenantState;
 use rpc::forge::{

@@ -17,7 +17,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use forge_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;

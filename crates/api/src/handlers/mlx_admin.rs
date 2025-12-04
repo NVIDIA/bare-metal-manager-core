@@ -13,7 +13,7 @@
 use ::rpc::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
 use ::rpc::protos::forge::ScoutStreamScoutBoundMessage;
 use ::rpc::protos::mlx_device;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use mlxconfig_profile::serialization::SerializableProfile;
 use tonic::{Request, Response, Status};
 

@@ -11,6 +11,6 @@
  */
 
 fn main() -> Result<(), std::io::Error> {
-    forge_version::build();
+    carbide_version::build();
     Ok(())
 }

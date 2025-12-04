@@ -11,8 +11,8 @@
  */
 use std::net::{IpAddr, Ipv4Addr};
 
-use forge_uuid::machine::MachineId;
-use forge_uuid::vpc::VpcId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::vpc::VpcId;
 use model::vpc::VpcDpuLoopback;
 use sqlx::PgConnection;
 

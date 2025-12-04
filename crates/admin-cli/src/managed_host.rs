@@ -16,7 +16,7 @@ use std::pin::Pin;
 
 use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use health_report::HealthProbeAlert;
 use prettytable::{Cell, Row, Table};
 use rpc::forge::PowerOptions;

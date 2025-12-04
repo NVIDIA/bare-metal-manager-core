@@ -15,8 +15,8 @@ use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
 use super::cfg::cli_options::ShowInstance;

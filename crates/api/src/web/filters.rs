@@ -20,7 +20,7 @@ use std::fmt::{Display, Write};
 use std::str::FromStr;
 
 use askama_escape::Escaper;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 
 /// Generates HTML links for Machine IDs
 pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
@@ -230,9 +230,9 @@ pub fn controller_state_reason_fmt(
     if let Some(source_ref) = reason.source_ref.as_ref() {
         const GITLAB_REPO: &str = "https://gitlab-master.nvidia.com/nvmetal/carbide";
 
-        // TODO: forge_version::v!(git_sha) should work here - however it returns an
+        // TODO: carbide_version::v!(git_sha) should work here - however it returns an
         // outdated commit ID.
-        let build_version = forge_version::v!(build_version);
+        let build_version = carbide_version::v!(build_version);
         let commit_hash = match build_version.rfind('g') {
             Some(idx) if idx != build_version.len() - 1 => &build_version[idx + 1..],
             _ => "trunk",

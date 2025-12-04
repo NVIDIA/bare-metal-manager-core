@@ -14,12 +14,12 @@ use std::ops::DerefMut;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use carbide_uuid::extension_service::ExtensionServiceId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::vpc::VpcId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use forge_uuid::extension_service::ExtensionServiceId;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
-use forge_uuid::vpc::VpcId;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;

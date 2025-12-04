@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use forge_uuid::instance::InstanceId;
-use forge_uuid::network::NetworkSegmentId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::network::NetworkSegmentId;
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow, Clone)]

@@ -15,20 +15,40 @@ use std::process::Command;
 
 /// Set build script environment variables. Call this from a build script.
 pub fn build() {
+    // TODO: Remove after migration to new CARBIDE_ naming
     println!(
         "cargo:rustc-env=FORGE_BUILD_USER={}",
         option_env!("USER").unwrap_or_default()
     );
     println!(
+        "cargo:rustc-env=CARBIDE_BUILD_USER={}",
+        option_env!("USER").unwrap_or_default()
+    );
+    // TODO: Remove after migration to new CARBIDE_ naming
+    println!(
         "cargo:rustc-env=FORGE_BUILD_HOSTNAME={}",
         option_env!("HOSTNAME").unwrap_or_default()
     );
+    println!(
+        "cargo:rustc-env=CARBIDE_BUILD_HOSTNAME={}",
+        option_env!("HOSTNAME").unwrap_or_default()
+    );
+    // TODO: Remove after migration to new CARBIDE_ naming
     println!(
         "cargo:rustc-env=FORGE_BUILD_DATE={}",
         run("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]) // like 'date --iso-8601=seconds --utc' but portable across GNU/BSD
     );
     println!(
+        "cargo:rustc-env=CARBIDE_BUILD_DATE={}",
+        run("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]) // like 'date --iso-8601=seconds --utc' but portable across GNU/BSD
+    );
+    // TODO: Remove after migration to new CARBIDE_ naming
+    println!(
         "cargo:rustc-env=FORGE_BUILD_RUSTC_VERSION={}",
+        run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
+    );
+    println!(
+        "cargo:rustc-env=CARBIDE_BUILD_RUSTC_VERSION={}",
         run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
     );
 
@@ -42,7 +62,9 @@ pub fn build() {
     if !can_git {
         println!("cargo:warning=No git, version will be blank");
         // still define it so that we can read it in a build time macro
+        // TODO: Remove after migration to new CARBIDE_ naming
         println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG=");
+        println!("cargo:rustc-env=CARBIDE_BUILD_GIT_HASH=");
         return;
     }
 
@@ -53,7 +75,9 @@ pub fn build() {
     let sha = option_env!("CI_COMMIT_SHORT_SHA")
         .map(String::from)
         .unwrap_or_else(|| run("git", &["rev-parse", "--short=8", "HEAD"]));
+    // TODO: Remove after migration to new CARBIDE_ naming
     println!("cargo:rustc-env=FORGE_BUILD_GIT_HASH={sha}");
+    println!("cargo:rustc-env=CARBIDE_BUILD_GIT_HASH={sha}");
 
     let build_version = option_env!("VERSION").map(String::from).unwrap_or_else(|| {
         run(
@@ -61,13 +85,18 @@ pub fn build() {
             &["describe", "--tags", "--first-parent", "--always", "--long"],
         )
     });
+    // TODO: Remove after migration to new CARBIDE_ naming
     println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
+    println!("cargo:rustc-env=CARBIDE_BUILD_GIT_TAG={build_version}");
 
     // Only re-calculate all of this when there's a new commit... but use an env var to allow
     // avoiding rebuilds when the commit hash changes. (This is good for local development iteration
     // loops when we want to avoid recompiling and when we don't really care if the generated
     // version is stale.)
-    if std::env::var("FORGE_VERSION_AVOID_REBUILD").is_err() {
+    // TODO: Remove after migration to new CARBIDE_ naming
+    if std::env::var("FORGE_VERSION_AVOID_REBUILD").is_err()
+        || std::env::var("CARBIDE_VERSION_AVOID_REBUILD").is_err()
+    {
         let git_query_head =
             run("git", &["rev-parse", "--path-format=absolute", "--git-dir"]) + "/HEAD";
         let git_head = if Path::new(&git_query_head).exists() {
@@ -145,6 +174,7 @@ fn run(cmd: &str, args: &[&str]) -> String {
 
 /// Individual parts of the version. Usage:: forge_version::v!(build_version)
 /// If that part is not present expands to an empty &str
+// TODO: Change to CARBIDE_
 #[macro_export]
 macro_rules! v {
     (build_version) => {
@@ -169,6 +199,7 @@ macro_rules! v {
 
 /// Same a v! but expands to a literal. That allows using it in `concat!` macro.
 /// Panics if the part is not present. Prefer `v!` above.
+// TODO: Change to CARBIDE_
 #[macro_export]
 macro_rules! literal {
     (build_version) => {
@@ -192,6 +223,7 @@ macro_rules! literal {
 }
 
 /// Version as a string. `version::build()` must have been called previously in build script.
+// TODO: Change to CARBIDE_
 #[macro_export]
 macro_rules! version {
      () => {

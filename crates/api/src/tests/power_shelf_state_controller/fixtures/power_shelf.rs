@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use model::power_shelf::PowerShelfControllerState;
 use sqlx::PgConnection;
 

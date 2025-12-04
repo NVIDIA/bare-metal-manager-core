@@ -12,9 +12,9 @@
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use forge_uuid::machine::MachineId;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;

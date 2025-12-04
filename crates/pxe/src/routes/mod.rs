@@ -11,7 +11,7 @@
  */
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use forge_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::MachineInterfaceId;
 
 pub(crate) mod cloud_init;
 pub(crate) mod ipxe;

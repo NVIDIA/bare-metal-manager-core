@@ -17,7 +17,7 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use forge_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
@@ -98,7 +98,7 @@ pub async fn fetch_state_history_records(
     power_shelf_id: &str,
 ) -> Result<
     (
-        forge_uuid::power_shelf::PowerShelfId,
+        carbide_uuid::power_shelf::PowerShelfId,
         Vec<::rpc::forge::PowerShelfEvent>,
     ),
     (http::StatusCode, String),

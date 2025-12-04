@@ -28,8 +28,8 @@ use tower::ServiceBuilder;
 use tracing::Span;
 
 pub mod config;
+use carbide_uuid::machine::MachineId;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
-use forge_uuid::machine::MachineId;
 
 pub struct AgentMetricsState {
     meter: Meter,

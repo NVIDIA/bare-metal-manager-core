@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use forge_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use mac_address::MacAddress;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;

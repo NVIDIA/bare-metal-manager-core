@@ -13,8 +13,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
 use model::machine::{
     InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
     ReprovisionState,

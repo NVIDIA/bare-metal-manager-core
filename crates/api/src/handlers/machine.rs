@@ -16,8 +16,8 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_uuid::machine::MachineId;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
-use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use model::machine::machine_search_config::MachineSearchConfig;

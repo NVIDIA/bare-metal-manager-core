@@ -20,8 +20,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use carbide_uuid::machine::MachineId;
 use db::{DatabaseError, ObjectFilter, Transaction};
-use forge_uuid::machine::MachineId;
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::MachineUpdateModule;
 use model::dpu_machine_update::DpuMachineUpdate;

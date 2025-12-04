@@ -19,8 +19,8 @@
 mod tests {
     use std::str::FromStr;
 
-    use forge_uuid::machine::MachineId;
-    use forge_uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
+    use carbide_uuid::machine::MachineId;
+    use carbide_uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
     use measured_boot::records::MeasurementMachineState;
 
     // test_journal_crudl makes sure database constraints

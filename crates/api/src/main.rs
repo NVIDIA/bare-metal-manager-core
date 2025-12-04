@@ -23,7 +23,7 @@ use sqlx::postgres::{PgConnectOptions, PgSslMode};
 async fn main() -> eyre::Result<()> {
     let config = Options::load();
     if config.version {
-        println!("{}", forge_version::version!());
+        println!("{}", carbide_version::version!());
         return Ok(());
     }
     let debug = config.debug;

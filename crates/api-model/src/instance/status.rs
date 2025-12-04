@@ -13,8 +13,8 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::machine::MachineId;
 use config_version::Versioned;
-use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::config::InstanceConfig;

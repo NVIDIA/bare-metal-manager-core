@@ -12,12 +12,12 @@
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
+use carbide_uuid::vpc::VpcId;
 use common::api_fixtures::{create_test_env, populate_network_security_groups};
 use config_version::ConfigVersion;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter};
 use forge_network::virtualization::VpcVirtualizationType;
-use forge_uuid::vpc::VpcId;
 use model::metadata::Metadata;
 use model::vpc::{UpdateVpc, UpdateVpcVirtualization};
 use rpc::forge::forge_server::Forge;

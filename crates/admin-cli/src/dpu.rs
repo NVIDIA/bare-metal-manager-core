@@ -16,7 +16,7 @@ use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
-use forge_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{MachineId, MachineType};
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 

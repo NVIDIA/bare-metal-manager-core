@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use forge_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::MachineInterfaceId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{MachineArchitecture, PxeInstructions};
 

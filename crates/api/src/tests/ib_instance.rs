@@ -12,11 +12,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use carbide_uuid::infiniband::IBPartitionId;
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
 use common::api_fixtures::instance::{config_for_ib_config, create_instance_with_ib_config};
 use common::api_fixtures::{TestEnv, create_managed_host};
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::machine::MachineId;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::ManagedHostState;
 use rpc::forge::forge_server::Forge;
@@ -614,7 +614,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let segment_id: forge_uuid::network::NetworkSegmentId =
+    let segment_id: carbide_uuid::network::NetworkSegmentId =
         env.create_vpc_and_tenant_segment().await;
 
     let (ib_partition1_id, ib_partition1) = create_ib_partition(

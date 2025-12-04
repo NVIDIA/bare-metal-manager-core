@@ -12,9 +12,9 @@
 
 //! State Controller IO implementation for network segments
 
+use carbide_uuid::network::NetworkSegmentId;
 use config_version::{ConfigVersion, Versioned};
 use db::{self, DatabaseError, ObjectColumnFilter};
-use forge_uuid::network::NetworkSegmentId;
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::network_segment::{self, NetworkSegment, NetworkSegmentControllerState};

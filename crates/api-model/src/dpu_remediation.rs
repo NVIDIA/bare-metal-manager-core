@@ -12,9 +12,9 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
+use carbide_uuid::dpu_remediations::RemediationId;
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
-use forge_uuid::dpu_remediations::RemediationId;
-use forge_uuid::machine::MachineId;
 use rpc::errors::RpcDataConversionError;
 use rpc::forge::{
     ApproveRemediationRequest, CreateRemediationRequest, DisableRemediationRequest,

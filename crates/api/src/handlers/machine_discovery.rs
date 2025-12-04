@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub use ::rpc::forge as rpc;
-use forge_uuid::nvlink::NvLinkDomainId;
+use carbide_uuid::nvlink::NvLinkDomainId;
 use model::hardware_info::{HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::machine::machine_id::{from_hardware_info, host_id_from_dpu_hardware_info};
 use model::machine::machine_search_config::MachineSearchConfig;

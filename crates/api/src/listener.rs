@@ -401,10 +401,10 @@ pub async fn listen_and_serve(
 
 /// Handle the root URL. Health check services often expect a 200 here.
 async fn root_url() -> &'static str {
-    const ROOT_CONTENTS: &str = if forge_version::literal!(build_version).is_empty() {
+    const ROOT_CONTENTS: &str = if carbide_version::literal!(build_version).is_empty() {
         "Forge development build\n"
     } else {
-        concat!("Forge ", forge_version::literal!(build_version), "\n")
+        concat!("Forge ", carbide_version::literal!(build_version), "\n")
     };
     ROOT_CONTENTS
 }

@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::instance::{default_tenant_config, single_interface_network_config};
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
-use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::instance_interface_config::NetworkDetails;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};

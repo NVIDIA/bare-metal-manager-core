@@ -19,10 +19,10 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 use ::rpc::forge::DpuInfo;
+use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::instance_type::InstanceTypeId;
-use forge_uuid::machine::{MachineId, MachineType};
 use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -1578,7 +1578,7 @@ pub async fn apply_agent_upgrade_policy(
     match machine.network_status_observation.as_ref() {
         None => Ok(false),
         Some(obs) => {
-            let carbide_api_version = forge_version::v!(build_version);
+            let carbide_api_version = carbide_version::v!(build_version);
             if obs.agent_version.is_none() {
                 return Ok(false);
             }
@@ -2228,7 +2228,7 @@ pub async fn count_healthy_unhealthy_host_machines(
 mod test {
     use std::str::FromStr;
 
-    use forge_uuid::machine::MachineId;
+    use carbide_uuid::machine::MachineId;
     use model::machine::ManagedHostState;
     use model::machine::machine_search_config::MachineSearchConfig;
     use model::metadata::Metadata;

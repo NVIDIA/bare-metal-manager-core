@@ -11,12 +11,12 @@
  */
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc};
+use ::rpc::forge as rpc;
+use carbide_uuid::network_security_group::NetworkSecurityGroupId;
+use carbide_uuid::vpc::VpcId;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter, network_security_group};
-use forge_uuid::network_security_group::NetworkSecurityGroupId;
-use forge_uuid::vpc::VpcId;
 use model::resource_pool;
 use model::tenant::{InvalidTenantOrg, RoutingProfileType};
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization};

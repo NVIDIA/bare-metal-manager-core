@@ -20,7 +20,7 @@ pub struct MachineIdColumn;
 
 impl ColumnInfo<'_> for crate::predicted_machine_interface::MachineIdColumn {
     type TableType = PredictedMachineInterface;
-    type ColumnType = forge_uuid::machine::MachineId;
+    type ColumnType = carbide_uuid::machine::MachineId;
     fn column_name(&self) -> &'static str {
         "machine_id"
     }

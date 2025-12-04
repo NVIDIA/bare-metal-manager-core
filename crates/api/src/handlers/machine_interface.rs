@@ -14,7 +14,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use forge_uuid::machine::MachineType;
+use carbide_uuid::machine::MachineType;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 

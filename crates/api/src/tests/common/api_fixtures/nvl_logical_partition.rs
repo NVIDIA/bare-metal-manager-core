@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge::{self as rpc};
-use forge_uuid::nvlink::NvLinkLogicalPartitionId;
+use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use tonic::Request;
 
 use super::TestEnv;

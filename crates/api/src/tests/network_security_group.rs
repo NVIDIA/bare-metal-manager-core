@@ -12,10 +12,10 @@
 
 use std::time::SystemTime;
 
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
-use forge_uuid::vpc::VpcId;
 use model::instance::config::network::DeviceLocator;
 use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;

@@ -16,10 +16,10 @@
 
 use std::str::FromStr;
 
+use carbide_uuid::machine::MachineId;
 use db::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
-use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, DeleteMeasurementJournalResponse,
     ListMeasurementJournalRequest, ListMeasurementJournalResponse, MeasurementJournalRecordPb,

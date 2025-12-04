@@ -12,7 +12,7 @@
 
 use ::rpc::forge as rpc;
 use base64::prelude::*;
-use forge_uuid::instance::InstanceId;
+use carbide_uuid::instance::InstanceId;
 use rpc::forge_server::Forge;
 
 use crate::tests::common::api_fixtures::instance::default_tenant_config;

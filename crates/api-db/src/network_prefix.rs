@@ -12,8 +12,8 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use forge_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use forge_uuid::vpc::{VpcId, VpcPrefixId};
+use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::{NetworkPrefix, NewNetworkPrefix};

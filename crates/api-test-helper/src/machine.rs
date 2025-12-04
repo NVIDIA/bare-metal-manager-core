@@ -13,7 +13,7 @@
 use std::net::SocketAddr;
 use std::{thread, time};
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 
 use crate::grpcurl::grpcurl;
 

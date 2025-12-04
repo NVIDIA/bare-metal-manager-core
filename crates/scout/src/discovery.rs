@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 
 use crate::CarbideClientError;
 use crate::cfg::Options;

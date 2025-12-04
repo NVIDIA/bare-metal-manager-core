@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_uuid::infiniband::IBPartitionId;
+use carbide_uuid::infiniband::IBPartitionId;
 use rpc::forge_server::Forge;
 
 use crate::cfg::file::IBFabricConfig;

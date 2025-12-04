@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::machine::MachineId;
-use forge_uuid::vpc::VpcId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::vpc::VpcId;
 use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{

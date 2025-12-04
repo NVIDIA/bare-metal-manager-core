@@ -14,13 +14,13 @@ use std::error::Error;
 use std::time::Duration;
 
 use bmc_mock::EntryMap;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use crossterm::ExecutableCommand;
 use crossterm::event::{self, Event, EventStream, KeyCode, KeyModifiers};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
 use futures::StreamExt;
 use libredfish::PowerState;
 use ratatui::prelude::*;

@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::network::NetworkSegmentId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use forge_uuid::network::NetworkSegmentId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};

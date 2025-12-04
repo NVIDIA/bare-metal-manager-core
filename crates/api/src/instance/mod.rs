@@ -13,16 +13,16 @@
 use std::collections::{HashMap, HashSet};
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_uuid::infiniband::IBPartitionId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::vpc::VpcPrefixId;
 use config_version::ConfigVersion;
 use db::{
     self, ObjectColumnFilter, ObjectFilter, dpa_interface, extension_service, ib_partition,
     network_security_group,
 };
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::instance_type::InstanceTypeId;
-use forge_uuid::machine::MachineId;
-use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
@@ -705,17 +705,17 @@ pub async fn batch_allocate_instances(
     // These need to be done per-instance but we collect results for batch update
     // Tuple format: (instance_id, expected_version, config)
     let mut network_config_updates: Vec<(
-        forge_uuid::instance::InstanceId,
+        carbide_uuid::instance::InstanceId,
         ConfigVersion,
         model::instance::config::network::InstanceNetworkConfig,
     )> = Vec::with_capacity(request_count);
     let mut ib_config_updates: Vec<(
-        forge_uuid::instance::InstanceId,
+        carbide_uuid::instance::InstanceId,
         ConfigVersion,
         model::instance::config::infiniband::InstanceInfinibandConfig,
     )> = Vec::with_capacity(request_count);
     let mut nvlink_config_updates: Vec<(
-        forge_uuid::instance::InstanceId,
+        carbide_uuid::instance::InstanceId,
         ConfigVersion,
         model::instance::config::nvlink::InstanceNvLinkConfig,
     )> = Vec::with_capacity(request_count);

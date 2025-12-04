@@ -15,8 +15,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
-use forge_uuid::power_shelf::PowerShelfId;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 use rpc::forge::forge_server::Forge;
 use sqlx::PgConnection;

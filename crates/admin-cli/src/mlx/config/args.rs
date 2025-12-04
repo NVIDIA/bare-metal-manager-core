@@ -13,8 +13,8 @@
 // config/args.rs
 // Command-line argument definitions for config commands.
 
+use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use forge_uuid::machine::MachineId;
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use rpc::protos::mlx_device as mlx_device_pb;
 

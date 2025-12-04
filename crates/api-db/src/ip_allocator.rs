@@ -13,8 +13,8 @@
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use forge_uuid::instance::InstanceId;
-use forge_uuid::network::NetworkPrefixId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::network::NetworkPrefixId;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::network_prefix::NetworkPrefix;

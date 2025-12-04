@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use forge_uuid::switch::SwitchId;
+use carbide_uuid::switch::SwitchId;
 use mac_address::MacAddress;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;

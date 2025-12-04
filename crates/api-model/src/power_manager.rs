@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};

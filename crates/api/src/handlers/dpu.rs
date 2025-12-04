@@ -16,11 +16,11 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
+use carbide_uuid::machine::MachineId;
 use db::{
     ObjectColumnFilter, domain, dpu_agent_upgrade_policy, network_security_group, network_segment,
 };
 use forge_network::virtualization::VpcVirtualizationType;
-use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use model::hardware_info::MachineInventory;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -799,7 +799,7 @@ pub(crate) async fn record_dpu_network_status(
             .map_err(CarbideError::from)?;
         if let Some(agent_version) = obs.agent_version.as_ref() {
             obs.agent_version_superseded_at =
-                db::forge_version::date_superseded(&mut txn, agent_version.as_str()).await?;
+                db::carbide_version::date_superseded(&mut txn, agent_version.as_str()).await?;
         }
         obs
     };
@@ -938,7 +938,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
 
     // We usually want these two to match
     let agent_version = req.current_agent_version;
-    let server_version = forge_version::v!(build_version);
+    let server_version = carbide_version::v!(build_version);
     BuildVersion::try_from(server_version)
         .map_err(|_| Status::internal("Invalid server version, cannot check for upgrade"))?;
 

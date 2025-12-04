@@ -16,7 +16,7 @@ use std::sync::Arc;
 use askama::Template;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use forge_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{MachineId, MachineType};
 use health_report::HealthReport;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;

@@ -17,9 +17,9 @@
 
 use std::collections::HashMap;
 
+use carbide_uuid::DbTable;
+use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::Utc;
-use forge_uuid::DbTable;
-use forge_uuid::machine::{MachineId, MachineType};
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::machine::CandidateMachine;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};

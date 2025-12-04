@@ -12,10 +12,10 @@
 
 use std::collections::HashSet;
 
+use carbide_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
+use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use eyre::eyre;
-use forge_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
-use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpa_interface::{
@@ -359,7 +359,7 @@ pub async fn batch_is_machine_dpa_capable(
         return Ok(HashSet::new());
     }
 
-    let query = "SELECT DISTINCT machine_id FROM dpa_interfaces 
+    let query = "SELECT DISTINCT machine_id FROM dpa_interfaces
                  WHERE deleted IS NULL AND machine_id = ANY($1)";
 
     let rows: Vec<(String,)> = sqlx::query_as(query)
@@ -410,7 +410,7 @@ pub async fn try_update_network_config(
 mod test {
     use std::str::FromStr;
 
-    use forge_uuid::machine::MachineId;
+    use carbide_uuid::machine::MachineId;
     use mac_address::MacAddress;
     use model::dpa_interface::NewDpaInterface;
     use model::machine::ManagedHostState;

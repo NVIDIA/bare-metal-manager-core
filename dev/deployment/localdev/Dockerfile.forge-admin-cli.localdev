@@ -12,6 +12,7 @@
 FROM runtime-container-localdev:latest as carbide
 
 WORKDIR /opt/carbide
-COPY .skaffold/target/carbide-admin-cli/debug/forge-admin-cli /opt/carbide/
+COPY .skaffold/target/carbide-admin-cli/debug/carbide-admin-cli /opt/carbide/
+RUN ln -s /opt/carbide/carbide-admin-cli /opt/carbide/forge-admin-cli
 
 ENV PATH="/opt/carbide:${PATH}"

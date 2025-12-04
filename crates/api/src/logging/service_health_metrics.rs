@@ -43,15 +43,18 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
                 &[
                     KeyValue::new(
                         "build_version",
-                        forge_version::v!(build_version).to_string(),
+                        carbide_version::v!(build_version).to_string(),
                     ),
-                    KeyValue::new("build_date", forge_version::v!(build_date).to_string()),
-                    KeyValue::new("git_sha", forge_version::v!(git_sha).to_string()),
-                    KeyValue::new("rust_version", forge_version::v!(rust_version).to_string()),
-                    KeyValue::new("build_user", forge_version::v!(build_user).to_string()),
+                    KeyValue::new("build_date", carbide_version::v!(build_date).to_string()),
+                    KeyValue::new("git_sha", carbide_version::v!(git_sha).to_string()),
+                    KeyValue::new(
+                        "rust_version",
+                        carbide_version::v!(rust_version).to_string(),
+                    ),
+                    KeyValue::new("build_user", carbide_version::v!(build_user).to_string()),
                     KeyValue::new(
                         "build_hostname",
-                        forge_version::v!(build_hostname).to_string(),
+                        carbide_version::v!(build_hostname).to_string(),
                     ),
                 ],
             );

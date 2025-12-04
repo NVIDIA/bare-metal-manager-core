@@ -17,8 +17,8 @@
 
 use std::collections::HashMap;
 
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementSystemProfileId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::measured_boot::MeasurementSystemProfileId;
 use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
 use sqlx::PgConnection;
@@ -457,8 +457,8 @@ pub async fn load_from_id(
 mod tests {
     use std::str::FromStr;
 
+    use carbide_uuid::measured_boot::MeasurementSystemProfileAttrId;
     use chrono::Utc;
-    use forge_uuid::measured_boot::MeasurementSystemProfileAttrId;
 
     use super::*;
 

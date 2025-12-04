@@ -13,7 +13,7 @@ use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::{Timestamp, forge as forgerpc};
-use forge_uuid::domain::DomainId;
+use carbide_uuid::domain::DomainId;
 use prettytable::{Table, row};
 use tracing::warn;
 

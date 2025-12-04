@@ -11,7 +11,7 @@
  */
 use std::net::IpAddr;
 
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use model::network_segment::NetworkSegmentType;
 use sqlx::{FromRow, PgConnection};
 

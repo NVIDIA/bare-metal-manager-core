@@ -19,9 +19,9 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
 #[cfg(feature = "linux-build")]
-use forge_host_support::hardware_enumeration::aggregate_cpus;
+use carbide_host_support::hardware_enumeration::aggregate_cpus;
+use carbide_uuid::nvlink::NvLinkDomainId;
 use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
-use forge_uuid::nvlink::NvLinkDomainId;
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
 use utils::models::arch::CpuArchitecture;

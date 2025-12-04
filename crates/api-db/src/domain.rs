@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::domain::DomainId;
+use carbide_uuid::domain::DomainId;
 use model::domain::{Domain, NewDomain};
 use sqlx::PgConnection;
 

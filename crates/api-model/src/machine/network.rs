@@ -14,9 +14,9 @@ use std::time::SystemTime;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
-use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use serde::{Deserialize, Serialize};
 
@@ -56,7 +56,7 @@ impl MachineNetworkStatusObservation {
             ));
         };
 
-        if agent_version == forge_version::v!(build_version) {
+        if agent_version == carbide_version::v!(build_version) {
             // Same version as the server, all good.
             return None;
         }

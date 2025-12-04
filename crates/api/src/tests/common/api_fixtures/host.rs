@@ -12,8 +12,8 @@
 
 //! Contains host related fixtures
 
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::{ObjectColumnFilter, network_prefix};
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineState::UefiSetup;
 use model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};

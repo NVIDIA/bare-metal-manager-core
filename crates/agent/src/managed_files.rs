@@ -13,7 +13,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 
 use crate::duppet::{self, FileEnsure, SyncOptions};
 use crate::periodic_config_fetcher::PeriodicConfigFetcher;

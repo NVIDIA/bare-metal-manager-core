@@ -14,7 +14,7 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use sha2::{Digest, Sha256};
 
 use crate::hardware_info::HardwareInfo;
@@ -109,7 +109,7 @@ pub fn try_parse_machine_id(id: &str) -> Result<MachineId, RpcDataConversionErro
 
 #[cfg(test)]
 mod tests {
-    use forge_uuid::machine::MACHINE_ID_LENGTH;
+    use carbide_uuid::machine::MACHINE_ID_LENGTH;
 
     use super::*;
     use crate::hardware_info::TpmEkCertificate;

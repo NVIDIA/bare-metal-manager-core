@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
-use forge_uuid::instance_type::InstanceTypeId;
 use model::instance_type::{InstanceType, InstanceTypeMachineCapabilityFilter};
 use model::metadata::Metadata;
 use sqlx::{PgConnection, Postgres};

@@ -14,7 +14,7 @@ use core::fmt;
 use std::fmt::Display;
 use std::net::IpAddr;
 
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};

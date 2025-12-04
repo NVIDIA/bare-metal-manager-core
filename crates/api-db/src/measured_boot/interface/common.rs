@@ -20,7 +20,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::vec::Vec;
 
-use forge_uuid::{DbPrimaryUuid, DbTable};
+use carbide_uuid::{DbPrimaryUuid, DbTable};
 use measured_boot::pcr::PcrRegisterValue;
 use sqlx::postgres::PgRow;
 use sqlx::{Encode, PgConnection, Postgres};

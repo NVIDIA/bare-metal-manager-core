@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::infiniband::IBPartitionId;
 use db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use db::{self, ObjectColumnFilter};
-use forge_uuid::infiniband::IBPartitionId;
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;

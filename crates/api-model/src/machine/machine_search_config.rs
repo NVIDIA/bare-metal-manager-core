@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use forge_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::instance_type::InstanceTypeId;
 use rpc::errors::RpcDataConversionError;
 
 /// MachineSearchConfig: Search parameters

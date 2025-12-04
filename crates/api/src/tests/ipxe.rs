@@ -11,9 +11,9 @@
  */
 use std::collections::HashMap;
 
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use common::api_fixtures::{TestEnv, create_test_env};
 use db::{self};
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::machine::{DpuInitState, MachineState, ManagedHostState};

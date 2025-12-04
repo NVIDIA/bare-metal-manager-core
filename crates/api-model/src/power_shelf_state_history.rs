@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::ConfigVersion;
-use forge_uuid::power_shelf::PowerShelfId;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 

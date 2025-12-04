@@ -16,6 +16,10 @@ use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
 use ::rpc::forge::forge_server::Forge;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcPrefixId;
 use chrono::Utc;
 use common::api_fixtures::instance::{
     advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
@@ -34,10 +38,6 @@ use db::instance_address::UsedOverlayNetworkIpResolver;
 use db::ip_allocator::UsedIpResolver;
 use db::network_segment::IdColumn;
 use db::{self, ObjectColumnFilter};
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -2756,7 +2756,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
 
 async fn create_tenant_overlay_prefix(
     env: &TestEnv,
-    vpc_id: forge_uuid::vpc::VpcId,
+    vpc_id: carbide_uuid::vpc::VpcId,
 ) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
     let vpc_prefix_id = db::vpc_prefix::persist(
@@ -5906,7 +5906,7 @@ async fn test_allocate_instance_with_invalid_ib_partition(
     let mh = create_managed_host(&env).await;
 
     // Use a non-existent IB partition ID
-    let invalid_partition_id = forge_uuid::infiniband::IBPartitionId::from(uuid::Uuid::new_v4());
+    let invalid_partition_id = carbide_uuid::infiniband::IBPartitionId::from(uuid::Uuid::new_v4());
 
     let ib_config = rpc::forge::InstanceInfinibandConfig {
         ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {

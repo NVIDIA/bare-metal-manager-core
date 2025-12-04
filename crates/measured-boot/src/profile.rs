@@ -17,8 +17,8 @@
 
 use std::convert::{Into, TryFrom};
 
+use carbide_uuid::measured_boot::MeasurementSystemProfileId;
 use chrono::{DateTime, Utc};
-use forge_uuid::measured_boot::MeasurementSystemProfileId;
 #[cfg(feature = "cli")]
 use rpc::admin_cli::ToTable;
 use rpc::protos::measured_boot::MeasurementSystemProfilePb;

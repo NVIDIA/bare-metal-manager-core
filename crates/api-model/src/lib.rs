@@ -23,7 +23,7 @@
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-use forge_uuid::network::NetworkSegmentId;
+use carbide_uuid::network::NetworkSegmentId;
 use instance::config::network::InterfaceFunctionId;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};

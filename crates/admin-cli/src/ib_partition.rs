@@ -14,7 +14,7 @@ use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
-use forge_uuid::infiniband::IBPartitionId;
+use carbide_uuid::infiniband::IBPartitionId;
 use prettytable::{Table, row};
 
 use super::cfg::cli_options::ShowIbPartition;

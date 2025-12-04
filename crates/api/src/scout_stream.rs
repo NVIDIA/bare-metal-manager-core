@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ::rpc::protos::forge::{ScoutStreamApiBoundMessage, ScoutStreamScoutBoundMessage};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 use tokio::sync::{RwLock, mpsc, oneshot};
 use tonic::Status;
 

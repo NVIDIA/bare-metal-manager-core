@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use forge_uuid::machine::MachineId;
+use carbide_uuid::machine::MachineId;
 
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;

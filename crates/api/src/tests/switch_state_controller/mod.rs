@@ -15,8 +15,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
-use forge_uuid::switch::SwitchId;
 use model::switch::{Switch, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use sqlx::PgConnection;

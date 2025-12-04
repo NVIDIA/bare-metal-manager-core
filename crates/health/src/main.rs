@@ -20,11 +20,11 @@ use std::time::Duration;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use carbide_uuid::machine::MachineId;
 use cfg::{ConcurrencyOption, Options};
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use forge_tls::client_config::ClientCert;
-use forge_uuid::machine::MachineId;
 use futures::future;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -634,7 +634,7 @@ fn init_logging() -> Result<
 async fn main() -> Result<(), HealthError> {
     let config = Options::load();
     if config.version {
-        println!("{}", forge_version::version!());
+        println!("{}", carbide_version::version!());
         return Ok(());
     }
 
@@ -660,7 +660,7 @@ async fn main() -> Result<(), HealthError> {
     let state = Arc::new(HealthMetricsState { registry });
 
     tracing::info!(
-        version = forge_version::v!(build_version),
+        version = carbide_version::v!(build_version),
         "Started forge-hw-health"
     );
     let join_listener = tokio::spawn(async move { metrics_listener(state).await });
@@ -674,7 +674,7 @@ async fn main() -> Result<(), HealthError> {
     let _ = join_listener.await?;
 
     tracing::info!(
-        version = forge_version::v!(build_version),
+        version = carbide_version::v!(build_version),
         "Stopped forge-hw-health"
     );
 

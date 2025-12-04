@@ -765,7 +765,7 @@ impl clap::ValueEnum for forge::RouteServerSourceType {
 mod tests {
     use std::time::Duration;
 
-    use forge_uuid::machine::MachineId;
+    use carbide_uuid::machine::MachineId;
 
     use self::forge::operating_system::Variant;
     use self::forge::{IpxeOperatingSystem, OperatingSystem};

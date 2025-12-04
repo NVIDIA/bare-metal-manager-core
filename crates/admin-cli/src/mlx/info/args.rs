@@ -13,8 +13,8 @@
 // info/args.rs
 // Command-line argument definitions for info commands.
 
+use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use forge_uuid::machine::MachineId;
 use rpc::protos::mlx_device as mlx_device_pb;
 
 // InfoCommand are the info subcommands.

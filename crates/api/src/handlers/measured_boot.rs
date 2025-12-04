@@ -11,8 +11,8 @@
  */
 
 pub use ::rpc::{forge as rpc_forge, machine_discovery as rpc_md};
+use carbide_uuid::machine::MachineId;
 use db::attestation::secret_ak_pub;
-use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tonic::Status;
 
