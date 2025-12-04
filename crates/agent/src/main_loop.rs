@@ -438,7 +438,7 @@ impl MainLoop {
         let mut last_dhcp_requests = vec![];
         let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
         if let Err(e) = dhcp_timestamps.read() {
-            tracing::error!(
+            tracing::warn!(
                 "Failed to read from {}: {e}",
                 DhcpTimestampsFilePath::Dpu.path_str()
             );

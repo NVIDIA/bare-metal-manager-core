@@ -3187,7 +3187,7 @@ current_version_reported_as = "^Installed-.*__iDRAC."
 
 [[components.bmc.known_firmware]]
 version = "7.10.30.00"
-url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
+filenames = ["/opt/carbide/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE", "/opt/carbide/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A01.EXE"]
 default = true
     "#;
         let mut config: FirmwareConfig = Default::default();
@@ -3214,6 +3214,18 @@ default = true
                 .known_firmware
                 .len(),
             1
+        );
+        assert_eq!(
+            server
+                .components
+                .get(&FirmwareComponentType::Bmc)
+                .unwrap()
+                .known_firmware
+                .first()
+                .unwrap()
+                .filenames
+                .len(),
+            2
         );
         assert_eq!(
             *server
