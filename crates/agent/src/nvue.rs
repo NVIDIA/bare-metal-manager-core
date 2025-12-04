@@ -134,6 +134,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let vrf_loopback = port_configs[0].VrfLoopback.clone();
     let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
 
+    let has_network_security_group = conf.ct_network_security_group_rules.is_some();
+
     let (ingress_ipv4_rules, egress_ipv4_rules, ingress_ipv6_rules, egress_ipv6_rules) =
         if let Some(rules) = conf.ct_network_security_group_rules {
             prepare_network_security_group_rules(rules)?
@@ -332,10 +334,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     HostRoute: vl.network,
                 })
                 .collect(),
-            HasNetworkSecurityGroup: !ingress_ipv4_rules.is_empty()
-                || !egress_ipv4_rules.is_empty()
-                || !ingress_ipv6_rules.is_empty()
-                || !egress_ipv6_rules.is_empty(),
+            HasNetworkSecurityGroup: has_network_security_group,
             HasIpv4IngressSecurityGroupRules: !ingress_ipv4_rules.is_empty(),
             HasIpv4EgressSecurityGroupRules: !egress_ipv4_rules.is_empty(),
             HasIpv6IngressSecurityGroupRules: !ingress_ipv6_rules.is_empty(),
