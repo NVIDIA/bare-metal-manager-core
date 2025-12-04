@@ -62,7 +62,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Push Git Tag
-        uses: NVIDIA/dsx-github-actions/.github/actions/git-tag@260d3f3e8f7c193a87f03d10646ca606165f916e
+        uses: NVIDIA/dsx-github-actions/.github/actions/git-tag@95e609360851cfc141918c2c21e57762d77394ac
         with:
           tag: ${{ needs.fetch-new-version.outputs.version }}
       - name: Release
