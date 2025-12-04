@@ -315,6 +315,13 @@ impl Forge for Api {
         crate::handlers::instance::allocate(self, request).await
     }
 
+    async fn allocate_instances(
+        &self,
+        request: Request<rpc::BatchInstanceAllocationRequest>,
+    ) -> Result<Response<rpc::BatchInstanceAllocationResponse>, Status> {
+        crate::handlers::instance::batch_allocate(self, request).await
+    }
+
     async fn find_instance_ids(
         &self,
         request: Request<rpc::InstanceSearchFilter>,

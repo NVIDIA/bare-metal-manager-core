@@ -18,6 +18,7 @@ use db::{
     self, ObjectColumnFilter, ObjectFilter, dpa_interface, extension_service, ib_partition,
     network_security_group,
 };
+use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::instance::InstanceId;
 use forge_uuid::instance_type::InstanceTypeId;
 use forge_uuid::machine::MachineId;
@@ -260,7 +261,7 @@ pub async fn allocate_network(
     Ok(())
 }
 
-pub async fn allocate_ib_port_guid(
+pub fn allocate_ib_port_guid(
     ib_config: &InstanceInfinibandConfig,
     machine: &Machine,
 ) -> CarbideResult<InstanceInfinibandConfig> {
@@ -269,7 +270,7 @@ pub async fn allocate_ib_port_guid(
     let ib_hw_info = machine
         .hardware_info
         .as_ref()
-        .ok_or(CarbideError::MissingArgument("no hardware info"))?
+        .ok_or(CarbideError::MissingArgument("no hardware info in machine"))?
         .infiniband_interfaces
         .as_ref();
 
@@ -288,8 +289,8 @@ pub async fn allocate_ib_port_guid(
         // TOTO: will support VF in the future. Currently, it will return err when the function_id is not PF.
         if let InterfaceFunctionId::Virtual { .. } = request.function_id {
             return Err(CarbideError::InvalidArgument(format!(
-                "Not support VF {}",
-                request.device
+                "Not support VF {} (machine {})",
+                request.device, machine.id
             )));
         }
 
@@ -301,14 +302,14 @@ pub async fn allocate_ib_port_guid(
                 tracing::debug!("select IB device GUID {}", ib.guid.clone());
             } else {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "not enough ib device {}",
-                    request.device
+                    "not enough ib device {} (machine {})",
+                    request.device, machine.id
                 )));
             }
         } else {
             return Err(CarbideError::InvalidArgument(format!(
-                "no ib device {}",
-                request.device
+                "no ib device {} (machine {})",
+                request.device, machine.id
             )));
         }
     }
@@ -320,15 +321,17 @@ pub async fn allocate_ib_port_guid(
                 for ib_status in ib_interfaces_status.ib_interfaces.iter() {
                     if *guid == ib_status.guid && ib_status.lid == 0xffff_u16 {
                         return Err(CarbideError::InvalidArgument(format!(
-                            "UFM detected inactive state for GUID: {guid}"
+                            "UFM detected inactive state for GUID: {guid} (machine {})",
+                            machine.id
                         )));
                     }
                 }
             }
         } else {
-            return Err(CarbideError::InvalidArgument(
-                "Infiniband status information is not found".to_string(),
-            ));
+            return Err(CarbideError::InvalidArgument(format!(
+                "Infiniband status information is not found (machine {})",
+                machine.id
+            )));
         }
     }
 
@@ -361,18 +364,71 @@ pub fn sort_ib_by_slot(
 }
 
 /// Allocates an instance for a tenant
+/// This is a convenience wrapper around `batch_allocate_instances` for single instance allocation.
 #[allow(txn_held_across_await)]
 pub async fn allocate_instance(
     api: &Api,
-    mut request: InstanceAllocationRequest,
+    request: InstanceAllocationRequest,
     host_health_config: HostHealthConfig,
 ) -> Result<ManagedHostStateSnapshot, CarbideError> {
-    let mut txn = api.txn_begin("allocate_instance").await?;
+    let mut results = batch_allocate_instances(api, vec![request], host_health_config).await?;
 
-    // Grab a row-level lock on the requested machine
+    results
+        .pop()
+        .ok_or_else(|| CarbideError::internal("Instance allocation returned no result".to_string()))
+}
+
+/// Allocates multiple instances in a single transaction.
+/// Rolls back entirely if any allocation fails.
+///
+/// ## Flow:
+/// 1. Validate machine types and metadata (in-memory)
+/// 2. Batch query machines (FOR UPDATE), load snapshots, validate usability
+/// 3. Validate shared resources: NSG, extension services, OS images, IB partitions, DPA
+/// 4. Network allocation + config validation (sequential)
+/// 5. Batch persist instances, process configs (IPs, IB GUIDs), batch update
+/// 6. Load final instances, assemble snapshots, commit
+pub async fn batch_allocate_instances(
+    api: &Api,
+    requests: Vec<InstanceAllocationRequest>,
+    host_health_config: HostHealthConfig,
+) -> Result<Vec<ManagedHostStateSnapshot>, CarbideError> {
+    if requests.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "Batch request must contain at least one instance".to_string(),
+        ));
+    }
+
+    let request_count = requests.len();
+    tracing::info!(
+        instance_count = request_count,
+        "Starting batch instance allocation"
+    );
+
+    // ==== Phase 1: Validate request parameters (in-memory validation) ====
+    for request in &requests {
+        // Validate machine type
+        if !request.machine_id.machine_type().is_host() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "Machine with UUID {} is of type {} and can not be converted into an instance",
+                request.machine_id,
+                request.machine_id.machine_type()
+            )));
+        }
+
+        // Validate metadata (config validated after network allocation)
+        request.metadata.validate(true)?;
+    }
+
+    // Start a single transaction for all allocations
+    let mut txn = api.txn_begin("batch_allocate_instances").await?;
+
+    // ==== Phase 2: Batch query machines (FOR UPDATE) ====
+    let machine_ids: Vec<_> = requests.iter().map(|r| r.machine_id).collect();
+
     let machines = db::machine::find(
         &mut txn,
-        ObjectFilter::List(&[request.machine_id]),
+        ObjectFilter::List(&machine_ids),
         MachineSearchConfig {
             for_update: true,
             ..MachineSearchConfig::default()
@@ -380,21 +436,77 @@ pub async fn allocate_instance(
     )
     .await?;
 
-    if machines.is_empty() {
-        return Err(CarbideError::NotFoundError {
-            kind: "Machine",
-            id: request.machine_id.to_string(),
-        });
-    };
+    // Create a map for quick lookup
+    let machine_map: std::collections::HashMap<_, _> =
+        machines.into_iter().map(|m| (m.id, m)).collect();
 
-    // If an NSG is applied, we need to do a little more validation.
-    if let Some(ref nsg_id) = request.config.network_security_group_id {
-        // Query to check the validity of the NSG ID but to also grab
-        // a row-level lock on it if it exists.
+    // Verify all machines were found
+    for request in &requests {
+        if !machine_map.contains_key(&request.machine_id) {
+            return Err(CarbideError::NotFoundError {
+                kind: "Machine",
+                id: request.machine_id.to_string(),
+            });
+        }
+    }
+
+    // ==== Phase 3: Batch load managed host snapshots ====
+    let mut snapshot_map = db::managed_host::load_by_machine_ids(
+        &mut txn,
+        &machine_ids,
+        LoadSnapshotOptions::default().with_host_health(host_health_config),
+    )
+    .await?;
+
+    // Verify all snapshots were loaded and validate usability
+    for request in &requests {
+        let machine_id = request.machine_id;
+        let mh_snapshot = snapshot_map
+            .get(&machine_id)
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
+
+        if let Err(e) = mh_snapshot.is_usable_as_instance(request.allow_unhealthy_machine) {
+            tracing::error!(%machine_id, "Host can not be used as instance due to reason: {}", e);
+            return Err(match e {
+                NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
+                    "Could not create instance on machine {machine_id} given machine state {s:?}"
+                )),
+                NotAllocatableReason::PendingInstanceCreation => {
+                    CarbideError::InvalidArgument(format!(
+                        "Could not create instance on machine {machine_id}. Machine is already used by another Instance creation request.",
+                    ))
+                }
+                NotAllocatableReason::NoDpuSnapshots => CarbideError::internal(format!(
+                    "Machine {machine_id} has no DPU. Cannot allocate."
+                )),
+                NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
+                NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
+            });
+        }
+    }
+
+    // ==== Phase 4: Validate shared resources ====
+
+    // Collect all unique NSG IDs with their tenant org IDs for validation
+    let nsg_validations: HashSet<_> = requests
+        .iter()
+        .filter_map(|r| {
+            r.config
+                .network_security_group_id
+                .as_ref()
+                .map(|nsg_id| (nsg_id, &r.config.tenant.tenant_organization_id))
+        })
+        .collect();
+
+    // Validate each unique NSG
+    for (nsg_id, tenant_org_id) in &nsg_validations {
         if network_security_group::find_by_ids(
             &mut txn,
             std::slice::from_ref(nsg_id),
-            Some(&request.config.tenant.tenant_organization_id),
+            Some(tenant_org_id),
             true,
         )
         .await?
@@ -403,39 +515,51 @@ pub async fn allocate_instance(
         {
             return Err(CarbideError::FailedPrecondition(format!(
                 "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
-                nsg_id,
-                request.config.tenant.tenant_organization_id.clone()
+                nsg_id, tenant_org_id
             )));
         }
     }
 
-    // If extension services are configured, validate the extension service config versions to make
-    // sure the extension service versions all exist and are not deleted.
-    if !request.config.extension_services.service_configs.is_empty() {
-        let service_configs = &request.config.extension_services.service_configs;
+    // Collect all unique extension service configs for validation
+    let all_service_configs: Vec<_> = requests
+        .iter()
+        .flat_map(|r| r.config.extension_services.service_configs.iter())
+        .collect();
 
-        // Validate no duplicate service IDs (only one version per service allowed)
-        let service_ids: Vec<_> = service_configs.iter().map(|s| s.service_id).collect();
-        let unique_service_ids: std::collections::HashSet<_> = service_ids.iter().collect();
-        if service_ids.len() != unique_service_ids.len() {
-            return Err(CarbideError::InvalidArgument(
-                "Duplicate extension services in configuration. Only one version of each service is allowed.".to_string()
-            ));
-        }
-
-        // Row level locks on all required extension services
-        let services = extension_service::find_versions_by_service_ids(
-            &mut txn,
-            service_configs
+    if !all_service_configs.is_empty() {
+        // Validate no duplicate service IDs within each request
+        for request in &requests {
+            let service_ids: Vec<_> = request
+                .config
+                .extension_services
+                .service_configs
                 .iter()
                 .map(|s| s.service_id)
-                .collect_vec()
-                .as_slice(),
-            true,
-        )
-        .await?;
+                .collect();
+            let unique_service_ids: HashSet<_> = service_ids.iter().collect();
+            if service_ids.len() != unique_service_ids.len() {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "Duplicate extension services in configuration. Only one version of each service is allowed. (machine {})",
+                    request.machine_id
+                )));
+            }
+        }
 
-        for service in service_configs.iter() {
+        // Collect all unique service IDs across all requests
+        let unique_service_ids: Vec<_> = all_service_configs
+            .iter()
+            .map(|s| s.service_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Batch query all extension services
+        let services =
+            extension_service::find_versions_by_service_ids(&mut txn, &unique_service_ids, true)
+                .await?;
+
+        // Validate each service config
+        for service in all_service_configs {
             if !services.contains_key(&service.service_id) {
                 return Err(CarbideError::FailedPrecondition(format!(
                     "Extension service {} does not exist",
@@ -455,19 +579,30 @@ pub async fn allocate_instance(
         }
     }
 
-    // Validate the OS image ID if it exists
-    let os_config = &request.config.os;
-    if let OperatingSystemVariant::OsImage(os_image_id) = os_config.variant {
+    // Collect all unique OS image IDs for validation
+    let os_image_ids: HashSet<_> = requests
+        .iter()
+        .filter_map(|r| {
+            if let OperatingSystemVariant::OsImage(os_image_id) = r.config.os.variant {
+                Some(os_image_id)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Validate each unique OS image
+    for os_image_id in &os_image_ids {
         if os_image_id.is_nil() {
             return Err(CarbideError::InvalidArgument(
                 "Image ID is required for image based storage".to_string(),
             ));
         }
-        if let Err(e) = db::os_image::get(&mut txn, os_image_id).await {
+        if let Err(e) = db::os_image::get(&mut txn, *os_image_id).await {
             return if e.is_not_found() {
                 Err(CarbideError::FailedPrecondition(format!(
                     "Image OS `{}` does not exist",
-                    os_image_id.clone()
+                    os_image_id
                 )))
             } else {
                 Err(CarbideError::internal(format!(
@@ -477,213 +612,268 @@ pub async fn allocate_instance(
         }
     }
 
-    if api.runtime_config.is_dpa_enabled()
-        && dpa_interface::is_machine_dpa_capable(&mut txn, request.machine_id).await?
-    {
-        allocate_dpa_vni(api, &request.config.network, &mut txn).await?;
+    // Validate IB partition ownership for all requests
+    let ib_partition_validations: Vec<_> = requests
+        .iter()
+        .flat_map(|r| {
+            r.config.infiniband.ib_interfaces.iter().map(|iface| {
+                (
+                    iface.ib_partition_id,
+                    &r.config.tenant.tenant_organization_id,
+                )
+            })
+        })
+        .collect();
+
+    batch_validate_ib_partition_ownership(&mut txn, &ib_partition_validations).await?;
+
+    // Batch check which machines are DPA capable (if DPA is enabled)
+    let dpa_capable_machines: HashSet<MachineId> = if api.runtime_config.is_dpa_enabled() {
+        dpa_interface::batch_is_machine_dpa_capable(&mut txn, &machine_ids).await?
+    } else {
+        HashSet::new()
+    };
+
+    // Batch query inband segments for all machines
+    let inband_segments_map =
+        db::instance_network_config::batch_get_inband_segments_by_machine_ids(
+            &mut txn,
+            &machine_ids,
+        )
+        .await?;
+
+    // ==== Phase 5: Network allocation (sequential due to vpc_prefix tracking) ====
+    let mut processed_requests: Vec<(InstanceAllocationRequest, ManagedHostStateSnapshot)> =
+        Vec::with_capacity(request_count);
+
+    for mut request in requests {
+        let machine_id = request.machine_id;
+        let mh_snapshot = snapshot_map
+            .remove(&machine_id)
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
+
+        // Allocate DPA VNI if needed
+        if dpa_capable_machines.contains(&machine_id) {
+            allocate_dpa_vni(api, &request.config.network, &mut txn).await?;
+        }
+
+        // Allocate network
+        allocate_network(&mut request.config.network, &mut txn).await?;
+
+        // Validate config (after network allocation sets network_segment_id)
+        request.config.validate(
+            true,
+            api.runtime_config
+                .vmaas_config
+                .as_ref()
+                .map(|vc| vc.allow_instance_vf)
+                .unwrap_or(true),
+        )?;
+
+        processed_requests.push((request, mh_snapshot));
     }
 
-    // Allocate network segment here before validate if vpc_prefix_id is mentioned.
-    allocate_network(&mut request.config.network, &mut txn).await?;
-
-    // Validate the configuration for the instance
-    // Note that this basic validation can not cross-check references
-    // like `machine_id` or any `network_segments`.
-    request.config.validate(
-        true,
-        api.runtime_config
-            .vmaas_config
-            .as_ref()
-            .map(|vc| vc.allow_instance_vf)
-            .unwrap_or(true),
-    )?;
-
+    // ==== Phase 6: Batch persist instances ====
     let network_config_version = ConfigVersion::initial();
     let ib_config_version = ConfigVersion::initial();
     let extension_services_config_version = ConfigVersion::initial();
     let config_version = ConfigVersion::initial();
     let nvl_config_version = ConfigVersion::initial();
 
-    validate_ib_partition_ownership(
-        &mut txn,
-        &request.config.tenant.tenant_organization_id,
-        &request.config.infiniband,
-    )
-    .await?;
+    let new_instances: Vec<NewInstance<'_>> = processed_requests
+        .iter()
+        .map(|(request, _)| NewInstance {
+            instance_id: request.instance_id,
+            instance_type_id: request.instance_type_id.clone(),
+            machine_id: request.machine_id,
+            config: &request.config,
+            metadata: request.metadata.clone(),
+            config_version,
+            network_config_version,
+            ib_config_version,
+            extension_services_config_version,
+            nvlink_config_version: nvl_config_version,
+        })
+        .collect();
 
-    request.metadata.validate(true)?;
+    let _persisted_instances = db::instance::batch_persist(new_instances, &mut txn).await?;
 
-    let new_instance = NewInstance {
-        instance_id: request.instance_id,
-        instance_type_id: request.instance_type_id,
-        machine_id: request.machine_id,
-        config: &request.config,
-        metadata: request.metadata,
-        config_version,
-        network_config_version,
-        ib_config_version,
-        extension_services_config_version,
-        nvlink_config_version: nvl_config_version,
-    };
-    let machine_id = new_instance.machine_id;
-    if !machine_id.machine_type().is_host() {
-        return Err(CarbideError::InvalidArgument(format!(
-            "Machine with UUID {} is of type {} and can not be converted into an instance",
-            machine_id,
-            machine_id.machine_type()
-        )));
-    }
+    // ==== Phase 7: Process configs (IPs, inband interfaces, IB GUIDs) ====
+    // These need to be done per-instance but we collect results for batch update
+    // Tuple format: (instance_id, expected_version, config)
+    let mut network_config_updates: Vec<(
+        forge_uuid::instance::InstanceId,
+        ConfigVersion,
+        model::instance::config::network::InstanceNetworkConfig,
+    )> = Vec::with_capacity(request_count);
+    let mut ib_config_updates: Vec<(
+        forge_uuid::instance::InstanceId,
+        ConfigVersion,
+        model::instance::config::infiniband::InstanceInfinibandConfig,
+    )> = Vec::with_capacity(request_count);
+    let mut nvlink_config_updates: Vec<(
+        forge_uuid::instance::InstanceId,
+        ConfigVersion,
+        model::instance::config::nvlink::InstanceNvLinkConfig,
+    )> = Vec::with_capacity(request_count);
 
-    let mut mh_snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &machine_id,
-        LoadSnapshotOptions::default().with_host_health(host_health_config),
-    )
-    .await?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
+    for (request, mh_snapshot) in &processed_requests {
+        let instance_id = request.instance_id;
 
-    if let Err(e) = mh_snapshot.is_usable_as_instance(request.allow_unhealthy_machine) {
-        tracing::error!(%machine_id, "Host can not be used as instance due to reason: {}", e);
-        return Err(match e {
-            NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
-                "Could not create instance on machine {machine_id} given machine state {s:?}"
-            )),
-            NotAllocatableReason::PendingInstanceCreation => {
-                CarbideError::InvalidArgument(format!(
-                    "Could not create instance on machine {machine_id}. Machine is already used by another Instance creation request.",
-                ))
-            }
-            NotAllocatableReason::NoDpuSnapshots => {
-                CarbideError::internal(format!("Machine {machine_id} has no DPU. Cannot allocate."))
-            }
-            NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
-            NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
-        });
-    }
+        // Add host-inband network segments (using pre-queried batch data)
+        let inband_segment_ids = inband_segments_map
+            .get(&mh_snapshot.host_snapshot.id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let updated_network_config = db::instance_network_config::add_inband_interfaces_to_config(
+            request.config.network.clone(),
+            inband_segment_ids,
+        );
 
-    // This persists the instance with initial configs, but this is lacking the config
-    // for related items we are allocating. At this point in time mostly the allocated
-    // IPs for the instance.
-    // We allocate those now in a separate call and update `Instance`. This is ok
-    // because the transaction doesn't become visible until committed anyway.
-    // We can't allocate IPs before creating the instance, because the IP table
-    // requires the InstanceId as owner reference.
-    let instance = db::instance::persist(new_instance, &mut txn).await?;
-    // TODO: Should we check that the network segment actually belongs to the
-    // tenant?
+        // Allocate IPs
+        let updated_network_config = db::instance_network_config::with_allocated_ips(
+            updated_network_config,
+            &mut txn,
+            instance_id,
+            &mh_snapshot.host_snapshot,
+        )
+        .await?;
 
-    // Add any host-inband network segments to the network config. This allows tenants to omit
-    // explicit interface config for HostInband networks, because those NICs cannot be
-    // configured through carbide in the first place.
-    let updated_network_config = db::instance_network_config::with_inband_interfaces_from_machine(
-        request.config.network,
-        &mut txn,
-        &mh_snapshot.host_snapshot.id,
-    )
-    .await?;
+        if updated_network_config.interfaces.is_empty() {
+            return Err(CarbideError::InvalidConfiguration(
+                ConfigValidationError::InvalidValue(format!(
+                    "InstanceNetworkConfig.interfaces is empty (machine {})",
+                    request.machine_id
+                )),
+            ));
+        }
 
-    // Allocate IPs and add them to the network config
-    let updated_network_config = db::instance_network_config::with_allocated_ips(
-        updated_network_config,
-        &mut txn,
-        instance.id,
-        &mh_snapshot.host_snapshot,
-    )
-    .await?;
+        network_config_updates.push((instance_id, network_config_version, updated_network_config));
 
-    if updated_network_config.interfaces.is_empty() {
-        return Err(CarbideError::InvalidConfiguration(
-            ConfigValidationError::InvalidValue(
-                "InstanceNetworkConfig.interfaces is empty".to_string(),
-            ),
+        // Allocate IB GUID
+        let updated_ib_config =
+            allocate_ib_port_guid(&request.config.infiniband, &mh_snapshot.host_snapshot)?;
+        ib_config_updates.push((instance_id, ib_config_version, updated_ib_config));
+
+        // NVLink config
+        nvlink_config_updates.push((
+            instance_id,
+            nvl_config_version,
+            request.config.nvlink.clone(),
         ));
     }
 
-    // Persist the updated `InstanceNetworkConfig`
-    // We need to retain version 1
-    db::instance::update_network_config(
-        &mut txn,
-        instance.id,
-        network_config_version,
-        &updated_network_config,
-        false,
-    )
-    .await?;
+    // ==== Phase 8: Batch update configs ====
+    // increment_version = false: during initial creation, we don't increment
+    let network_refs: Vec<_> = network_config_updates
+        .iter()
+        .map(|(id, ver, cfg)| (*id, *ver, cfg))
+        .collect();
+    db::instance::batch_update_network_config(&mut txn, &network_refs, false).await?;
 
-    // Allocate GUID for infiniband interfaces/ports.
-    let updated_ib_config =
-        allocate_ib_port_guid(&request.config.infiniband, &mh_snapshot.host_snapshot).await?;
+    let ib_refs: Vec<_> = ib_config_updates
+        .iter()
+        .map(|(id, ver, cfg)| (*id, *ver, cfg))
+        .collect();
+    db::instance::batch_update_ib_config(&mut txn, &ib_refs, false).await?;
 
-    // Persist the GUID for Infiniband configuration.
-    // We need to retain version 1.
-    db::instance::update_ib_config(
-        &mut txn,
-        instance.id,
-        ib_config_version,
-        &updated_ib_config,
-        false,
-    )
-    .await?;
+    let nvlink_refs: Vec<_> = nvlink_config_updates
+        .iter()
+        .map(|(id, ver, cfg)| (*id, *ver, cfg))
+        .collect();
+    db::instance::batch_update_nvlink_config(&mut txn, &nvlink_refs, false).await?;
 
-    db::instance::update_nvlink_config(
-        &mut txn,
-        instance.id,
-        nvl_config_version,
-        &request.config.nvlink,
-        false,
-    )
-    .await?;
+    // ==== Phase 9: Load final instances ====
+    let machine_id_refs: Vec<&MachineId> = processed_requests
+        .iter()
+        .map(|(r, _)| &r.machine_id)
+        .collect();
+    let final_instances = db::instance::find_by_machine_ids(&mut txn, &machine_id_refs).await?;
+    let mut final_instance_map: HashMap<_, _> = final_instances
+        .into_iter()
+        .map(|i| (i.machine_id, i))
+        .collect();
 
-    // Machine will be rebooted once managed resource creation is successful.
-    mh_snapshot.instance = Some(
-        db::instance::find_by_machine_id(&mut txn, &machine_id)
-            .await?
-            .ok_or_else(|| {
-                CarbideError::internal(format!(
-                    "Newly created instance for {machine_id} was not found"
-                ))
-            })?,
-    );
+    // ==== Phase 10: Assemble final snapshots ====
+    let mut snapshots = Vec::with_capacity(request_count);
+    for (request, mut mh_snapshot) in processed_requests {
+        let machine_id = request.machine_id;
+        mh_snapshot.instance = Some(final_instance_map.remove(&machine_id).ok_or_else(|| {
+            CarbideError::internal(format!(
+                "Newly created instance for {machine_id} was not found"
+            ))
+        })?);
+        snapshots.push(mh_snapshot);
+    }
 
+    // ==== Phase 11: Commit ====
     txn.commit().await?;
 
-    Ok(mh_snapshot)
+    tracing::info!(
+        instance_count = snapshots.len(),
+        "Successfully completed batch instance allocation"
+    );
+
+    Ok(snapshots)
 }
 
-/// check whether the tenant of instance is consistent with the tenant of the ib partition
+/// Batch validate IB partition ownership for multiple (partition_id, tenant_id) pairs
+pub async fn batch_validate_ib_partition_ownership(
+    txn: &mut PgConnection,
+    validations: &[(IBPartitionId, &TenantOrganizationId)],
+) -> CarbideResult<()> {
+    if validations.is_empty() {
+        return Ok(());
+    }
+
+    // Batch query all unique partitions
+    let unique_partition_ids: Vec<_> = validations
+        .iter()
+        .map(|(id, _)| *id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    let partitions = db::ib_partition::find_by(
+        txn,
+        ObjectColumnFilter::List(ib_partition::IdColumn, &unique_partition_ids),
+    )
+    .await?;
+
+    let partition_map: HashMap<_, _> = partitions.into_iter().map(|p| (p.id, p)).collect();
+
+    // Validate each partition ownership
+    for (partition_id, expected_tenant) in validations {
+        let partition = partition_map.get(partition_id).ok_or_else(|| {
+            ConfigValidationError::invalid_value(format!(
+                "IB partition {partition_id} is not created"
+            ))
+        })?;
+
+        if &partition.config.tenant_organization_id != *expected_tenant {
+            return Err(CarbideError::InvalidArgument(format!(
+                "IB Partition {partition_id} is not owned by the tenant {expected_tenant}",
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Check whether the tenant of instance is consistent with the tenant of the ib partition
 pub async fn validate_ib_partition_ownership(
     txn: &mut PgConnection,
     instance_tenant: &TenantOrganizationId,
     ib_config: &InstanceInfinibandConfig,
 ) -> CarbideResult<()> {
-    let partition_ids: HashSet<_> = ib_config
+    let validations: Vec<_> = ib_config
         .ib_interfaces
         .iter()
-        .map(|iface| iface.ib_partition_id)
+        .map(|iface| (iface.ib_partition_id, instance_tenant))
         .collect();
-
-    for partition_id in partition_ids.iter() {
-        let ib_partitions = db::ib_partition::find_by(
-            txn,
-            ObjectColumnFilter::One(ib_partition::IdColumn, partition_id),
-        )
-        .await?;
-        let ib_partition = ib_partitions
-            .first()
-            .ok_or(ConfigValidationError::invalid_value(format!(
-                "IB partition {partition_id} is not created"
-            )))?;
-
-        if ib_partition.config.tenant_organization_id != *instance_tenant {
-            return Err(CarbideError::InvalidArgument(format!(
-                "IB Partition {partition_id} is not owned by the tenant {instance_tenant}",
-            )));
-        }
-    }
-    Ok(())
+    batch_validate_ib_partition_ownership(txn, &validations).await
 }
 
 #[cfg(test)]

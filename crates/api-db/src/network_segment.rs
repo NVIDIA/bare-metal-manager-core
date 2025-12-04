@@ -9,11 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::Deref;
 
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
+use forge_uuid::machine::MachineId;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
 use futures::StreamExt;
@@ -309,15 +311,36 @@ pub async fn find_ids_by_machine_id(
     machine_id: &::forge_uuid::machine::MachineId,
     network_segment_type: Option<NetworkSegmentType>,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
+    let result = batch_find_ids_by_machine_ids(txn, &[*machine_id], network_segment_type).await?;
+
+    Ok(result.get(machine_id).cloned().unwrap_or_default())
+}
+
+/// Batch find network segments attached to multiple machines through machine_interfaces.
+/// Returns a HashMap mapping each machine ID to its list of segment IDs.
+pub async fn batch_find_ids_by_machine_ids(
+    txn: &mut PgConnection,
+    machine_ids: &[MachineId],
+    network_segment_type: Option<NetworkSegmentType>,
+) -> Result<HashMap<MachineId, Vec<NetworkSegmentId>>, DatabaseError> {
+    if machine_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
     let mut query = sqlx::QueryBuilder::new(
-        r#"SELECT ns.id FROM machines m
+        r#"SELECT mi.machine_id, ns.id FROM machines m
                 LEFT JOIN machine_interfaces mi ON (mi.machine_id = m.id)
                 INNER JOIN network_segments ns ON (ns.id = mi.segment_id)
-                WHERE mi.machine_id =
-            "#,
+                WHERE mi.machine_id = ANY("#,
     );
 
-    query.push_bind(machine_id);
+    query.push_bind(
+        machine_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>(),
+    );
+    query.push(")");
 
     if let Some(network_segment_type) = network_segment_type {
         query
@@ -325,13 +348,20 @@ pub async fn find_ids_by_machine_id(
             .push_bind(network_segment_type);
     }
 
-    let network_segment_ids = query
+    let rows: Vec<(String, NetworkSegmentId)> = query
         .build_query_as()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
-    Ok(network_segment_ids)
+    let mut result: HashMap<MachineId, Vec<NetworkSegmentId>> = HashMap::new();
+    for (machine_id_str, segment_id) in rows {
+        if let Ok(machine_id) = machine_id_str.parse::<MachineId>() {
+            result.entry(machine_id).or_default().push(segment_id);
+        }
+    }
+
+    Ok(result)
 }
 
 async fn update_num_free_ips_into_prefix_list(

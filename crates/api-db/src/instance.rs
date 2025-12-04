@@ -232,27 +232,12 @@ pub async fn update_network_config(
     new_state: &InstanceNetworkConfig,
     increment_version: bool,
 ) -> Result<(), DatabaseError> {
-    let next_version = if increment_version {
-        expected_version.increment()
-    } else {
-        expected_version
-    };
-
-    let query = "UPDATE instances SET network_config_version=$1, network_config=$2::json
-            WHERE id=$3 AND network_config_version=$4
-            RETURNING id";
-    let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
-        .bind(next_version)
-        .bind(sqlx::types::Json(new_state))
-        .bind(instance_id)
-        .bind(expected_version)
-        .fetch_one(txn)
-        .await;
-
-    match query_result {
-        Ok((_instance_id,)) => Ok(()),
-        Err(e) => Err(DatabaseError::query(query, e)),
-    }
+    batch_update_network_config(
+        txn,
+        &[(instance_id, expected_version, new_state)],
+        increment_version,
+    )
+    .await
 }
 
 pub async fn update_phone_home_last_contact(
@@ -396,27 +381,12 @@ pub async fn update_ib_config(
     new_state: &InstanceInfinibandConfig,
     increment_version: bool,
 ) -> Result<(), DatabaseError> {
-    let next_version = if increment_version {
-        expected_version.increment()
-    } else {
-        expected_version
-    };
-
-    let query = "UPDATE instances SET ib_config_version=$1, ib_config=$2::json
-            WHERE id=$3 AND ib_config_version=$4
-            RETURNING id";
-    let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
-        .bind(next_version)
-        .bind(sqlx::types::Json(new_state))
-        .bind(instance_id)
-        .bind(expected_version)
-        .fetch_one(txn)
-        .await;
-
-    match query_result {
-        Ok((_instance_id,)) => Ok(()),
-        Err(e) => Err(DatabaseError::query(query, e)),
-    }
+    batch_update_ib_config(
+        txn,
+        &[(instance_id, expected_version, new_state)],
+        increment_version,
+    )
+    .await
 }
 
 /// Updates the desired nvlink configuration for an instance
@@ -427,28 +397,12 @@ pub async fn update_nvlink_config(
     new_state: &InstanceNvLinkConfig,
     increment_version: bool,
 ) -> Result<(), DatabaseError> {
-    let next_version = if increment_version {
-        expected_version.increment()
-    } else {
-        expected_version
-    };
-
-    let query = "UPDATE instances SET nvlink_config_version=$1, nvlink_config=$2::json
-            WHERE id=$3 AND nvlink_config_version=$4
-            RETURNING id";
-
-    let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
-        .bind(next_version)
-        .bind(sqlx::types::Json(new_state))
-        .bind(instance_id)
-        .bind(expected_version)
-        .fetch_one(txn)
-        .await;
-
-    match query_result {
-        Ok((_instance_id,)) => Ok(()),
-        Err(e) => Err(DatabaseError::query(query, e)),
-    }
+    batch_update_nvlink_config(
+        txn,
+        &[(instance_id, expected_version, new_state)],
+        increment_version,
+    )
+    .await
 }
 
 pub async fn trigger_update_network_config_request(
@@ -521,28 +475,22 @@ pub async fn update_extension_services_config(
     }
 }
 
-/// Persists the new instance to the DB.
+/// Batch insert for multiple instances.
+/// This is optimized for inserting many instances in a single database operation.
 ///
-/// Does ***not*** check for the existence of the associated machine.
-///
-/// It's expected that the machine associated with the request has
-/// already been checked for existence and that appropriate locking has
-/// been used.
-///
-/// * `txn` - A reference to an active DB transaction
-pub async fn persist(
-    value: NewInstance<'_>,
+/// Note: This function expects all machines to exist and be locked before calling.
+/// It will fail if any machine doesn't exist or has a mismatched instance_type_id.
+pub async fn batch_persist<'a>(
+    values: Vec<NewInstance<'a>>,
     txn: &mut PgConnection,
-) -> DatabaseResult<InstanceSnapshot> {
-    let mut os_ipxe_script = String::new();
-    let os_user_data = value.config.os.user_data.clone();
-    let mut os_image_id = None;
-    match &value.config.os.variant {
-        OperatingSystemVariant::Ipxe(ipxe) => {
-            os_ipxe_script = ipxe.ipxe_script.clone();
-        }
-        OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
+) -> DatabaseResult<Vec<InstanceSnapshot>> {
+    if values.is_empty() {
+        return Ok(Vec::new());
     }
+
+    // For batch insert, we need to collect all the instance IDs and then query them back
+    // because Postgres INSERT ... RETURNING with push_values doesn't work well with row_to_json
+    let instance_ids: Vec<InstanceId> = values.iter().map(|v| v.instance_id).collect();
 
     let query = "INSERT INTO instances (
                         id,
@@ -572,52 +520,308 @@ pub async fn persist(
                         nvlink_config_version
                     )
                     SELECT 
-                            $1, $2, $3, $4, $5, $6, $7, $8::json, $9, $10::json, 
-                            $11, $12, $13, $14, $15, $16::json, $17, $18, $19, true,
-                            m.instance_type_id, $22::json, $23, $24::json, $25
-                    FROM machines m WHERE m.id=$20 AND ($21 IS NULL OR m.instance_type_id=$21) FOR UPDATE
-                    RETURNING row_to_json(instances.*)";
-    match sqlx::query_as(query)
-        .bind(value.instance_id)
-        .bind(value.machine_id.to_string())
-        .bind(os_user_data)
-        .bind(os_ipxe_script)
-        .bind(os_image_id)
-        .bind(value.config.os.run_provisioning_instructions_on_every_boot)
-        .bind(value.config.tenant.tenant_organization_id.as_str())
-        .bind(sqlx::types::Json(&value.config.network))
-        .bind(value.network_config_version)
-        .bind(sqlx::types::Json(&value.config.infiniband))
-        .bind(value.ib_config_version)
-        .bind(&value.config.tenant.tenant_keyset_ids)
-        .bind(value.config.os.phone_home_enabled)
-        .bind(&value.metadata.name)
-        .bind(&value.metadata.description)
-        .bind(sqlx::types::Json(&value.metadata.labels))
-        .bind(value.config_version)
-        .bind(&value.config.tenant.hostname)
-        .bind(&value.config.network_security_group_id)
-        .bind(value.machine_id.to_string())
-        .bind(&value.instance_type_id)
-        .bind(sqlx::types::Json(&value.config.extension_services))
-        .bind(value.extension_services_config_version)
-        .bind(sqlx::types::Json(&value.config.nvlink))
-        .bind(value.nvlink_config_version)
-        .fetch_one(txn)
-        .await
-    {
-        // Not sure which error feels better here, FailedPrecondition or InvalidArgument,
-        // since the state of the system (the instance type of the machine) might be correct,
-        // in which case maybe InvalidArgument, or the state of the system might be incorrect,
-        // in which case FailedPrecondition.  Since both depend on the state of the system,
-        // which could change and make the argument acceptable or not, this is probably
-        // FailedPrecondition.
-        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::FailedPrecondition(
-            "expected InstanceTypeId does not match source machine".to_string(),
-        )),
-        Err(e) => Err(DatabaseError::query(query, e)),
-        Ok(o) => Ok(o),
+                            vals.id, vals.machine_id, vals.os_user_data, vals.os_ipxe_script, 
+                            vals.os_image_id, vals.os_always_boot_with_ipxe, vals.tenant_org, 
+                            vals.network_config::json, vals.network_config_version, 
+                            vals.ib_config::json, vals.ib_config_version, vals.keyset_ids, 
+                            vals.os_phone_home_enabled, vals.name, vals.description, 
+                            vals.labels::json, vals.config_version, vals.hostname, 
+                            vals.network_security_group_id, true,
+                            m.instance_type_id, vals.extension_services_config::json, 
+                            vals.extension_services_config_version, vals.nvlink_config::json, 
+                            vals.nvlink_config_version
+                    FROM (VALUES ";
+
+    let mut qb = sqlx::QueryBuilder::new(query);
+
+    // Build VALUES clause
+    let mut separated = qb.separated(", ");
+    for value in &values {
+        let mut os_ipxe_script = String::new();
+        let os_user_data = value.config.os.user_data.clone();
+        let mut os_image_id: Option<uuid::Uuid> = None;
+        match &value.config.os.variant {
+            OperatingSystemVariant::Ipxe(ipxe) => {
+                os_ipxe_script = ipxe.ipxe_script.clone();
+            }
+            OperatingSystemVariant::OsImage(id) => os_image_id = Some(*id),
+        }
+
+        separated.push("(");
+        separated.push_bind_unseparated(value.instance_id);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.machine_id.to_string());
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(os_user_data);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(os_ipxe_script);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(os_image_id);
+        separated.push_unseparated(",");
+        separated
+            .push_bind_unseparated(value.config.os.run_provisioning_instructions_on_every_boot);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.config.tenant.tenant_organization_id.as_str());
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(
+            serde_json::to_string(&value.config.network).unwrap_or_default(),
+        );
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.network_config_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(
+            serde_json::to_string(&value.config.infiniband).unwrap_or_default(),
+        );
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.ib_config_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(&value.config.tenant.tenant_keyset_ids);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.config.os.phone_home_enabled);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(&value.metadata.name);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(&value.metadata.description);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(
+            serde_json::to_string(&value.metadata.labels).unwrap_or_default(),
+        );
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.config_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(&value.config.tenant.hostname);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(&value.config.network_security_group_id);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(&value.instance_type_id);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(
+            serde_json::to_string(&value.config.extension_services).unwrap_or_default(),
+        );
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.extension_services_config_version);
+        separated.push_unseparated(",");
+        separated
+            .push_bind_unseparated(serde_json::to_string(&value.config.nvlink).unwrap_or_default());
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.nvlink_config_version);
+        separated.push_unseparated(")");
     }
+
+    qb.push(") AS vals(id, machine_id, os_user_data, os_ipxe_script, os_image_id, 
+                       os_always_boot_with_ipxe, tenant_org, network_config, network_config_version,
+                       ib_config, ib_config_version, keyset_ids, os_phone_home_enabled, name, 
+                       description, labels, config_version, hostname, network_security_group_id,
+                       instance_type_id, extension_services_config, extension_services_config_version,
+                       nvlink_config, nvlink_config_version)
+            INNER JOIN machines m ON m.id = vals.machine_id 
+                AND (vals.instance_type_id IS NULL OR m.instance_type_id = vals.instance_type_id)");
+
+    let result = qb
+        .build()
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::new("batch_persist", e))?;
+
+    // Check if all instances were inserted
+    // If instance_type_id doesn't match, the row won't be inserted due to the JOIN condition
+    let expected_count = values.len() as u64;
+    if result.rows_affected() != expected_count {
+        return Err(DatabaseError::FailedPrecondition(
+            "expected InstanceTypeId does not match source machine".to_string(),
+        ));
+    }
+
+    // Now fetch the inserted instances
+    let query = "SELECT row_to_json(i.*) FROM instances i WHERE i.id = ANY($1)";
+    sqlx::query_as(query)
+        .bind(&instance_ids)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Batch update network configs for multiple instances
+/// Each update contains (instance_id, expected_version, config)
+/// The increment_version flag controls whether to increment the version
+pub async fn batch_update_network_config(
+    txn: &mut PgConnection,
+    updates: &[(InstanceId, ConfigVersion, &InstanceNetworkConfig)],
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    let expected_count = updates.len() as u64;
+
+    // Use a CTE to batch update with version check
+    let mut qb = sqlx::QueryBuilder::new(
+        "UPDATE instances SET 
+            network_config_version = updates.new_version,
+            network_config = updates.config::json
+        FROM (VALUES ",
+    );
+
+    let mut separated = qb.separated(", ");
+    for (instance_id, expected_version, config) in updates {
+        // Compute new_version per-row (ConfigVersion is a complex struct, can't do arithmetic in SQL)
+        let new_version = if increment_version {
+            expected_version.increment()
+        } else {
+            *expected_version
+        };
+        separated.push("(");
+        separated.push_bind_unseparated(*instance_id);
+        separated.push_unseparated("::uuid,");
+        separated.push_bind_unseparated(*expected_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(new_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(serde_json::to_string(config).unwrap_or_default());
+        separated.push_unseparated(")");
+    }
+
+    qb.push(
+        ") AS updates(id, expected_version, new_version, config) 
+        WHERE instances.id = updates.id 
+        AND instances.network_config_version = updates.expected_version",
+    );
+
+    let result = qb
+        .build()
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("batch_update_network_config", e))?;
+
+    // Verify all rows were updated (version check passed)
+    if result.rows_affected() != expected_count {
+        return Err(DatabaseError::FailedPrecondition(
+            "Network config version mismatch during batch update".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Batch update IB configs for multiple instances
+/// Each update contains (instance_id, expected_version, config)
+pub async fn batch_update_ib_config(
+    txn: &mut PgConnection,
+    updates: &[(InstanceId, ConfigVersion, &InstanceInfinibandConfig)],
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    let expected_count = updates.len() as u64;
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "UPDATE instances SET 
+            ib_config_version = updates.new_version,
+            ib_config = updates.config::json
+        FROM (VALUES ",
+    );
+
+    let mut separated = qb.separated(", ");
+    for (instance_id, expected_version, config) in updates {
+        let new_version = if increment_version {
+            expected_version.increment()
+        } else {
+            *expected_version
+        };
+        separated.push("(");
+        separated.push_bind_unseparated(*instance_id);
+        separated.push_unseparated("::uuid,");
+        separated.push_bind_unseparated(*expected_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(new_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(serde_json::to_string(config).unwrap_or_default());
+        separated.push_unseparated(")");
+    }
+
+    qb.push(
+        ") AS updates(id, expected_version, new_version, config) 
+        WHERE instances.id = updates.id 
+        AND instances.ib_config_version = updates.expected_version",
+    );
+
+    let result = qb
+        .build()
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("batch_update_ib_config", e))?;
+
+    // Verify all rows were updated (version check passed)
+    if result.rows_affected() != expected_count {
+        return Err(DatabaseError::FailedPrecondition(
+            "IB config version mismatch during batch update".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Batch update nvlink configs for multiple instances
+/// Each update contains (instance_id, expected_version, config)
+pub async fn batch_update_nvlink_config(
+    txn: &mut PgConnection,
+    updates: &[(InstanceId, ConfigVersion, &InstanceNvLinkConfig)],
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    let expected_count = updates.len() as u64;
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "UPDATE instances SET 
+            nvlink_config_version = updates.new_version,
+            nvlink_config = updates.config::json
+        FROM (VALUES ",
+    );
+
+    let mut separated = qb.separated(", ");
+    for (instance_id, expected_version, config) in updates {
+        let new_version = if increment_version {
+            expected_version.increment()
+        } else {
+            *expected_version
+        };
+        separated.push("(");
+        separated.push_bind_unseparated(*instance_id);
+        separated.push_unseparated("::uuid,");
+        separated.push_bind_unseparated(*expected_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(new_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(serde_json::to_string(config).unwrap_or_default());
+        separated.push_unseparated(")");
+    }
+
+    qb.push(
+        ") AS updates(id, expected_version, new_version, config) 
+        WHERE instances.id = updates.id 
+        AND instances.nvlink_config_version = updates.expected_version",
+    );
+
+    let result = qb
+        .build()
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("batch_update_nvlink_config", e))?;
+
+    // Verify all rows were updated (version check passed)
+    if result.rows_affected() != expected_count {
+        return Err(DatabaseError::FailedPrecondition(
+            "NVLink config version mismatch during batch update".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 pub async fn delete(instance_id: InstanceId, txn: &mut PgConnection) -> DatabaseResult<()> {

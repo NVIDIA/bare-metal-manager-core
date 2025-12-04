@@ -9,7 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
+
 use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::network::NetworkSegmentId;
 use model::instance::config::network::{
     InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId,
 };
@@ -33,27 +37,58 @@ pub async fn with_allocated_ips(
 /// network config. This is because allocation requests do not need to explicitly enumerate
 /// a host's in-band (non-dpu) network segments: they cannot be configured through carbide.
 pub async fn with_inband_interfaces_from_machine(
-    mut value: InstanceNetworkConfig,
+    value: InstanceNetworkConfig,
     txn: &mut PgConnection,
     machine_id: &::forge_uuid::machine::MachineId,
 ) -> DatabaseResult<InstanceNetworkConfig> {
-    let host_inband_segment_ids = crate::network_segment::find_ids_by_machine_id(
+    let inband_segments_map = crate::network_segment::batch_find_ids_by_machine_ids(
         txn,
-        machine_id,
+        &[*machine_id],
         Some(NetworkSegmentType::HostInband),
     )
     .await?;
 
+    let host_inband_segment_ids = inband_segments_map
+        .get(machine_id)
+        .cloned()
+        .unwrap_or_default();
+
+    Ok(add_inband_interfaces_to_config(
+        value,
+        &host_inband_segment_ids,
+    ))
+}
+
+/// Batch find host_inband segments for multiple machines and return a map.
+/// This allows efficient batch processing in batch_allocate_instances.
+pub async fn batch_get_inband_segments_by_machine_ids(
+    txn: &mut PgConnection,
+    machine_ids: &[MachineId],
+) -> DatabaseResult<HashMap<MachineId, Vec<NetworkSegmentId>>> {
+    crate::network_segment::batch_find_ids_by_machine_ids(
+        txn,
+        machine_ids,
+        Some(NetworkSegmentType::HostInband),
+    )
+    .await
+}
+
+/// Add inband interfaces to a network config based on segment IDs.
+/// This is a pure function that can be used after batch querying.
+pub fn add_inband_interfaces_to_config(
+    mut value: InstanceNetworkConfig,
+    host_inband_segment_ids: &[NetworkSegmentId],
+) -> InstanceNetworkConfig {
     for host_inband_segment_id in host_inband_segment_ids {
         // Only add it to the instance config if there isn't already an interface in this segment
         if !value
             .interfaces
             .iter()
-            .any(|i| i.network_segment_id == Some(host_inband_segment_id))
+            .any(|i| i.network_segment_id == Some(*host_inband_segment_id))
         {
             value.interfaces.push(InstanceInterfaceConfig {
                 function_id: InterfaceFunctionId::Physical {},
-                network_segment_id: Some(host_inband_segment_id),
+                network_segment_id: Some(*host_inband_segment_id),
                 network_details: None,
                 ip_addrs: Default::default(),
                 interface_prefixes: Default::default(),
@@ -65,5 +100,5 @@ pub async fn with_inband_interfaces_from_machine(
         }
     }
 
-    Ok(value)
+    value
 }

@@ -527,6 +527,16 @@ async fn main() -> color_eyre::Result<()> {
                     .into());
                 }
 
+                let number = allocate_request.number.unwrap_or(1);
+
+                // Validate: --transactional requires --number > 1
+                if allocate_request.transactional && number <= 1 {
+                    return Err(CarbideCliError::GenericError(
+                        "--transactional requires --number > 1".to_owned(),
+                    )
+                    .into());
+                }
+
                 let mut machine_ids: VecDeque<_> = if !allocate_request.machine_id.is_empty() {
                     allocate_request.machine_id.clone().into()
                 } else {
@@ -547,34 +557,83 @@ async fn main() -> color_eyre::Result<()> {
                     allocate_request.subnet.len()
                 };
 
-                for i in 0..allocate_request.number.unwrap_or(1) {
-                    let Some(machine) = machine::get_next_free_machine(
-                        &api_client,
-                        &mut machine_ids,
-                        min_interface_count,
-                    )
-                    .await
-                    else {
-                        tracing::error!("No available machines.");
-                        break;
-                    };
-
-                    match api_client
-                        .allocate_instance(
-                            machine,
-                            &allocate_request,
-                            &format!("{}_{}", allocate_request.prefix_name.clone(), i),
-                            config.cloud_unsafe_op.clone(),
+                if allocate_request.transactional {
+                    // Batch mode: all-or-nothing
+                    let mut requests = Vec::new();
+                    for i in 0..number {
+                        let Some(machine) = machine::get_next_free_machine(
+                            &api_client,
+                            &mut machine_ids,
+                            min_interface_count,
                         )
                         .await
-                    {
-                        Ok(i) => {
-                            tracing::info!("allocate was successful. Created instance: {:?} ", i);
+                        else {
+                            return Err(CarbideCliError::GenericError(format!(
+                                "Need {} machines but only {} available.",
+                                number, i
+                            ))
+                            .into());
+                        };
+
+                        let request = api_client
+                            .build_instance_request(
+                                machine,
+                                &allocate_request,
+                                &format!("{}_{}", allocate_request.prefix_name, i),
+                                config.cloud_unsafe_op.clone(),
+                            )
+                            .await?;
+                        requests.push(request);
+                    }
+
+                    match api_client.allocate_instances(requests).await {
+                        Ok(instances) => {
+                            tracing::info!(
+                                "Batch allocate was successful. Created {} instances.",
+                                instances.len()
+                            );
+                            for instance in instances {
+                                tracing::info!("  Created: {:?}", instance);
+                            }
                         }
                         Err(e) => {
-                            tracing::info!("allocate failed with {} ", e);
+                            tracing::error!("Batch allocate failed: {}", e);
                         }
-                    };
+                    }
+                } else {
+                    // Sequential mode: partial success allowed
+                    for i in 0..number {
+                        let Some(machine) = machine::get_next_free_machine(
+                            &api_client,
+                            &mut machine_ids,
+                            min_interface_count,
+                        )
+                        .await
+                        else {
+                            tracing::error!("No available machines.");
+                            break;
+                        };
+
+                        match api_client
+                            .allocate_instance(
+                                machine,
+                                &allocate_request,
+                                &format!("{}_{}", allocate_request.prefix_name, i),
+                                config.cloud_unsafe_op.clone(),
+                            )
+                            .await
+                        {
+                            Ok(i) => {
+                                tracing::info!(
+                                    "allocate was successful. Created instance: {:?} ",
+                                    i
+                                );
+                            }
+                            Err(e) => {
+                                tracing::info!("allocate failed with {} ", e);
+                            }
+                        };
+                    }
                 }
             }
             Instance::UpdateOS(update_request) => {

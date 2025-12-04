@@ -5387,8 +5387,8 @@ async fn test_allocate_instance_with_duplicate_extension_services(
     assert!(instance.is_err());
     let err = instance.unwrap_err();
     assert!(
-        err.to_string()
-            .contains("Duplicate extension services in configuration. Only one version of each service is allowed.")
+        err.message()
+            .starts_with("Duplicate extension services in configuration. Only one version of each service is allowed.")
     );
 
     Ok(())
@@ -5716,8 +5716,8 @@ async fn test_update_instance_with_extension_services(
     assert!(instance.is_err());
     let err = instance.unwrap_err();
     assert!(
-        err.to_string()
-            .contains("Duplicate extension services in configuration. Only one version of each service is allowed.")
+        err.message()
+            .starts_with("Duplicate extension services in configuration. Only one version of each service is allowed.")
     );
 
     Ok(())
@@ -5829,6 +5829,126 @@ async fn test_extension_services_status_observation(
     assert_eq!(
         dpu_status.status,
         rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning as i32,
+    );
+
+    Ok(())
+}
+
+/// Allocate instance with non-existent OS image ID.
+/// Expect: FailedPrecondition error indicating image does not exist.
+#[crate::sqlx_test]
+async fn test_allocate_instance_with_invalid_os_image(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    // Use a non-existent OS image ID
+    let invalid_os_image_id = uuid::Uuid::new_v4();
+
+    let os_config = rpc::forge::OperatingSystem {
+        phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
+        user_data: None,
+        variant: Some(rpc::forge::operating_system::Variant::OsImageId(
+            rpc::Uuid::from(invalid_os_image_id),
+        )),
+    };
+
+    let result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: mh.id.into(),
+            config: Some(rpc::InstanceConfig {
+                network_security_group_id: None,
+                tenant: Some(default_tenant_config()),
+                os: Some(os_config),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                nvlink: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "test-invalid-os-image".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("does not exist"),
+        "Expected error about OS image not existing, got: {}",
+        err.message()
+    );
+
+    Ok(())
+}
+
+/// Allocate instance with non-existent IB partition ID.
+/// Expect: InvalidArgument error indicating partition is not created.
+#[crate::sqlx_test]
+async fn test_allocate_instance_with_invalid_ib_partition(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    // Use a non-existent IB partition ID
+    let invalid_partition_id = forge_uuid::infiniband::IBPartitionId::from(uuid::Uuid::new_v4());
+
+    let ib_config = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            virtual_function_id: None,
+            ib_partition_id: Some(invalid_partition_id),
+            device: "MT2910 Family [ConnectX-7]".to_string(),
+            vendor: None,
+            device_instance: 0,
+        }],
+    };
+
+    let result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: mh.id.into(),
+            config: Some(rpc::InstanceConfig {
+                network_security_group_id: None,
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: Some(ib_config),
+                nvlink: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "test-invalid-ib-partition".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("IB partition") || err.message().contains("not created"),
+        "Expected error about IB partition not existing, got: {}",
+        err.message()
     );
 
     Ok(())
