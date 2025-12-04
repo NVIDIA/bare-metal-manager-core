@@ -762,7 +762,6 @@ jobs:
       DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
 
   # ============================================================================
-<<<<<<< HEAD
   # NOTIFICATION STAGE
   # ============================================================================
 
@@ -803,7 +802,6 @@ jobs:
       notify-on-failure: true
     secrets:
       slack-bot-token: ${{ secrets.CDS_SLACK_BOT_OAUTH_TOKEN }}
-=======
   # PUSH MAIN TAG
   # ============================================================================
   push-main-tag:
@@ -823,4 +821,3 @@ jobs:
         with:
           tag: main-${{ needs.prepare.outputs.short_sha }}
           github_token: ${{ secrets.TAG_PAT_TOKEN }}
->>>>>>> d6b31a168 (feat: add promotion and release workflow)
