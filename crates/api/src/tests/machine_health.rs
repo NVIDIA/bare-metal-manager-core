@@ -740,6 +740,8 @@ async fn load_host_health_history(
         .find_machine_health_histories(tonic::Request::new(
             ::rpc::forge::MachineHealthHistoriesRequest {
                 machine_ids: vec![*machine_id],
+                start_time: None,
+                end_time: None,
             },
         ))
         .await
@@ -815,6 +817,44 @@ fn check_reports_equal(
     assert_eq!(reported.source, source);
     expected.source = source.to_string();
     check_health_reports_equal(&reported, &expected);
+}
+
+/// Loads health alerts by time range via FindMachineHealthHistories RPC with time filtering
+async fn load_health_alerts_by_time_range(
+    env: &TestEnv,
+    machine_id: &::carbide_uuid::machine::MachineId,
+    start_time: chrono::DateTime<chrono::Utc>,
+    end_time: chrono::DateTime<chrono::Utc>,
+) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
+    let response = env
+        .api
+        .find_machine_health_histories(tonic::Request::new(
+            ::rpc::forge::MachineHealthHistoriesRequest {
+                machine_ids: vec![*machine_id],
+                start_time: Some(start_time.into()),
+                end_time: Some(end_time.into()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let machine_id_str = machine_id.to_string();
+    response
+        .histories
+        .get(&machine_id_str)
+        .map(|h| h.records.clone())
+        .unwrap_or_default()
+}
+
+/// Inserts health report and processes it via state controller
+async fn insert_health_and_process(
+    env: &TestEnv,
+    machine_id: &::carbide_uuid::machine::MachineId,
+    health: health_report::HealthReport,
+) {
+    send_health_report_override(env, machine_id, (health, OverrideMode::Replace)).await;
+    env.run_machine_state_controller_iteration().await;
 }
 
 #[crate::sqlx_test]
@@ -1061,6 +1101,129 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
                 .classifications
                 .contains(&health_report::HealthAlertClassification::prevent_allocations())
         );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_find_health_alerts_by_time_range(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // SETUP: Create test environment and machine
+    let env = create_env(pool).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
+
+    // Record start time
+    let time_before = chrono::Utc::now();
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // INSERT 1: First health report with 2 alerts + 1 success
+    let health1 = hr(
+        "test-source-1",
+        vec![("Success1", None)],
+        vec![
+            ("Failure1", Some("TestComponent1"), "First test failure"),
+            ("Failure2", None, "Second test failure"),
+        ],
+    );
+    insert_health_and_process(&env, &host_machine_id, health1).await;
+
+    let time_after_first = chrono::Utc::now();
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // INSERT 2: Second health report with 1 alert + 1 success
+    let health2 = hr(
+        "test-source-2",
+        vec![("Success2", Some("TestComponent2"))],
+        vec![("Fan", Some("TestFan"), "Fan failure detected")],
+    );
+    insert_health_and_process(&env, &host_machine_id, health2).await;
+
+    let time_after_second = chrono::Utc::now();
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // INSERT 3: Third health report with 1 alert, no successes
+    let health3 = hr(
+        "test-source-3",
+        vec![],
+        vec![("Failure3", Some("TestComponent3"), "Third test failure")],
+    );
+    insert_health_and_process(&env, &host_machine_id, health3).await;
+
+    let time_after_third = chrono::Utc::now();
+
+    // TEST 1: Query for ALL alerts (full time range)
+    let all_alerts =
+        load_health_alerts_by_time_range(&env, &host_machine_id, time_before, time_after_third)
+            .await;
+
+    assert_eq!(all_alerts.len(), 3, "Should have 3 alert records");
+
+    // Verify first record has 2 alerts (no successes!)
+    let health0 = all_alerts[0].health.as_ref().unwrap();
+    assert_eq!(health0.alerts.len(), 2);
+    assert_eq!(health0.alerts[0].id, "Failure1");
+    assert_eq!(health0.alerts[0].target, Some("TestComponent1".to_string()));
+    assert_eq!(health0.alerts[0].message, "First test failure");
+    assert_eq!(health0.alerts[1].id, "Failure2");
+    assert_eq!(health0.source, "aggregate-host-health");
+
+    // Verify second record has 1 alert (success filtered out!)
+    let health1 = all_alerts[1].health.as_ref().unwrap();
+    assert_eq!(health1.alerts.len(), 1);
+    assert_eq!(health1.alerts[0].id, "Fan");
+    assert_eq!(health1.alerts[0].target, Some("TestFan".to_string()));
+    assert_eq!(health1.alerts[0].message, "Fan failure detected");
+    assert_eq!(health1.source, "aggregate-host-health");
+
+    // Verify third record has 1 alert
+    let health2 = all_alerts[2].health.as_ref().unwrap();
+    assert_eq!(health2.alerts.len(), 1);
+    assert_eq!(health2.alerts[0].id, "Failure3");
+    assert_eq!(health2.alerts[0].target, Some("TestComponent3".to_string()));
+    assert_eq!(health2.source, "aggregate-host-health");
+
+    // TEST 2: Query MIDDLE time range only (should get only second record)
+    let middle_alerts = load_health_alerts_by_time_range(
+        &env,
+        &host_machine_id,
+        time_after_first,
+        time_after_second,
+    )
+    .await;
+
+    assert_eq!(
+        middle_alerts.len(),
+        1,
+        "Should have 1 record in middle range"
+    );
+    assert_eq!(
+        middle_alerts[0].health.as_ref().unwrap().alerts[0].id,
+        "Fan"
+    );
+
+    // TEST 3: Query FUTURE time range (should be empty)
+    let future_time = chrono::Utc::now() + chrono::Duration::hours(1);
+    let no_alerts = load_health_alerts_by_time_range(
+        &env,
+        &host_machine_id,
+        future_time,
+        future_time + chrono::Duration::hours(1),
+    )
+    .await;
+
+    assert_eq!(
+        no_alerts.len(),
+        0,
+        "Should have no records in future time range"
+    );
+
+    // TEST 4: Verify timestamps are present and reasonable
+    for record in &all_alerts {
+        assert!(record.time.is_some(), "Each record should have a timestamp");
+        let timestamp = record.time.as_ref().unwrap();
+        assert!(timestamp.seconds > 0, "Timestamp should be valid");
     }
 
     Ok(())

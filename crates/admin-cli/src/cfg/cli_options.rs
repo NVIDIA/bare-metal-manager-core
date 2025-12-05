@@ -4075,21 +4075,31 @@ pub struct DebugBundle {
 
     #[clap(
         long,
-        help = "Start time: 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS' (uses today's date)"
+        help = "Start time: 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS' (uses today's date). Default: local timezone, use --utc for UTC"
     )]
     pub start_time: String,
 
     #[clap(
         long,
-        help = "End time: 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS' (uses today's date)"
+        help = "End time: 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS' (uses today's date). Defaults to current time if not provided. Default: local timezone, use --utc for UTC"
     )]
-    pub end_time: String,
+    pub end_time: Option<String>,
 
-    #[clap(long, help = "Output directory path for the debug bundle")]
+    #[clap(
+        long,
+        help = "Interpret start-time and end-time as UTC instead of local timezone"
+    )]
+    pub utc: bool,
+
+    #[clap(
+        long,
+        default_value = "/tmp",
+        help = "Output directory path for the debug bundle (default: /tmp)"
+    )]
     pub output_path: String,
 
-    #[clap(long, help = "Site name (e.g., dev3, prod, staging)")]
-    pub site: String,
+    #[clap(long, help = "Grafana base URL (e.g., https://grafana.example.com)")]
+    pub grafana_url: String,
 
     #[clap(
         long,
@@ -4097,6 +4107,9 @@ pub struct DebugBundle {
         help = "Batch size for log collection (default: 5000, max: 5000)"
     )]
     pub batch_size: u32,
+
+    #[clap(long, help = "Skip log collection and only collect machine metadata")]
+    pub no_logs: bool,
 }
 
 #[derive(Parser, Debug)]

@@ -2418,6 +2418,10 @@ message MachineStateHistoryRecords {
 
 message MachineHealthHistoriesRequest {
   repeated common.MachineId machine_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message MachineHealthHistories {

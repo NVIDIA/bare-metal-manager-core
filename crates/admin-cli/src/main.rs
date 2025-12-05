@@ -803,7 +803,7 @@ async fn main() -> color_eyre::Result<()> {
                 crate::firmware::start_updates(&api_client, options).await?
             }
             ManagedHost::DebugBundle(debug_bundle) => {
-                debug_bundle::handle_debug_bundle(debug_bundle).await?;
+                debug_bundle::handle_debug_bundle(debug_bundle, &api_client).await?;
             }
             ManagedHost::SetPrimaryDpu(set_primary_args) => {
                 api_client
