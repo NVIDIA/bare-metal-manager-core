@@ -886,6 +886,7 @@ build-sbom-container:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-sbom-tools/
+    - if: $REBUILD_SBOM_CONTAINER == "true"
     - changes:
         - dev/docker/sbom-tools/Dockerfile
 
@@ -915,6 +916,7 @@ build-powerdns-container:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-powerdns/
+    - if: $REBUILD_POWERDNS_CONTAINER == "true"
     - changes:
         - dev/docker/powerdns/Dockerfile
 
