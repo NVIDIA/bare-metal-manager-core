@@ -1138,7 +1138,7 @@ dev-env-test-with-carbide:
     - source /root/.bashrc
     - eval "$(direnv export bash)"
     - just clean
-    - docker builder prune --force --all
+    - docker system prune --force --all
     - echo "Clean-up complete!"
   artifacts:
     when: always
