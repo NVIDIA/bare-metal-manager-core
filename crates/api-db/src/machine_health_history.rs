@@ -82,6 +82,37 @@ pub async fn find_by_machine_ids(
     Ok(histories)
 }
 
+/// Retrieve the health history for a single Machine within a time range
+///
+/// Returns a list of health history records for the specified machine
+/// between start_time (inclusive) and end_time (inclusive), ordered by time ascending.
+/// Limits results to 1,000 records by default to prevent excessive memory usage.
+pub async fn find_by_time_range(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    start_time: &DateTime<Utc>,
+    end_time: &DateTime<Utc>,
+) -> Result<Vec<MachineHealthHistoryRecord>, DatabaseError> {
+    let query = "SELECT machine_id, health, time
+        FROM machine_health_history
+        WHERE machine_id = $1
+          AND time >= $2
+          AND time <= $3
+        ORDER BY time ASC
+        LIMIT 1000";
+
+    let machine_id_str = machine_id.to_string();
+    let query_results = sqlx::query_as::<_, DbMachineHealthHistoryRecord>(query)
+        .bind(machine_id_str)
+        .bind(start_time)
+        .bind(end_time)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(query_results.into_iter().map(|r| r.into()).collect())
+}
+
 /// Store a new health history record for a Machine
 pub async fn persist(
     txn: &mut PgConnection,

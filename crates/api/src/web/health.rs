@@ -362,6 +362,8 @@ pub(super) async fn fetch_health_history(
         .find_machine_health_histories(tonic::Request::new(
             ::rpc::forge::MachineHealthHistoriesRequest {
                 machine_ids: vec![*machine_id],
+                start_time: None,
+                end_time: None,
             },
         ))
         .await

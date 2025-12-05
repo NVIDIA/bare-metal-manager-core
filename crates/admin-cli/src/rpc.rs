@@ -392,6 +392,26 @@ impl ApiClient {
         Ok(self.0.remove_health_report_override(request).await?)
     }
 
+    pub async fn get_health_report_overrides(
+        &self,
+        machine_id: ::carbide_uuid::machine::MachineId,
+    ) -> CarbideCliResult<::rpc::forge::ListHealthReportOverrideResponse> {
+        self.0
+            .list_health_report_overrides(machine_id)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn get_machine_health_histories(
+        &self,
+        request: ::rpc::forge::MachineHealthHistoriesRequest,
+    ) -> CarbideCliResult<::rpc::forge::MachineHealthHistories> {
+        self.0
+            .find_machine_health_histories(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
     pub async fn machine_admin_force_delete(
         &self,
         query: ForceDeleteMachineQuery,

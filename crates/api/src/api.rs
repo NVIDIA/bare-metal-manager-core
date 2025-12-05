@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -628,7 +629,73 @@ impl Forge for Api {
         &self,
         request: Request<rpc::MachineHealthHistoriesRequest>,
     ) -> std::result::Result<Response<rpc::MachineHealthHistories>, Status> {
-        crate::handlers::machine::find_machine_health_histories(self, request).await
+        log_request_data(&request);
+        let request_inner = request.into_inner();
+
+        // Check if time range filtering is requested
+        if let (Some(start_time), Some(end_time)) =
+            (request_inner.start_time, request_inner.end_time)
+        {
+            // Time-filtered query path
+            let machine_id = request_inner.machine_ids.first().ok_or_else(|| {
+                CarbideError::InvalidArgument("machine_id is required".to_string())
+            })?;
+
+            // Convert protobuf timestamps to chrono DateTime
+            let start_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
+                start_time.seconds,
+                start_time.nanos as u32,
+            )
+            .ok_or_else(|| {
+                CarbideError::InvalidArgument("Invalid start_time timestamp".to_string())
+            })?;
+            let end_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
+                end_time.seconds,
+                end_time.nanos as u32,
+            )
+            .ok_or_else(|| {
+                CarbideError::InvalidArgument("Invalid end_time timestamp".to_string())
+            })?;
+
+            // Start database transaction
+            let mut txn = self.txn_begin("find_machine_health_histories").await?;
+
+            // Call database function to get health history records with time filter
+            let db_records = db::machine_health_history::find_by_time_range(
+                &mut txn, machine_id, &start_dt, &end_dt,
+            )
+            .await?;
+
+            // Convert database records to MachineHealthHistories format
+            let response_records: Vec<rpc::MachineHealthHistoryRecord> = db_records
+                .into_iter()
+                .map(|db_rec| rpc::MachineHealthHistoryRecord {
+                    health: Some(db_rec.health.into()),
+                    time: Some(db_rec.time.into()),
+                })
+                .collect();
+
+            // Put records in a map keyed by machine ID string
+            let machine_id_str = machine_id.to_string();
+            let mut histories = HashMap::new();
+            histories.insert(
+                machine_id_str,
+                rpc::MachineHealthHistoryRecords {
+                    records: response_records,
+                },
+            );
+
+            txn.commit().await?;
+
+            Ok(Response::new(rpc::MachineHealthHistories { histories }))
+        } else {
+            // Original behavior: no time filtering
+            crate::handlers::machine::find_machine_health_histories(
+                self,
+                Request::new(request_inner),
+            )
+            .await
+        }
     }
 
     async fn find_interfaces(

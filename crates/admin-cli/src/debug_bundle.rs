@@ -18,14 +18,18 @@
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
+use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Local, NaiveDate, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use zip::CompressionMethod;
 use zip::write::{FileOptions, ZipWriter};
 
 use crate::cfg::cli_options::DebugBundle;
+use crate::rpc::ApiClient;
 
 const MAX_BATCH_SIZE: u32 = 5000;
 const CARBIDE_API_CONTAINER_NAME: &str = "carbide-api";
@@ -52,7 +56,7 @@ struct GrafanaTimeRange {
     to: String,
 }
 
-// 🎯 LogType enum for log categorization
+// LogType enum for log categorization
 #[derive(Debug, Clone, Copy)]
 enum LogType {
     CarbideApi,
@@ -75,22 +79,30 @@ impl LogType {
     }
 }
 
-// 🎯 TimeRange struct to group related time parameters
+// TimeRange struct to group related time parameters
 #[derive(Debug, Clone)]
 struct TimeRange {
     start_date: String,
     start_time: String,
     end_date: String,
     end_time: String,
+    use_utc: bool,
 }
 
 impl TimeRange {
-    fn new(start_date: &str, start_time: &str, end_date: &str, end_time: &str) -> Self {
+    fn new(
+        start_date: &str,
+        start_time: &str,
+        end_date: &str,
+        end_time: &str,
+        use_utc: bool,
+    ) -> Self {
         Self {
             start_date: start_date.to_string(),
             start_time: start_time.to_string(),
             end_date: end_date.to_string(),
             end_time: end_time.to_string(),
+            use_utc,
         }
     }
 
@@ -100,6 +112,7 @@ impl TimeRange {
             &self.start_time,
             &self.end_date,
             &self.end_time,
+            self.use_utc,
         )
     }
 
@@ -109,11 +122,78 @@ impl TimeRange {
             start_time: self.start_time.clone(),
             end_date: self.end_date.clone(),
             end_time: new_end_time.to_string(),
+            use_utc: self.use_utc,
         }
+    }
+
+    fn get_start_datetime(&self) -> CarbideCliResult<DateTime<Utc>> {
+        let date_naive = NaiveDate::parse_from_str(&self.start_date, "%Y-%m-%d").map_err(|e| {
+            CarbideCliError::GenericError(format!(
+                "Invalid date format '{}'. Expected YYYY-MM-DD: {}",
+                self.start_date, e
+            ))
+        })?;
+
+        let time_naive = NaiveTime::parse_from_str(&self.start_time, "%H:%M:%S").map_err(|e| {
+            CarbideCliError::GenericError(format!(
+                "Invalid time format '{}'. Expected HH:MM:SS: {}",
+                self.start_time, e
+            ))
+        })?;
+
+        let datetime = date_naive.and_time(time_naive);
+        let utc: DateTime<Utc> = if self.use_utc {
+            DateTime::from_naive_utc_and_offset(datetime, Utc)
+        } else {
+            datetime
+                .and_local_timezone(Local)
+                .single()
+                .ok_or_else(|| {
+                    CarbideCliError::GenericError(format!(
+                        "Invalid or ambiguous time '{}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.",
+                        datetime
+                    ))
+                })?
+                .with_timezone(&Utc)
+        };
+        Ok(utc)
+    }
+
+    fn get_end_datetime(&self) -> CarbideCliResult<DateTime<Utc>> {
+        let date_naive = NaiveDate::parse_from_str(&self.end_date, "%Y-%m-%d").map_err(|e| {
+            CarbideCliError::GenericError(format!(
+                "Invalid date format '{}'. Expected YYYY-MM-DD: {}",
+                self.end_date, e
+            ))
+        })?;
+
+        let time_naive = NaiveTime::parse_from_str(&self.end_time, "%H:%M:%S").map_err(|e| {
+            CarbideCliError::GenericError(format!(
+                "Invalid time format '{}'. Expected HH:MM:SS: {}",
+                self.end_time, e
+            ))
+        })?;
+
+        let datetime = date_naive.and_time(time_naive);
+        let utc: DateTime<Utc> = if self.use_utc {
+            DateTime::from_naive_utc_and_offset(datetime, Utc)
+        } else {
+            datetime
+                .and_local_timezone(Local)
+                .single()
+                .ok_or_else(|| {
+                    CarbideCliError::GenericError(format!(
+                        "Invalid or ambiguous time '{}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.",
+                        datetime
+                    ))
+                })?
+                .with_timezone(&Utc)
+        };
+        Ok(utc)
     }
 }
 
-// 🎯 LogBatch struct for batch management
+// LogBatch struct for batch management
 #[derive(Debug)]
 struct LogBatch {
     batch_number: usize,
@@ -132,9 +212,14 @@ impl LogBatch {
         }
     }
 
-    fn set_grafana_link(&mut self, site: &str, loki_uid: &str, expr: &str) -> CarbideCliResult<()> {
+    fn set_grafana_link(
+        &mut self,
+        grafana_base_url: &str,
+        loki_uid: &str,
+        expr: &str,
+    ) -> CarbideCliResult<()> {
         let (start_ms, end_ms) = self.time_range.to_grafana_format()?;
-        let link = generate_grafana_link(site, loki_uid, expr, &start_ms, &end_ms)?;
+        let link = generate_grafana_link(grafana_base_url, loki_uid, expr, &start_ms, &end_ms)?;
         self.grafana_link = Some(link);
         Ok(())
     }
@@ -160,33 +245,33 @@ impl LogBatch {
     }
 }
 
-// 🎯 LogCollector struct to encapsulate state and behavior
+// LogCollector struct to encapsulate state and behavior
 #[derive(Debug)]
 struct LogCollector {
-    site: String,
+    grafana_base_url: String,
     loki_uid: String,
     unique_log_ids: HashSet<String>,
     all_entries: Vec<LogEntry>,
     batch_size: u32,
     batch_links: Vec<(String, String, usize, String)>, // (batch_label, grafana_link, log_count, time_range_display)
-    grafana_client: GrafanaClient,                     // ✅ Reuse client across batches
+    grafana_client: GrafanaClient,                     // Reuse client across batches
 }
 
 impl LogCollector {
-    fn new(site: String, loki_uid: String, batch_size: u32) -> CarbideCliResult<Self> {
+    fn new(grafana_url: String, loki_uid: String, batch_size: u32) -> CarbideCliResult<Self> {
         // Validate and cap batch size
         let capped_batch_size = batch_size.min(MAX_BATCH_SIZE);
         if batch_size > MAX_BATCH_SIZE {
             println!(
-                "⚠️  Batch size {batch_size} exceeds maximum {MAX_BATCH_SIZE}, using {capped_batch_size}"
+                "   WARNING: Batch size {batch_size} exceeds maximum {MAX_BATCH_SIZE}, using {capped_batch_size}"
             );
         }
 
-        // ✅ Create GrafanaClient once and reuse
-        let grafana_client = GrafanaClient::new(site.clone())?;
+        // Create GrafanaClient once and reuse
+        let grafana_client = GrafanaClient::new(grafana_url.clone())?;
 
         Ok(Self {
-            site,
+            grafana_base_url: grafana_url,
             loki_uid,
             unique_log_ids: HashSet::new(),
             all_entries: Vec::new(),
@@ -197,11 +282,11 @@ impl LogCollector {
     }
 
     async fn collect_logs(
-        mut self,
+        &mut self,
         expr: &str,
         log_type: LogType,
         time_range: TimeRange,
-    ) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
+    ) -> CarbideCliResult<Vec<LogEntry>> {
         let mut current_time_range = time_range;
         let mut batch_number = 1;
 
@@ -211,7 +296,7 @@ impl LogCollector {
             let end_display = format_end_display(&batch.time_range.end_time, &end_ms);
 
             println!(
-                "📊 {}: Fetching logs from {} ({}) to {}",
+                "   {}: Fetching logs from {} ({}) to {}",
                 batch.label(),
                 batch.time_range.start_time,
                 start_ms,
@@ -221,7 +306,7 @@ impl LogCollector {
             let batch_result = self.process_batch(expr, &start_ms, &end_ms).await?;
 
             // Generate Grafana link for this batch
-            batch.set_grafana_link(&self.site, &self.loki_uid, expr)?;
+            batch.set_grafana_link(&self.grafana_base_url, &self.loki_uid, expr)?;
 
             // Store batch info with link and time range
             let batch_label = batch.label();
@@ -257,42 +342,7 @@ impl LogCollector {
             }
         }
 
-        // Destructure to get both fields without cloning
-        let LogCollector {
-            all_entries: logs,
-            unique_log_ids,
-            batch_links,
-            ..
-        } = self;
-
-        // Validate before returning
-        let log_type_upper = log_type.as_str().to_uppercase();
-        println!("📝 TOTAL {} LOGS COLLECTED: {}", log_type_upper, logs.len());
-
-        let logs_count = logs.len();
-        let unique_ids_count = unique_log_ids.len();
-
-        if logs_count != unique_ids_count {
-            println!(
-                "❌ Validation FAILED for {}: {} logs but {} unique IDs (some logs missing unique IDs)",
-                log_type.as_str(),
-                logs_count,
-                unique_ids_count
-            );
-            return Err(CarbideCliError::GenericError(format!(
-                "Log validation failed for {}: {logs_count} logs but {unique_ids_count} unique IDs",
-                log_type.as_str()
-            )));
-        }
-
-        println!(
-            "✅ Validation PASSED for {}: {} logs = {} unique IDs",
-            log_type.as_str(),
-            logs_count,
-            unique_ids_count
-        );
-
-        Ok((logs, batch_links))
+        self.finalize_and_validate_logs(&log_type)
     }
 
     async fn process_batch(
@@ -319,24 +369,60 @@ impl LogCollector {
             original_batch_count,
         })
     }
+
+    fn finalize_and_validate_logs(&self, log_type: &LogType) -> CarbideCliResult<Vec<LogEntry>> {
+        let log_type_upper = log_type.as_str().to_uppercase();
+        println!(
+            "   TOTAL {} LOGS COLLECTED: {}",
+            log_type_upper,
+            self.all_entries.len()
+        );
+
+        let logs_count = self.all_entries.len();
+        let unique_ids_count = self.unique_log_ids.len();
+
+        if logs_count != unique_ids_count {
+            println!(
+                "   Validation FAILED for {}: {} logs but {} unique IDs (some logs missing unique IDs)",
+                log_type.as_str(),
+                logs_count,
+                unique_ids_count
+            );
+            return Err(CarbideCliError::GenericError(format!(
+                "Log validation failed for {}: {logs_count} logs but {unique_ids_count} unique IDs",
+                log_type.as_str()
+            )));
+        }
+
+        println!(
+            "   Validation PASSED for {}: {} logs = {} unique IDs",
+            log_type.as_str(),
+            logs_count,
+            unique_ids_count
+        );
+
+        Ok(self.all_entries.clone())
+    }
+
+    fn get_batch_links(&self) -> &Vec<(String, String, usize, String)> {
+        &self.batch_links
+    }
 }
 
-// 🎯 GrafanaClient struct for API interactions
+// GrafanaClient struct for API interactions
 #[derive(Debug)]
 struct GrafanaClient {
     client: reqwest::Client,
-    site: String,
     base_url: String,
     auth_token: String,
 }
 
 impl GrafanaClient {
-    fn new(site: String) -> CarbideCliResult<Self> {
-        let auth_token = std::env::var("GRAFANA_AUTH_TOKEN").map_err(|_| {
-            CarbideCliError::GenericError(
-                "GRAFANA_AUTH_TOKEN environment variable not set".to_string(),
-            )
-        })?;
+    fn new(grafana_url: String) -> CarbideCliResult<Self> {
+        let auth_token = std::env::var("GRAFANA_AUTH_TOKEN")
+            .map_err(|_| CarbideCliError::GenericError(
+                "GRAFANA_AUTH_TOKEN environment variable not set. Please set it with your Grafana bearer token.".to_string()
+            ))?;
 
         // Build HTTP client with optional proxy support from environment variables
         let mut client_builder = reqwest::Client::builder();
@@ -348,13 +434,13 @@ impl GrafanaClient {
             .or_else(|_| std::env::var("HTTP_PROXY"))
             .or_else(|_| std::env::var("http_proxy"))
         {
-            println!("🔗 Using proxy: {}", proxy_url);
+            println!("   Using proxy: {}", proxy_url);
             let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| {
                 CarbideCliError::GenericError(format!("Failed to configure proxy: {}", e))
             })?;
             client_builder = client_builder.proxy(proxy);
         } else {
-            println!("📡 No proxy configured - connecting directly");
+            println!("   No proxy configured - connecting directly");
         }
 
         let client = client_builder.build().map_err(|e| {
@@ -363,14 +449,16 @@ impl GrafanaClient {
 
         Ok(Self {
             client,
-            base_url: format!("https://grafana-{site}.frg.nvidia.com"),
+            base_url: grafana_url,
             auth_token,
-            site,
         })
     }
 
     async fn get_loki_datasource_uid(&self) -> CarbideCliResult<String> {
-        println!("🔍 Fetching Loki datasource UID for site: {}", self.site);
+        println!(
+            "   Fetching Loki datasource UID from Grafana: {}",
+            self.base_url
+        );
 
         let datasources_url = format!("{}/api/datasources/", self.base_url);
 
@@ -386,7 +474,7 @@ impl GrafanaClient {
         match response {
             Ok(resp) => {
                 let status = resp.status();
-                println!("📡 Datasources API Response Status: {status}");
+                println!("   Datasources API Response Status: {status}");
 
                 if status.is_success() {
                     let datasources: Vec<GrafanaDatasource> = match resp.json().await {
@@ -400,7 +488,7 @@ impl GrafanaClient {
 
                     for ds in datasources {
                         if ds.datasource_type == "loki" {
-                            println!("✅ Found Loki datasource: {} (UID: {})", ds.name, ds.uid);
+                            println!("   Found Loki datasource: {} (UID: {})", ds.name, ds.uid);
                             return Ok(ds.uid);
                         }
                     }
@@ -422,7 +510,7 @@ impl GrafanaClient {
     }
 }
 
-// 🎯 LogEntry struct for log entries
+// LogEntry struct for log entries
 #[derive(Debug, Clone)]
 struct LogEntry {
     message: String,
@@ -476,7 +564,7 @@ pub enum GrafanaValue {
     Object(serde_json::Value),
 }
 
-// 🎯 Strongly typed structs for Grafana query requests
+// Strongly typed structs for Grafana query requests
 #[derive(Serialize)]
 struct GrafanaQueryRequest {
     queries: Vec<LokiQuery>,
@@ -504,7 +592,7 @@ struct LokiDatasource {
     uid: String,
 }
 
-// 🎯 Grafana Datasource API Response Structs
+// Grafana Datasource API Response Structs
 #[derive(Deserialize, Debug)]
 struct GrafanaDatasource {
     pub uid: String,
@@ -513,80 +601,356 @@ struct GrafanaDatasource {
     pub datasource_type: String,
 }
 
-/// Creates a debug bundle for a specific host machine.
+// Site Controller Details - Holds BMC endpoint exploration data
+struct SiteControllerAnalysis {
+    exploration_report: ::rpc::site_explorer::EndpointExplorationReport,
+    credential_status: ::rpc::forge::BmcCredentialStatusResponse,
+    bmc_ip: String,
+    bmc_mac: Option<String>,
+}
+
+// Machine Info - Holds machine state machine data
+struct MachineAnalysis {
+    machine: ::rpc::forge::Machine,
+    validation_results: Vec<::rpc::forge::MachineValidationResult>,
+}
+
+/// Helper function to get BMC IP and MAC address from machine_id
+async fn get_bmc_ip_from_host_id(
+    api_client: &ApiClient,
+    host_id: &str,
+) -> CarbideCliResult<(String, Option<String>)> {
+    // Parse machine ID
+    let machine_id = MachineId::from_str(host_id).map_err(|e| {
+        CarbideCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
+    })?;
+
+    // Get machine details from API
+    let machine = api_client.get_machine(machine_id).await?;
+
+    // Extract BMC info
+    let bmc_info = machine.bmc_info.ok_or_else(|| {
+        CarbideCliError::GenericError(format!(
+            "Machine {} does not have BMC info available",
+            host_id
+        ))
+    })?;
+
+    // Extract BMC IP (required)
+    let bmc_ip = bmc_info.ip.ok_or_else(|| {
+        CarbideCliError::GenericError(format!(
+            "Machine {} does not have BMC IP address available",
+            host_id
+        ))
+    })?;
+
+    // Extract BMC MAC (optional)
+    let bmc_mac = bmc_info.mac;
+
+    Ok((bmc_ip, bmc_mac))
+}
+
+/// Fetch Site Controller Details (Redfish exploration + credentials)
+async fn get_site_controller_analysis(
+    api_client: &ApiClient,
+    host_id: &str,
+) -> CarbideCliResult<SiteControllerAnalysis> {
+    println!("   Fetching BMC information for machine {}...", host_id);
+
+    // Step 1: Get BMC IP and MAC from machine_id
+    let (bmc_ip, bmc_mac) = get_bmc_ip_from_host_id(api_client, host_id).await?;
+
+    println!("   BMC IP: {}", bmc_ip);
+    if let Some(ref mac) = bmc_mac {
+        println!("   BMC MAC: {}", mac);
+    }
+
+    // Parse MAC address if available
+    let mac_address = if let Some(ref mac_str) = bmc_mac {
+        use mac_address::MacAddress;
+        Some(MacAddress::from_str(mac_str).map_err(|e| {
+            CarbideCliError::GenericError(format!("Invalid MAC address '{}': {:?}", mac_str, e))
+        })?)
+    } else {
+        None
+    };
+
+    println!("   Exploring BMC endpoint via Redfish...");
+
+    // Step 2: Call Explore RPC (fetches Redfish data)
+    let exploration_report = api_client.explore(&bmc_ip, mac_address).await?;
+
+    println!("   Systems: {} found", exploration_report.systems.len());
+    println!("   Managers: {} found", exploration_report.managers.len());
+    println!("   Chassis: {} found", exploration_report.chassis.len());
+
+    // Step 3: Call BmcCredentialStatus RPC
+    let credential_status = api_client
+        .bmc_credential_status(&bmc_ip, mac_address)
+        .await?;
+
+    println!(
+        "   Credentials: Available = {}",
+        credential_status.have_credentials
+    );
+
+    Ok(SiteControllerAnalysis {
+        exploration_report,
+        credential_status,
+        bmc_ip,
+        bmc_mac,
+    })
+}
+
+/// Fetch machine info (state machine information)
+async fn get_machine_analysis(
+    api_client: &ApiClient,
+    machine_id: &MachineId,
+) -> CarbideCliResult<MachineAnalysis> {
+    println!("   Fetching machine state and metadata...");
+
+    // Get machine details (state, SLA, controller outcome, reboot info, errors)
+    let machine = api_client.get_machine(*machine_id).await?;
+    println!("   Current State: {}", machine.state);
+
+    // Get validation results
+    println!("   Fetching validation test failures...");
+    let validation_list = api_client
+        .get_machine_validation_results(Some(*machine_id), true, None)
+        .await?;
+
+    // Filter: Keep ONLY failed tests (exit_code != 0)
+    let failed_tests: Vec<_> = validation_list
+        .results
+        .into_iter()
+        .filter(|test| test.exit_code != 0)
+        .collect();
+
+    println!(
+        "   Validation Failures: {} failed tests found",
+        failed_tests.len()
+    );
+
+    Ok(MachineAnalysis {
+        machine,
+        validation_results: failed_tests,
+    })
+}
+
+/// Creates a comprehensive debug bundle for a specific machine.
 ///
-/// This function collects host-specific logs, carbide-api logs, and other diagnostic
-/// information for the specified machine within the given time range. The collected
-/// data is packaged into a ZIP file for debugging purposes.
+/// This function collects diagnostic information from multiple sources and packages
+/// them into a ZIP file for debugging and troubleshooting purposes.
+///
+/// # Data Collected
+///
+/// The debug bundle includes the following components:
+///
+/// 1. **Host-Specific Logs**: Machine-specific logs from Loki (filtered by `host_machine_id`)
+/// 2. **Carbide-API Logs**: API server logs from Loki (filtered by `k8s_container_name`)
+/// 3. **Health Alerts**: Historical health alerts for the machine within the specified time range
+/// 4. **Health Alert Overrides**: Current alert overrides configured for the machine
+/// 5. **Site Controller Details**: BMC/Redfish exploration data including:
+///    - BMC IP and MAC addresses
+///    - Systems, Managers, and Chassis information
+///    - Firmware inventory
+///    - Credential availability status
+/// 6. **Machine Info**: State machine information including:
+///    - Current state and state version
+///    - SLA status and controller outcome
+///    - Validation test failures
+///    - Reboot history and failure details
+/// 7. **Metadata**: Summary file with batch information and Grafana links
 ///
 /// # Arguments
 ///
-/// * `debug_bundle` - Configuration containing the host ID, time range, output path,
-///   site name, and batch size for log collection
+/// * `debug_bundle` - Configuration containing:
+///   - `host_id`: The machine ID to collect data for
+///   - `start_time`/`end_time`: Time range for log collection (HH:MM:SS format)
+///   - `output_path`: Directory where the ZIP file will be created
+///   - `site`: Site name (e.g., "dev3", "prod")
+///   - `batch_size`: Maximum logs per batch (default: 5000)
+///
+/// * `api_client` - Authenticated API client for making RPC calls to Carbide API
+///
+/// # Output
+///
+/// Creates a ZIP file with the following structure:
+/// - `host_logs_<machine_id>.txt` - Host-specific logs
+/// - `carbide_api_logs.txt` - API server logs
+/// - `health_alerts.json` - Health alerts history
+/// - `health_alert_overrides.json` - Active alert overrides
+/// - `site_controller_details.json` - BMC/Redfish exploration data
+/// - `machine_info.json` - Machine state and validation data
+/// - `metadata.txt` - Summary and Grafana links
 ///
 /// # Returns
 ///
 /// Returns `Ok(())` on successful bundle creation, or a `CarbideCliError` if any step fails.
-pub async fn handle_debug_bundle(debug_bundle: DebugBundle) -> CarbideCliResult<()> {
+///
+/// # Example
+///
+/// ```no_run
+/// use crate::cfg::cli_options::DebugBundle;
+/// use crate::rpc::ApiClient;
+///
+/// let bundle_config = DebugBundle {
+///     host_id: "fm100ht...".to_string(),
+///     start_time: "06:00:00".to_string(),
+///     end_time: Some("06:10:00".to_string()),
+///     utc: false,
+///     output_path: "/tmp".to_string(),
+///     grafana_url: "https://grafana-dev3.frg.nvidia.com".to_string(),
+///     batch_size: 5000,
+///     no_logs: false,
+/// };
+///
+/// let api_client = ApiClient::new(config).await?;
+/// handle_debug_bundle(bundle_config, &api_client).await?;
+/// ```
+pub async fn handle_debug_bundle(
+    debug_bundle: DebugBundle,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
     println!(
-        "🔍 Creating debug bundle for host: {}",
+        "   Creating debug bundle for host: {}",
         debug_bundle.host_id
     );
 
-    // 🎯 Use new GrafanaClient struct
-    let grafana_client = GrafanaClient::new(debug_bundle.site.clone())?;
-
-    println!("\n🔧 Step 0: Fetching Loki datasource UID...");
-    let loki_uid = grafana_client.get_loki_datasource_uid().await?;
-
-    // 🎯 Parse flexible date/time inputs
+    // Parse flexible date/time inputs
     let (start_date, start_time) = parse_datetime_input(&debug_bundle.start_time)?;
-    let (end_date, end_time) = parse_datetime_input(&debug_bundle.end_time)?;
 
-    // 🎯 Create TimeRange struct with parsed values
-    let time_range = TimeRange::new(&start_date, &start_time, &end_date, &end_time);
+    // Handle optional end_time (default to "now")
+    let (end_date, end_time) = if let Some(ref end_time_str) = debug_bundle.end_time {
+        parse_datetime_input(end_time_str)?
+    } else {
+        // Use current time as default
+        let now = chrono::Local::now();
+        let current_date = now.format("%Y-%m-%d").to_string();
+        let current_time = now.format("%H:%M:%S").to_string();
+        (current_date, current_time)
+    };
 
-    println!("\n📋 Step 1: Downloading host-specific logs...");
-    let (host_logs, host_batch_links) = get_host_logs(
-        &debug_bundle.host_id,
-        time_range.clone(),
-        &debug_bundle.site,
-        &loki_uid,
-        debug_bundle.batch_size,
-    )
-    .await?;
+    // Create TimeRange struct with parsed values
+    let time_range = TimeRange::new(
+        &start_date,
+        &start_time,
+        &end_date,
+        &end_time,
+        debug_bundle.utc,
+    );
 
-    println!("\n📋 Step 2: Downloading carbide-api logs...");
-    let (carbide_api_logs, carbide_batch_links) = get_carbide_api_logs(
-        time_range.clone(),
-        &debug_bundle.site,
-        &loki_uid,
-        debug_bundle.batch_size,
-    )
-    .await?;
+    // Conditionally collect logs based on --no-logs flag
+    let (host_logs, host_batch_links, carbide_api_logs, carbide_batch_links, loki_uid) =
+        if !debug_bundle.no_logs {
+            // Use new GrafanaClient struct
+            let grafana_client = GrafanaClient::new(debug_bundle.grafana_url.clone())?;
 
-    println!("\n📊 Log Collection Summary:");
+            println!("\nStep 0: Fetching Loki datasource UID...");
+            let loki_uid = grafana_client.get_loki_datasource_uid().await?;
+
+            println!("\nStep 1: Downloading host-specific logs...");
+            let (host_logs, host_batch_links) = get_host_logs(
+                &debug_bundle.host_id,
+                time_range.clone(),
+                &debug_bundle.grafana_url,
+                &loki_uid,
+                debug_bundle.batch_size,
+            )
+            .await?;
+
+            println!("\nStep 2: Downloading carbide-api logs...");
+            let (carbide_api_logs, carbide_batch_links) = get_carbide_api_logs(
+                time_range.clone(),
+                &debug_bundle.grafana_url,
+                &loki_uid,
+                debug_bundle.batch_size,
+            )
+            .await?;
+
+            (
+                host_logs,
+                host_batch_links,
+                carbide_api_logs,
+                carbide_batch_links,
+                Some(loki_uid),
+            )
+        } else {
+            println!("\nSkipping log collection (--no-logs flag set)");
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), None)
+        };
+
+    println!("\nStep 3: Fetching health alerts...");
+    let health_alerts = get_health_alerts(api_client, &debug_bundle.host_id, &time_range).await?;
+    let alert_count = health_alerts
+        .histories
+        .get(&debug_bundle.host_id)
+        .map(|h| h.records.len())
+        .unwrap_or(0);
+    println!("   Alerts: {} records collected", alert_count);
+
+    println!("\nStep 4: Fetching health alert overrides...");
+    let alert_overrides = get_alert_overrides(api_client, &debug_bundle.host_id).await?;
+    println!(
+        "   Overrides: {} overrides collected",
+        alert_overrides.overrides.len()
+    );
+
+    println!("\nStep 5: Fetching site controller details...");
+    let site_controller_analysis =
+        get_site_controller_analysis(api_client, &debug_bundle.host_id).await?;
+
+    // Step 6: Machine Info
+    println!("\nStep 6: Fetching machine info...");
+    let machine_id = MachineId::from_str(&debug_bundle.host_id).map_err(|e| {
+        CarbideCliError::GenericError(format!(
+            "Invalid machine ID '{}': {}",
+            debug_bundle.host_id, e
+        ))
+    })?;
+    let machine_analysis = get_machine_analysis(api_client, &machine_id).await?;
+
+    println!("\nDebug Bundle Summary:");
     println!("   Host Logs: {} logs collected", host_logs.len());
     println!(
         "   Carbide-API Logs: {} logs collected",
         carbide_api_logs.len()
     );
     println!(
-        "   Total: {} logs",
+        "   Health Alerts: {} records",
+        health_alerts
+            .histories
+            .get(&debug_bundle.host_id)
+            .map(|h| h.records.len())
+            .unwrap_or(0)
+    );
+    println!(
+        "   Health Alert Overrides: {} overrides",
+        alert_overrides.overrides.len()
+    );
+    println!("   Site Controller Details: Collected");
+    println!("   Machine State Information: Collected");
+    println!(
+        "   Total Logs: {}",
         host_logs.len() + carbide_api_logs.len()
     );
 
-    // Create ZIP file with both log types
-    println!("\n📦 Step 3: Creating ZIP file...");
+    // Create ZIP file with logs, health alerts, health alert overrides, site controller details, and machine info
+    println!("\nStep 7: Creating ZIP file...");
     create_debug_bundle_zip(
         &debug_bundle,
         &host_logs,
         &carbide_api_logs,
         &host_batch_links,
         &carbide_batch_links,
+        loki_uid.as_deref(),
+        &health_alerts,
+        &alert_overrides,
+        &site_controller_analysis,
+        &machine_analysis,
     )?;
 
-    println!("\n✅ Debug bundle creation completed!");
+    println!("\nDebug bundle creation completed!");
 
     Ok(())
 }
@@ -594,32 +958,92 @@ pub async fn handle_debug_bundle(debug_bundle: DebugBundle) -> CarbideCliResult<
 async fn get_host_logs(
     host_id: &str,
     time_range: TimeRange,
-    site: &str,
+    grafana_url: &str,
     loki_uid: &str,
     batch_size: u32,
 ) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
     let expr = format!("{{host_machine_id=\"{host_id}\"}} |= ``");
     let log_type = LogType::HostSpecific;
 
-    // ✅ NEW() NOW RETURNS RESULT
-    let collector = LogCollector::new(site.to_string(), loki_uid.to_string(), batch_size)?;
-    let (logs, batch_links) = collector.collect_logs(&expr, log_type, time_range).await?;
+    // NEW() NOW RETURNS RESULT
+    let mut collector =
+        LogCollector::new(grafana_url.to_string(), loki_uid.to_string(), batch_size)?;
+    let logs = collector.collect_logs(&expr, log_type, time_range).await?;
+    let batch_links = collector.get_batch_links().clone();
     Ok((logs, batch_links))
 }
 
 async fn get_carbide_api_logs(
     time_range: TimeRange,
-    site: &str,
+    grafana_url: &str,
     loki_uid: &str,
     batch_size: u32,
 ) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
     let expr = format!("{{{K8S_CONTAINER_NAME_LABEL}=\"{CARBIDE_API_CONTAINER_NAME}\"}} |= ``");
     let log_type = LogType::CarbideApi;
 
-    // ✅ NEW() NOW RETURNS RESULT
-    let collector = LogCollector::new(site.to_string(), loki_uid.to_string(), batch_size)?;
-    let (logs, batch_links) = collector.collect_logs(&expr, log_type, time_range).await?;
+    // NEW() NOW RETURNS RESULT
+    let mut collector =
+        LogCollector::new(grafana_url.to_string(), loki_uid.to_string(), batch_size)?;
+    let logs = collector.collect_logs(&expr, log_type, time_range).await?;
+    let batch_links = collector.get_batch_links().clone();
     Ok((logs, batch_links))
+}
+
+/// Collect health alerts for a machine within a time range
+async fn get_health_alerts(
+    api_client: &ApiClient,
+    host_id: &str,
+    time_range: &TimeRange,
+) -> CarbideCliResult<::rpc::forge::MachineHealthHistories> {
+    use std::str::FromStr;
+
+    use carbide_uuid::machine::MachineId;
+
+    // Parse machine ID
+    let machine_id = MachineId::from_str(host_id).map_err(|e| {
+        CarbideCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
+    })?;
+
+    // Get DateTime objects from TimeRange
+    let start_dt = time_range.get_start_datetime()?;
+    let end_dt = time_range.get_end_datetime()?;
+
+    // Convert DateTime → Protobuf Timestamp (using rpc::Timestamp's From implementation)
+    let start_time_proto: ::rpc::Timestamp = start_dt.into();
+    let end_time_proto: ::rpc::Timestamp = end_dt.into();
+
+    // Build request with time filtering
+    let request = ::rpc::forge::MachineHealthHistoriesRequest {
+        machine_ids: vec![machine_id],
+        start_time: Some(start_time_proto),
+        end_time: Some(end_time_proto),
+    };
+
+    // Call unified API with time filtering
+    let response = api_client.get_machine_health_histories(request).await?;
+
+    Ok(response)
+}
+
+/// Collect alert overrides for a machine (current state)
+async fn get_alert_overrides(
+    api_client: &ApiClient,
+    host_id: &str,
+) -> CarbideCliResult<::rpc::forge::ListHealthReportOverrideResponse> {
+    use std::str::FromStr;
+
+    use carbide_uuid::machine::MachineId;
+
+    // Parse machine ID
+    let machine_id = MachineId::from_str(host_id).map_err(|e| {
+        CarbideCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
+    })?;
+
+    // Call API to get current overrides
+    let response = api_client.get_health_report_overrides(machine_id).await?;
+
+    Ok(response)
 }
 
 // Step 1: Reusable request builder
@@ -669,7 +1093,7 @@ async fn execute_grafana_query(
     match response {
         Ok(resp) => {
             let status = resp.status();
-            println!("📡 Response Status: {status}");
+            println!("   Response Status: {status}");
 
             if status.is_success() {
                 let body = resp.text().await.map_err(|e| {
@@ -846,9 +1270,12 @@ fn format_timestamp_for_display(timestamp_ms: i64) -> String {
 // function to format end display timestamp
 fn format_end_display(current_end_time: &str, end_ms: &str) -> String {
     if current_end_time.ends_with("ms") {
-        let end_timestamp_str = current_end_time.strip_suffix("ms").unwrap();
-        if let Ok(end_ts) = end_timestamp_str.parse::<i64>() {
-            format!("{} ({})", format_timestamp_for_display(end_ts), end_ts)
+        if let Some(end_timestamp_str) = current_end_time.strip_suffix("ms") {
+            if let Ok(end_ts) = end_timestamp_str.parse::<i64>() {
+                format!("{} ({})", format_timestamp_for_display(end_ts), end_ts)
+            } else {
+                current_end_time.to_string()
+            }
         } else {
             current_end_time.to_string()
         }
@@ -862,6 +1289,7 @@ fn convert_time_to_grafana_format(
     start_time: &str,
     end_date: &str,
     end_time: &str,
+    use_utc: bool,
 ) -> CarbideCliResult<(String, String)> {
     let parse_datetime = |date: &str, time: &str| -> CarbideCliResult<i64> {
         let date_naive = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|e| {
@@ -877,20 +1305,34 @@ fn convert_time_to_grafana_format(
         })?;
 
         let datetime = date_naive.and_time(time_naive);
-        let utc: DateTime<Utc> = datetime
+        let utc: DateTime<Utc> = if use_utc {
+            // Interpret as UTC directly
+            DateTime::from_naive_utc_and_offset(datetime, Utc)
+        } else {
+            // Interpret as local timezone, then convert to UTC
+            datetime
             .and_local_timezone(Local)
-            .single()
-            .ok_or_else(|| {
-                CarbideCliError::GenericError(format!("Ambiguous local time: {}", datetime))
-            })?
-            .with_timezone(&Utc);
+                .single()
+                .ok_or_else(|| {
+                    CarbideCliError::GenericError(format!(
+                        "Invalid or ambiguous time '{}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.",
+                        datetime
+                    ))
+                })?
+                .with_timezone(&Utc)
+        };
         Ok(utc.timestamp_millis())
     };
 
     let start_ms = parse_datetime(start_date, start_time)?;
 
     let end_ms = if end_time.ends_with("ms") {
-        let end_timestamp_str = end_time.strip_suffix("ms").unwrap();
+        let end_timestamp_str = end_time.strip_suffix("ms").ok_or_else(|| {
+            CarbideCliError::GenericError(format!(
+                "Expected timestamp to end with 'ms': {}",
+                end_time
+            ))
+        })?;
         return Ok((start_ms.to_string(), end_timestamp_str.to_string()));
     } else {
         parse_datetime(end_date, end_time)?
@@ -899,7 +1341,7 @@ fn convert_time_to_grafana_format(
     Ok((start_ms.to_string(), end_ms.to_string()))
 }
 
-// 🎯 datetime parsing function
+// datetime parsing function
 fn parse_datetime_input(input: &str) -> CarbideCliResult<(String, String)> {
     let dash_count = input.chars().filter(|&c| c == '-').count();
     let colon_count = input.chars().filter(|&c| c == ':').count();
@@ -926,7 +1368,7 @@ fn parse_datetime_input(input: &str) -> CarbideCliResult<(String, String)> {
 }
 
 fn generate_grafana_link(
-    site: &str,
+    grafana_base_url: &str,
     loki_uid: &str,
     expr: &str,
     start_ms: &str,
@@ -949,12 +1391,12 @@ fn generate_grafana_link(
     })?;
 
     let encoded = urlencoding::encode(&json_str);
-    let grafana_url = format!("https://grafana-{site}.frg.nvidia.com/explore?left={encoded}");
+    let grafana_url = format!("{grafana_base_url}/explore?left={encoded}");
 
     Ok(grafana_url)
 }
 
-// 🎯 NEW ZIP CREATOR STRUCT
+// NEW ZIP CREATOR STRUCT
 struct ZipBundleCreator<'a> {
     config: &'a DebugBundle,
     timestamp: String,
@@ -968,15 +1410,22 @@ impl<'a> ZipBundleCreator<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_bundle(
         &self,
         host_logs: &[LogEntry],
         carbide_logs: &[LogEntry],
         host_batch_links: &[(String, String, usize, String)],
         carbide_batch_links: &[(String, String, usize, String)],
+        loki_uid: Option<&str>,
+        health_alerts: &::rpc::forge::MachineHealthHistories,
+        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        site_controller_analysis: &SiteControllerAnalysis,
+        machine_analysis: &MachineAnalysis,
     ) -> CarbideCliResult<String> {
         let filename = format!("{}_{}.zip", self.timestamp, self.config.host_id);
-        let filepath = format!("{}/{}", self.config.output_path, filename);
+        let output_path = self.config.output_path.trim_end_matches('/');
+        let filepath = format!("{}/{}", output_path, filename);
         let mut zip = ZipWriter::new(File::create(&filepath).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create ZIP file: {e}"))
         })?);
@@ -990,24 +1439,39 @@ impl<'a> ZipBundleCreator<'a> {
             options,
         )?;
         self.add_file(&mut zip, "carbide_api_logs.txt", carbide_logs, options)?;
+        self.add_alerts_json(&mut zip, health_alerts, options)?;
+        self.add_alert_overrides_json(&mut zip, alert_overrides, options)?;
+        self.add_site_controller_analysis_json(&mut zip, site_controller_analysis, options)?;
+        self.add_machine_analysis_json(&mut zip, machine_analysis, options)?;
         self.add_metadata(
             &mut zip,
             host_logs.len(),
             carbide_logs.len(),
             host_batch_links,
             carbide_batch_links,
+            loki_uid,
+            health_alerts,
+            alert_overrides,
+            site_controller_analysis,
+            machine_analysis,
             options,
         )?;
 
         zip.finish()
             .map_err(|e| CarbideCliError::GenericError(format!("Failed to finish ZIP: {e}")))?;
 
-        println!("✅ ZIP created: {filepath}");
+        println!("ZIP created: {filepath}");
         println!(
-            "📊 Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), metadata.txt",
+            "Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} overrides), site_controller_details.json, machine_info.json, metadata.txt",
             self.config.host_id,
             host_logs.len(),
-            carbide_logs.len()
+            carbide_logs.len(),
+            health_alerts
+                .histories
+                .get(&self.config.host_id)
+                .map(|h| h.records.len())
+                .unwrap_or(0),
+            alert_overrides.overrides.len()
         );
 
         Ok(filepath)
@@ -1029,6 +1493,364 @@ impl<'a> ZipBundleCreator<'a> {
         Ok(())
     }
 
+    fn add_alerts_json(
+        &self,
+        zip: &mut ZipWriter<File>,
+        health_alerts: &::rpc::forge::MachineHealthHistories,
+        options: FileOptions,
+    ) -> CarbideCliResult<()> {
+        zip.start_file("health_alerts.json", options).map_err(|e| {
+            CarbideCliError::GenericError(format!("Failed to create health_alerts.json: {e}"))
+        })?;
+
+        // Build JSON, extracting ONLY alerts from each HealthReport
+        let json_records: Vec<_> = health_alerts
+            .histories
+            .get(&self.config.host_id)
+            .map(|h| {
+                h.records
+                    .iter()
+                    .filter_map(|record| {
+                        record.health.as_ref().map(|health| {
+                            serde_json::json!({
+                                "alert_count": health.alerts.len(),
+                                "timestamp": record.time.as_ref().map(|t|
+                                    chrono::DateTime::from_timestamp(t.seconds, t.nanos as u32)
+                                        .map(|dt| dt.to_rfc3339())
+                                        .unwrap_or_else(|| "invalid".to_string())
+                                ),
+                                "source": &health.source,
+                                "alerts": health.alerts.iter().map(|alert| {
+                                    serde_json::json!({
+                                        "id": &alert.id,
+                                        "target": alert.target.as_ref(),
+                                        "in_alert_since": alert.in_alert_since.as_ref().map(|t|
+                                            chrono::DateTime::from_timestamp(t.seconds, t.nanos as u32)
+                                                .map(|dt| dt.to_rfc3339())
+                                                .unwrap_or_else(|| "invalid".to_string())
+                                        ),
+                                        "message": &alert.message
+                                    })
+                                }).collect::<Vec<_>>()
+                            })
+                        })
+                })
+            .collect()
+        })
+        .unwrap_or_default();
+
+        let total_alerts: usize = json_records
+            .iter()
+            .filter_map(|r| r.get("alert_count"))
+            .filter_map(|v| v.as_u64())
+            .map(|v| v as usize)
+            .sum();
+
+        let json_output = serde_json::json!({
+            "summary": {
+                "total_records": json_records.len(),
+                "total_alerts": total_alerts
+            },
+            "records": json_records
+        });
+
+        // Write pretty-formatted JSON to ZIP
+        let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
+            CarbideCliError::GenericError(format!("Failed to serialize health alerts to JSON: {e}"))
+        })?;
+
+        write!(zip, "{}", json_string)?;
+        Ok(())
+    }
+
+    fn add_alert_overrides_json(
+        &self,
+        zip: &mut ZipWriter<File>,
+        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        options: FileOptions,
+    ) -> CarbideCliResult<()> {
+        zip.start_file("health_alert_overrides.json", options)
+            .map_err(|e| {
+                CarbideCliError::GenericError(format!(
+                    "Failed to create health_alert_overrides.json: {e}"
+                ))
+            })?;
+
+        // Build JSON using serde_json::json! macro
+        let json_output = serde_json::json!({
+            "summary": {
+                "total_overrides": alert_overrides.overrides.len()
+            },
+            "overrides": alert_overrides.overrides.iter().map(|override_entry| {
+                let mode_str = match override_entry.mode {
+                    1 => "Merge",
+                    2 => "Replace",
+                    _ => "Unknown"
+                };
+
+                serde_json::json!({
+                    "mode": mode_str,
+                    "report": override_entry.report.as_ref().map(|report| {
+                        serde_json::json!({
+                            "source": &report.source,
+                            "alerts": report.alerts.iter().map(|alert| {
+                                serde_json::json!({
+                                    "id": &alert.id,
+                                    "target": alert.target.as_ref(),
+                                    "message": &alert.message,
+                                    "tenant_message": alert.tenant_message.as_ref(),
+                                })
+                            }).collect::<Vec<_>>(),
+                            "successes": report.successes.iter().map(|success| {
+                                serde_json::json!({
+                                    "id": &success.id,
+                                    "target": success.target.as_ref(),
+                                })
+                            }).collect::<Vec<_>>(),
+                        })
+                    })
+                })
+            }).collect::<Vec<_>>()
+        });
+
+        // Write pretty-formatted JSON to ZIP
+        let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
+            CarbideCliError::GenericError(format!("Failed to serialize overrides to JSON: {e}"))
+        })?;
+
+        write!(zip, "{}", json_string)?;
+        Ok(())
+    }
+
+    fn add_site_controller_analysis_json(
+        &self,
+        zip: &mut ZipWriter<File>,
+        analysis: &SiteControllerAnalysis,
+        options: FileOptions,
+    ) -> CarbideCliResult<()> {
+        zip.start_file("site_controller_details.json", options)
+            .map_err(|e| {
+                CarbideCliError::GenericError(format!(
+                    "Failed to create site_controller_details.json: {e}"
+                ))
+            })?;
+
+        let report = &analysis.exploration_report;
+
+        // Format BMC information
+        let bmc_info = json!({
+            "ip": analysis.bmc_ip,
+            "mac": analysis.bmc_mac,
+        });
+
+        // Format credentials information
+        let credentials_info = json!({
+            "have_credentials": analysis.credential_status.have_credentials,
+        });
+
+        // Format systems information
+        let systems_info = report
+            .systems
+            .iter()
+            .map(|system| {
+                json!({
+                    "id": system.id,
+                    "manufacturer": system.manufacturer,
+                    "model": system.model,
+                    "serial_number": system.serial_number,
+                    "power_state": system.power_state,
+                    "ethernet_interfaces_count": system.ethernet_interfaces.len(),
+                    "pcie_devices_count": system.pcie_devices.len(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // Format managers information
+        let managers_info = report
+            .managers
+            .iter()
+            .map(|manager| {
+                json!({
+                    "id": manager.id,
+                    "ethernet_interfaces_count": manager.ethernet_interfaces.len(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // Format chassis information
+        let chassis_info = report
+            .chassis
+            .iter()
+            .map(|chassis| {
+                json!({
+                    "id": chassis.id,
+                    "manufacturer": chassis.manufacturer,
+                    "model": chassis.model,
+                    "serial_number": chassis.serial_number,
+                    "part_number": chassis.part_number,
+                    "network_adapters_count": chassis.network_adapters.len(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // Format firmware inventory
+        let firmware_inventory_info = report
+            .service
+            .iter()
+            .flat_map(|service| {
+                service.inventories.iter().map(|inv| {
+                    json!({
+                        "service_id": &service.id,
+                        "inventory_id": &inv.id,
+                        "description": inv.description,
+                        "version": inv.version,
+                        "release_date": inv.release_date,
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // Format forge setup status
+        let forge_setup_status_info = report.forge_setup_status.as_ref().map(|status| {
+            json!({
+                "is_done": status.is_done,
+                "diffs_count": status.diffs.len(),
+            })
+        });
+
+        // Format redfish exploration
+        let redfish_exploration_info = json!({
+            "endpoint_type": report.endpoint_type,
+            "vendor": report.vendor,
+            "systems": systems_info,
+            "managers": managers_info,
+            "chassis": chassis_info,
+            "firmware_inventory": firmware_inventory_info,
+            "forge_setup_status": forge_setup_status_info,
+        });
+
+        // Create final JSON structure
+        let json_output = json!({
+            "host_id": self.config.host_id,
+            "bmc": bmc_info,
+            "credentials": credentials_info,
+            "redfish_exploration": redfish_exploration_info,
+        });
+
+        // Write pretty-formatted JSON to ZIP
+        let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
+            CarbideCliError::GenericError(format!(
+                "Failed to serialize site controller analysis to JSON: {e}"
+            ))
+        })?;
+
+        write!(zip, "{}", json_string)?;
+        Ok(())
+    }
+
+    fn add_machine_analysis_json(
+        &self,
+        zip: &mut ZipWriter<File>,
+        analysis: &MachineAnalysis,
+        options: FileOptions,
+    ) -> CarbideCliResult<()> {
+        zip.start_file("machine_info.json", options).map_err(|e| {
+            CarbideCliError::GenericError(format!("Failed to create machine_info.json: {e}"))
+        })?;
+
+        let machine = &analysis.machine;
+
+        // Format SLA information
+        let sla_info = machine.state_sla.as_ref().map(|sla| {
+            json!({
+                "sla_duration_seconds": sla.sla.as_ref().map(|d| d.seconds),
+                "time_in_state_above_sla": sla.time_in_state_above_sla,
+                "status": if sla.time_in_state_above_sla { "BREACHED" } else { "OK" }
+            })
+        });
+
+        // Format controller state reason
+        let controller_state = machine.state_reason.as_ref().map(|reason| {
+            json!({
+                "outcome": format!("{:?}", reason.outcome()),
+                "message": reason.outcome_msg.clone(),
+                "source": reason.source_ref.as_ref().map(|src| {
+                    format!("{}:{}", src.file, src.line)
+                }),
+            })
+        });
+
+        // Format reboot information
+        let reboot_info = json!({
+            "last_reboot_time": machine.last_reboot_time.as_ref().map(|ts| {
+                DateTime::<Utc>::from_timestamp(ts.seconds, ts.nanos as u32)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_else(|| ts.seconds.to_string())
+            }),
+            "last_reboot_requested": {
+                "time": machine.last_reboot_requested_time.as_ref().map(|ts| {
+                    DateTime::<Utc>::from_timestamp(ts.seconds, ts.nanos as u32)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_else(|| ts.seconds.to_string())
+                }),
+                "mode": machine.last_reboot_requested_mode.clone(),
+            }
+        });
+
+        // Format validation results (only failures)
+        let validation_info = json!({
+            "failed_tests": analysis.validation_results.len(),
+            "tests": analysis.validation_results.iter().map(|result| {
+                json!({
+                    "name": result.name,
+                    "description": result.description,
+                    "exit_code": result.exit_code,
+                    "passed": false,
+                    "start_time": result.start_time.as_ref().map(|ts| {
+                        DateTime::<Utc>::from_timestamp(ts.seconds, ts.nanos as u32)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_else(|| ts.seconds.to_string())
+                    }),
+                    "end_time": result.end_time.as_ref().map(|ts| {
+                        DateTime::<Utc>::from_timestamp(ts.seconds, ts.nanos as u32)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_else(|| ts.seconds.to_string())
+                    }),
+                    "command": result.command,
+                    "args": result.args,
+                    "stdout": result.std_out,
+                    "stderr": result.std_err,
+                    "context": result.context,
+                })
+            }).collect::<Vec<_>>()
+        });
+
+        // Create final JSON structure
+        let json_output = json!({
+            "machine_id": machine.id.as_ref().map(|id| id.to_string()),
+            "state_information": {
+                "current_state": machine.state,
+                "state_version": machine.state_version,
+            },
+            "sla": sla_info,
+            "controller_state": controller_state,
+            "failure_details": machine.failure_details,
+            "reboot_information": reboot_info,
+            "validation_results": validation_info,
+        });
+
+        // Write pretty-formatted JSON to ZIP
+        let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
+            CarbideCliError::GenericError(format!(
+                "Failed to serialize machine analysis to JSON: {e}"
+            ))
+        })?;
+
+        write!(zip, "{}", json_string)?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn add_metadata(
         &self,
         zip: &mut ZipWriter<File>,
@@ -1036,42 +1858,226 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_count: usize,
         host_batch_links: &[(String, String, usize, String)],
         carbide_batch_links: &[(String, String, usize, String)],
+        loki_uid: Option<&str>,
+        health_alerts: &::rpc::forge::MachineHealthHistories,
+        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        site_controller_analysis: &SiteControllerAnalysis,
+        machine_analysis: &MachineAnalysis,
         options: FileOptions,
     ) -> CarbideCliResult<()> {
         zip.start_file("metadata.txt", options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create metadata file: {e}"))
         })?;
         writeln!(zip, "Debug Bundle: {}", self.config.host_id)?;
+        let end_time_display = self
+            .config
+            .end_time
+            .as_deref()
+            .unwrap_or("now (current time)");
         writeln!(
             zip,
             "Time Range: {} to {}",
-            self.config.start_time, self.config.end_time
+            self.config.start_time, end_time_display
         )?;
-        writeln!(zip, "Site: {}", self.config.site)?;
+        writeln!(zip, "Grafana URL: {}", self.config.grafana_url)?;
         writeln!(zip, "Host Logs: {host_count}")?;
         writeln!(zip, "Carbide-API Logs: {carbide_count}")?;
         writeln!(zip, "Total: {}", host_count + carbide_count)?;
         writeln!(zip)?;
 
-        // Add Grafana links for host-specific logs
-        if !host_batch_links.is_empty() {
-            writeln!(zip, "Host-Specific Batches:")?;
-            for (batch_label, grafana_link, log_count, time_range_display) in host_batch_links {
-                writeln!(zip, "  {batch_label} ({log_count} logs):")?;
-                writeln!(zip, "    Time Range: {time_range_display}")?;
-                writeln!(zip, "    {grafana_link}")?;
-                writeln!(zip)?;
+        // Add Health Alerts Info
+        writeln!(zip, "Health Alerts:")?;
+        let (record_count, total_alerts) = health_alerts
+            .histories
+            .get(&self.config.host_id)
+            .map(|h| {
+                let count = h.records.len();
+                let alerts: usize = h
+                    .records
+                    .iter()
+                    .filter_map(|r| r.health.as_ref())
+                    .map(|h| h.alerts.len())
+                    .sum();
+                (count, alerts)
+            })
+            .unwrap_or((0, 0));
+        writeln!(zip, "  Total Records: {}", record_count)?;
+        writeln!(zip, "  Total Alerts: {}", total_alerts)?;
+        writeln!(zip)?;
+
+        // Add Health Alert Overrides Info
+        writeln!(zip, "Health Alert Overrides:")?;
+        writeln!(
+            zip,
+            "  Total Overrides: {}",
+            alert_overrides.overrides.len()
+        )?;
+        let active_overrides = alert_overrides
+            .overrides
+            .iter()
+            .filter(|o| {
+                if let Some(ref report) = o.report {
+                    report.alerts.iter().any(|a| a.in_alert_since.is_some())
+                } else {
+                    false
+                }
+            })
+            .count();
+        writeln!(zip, "  Active Overrides: {}", active_overrides)?;
+        writeln!(zip)?;
+
+        // Add Site Controller Details
+        writeln!(zip, "Site Controller Details:")?;
+        writeln!(zip, "  BMC IP: {}", site_controller_analysis.bmc_ip)?;
+        if let Some(ref mac) = site_controller_analysis.bmc_mac {
+            writeln!(zip, "  BMC MAC: {}", mac)?;
+        }
+        writeln!(
+            zip,
+            "  Credentials Available: {}",
+            site_controller_analysis.credential_status.have_credentials
+        )?;
+        writeln!(
+            zip,
+            "  Systems Found: {}",
+            site_controller_analysis.exploration_report.systems.len()
+        )?;
+        writeln!(
+            zip,
+            "  Managers Found: {}",
+            site_controller_analysis.exploration_report.managers.len()
+        )?;
+        writeln!(
+            zip,
+            "  Chassis Found: {}",
+            site_controller_analysis.exploration_report.chassis.len()
+        )?;
+        writeln!(
+            zip,
+            "  Firmware Services: {}",
+            site_controller_analysis.exploration_report.service.len()
+        )?;
+        writeln!(zip)?;
+
+        // Add Machine Info
+        writeln!(zip, "Machine Info:")?;
+        writeln!(
+            zip,
+            "  Machine ID: {}",
+            machine_analysis
+                .machine
+                .id
+                .as_ref()
+                .map(|id| id.to_string())
+                .as_deref()
+                .unwrap_or("N/A")
+        )?;
+        writeln!(zip, "  Current State: {}", machine_analysis.machine.state)?;
+        writeln!(
+            zip,
+            "  State Version: {}",
+            machine_analysis.machine.state_version
+        )?;
+
+        if let Some(ref sla) = machine_analysis.machine.state_sla {
+            let status = if sla.time_in_state_above_sla {
+                "BREACHED"
+            } else {
+                "✓ OK"
+            };
+            writeln!(zip, "  SLA Status: {}", status)?;
+        }
+
+        if let Some(ref reason) = machine_analysis.machine.state_reason {
+            writeln!(zip, "  Controller Outcome: {:?}", reason.outcome())?;
+            if let Some(ref msg) = reason.outcome_msg {
+                writeln!(zip, "  Controller Message: {}", msg)?;
             }
         }
 
-        // Add Grafana links for carbide-api logs
-        if !carbide_batch_links.is_empty() {
-            writeln!(zip, "Carbide-API Batches:")?;
-            for (batch_label, grafana_link, log_count, time_range_display) in carbide_batch_links {
-                writeln!(zip, "  {batch_label} ({log_count} logs):")?;
-                writeln!(zip, "    Time Range: {time_range_display}")?;
-                writeln!(zip, "    {grafana_link}")?;
-                writeln!(zip)?;
+        if machine_analysis.machine.failure_details.is_some() {
+            writeln!(zip, "  WARNING: Has Failure Details: Yes")?;
+        }
+
+        writeln!(
+            zip,
+            "  Validation Failures: {} failed tests",
+            machine_analysis.validation_results.len()
+        )?;
+        writeln!(zip)?;
+
+        // Generate overall Grafana links only if logs were collected
+        if let Some(loki_uid) = loki_uid {
+            let (start_date, start_time) = parse_datetime_input(&self.config.start_time)?;
+
+            // Handle optional end_time (default to "now")
+            let (end_date, end_time) = if let Some(ref end_time_str) = self.config.end_time {
+                parse_datetime_input(end_time_str)?
+            } else {
+                let now = chrono::Local::now();
+                let current_date = now.format("%Y-%m-%d").to_string();
+                let current_time = now.format("%H:%M:%S").to_string();
+                (current_date, current_time)
+            };
+
+            let time_range = TimeRange::new(
+                &start_date,
+                &start_time,
+                &end_date,
+                &end_time,
+                self.config.utc,
+            );
+            let (start_ms, end_ms) = time_range.to_grafana_format()?;
+
+            let host_expr = format!("{{host_machine_id=\"{}\"}} |= ``", self.config.host_id);
+            let host_overall_link = generate_grafana_link(
+                &self.config.grafana_url,
+                loki_uid,
+                &host_expr,
+                &start_ms,
+                &end_ms,
+            )?;
+
+            let carbide_expr =
+                format!("{{{K8S_CONTAINER_NAME_LABEL}=\"{CARBIDE_API_CONTAINER_NAME}\"}} |= ``");
+            let carbide_overall_link = generate_grafana_link(
+                &self.config.grafana_url,
+                loki_uid,
+                &carbide_expr,
+                &start_ms,
+                &end_ms,
+            )?;
+
+            // Host Logs - Overall Link and Batches
+            writeln!(zip, "Host Logs Grafana Link (Complete Time Range):")?;
+            writeln!(zip, "  {}", host_overall_link)?;
+            writeln!(zip)?;
+
+            if !host_batch_links.is_empty() {
+                writeln!(zip, "Host Logs Batches:")?;
+                for (batch_label, grafana_link, log_count, time_range_display) in host_batch_links {
+                    writeln!(zip, "  {batch_label} ({log_count} logs):")?;
+                    writeln!(zip, "    Time Range: {time_range_display}")?;
+                    writeln!(zip, "    {grafana_link}")?;
+                    writeln!(zip)?;
+                }
+            }
+
+            // Carbide-API Logs - Overall Link and Batches
+            writeln!(zip, "Carbide-API Logs Grafana Link (Complete Time Range):")?;
+            writeln!(zip, "  {}", carbide_overall_link)?;
+            writeln!(zip)?;
+
+            if !carbide_batch_links.is_empty() {
+                writeln!(zip, "Carbide-API Logs Batches:")?;
+                for (batch_label, grafana_link, log_count, time_range_display) in
+                    carbide_batch_links
+                {
+                    writeln!(zip, "  {batch_label} ({log_count} logs):")?;
+                    writeln!(zip, "    Time Range: {time_range_display}")?;
+                    writeln!(zip, "    {grafana_link}")?;
+                    writeln!(zip)?;
+                }
             }
         }
 
@@ -1079,18 +2085,29 @@ impl<'a> ZipBundleCreator<'a> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_debug_bundle_zip(
     debug_bundle: &DebugBundle,
     host_logs: &[LogEntry],
     carbide_api_logs: &[LogEntry],
     host_batch_links: &[(String, String, usize, String)],
     carbide_batch_links: &[(String, String, usize, String)],
+    loki_uid: Option<&str>,
+    health_alerts: &::rpc::forge::MachineHealthHistories,
+    alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+    site_controller_analysis: &SiteControllerAnalysis,
+    machine_analysis: &MachineAnalysis,
 ) -> CarbideCliResult<()> {
     ZipBundleCreator::new(debug_bundle).create_bundle(
         host_logs,
         carbide_api_logs,
         host_batch_links,
         carbide_batch_links,
+        loki_uid,
+        health_alerts,
+        alert_overrides,
+        site_controller_analysis,
+        machine_analysis,
     )?;
     Ok(())
 }
