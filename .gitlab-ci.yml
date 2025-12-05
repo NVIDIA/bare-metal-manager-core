@@ -22,6 +22,7 @@ variables:
   MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/machine-validation-runner
   POWERDNS_DOCKER_IMAGE: nvcr.io/nvidian/nvforge/powerdns
   POWERDNS_VERSION: "4.9.3"
+  SBOM_DOCKER_IMAGE: nvcr.io/nvidian/nvforge/sbom-tools
 
   FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
   ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
@@ -859,6 +860,35 @@ proto-police:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - "**/*.proto"
+
+build-sbom-container:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  needs:
+    - job: prepare-ci
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+  dependencies:
+    - prepare-ci
+    - export-docker-json-config
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/sbom-tools/Dockerfile
+  before_script: |
+    mkdir -p /kaniko/.docker
+    cp .docker/config.json /kaniko/.docker/config.json
+  script: |
+    set -euo pipefail
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $DOCKER_FILE --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA"  --destination "$SBOM_DOCKER_IMAGE:$VERSION" --destination "$SBOM_DOCKER_IMAGE:latest"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-sbom-tools/
+    - changes:
+        - dev/docker/sbom-tools/Dockerfile
+
 
 build-powerdns-container:
   stage: build
