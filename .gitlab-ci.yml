@@ -20,9 +20,9 @@ variables:
   ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-x86_64
   MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/machine_validation
   MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/machine-validation-runner
-  POWERDNS_DOCKER_IMAGE: nvcr.io/nvidian/nvforge/powerdns
-  POWERDNS_VERSION: "4.9.3"
-  SBOM_DOCKER_IMAGE: nvcr.io/nvidian/nvforge/sbom-tools
+  POWERDNS_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/powerdns
+  POWERDNS_VERSION: "4.9.11"
+  SBOM_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/sbom-tools
 
   FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
   ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
@@ -904,19 +904,19 @@ build-powerdns-container:
     - prepare-ci
     - export-docker-json-config
   variables:
-    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile-powerdns
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/powerdns/Dockerfile
   before_script: |
     mkdir -p /kaniko/.docker
     cp .docker/config.json /kaniko/.docker/config.json
   script: |
     set -euo pipefail
-      /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $DOCKER_FILE --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA"  --destination "$POWERDNS_DOCKER_IMAGE:$POWERDNS_VERSION"
+    /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $DOCKER_FILE --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA"  --destination "$POWERDNS_DOCKER_IMAGE:$POWERDNS_VERSION" --destination "$POWERDNS_DOCKER_IMAGE":latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-powerdns/
     - changes:
-        - dev/docker/Dockerfile-powerdns
+        - dev/docker/powerdns/Dockerfile
 
 nspect-source-scan-x86_64:
   stage: .pre
