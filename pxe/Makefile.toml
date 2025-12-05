@@ -538,6 +538,21 @@ script = '''
     fi
 '''
 
+[tasks.ipxe-patch-efi-rng]
+category = "iPXE Kernel"
+description = "Patch iPXE for the ARM servers to retry EFI_RNG"
+cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
+script = '''
+    PATCH="${REPO_ROOT}/pxe/ipxe/local/0004-efi-retry-rng.patch"
+    echo "Testing if patch is reversible (i.e. already applied)"
+    if ! patch --dry-run -p1 --reverse --forward -i "${PATCH}" >/dev/null; then
+      echo "Reversing the patch failed, forward applying it."
+      patch -p1 --forward -i "${PATCH}"
+    else
+      echo "Reversing would be successful, assuming patch is already applied"
+    fi
+'''
+
 [tasks.ipxe-patch-measured-boot]
 category = 'iPXE Kernel'
 description = "Patch iPXE for measured boot and TPM support"
@@ -578,6 +593,7 @@ dependencies = [
   "ipxe-config",
   "ipxe-patch-mlnx",
   "ipxe-patch-grace-grace",
+  "ipxe-patch-efi-rng",
   "ipxe-install-efi-aarch64",
 ]
 
@@ -588,6 +604,7 @@ dependencies = [
   "ipxe-config",
   "ipxe-patch-mlnx",
   "ipxe-patch-grace-grace",
+  "ipxe-patch-efi-rng",
   "ipxe-install-efi-aarch64-ci",
 ]
 
