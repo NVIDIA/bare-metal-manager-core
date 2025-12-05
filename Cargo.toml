@@ -37,6 +37,7 @@ opentelemetry-otlp = { version = "0.28.0", features = ["metrics"] }
 opentelemetry-prometheus = { version = "0.28.0" }
 opentelemetry-semantic-conventions = "0.28.0"
 # tracing-opentelemetry 0.29.0 seems to correspond to opentelemetry 0.28.0, confusingly enough.
+tracing-appender = "0.2.4"
 tracing-opentelemetry = "0.29.0"
 
 ########

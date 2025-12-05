@@ -1,0 +1,129 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "/sbom-staging",
+  "documentNamespace": "https://anchore.com/syft/dir/sbom-staging-9e5392da-af87-4d66-9574-d57e36b0c878",
+  "creationInfo": {
+    "licenseListVersion": "3.27",
+    "creators": [
+      "Organization: Anchore, Inc",
+      "Tool: syft-1.38.0"
+    ],
+    "created": "2025-11-26T05:51:27Z"
+  },
+  "packages": [
+    {
+      "name": "libcurl4",
+      "SPDXID": "SPDXRef-Package-deb-libcurl4-290d80d00bcd3da0",
+      "versionInfo": "7.88.1-10+deb12u14",
+      "supplier": "Person: Alessandro Ghedini (ghedo@debian.org)",
+      "originator": "Person: Alessandro Ghedini (ghedo@debian.org)",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "sourceInfo": "acquired package info from DPKG DB: /var/lib/dpkg/status.d/libcurl4_7.88.1-10+deb12u14, copyright-libcurl4",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD-3-Clause AND BSD-4-Clause-UC AND FSFULLR AND GPL-2.0-only AND GPL-2.0-or-later AND GPL-3.0-or-later AND ISC AND OLDAP-2.8 AND X11 AND curl",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "SECURITY",
+          "referenceType": "cpe23Type",
+          "referenceLocator": "cpe:2.3:a:libcurl4:libcurl4:7.88.1-10\\+deb12u14:*:*:*:*:*:*:*"
+        }
+      ]
+    },
+    {
+      "name": "test-mit-package",
+      "SPDXID": "SPDXRef-Package-test-mit-package",
+      "versionInfo": "1.0.0",
+      "supplier": "Organization: Test Org",
+      "downloadLocation": "https://example.com/test-mit-package",
+      "filesAnalyzed": false,
+      "sourceInfo": "tests/fixtures/copyright",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "Copyright (c) 2024 Test MIT Package"
+    },
+    {
+      "name": "test-apache-package",
+      "SPDXID": "SPDXRef-Package-test-apache-package",
+      "versionInfo": "2.0.0",
+      "supplier": "Organization: Apache Foundation",
+      "downloadLocation": "https://example.com/test-apache-package",
+      "filesAnalyzed": false,
+      "sourceInfo": "tests/fixtures/copyright",
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "Copyright (c) 2024 Apache Package Contributors"
+    },
+    {
+      "name": "test-gpl-package",
+      "SPDXID": "SPDXRef-Package-test-gpl-package",
+      "versionInfo": "3.0.0",
+      "supplier": "Person: GPL Developer (dev@example.com)",
+      "downloadLocation": "https://example.com/test-gpl-package",
+      "filesAnalyzed": false,
+      "sourceInfo": "tests/fixtures/copyright",
+      "licenseConcluded": "GPL-3.0-only",
+      "licenseDeclared": "GPL-2.0-or-later",
+      "copyrightText": "Copyright (c) 2024 GPL Package Author"
+    },
+    {
+      "name": "test-mit-package-duplicate",
+      "SPDXID": "SPDXRef-Package-test-mit-package-duplicate",
+      "versionInfo": "1.5.0",
+      "supplier": "Organization: Another MIT Org",
+      "downloadLocation": "https://example.com/test-mit-package-duplicate",
+      "filesAnalyzed": false,
+      "sourceInfo": "tests/fixtures/copyright",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "Copyright (c) 2024 Another MIT Package"
+    },
+    {
+      "name": "test-noassertion-package",
+      "SPDXID": "SPDXRef-Package-test-noassertion-package",
+      "versionInfo": "0.1.0",
+      "supplier": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "sourceInfo": "tests/fixtures/copyright",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "name": "test-licenseref-package",
+      "SPDXID": "SPDXRef-Package-test-licenseref-package",
+      "versionInfo": "1.2.3",
+      "supplier": "Organization: Custom License Co",
+      "downloadLocation": "https://example.com/test-licenseref-package",
+      "filesAnalyzed": false,
+      "sourceInfo": "tests/fixtures/copyright",
+      "licenseConcluded": "LicenseRef-Custom-Proprietary",
+      "licenseDeclared": "LicenseRef-Custom-Proprietary",
+      "copyrightText": "Copyright (c) 2024 Custom License Company"
+    },
+    {
+      "name": "libsasl2-2",
+      "SPDXID": "SPDXRef-Package-deb-libsasl2-a1b2c3d4e5f6g7h8",
+      "versionInfo": "2.1.28+dfsg1-10",
+      "supplier": "Person: Debian Cyrus Team <pkg-cyrus-sasl-debian-devel@lists.alioth.debian.org>",
+      "originator": "Person: Debian Cyrus Team <pkg-cyrus-sasl-debian-devel@lists.alioth.debian.org>",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "sourceInfo": "acquired package info from DPKG DB: /var/lib/dpkg/status.d/libsasl2-2_2.1.28+dfsg1-10, copyright-libsasl2-2",
+      "licenseConcluded": "BSD-4-Clause-UC",
+      "licenseDeclared": "BSD-4-Clause-UC",
+      "copyrightText": "Copyright (c) 2001-2023 Carnegie Mellon University",
+      "externalRefs": [
+        {
+          "referenceCategory": "SECURITY",
+          "referenceType": "cpe23Type",
+          "referenceLocator": "cpe:2.3:a:libsasl2-2:libsasl2-2:2.1.28+dfsg1-10:*:*:*:*:*:*:*"
+        }
+      ]
+    }
+  ]
+}
