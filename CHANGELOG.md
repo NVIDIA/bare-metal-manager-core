@@ -25,6 +25,7 @@
 - [MR-4918](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4918): Added the ability to configure route-profiles for different tenant types (internal/external/breakfix) to control VPC routing details including VNIs and route-target imports/exports.
 - [FORGE-3039](https://jirasw.nvidia.com/browse/FORGE-3039), [MR-4921](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4921): Added the ability to schedule state handler execution more dynamically through a queued objects system that enables immediate scheduling in addition to periodic fixed-frequency scheduling.
 - [FORGE-6686](https://jirasw.nvidia.com/browse/FORGE-6686), [MR-4803](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4803): Added the ability to partition NVLink connections with logical partitioning APIs, instance configuration management, and automated monitoring that creates and updates physical partitions based on observed status.
+- [MR-4845](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4845): Added new features to the debug bundle tool: now collects Health Alerts, Health Alert Overrides, Site Controller/BMC details, and Machine State Information in addition to Host Machine Logs and Carbide API logs. The ZIP bundle includes JSON files with the collected machine data, metadata summaries, and Grafana links for quick log visualization.
 
 ### Changed in v2025.12.05-rc2-0
 
@@ -47,6 +48,9 @@
 - [NVBugs-5580597](https://nvbugspro.nvidia.com/bug/5580597), [MR-4765](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4765): Fixed an issue where machines get stuck in a loop of `EnableSecureBoot`.
 - [MR-4924](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4924): Fixed an issue where type fields in the GPU structure caused deserialization to fail.
 - [MR-4923](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4923): Fixed an issue where the default JSON value for the `nvlink_config` column in the instances table did not match the Rust struct name causing missing defaults for the column.
+- [MR-4966](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4966): Fixes behaviour of the runners to make docker pruning more thorough.
+- [FORGE-7016](https://jirasw.nvidia.com/browse/FORGE-7016): Change permissions to allow Site Agent to query NVLink status.
+- [FORGE-7401](https://jirasw.nvidia.com/browse/FORGE-7401): Add missing dcmgi file to the scout image for aarch64
 
 ### Internal Changes in v2025.12.05-rc2-0
 
@@ -58,6 +62,7 @@
 - [MR-4919](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4919): Internal change where SecureBoot reference is preserved in the BMC mock.
 - [MR-4917](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4917): Internal change where BMC Mock lost reference to Bios settings and Oem/Nvidia ComputerSystem, and added `@odata.id` and `@odata.type` on `/redfish/v1/Systems/Bluefield/Oem/Nvidia`.
 - [MR-4914](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4914): Internal change where more health probes are documented.
+- [MR-4965](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4965): Internal change to update version of `libredfish` that fixes SPDM attestation.
 
 ## [v2025.11.21-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc1-0...v2025.11.21-rc2-0)
 
