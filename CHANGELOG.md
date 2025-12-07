@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased (v2025.12.05-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc2-0...trunk)
+## [Unreleased (v2025.12.19-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.05-rc2-0...trunk)
 
 ### Added
 
@@ -11,6 +11,53 @@
 ### Removed
 
 ### Internal Changes
+
+## [v2025.12.05-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc2-0...v2025.12.05-rc2-0)
+
+### Added in v2025.12.05-rc2-0
+
+- [MR-4939](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4939): Added the ability to build NVIDIA-compliant distroless containers.
+- [FORGE-7282](https://jirasw.nvidia.com/browse/FORGE-7282), [MR-4959](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4959): Added the ability to access `GetAllExpectedMachinesLinked` endpoint from Site Agent.
+- [FORGE-7464](https://jirasw.nvidia.com/browse/FORGE-7464), [MR-4936](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4936): Added the ability to create multiple instances in a single transactional batch-allocation request, where any failure causes the entire batch to fail.
+- [MR-4916](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4916): Added support for GH200 and nvswitches through Redfish (libredfish v0.33.0).
+- [MR-4935](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4935): Added the ability to limit statecontroller iteration tables to the last 10 entries.
+- [FORGE-7235](https://jirasw.nvidia.com/browse/FORGE-7235), [MR-4903](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4903): Added the ability to perform attestation with NRAS through a standalone REST API client library.
+- [MR-4918](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4918): Added the ability to configure route-profiles for different tenant types (internal/external/breakfix) to control VPC routing details including VNIs and route-target imports/exports.
+- [FORGE-3039](https://jirasw.nvidia.com/browse/FORGE-3039), [MR-4921](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4921): Added the ability to schedule state handler execution more dynamically through a queued objects system that enables immediate scheduling in addition to periodic fixed-frequency scheduling.
+- [FORGE-6686](https://jirasw.nvidia.com/browse/FORGE-6686), [MR-4803](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4803): Added the ability to partition NVLink connections with logical partitioning APIs, instance configuration management, and automated monitoring that creates and updates physical partitions based on observed status.
+
+### Changed in v2025.12.05-rc2-0
+
+- [MR-4942](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4942): Changed the behavior of CPLD upgrades for Dell XE9680s to include both MB and PDB types.
+- [MR-4907](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4907): Changed the behavior of the `sku unassign` command to add a `--force` flag in forge-admin-cli for unassigning SKUs from machines stuck in a problematic state.
+
+### Fixed in v2025.12.05-rc2-0
+
+- [NVBugs-5697527](https://nvbugspro.nvidia.com/bug/5697527), [MR-4961](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4961): Fixed an issue where iPXE did not retry the EFI RNG when receiving a NOT_READY error code.
+- [MR-4957](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4957): Fixed an issue where applying an NSG with no rules caused traffic to default to VPC isolation instead of denying all traffic.
+- [MR-4926](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4926): Fixed an issue where a non-critical warning was logged as an error, wasting developer time during troubleshooting.
+- [MR-4956](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4956): Fixed an issue where `PRIVILEGED_INTERNAL` was missing from the `from_str` implementation for routing profiles.
+- [MR-4952](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4952): Fixed an issue where the MNNVL search filter for machines failed to match some GB200 machines with "Compute Tray" in the name due to exact string matching.
+- [MR-4947](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4947): Fixed an issue where nvlink config updates were incorrectly skipped when comparing configs with different `gpu_configs` vector lengths.
+- [NVBugs-5706894](https://nvbugspro.nvidia.com/bug/5706894), [MR-4941](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4941): Fixed an issue where an error was immediately returned when the nvlink config was not available during MNNVL machine discovery.
+- [NVBugs-5705966](https://nvbugspro.nvidia.com/bug/5705966), [FORGE-7507](https://jirasw.nvidia.com/browse/FORGE-7507),[MR-4932](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4932): Fixed an issue where elektra-site-agent lacked permissions to call `GetAllExpectedMachines` and `GetAllSkuIds` on carbide-api.
+- [NVBugs-5706626](https://nvbugspro.nvidia.com/bug/5706626), [MR-4938](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4938): Fixed an issue where nvidia-smi was failing due to arguments being sent with unexpected white space causing failed GPU enumeration.
+- [MR-4934](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4934): Fixed an issue in carbide-web where the restart reminder would indicate that the "endpoint" requires a restart instead of indicating that the "host" requires a reboot.
+- [MR-4933](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4933): Fixed an issue where nvue would complain when no public prefixes were specified for the traffic intercept peer prefix list in the FNN template.
+- [NVBugs-5580597](https://nvbugspro.nvidia.com/bug/5580597), [MR-4765](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4765): Fixed an issue where machines get stuck in a loop of `EnableSecureBoot`.
+- [MR-4924](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4924): Fixed an issue where type fields in the GPU structure caused deserialization to fail.
+- [MR-4923](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4923): Fixed an issue where the default JSON value for the `nvlink_config` column in the instances table did not match the Rust struct name causing missing defaults for the column.
+
+### Internal Changes in v2025.12.05-rc2-0
+
+- [CDEVS-1241](https://jirasw.nvidia.com/browse/CDEVS-1241), [CDEVS-1246](https://jirasw.nvidia.com/browse/CDEVS-1246), [MR-4911](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4911): Added GitHub actions support.
+- [MR-4954](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4954): Changed the behavior of state handler logging to remove the `times_in_state_s` and `handler_latencies_us` fields from the log span, as these values are no longer available after refactoring to emit counters and histograms directly from the state handler task.
+- [MR-4885](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4885): Internal change where forge-prefixed components (forge_host_support, forge_systemd, forge_uuid, forge_version) were refactored to use carbide prefix.
+- [MR-4944](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4944): Internal change where the pre-merge dev-env test was refactored to build the bfb boot artifact during the test job instead of depending on a previous pipeline job.
+- [MR-4937](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4937): Internal change where a lint was added to detect and warn when database transactions are held open during await operations for non-database work, preventing connection pool exhaustion from idle transactions.
+- [MR-4919](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4919): Internal change where SecureBoot reference is preserved in the BMC mock.
+- [MR-4917](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4917): Internal change where BMC Mock lost reference to Bios settings and Oem/Nvidia ComputerSystem, and added `@odata.id` and `@odata.type` on `/redfish/v1/Systems/Bluefield/Oem/Nvidia`.
+- [MR-4914](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4914): Internal change where more health probes are documented.
 
 ## [v2025.11.21-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc1-0...v2025.11.21-rc2-0)
 
@@ -323,7 +370,7 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 ### Fixed
 
-- [MR-4743](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4743): Add static/network routes for FNN when on admin network
+- [MR-4743](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4743): Add static/network routes for FNN when on admin network.
 
 ## [v2025.09.26-rc3-2](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc3-1...v2025.09.26-rc3-2)
 
@@ -335,18 +382,18 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 ### Changed
 
-- [MR-4721](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4721): Update DOCA control pipe sizes to a new value that works, for DOCA >=2.8
+- [MR-4721](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4721): Update DOCA control pipe sizes to a new value that works, for DOCA >=2.8.
 
 ## [v2025.09.26-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.26-rc2-0...v2025.09.26-rc3-0)
 
 ### Added
 
-- [MR-4665](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4665): Add support for FileEnsure in Duppet, used to work around issues in DOCA 2.9.3
+- [MR-4665](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4665): Add support for FileEnsure in Duppet, used to work around issues in DOCA 2.9.3.
 
 ### Fixed
 
 - [MR-4671](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4671): Fixes an issue managing DPU configs where the defaults would not be merged correctly.
-- [MR-4662](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4662): Clean up hack around management of certain files by DOCA 2.9.3
+- [MR-4662](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4662): Clean up hack around management of certain files by DOCA 2.9.3.
 
 ## [v2025.09.26-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...v2025.09.26-rc2-0)
 
@@ -397,7 +444,7 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 ### Internal Changes
 
-- [MR-4649](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4649): Update Rust toolchain to version 1.90
+- [MR-4649](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4649): Update Rust toolchain to version 1.90.
 - [MR-4644](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4644): Internal change where documentation was added for state handling in Carbide.
 - [MR-4635](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4635): Internal change where an outdated comment was removed from `Dockerfile.build-container-x86_64` to ensure the build container is up to date and includes required tools such as mdbook-plantuml.
 - [MR-4624](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4624): Internal change where the BMC reboot step was moved to the end of the install process.
@@ -417,13 +464,13 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 ### Fixed
 
-- [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed stuck PXE boots by skipping NSGs in BootingWithDiscoveryImage state
+- [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed stuck PXE boots by skipping NSGs in BootingWithDiscoveryImage state.
 
 ## [v2025.09.12-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...v2025.09.12-rc3-0)
 
 ### Fixed
 
-- [MR-4503](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4354): Fixes an issue where machines are getting stuck due to lockdown mode
+- [MR-4503](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4354): Fixes an issue where machines are getting stuck due to lockdown mode.
 
 ## [v2025.09.12-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...v2025.09.12-rc2-0)
 
@@ -485,23 +532,23 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 ### Fixed
 
-- [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed stuck PXE boots by skipping NSGs in BootingWithDiscoveryImage state
-- [MR-4528](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4528): Make the DPU reprovisioning workflow use the redfish path to read BMC firmware version
+- [MR-4629](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4629): Fixed stuck PXE boots by skipping NSGs in BootingWithDiscoveryImage state.
+- [MR-4528](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4528): Make the DPU reprovisioning workflow use the redfish path to read BMC firmware version.
 
 ## [v2025.08.29-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...v2025.08.29-rc3-0)
 
 ### Added 
 
-- [MR-4533](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4533): Adds functionality to infinite reboot a machine with a toggle in the CLI
+- [MR-4533](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4533): Adds functionality to infinite reboot a machine with a toggle in the CLI.
 
 ### Fixed
 
-- [MR-4531](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4533): Fixes issues with GB200 firmware updating
+- [MR-4531](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4533): Fixes issues with GB200 firmware updating.
 
 ### Internal Changes
 
-- [MR-4538](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4538): Update version of libredfish to better support lenovo SR675v3
-- [MR-4530](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4530): Update version of libredfish to better support GB200
+- [MR-4538](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4538): Update version of libredfish to better support lenovo SR675v3.
+- [MR-4530](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4530): Update version of libredfish to better support GB200.
 
 
 ## [v2025.08.29-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...v2025.08.29-rc2-0)
@@ -584,7 +631,7 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 ### Fixed
 
-- Updated version of libredfish to allow for fixes in YTL
+- Updated version of libredfish to allow for fixes in YTL.
 
 ### Internal Changes
 
@@ -594,7 +641,7 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4540](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4540): refactor: database error handling unification in the Carbide API: errors with transactions part 2.
 - [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4541](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4541): refactor: database error handling unification in the Carbide API: tracking file / line using track_caller Rust feature.
 - [MR-4548](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4548): refactor: remove unnecessary explicit conversions to CarbideError.
-- [MR-4594](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4594): Added retry and timeout logic to ipmitool in an attempt to fix hanging installs of the bfb
+- [MR-4594](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4594): Added retry and timeout logic to ipmitool in an attempt to fix hanging installs of the bfb.
 
 - [FORGE-6905](https://jirasw.nvidia.com/browse/FORGE-6905), [MR-4539](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4539): chore: Add CODEOWNERS file.
 - [MR-4555](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4555): chore: Unify to a single MachineId type.
@@ -609,37 +656,37 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 ### Fixed
 
-- [MR-4495](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4495): Don't acknowledge GPU VRAM quantity in SKU validation
+- [MR-4495](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4495): Don't acknowledge GPU VRAM quantity in SKU validation.
 
 ## [v2025.08.15-rc7-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc6-0...v2025.08.15-rc7-0)
 
 ### Fixed
 
-- Fixed an issue with parsing libredfish degraded state parsing
+- Fixed an issue with parsing libredfish degraded state parsing.
 
 ## [v2025.08.15-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc5-0...v2025.08.15-rc6-0)
 
 ### Fixed
 
-- Fixed version pinning on libredfish to download the correct version
+- Fixed version pinning on libredfish to download the correct version.
 
 ## [v2025.08.15-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc4-0...v2025.08.15-rc5-0)
 
 ### Fixed
 
-- [MR-4477](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4477): Update libredfish version to fix issue with GB200 calls
+- [MR-4477](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4477): Update libredfish version to fix issue with GB200 calls.
 
 ## [v2025.08.15-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc3-0...v2025.08.15-rc4-0)
 
 ### Fixed
 
-- [MR-4476](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4476): Update Axum router to not have `InsecureClientIP` field
+- [MR-4476](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4476): Update Axum router to not have `InsecureClientIP` field.
 
 ## [v2025.08.15-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...v2025.08.15-rc3-0)
 
 ### Fixed
 
-- [MR-4450](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4450): Fixes an issue with SKU config not having a default value
+- [MR-4450](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4450): Fixes an issue with SKU config not having a default value.
 
 ## [v2025.08.15-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.01-rc2-0...v2025.08.15-rc2-0)
 
@@ -989,8 +1036,8 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 ### Added
 
 - [MR-4139](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4139): Do not require the user to specify the BFB to copy to a DPU's BMC.
-  - Old method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22 '/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb'`
-  - New method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22`
+  - Old method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22 '/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb'`.
+  - New method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22`.
 
 ## [v2025.06.06-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc3-0...v2025.06.06-rc1-0)
 
@@ -1101,7 +1148,7 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 - [MR-4046](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4046): Added UFM Explorer to carbide-web.
   - UFM Explorer is a new page in carbide-web that allows to send raw HTTP GET requests to UFM in order to explore and debug its state.
-  - Accessible using the `/admin/ufm-browser` path
+  - Accessible using the `/admin/ufm-browser` path.
   - Utilizes the Credentials in Carbide, and thereby avoids operators having to fetch UFM credentials from Vault in order to perform debugging.
 - [MR-4041](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4041): Added links from IB Partition, Instance, Network Security Group, and VPC summary pages to their respective tenant pages.
 - [MR-4039](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4039): Adding a script to the scout image to recover from a potential issue with read-only NVMe drives.
@@ -1300,7 +1347,7 @@ DPU extension services are tenant-scoped, versioned service definitions (current
 
 ### Fixed
 
-- Removed a health alert generated by old DPU firmware not reporting NicMode
+- Removed a health alert generated by old DPU firmware not reporting NicMode.
 
 ## [v2025.03.28-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.03.14-rc2-0...v2025.03.28-rc2-0)
 
