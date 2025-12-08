@@ -874,9 +874,7 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
 
         // Get the list of credentials for the new active services
         for service in services {
-            if service.removed.is_none()
-                && let Some(credential) = &service.credential
-            {
+            if let Some(credential) = &service.credential {
                 match credential.credential_type.clone() {
                     CredentialType::UsernamePassword(up) => {
                         credential_list.insert(credential.registry_url.clone(), up);
@@ -976,18 +974,24 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
         // Clear any previous errors since we are starting a new update
         self.service_errors.clear();
 
+        let active_services: Vec<ServiceConfig> = services
+            .iter()
+            .filter(|s| s.removed.is_none())
+            .cloned()
+            .collect();
+
         // Setup the socks proxy for pulling container images if it is not already configured
         self.setup_socks_proxy()
             .await
             .map_err(|e| eyre::eyre!("Failed to setup socks proxy: {}", e))?;
 
         // Reconcile the kubelet directory with the desired service spec files
-        self.reconcile_pod_specs(services)
+        self.reconcile_pod_specs(&active_services)
             .await
             .map_err(|e| eyre::eyre!("Failed to reconcile pod specs: {}", e))?;
 
         // Reconcile the credential provider to contain the credentials for the new services' images
-        self.reconcile_credential_provider(services)
+        self.reconcile_credential_provider(&active_services)
             .await
             .map_err(|e| eyre::eyre!("Failed to reconcile credential provider: {}", e))?;
 
