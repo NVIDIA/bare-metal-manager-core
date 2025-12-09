@@ -1027,12 +1027,6 @@ pub struct SiteExplorerConfig {
     pub bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
 
     #[serde(default)]
-    /// TODO: Drop this once api_test::test_integration is migrated to use site-explorer
-    /// This is only used for api_test::test_integration not working with site-explorer. Do not use
-    /// anywhere else.
-    pub allow_proxy_to_unknown_host: bool,
-
-    #[serde(default)]
     /// If set to `true`, the server will allow changes to the `bmc_proxy` setting at runtime. This
     /// will be default to true if the server is launched with bmc_proxy set:
     /// - If the value is not set, but the server is launched with bmc_proxy, override_target_ip, or
@@ -1122,7 +1116,6 @@ impl Default for SiteExplorerConfig {
             bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Self::default_reset_rate_limit(),
-            allow_proxy_to_unknown_host: false,
             allocate_secondary_vtep_ip: false,
             create_power_shelves: Arc::new(true.into()),
             explore_power_shelves_from_static_ip: Arc::new(true.into()),
@@ -2611,7 +2604,6 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(1),
-                allow_proxy_to_unknown_host: false,
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 explore_power_shelves_from_static_ip: Arc::new(true.into()),
@@ -2767,7 +2759,6 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
-                allow_proxy_to_unknown_host: false,
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 explore_power_shelves_from_static_ip: Arc::new(true.into()),
@@ -3027,7 +3018,6 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
-                allow_proxy_to_unknown_host: false,
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 explore_power_shelves_from_static_ip: Arc::new(true.into()),

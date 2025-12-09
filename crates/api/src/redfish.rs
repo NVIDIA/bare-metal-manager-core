@@ -81,32 +81,16 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 
     // MARK: - Default (helper) methods
 
-    fn allow_proxy_to_unknown_host(&self) -> bool {
-        false
-    }
-
     async fn create_client_from_machine(
         &self,
         target: &Machine,
         txn: &mut PgConnection,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let Some(addr) = target.bmc_addr() else {
-            return if self.allow_proxy_to_unknown_host() {
-                // test_integration relies on this because it doesn't use site_explorer and thus
-                // can't inform carbide of what the BMC address is for a host. It only runs one
-                // instance of bmc_mock so it can accept requests for any host.
-                tracing::info!(
-                    "BMC Endpoint Information (bmc_info.ip) is missing for {}, but allow_proxy_to_unknown_host is set. Will send requests to proxy without knowing the host IP",
-                    target.id
-                );
-                self.create_client("", None, RedfishAuth::Anonymous, true)
-                    .await
-            } else {
-                Err(RedfishClientCreationError::MissingBmcEndpoint(format!(
-                    "BMC Endpoint Information (bmc_info.ip) is missing for {}",
-                    target.id,
-                )))
-            };
+            return Err(RedfishClientCreationError::MissingBmcEndpoint(format!(
+                "BMC Endpoint Information (bmc_info.ip) is missing for {}",
+                target.id,
+            )));
         };
 
         self.create_client_for_ingested_host(addr.ip(), Some(addr.port()), txn)
@@ -282,7 +266,6 @@ pub struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
     credential_provider: Arc<dyn CredentialProvider>,
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
-    allow_proxy_to_unknown_host: bool,
 }
 
 impl RedfishClientPoolImpl {
@@ -290,13 +273,11 @@ impl RedfishClientPoolImpl {
         credential_provider: Arc<dyn CredentialProvider>,
         pool: libredfish::RedfishClientPool,
         proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
-        allow_proxy_to_unknown_host: bool,
     ) -> Self {
         RedfishClientPoolImpl {
             credential_provider,
             pool,
             proxy_address,
-            allow_proxy_to_unknown_host,
         }
     }
 }
@@ -388,10 +369,6 @@ impl RedfishClientPool for RedfishClientPoolImpl {
 
     fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
         self.credential_provider.clone()
-    }
-
-    fn allow_proxy_to_unknown_host(&self) -> bool {
-        self.allow_proxy_to_unknown_host
     }
 }
 

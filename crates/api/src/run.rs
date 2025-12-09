@@ -160,7 +160,6 @@ pub async fn run(
             vault_client.clone(),
             rf_pool,
             carbide_config.site_explorer.bmc_proxy.clone(),
-            carbide_config.site_explorer.allow_proxy_to_unknown_host,
         );
         Arc::new(redfish_pool)
     };
