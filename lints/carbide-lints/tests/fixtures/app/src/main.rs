@@ -1,6 +1,7 @@
 use std::ops::DerefMut;
 
-use sqlx::{Executor, PgTransaction};
+use sqlx::pool::PoolConnection;
+use sqlx::{Executor, PgConnection, PgTransaction, Postgres};
 
 async fn good_db_related() {
     let mut txn = make_transaction();
@@ -187,6 +188,42 @@ fn make_transaction_tuple_3() -> (u8, u8, sqlx::Transaction<'static, sqlx::Postg
     todo!()
 }
 
+fn make_pgconn() -> sqlx::PgConnection {
+    todo!()
+}
+
+fn make_pgpoolconn() -> PoolConnection<Postgres> {
+    todo!()
+}
+
+async fn pgconn_calls() {
+    let mut conn = make_pgconn();
+    bad_pgconn_fn(&mut conn).await;
+    good_pgconn_fn(conn).await;
+
+    let mut conn = make_pgpoolconn();
+    bad_pgpoolconn_fn(&mut conn).await;
+    good_pgpoolconn_fn(conn).await;
+}
+
+async fn bad_pgconn_fn(_conn: &mut PgConnection) {
+    unrelated_async_work("bad").await
+}
+
+async fn good_pgconn_fn(conn: PgConnection) {
+    std::mem::drop(conn);
+    unrelated_async_work("good").await
+}
+
+async fn bad_pgpoolconn_fn(_conn: &mut PoolConnection<Postgres>) {
+    unrelated_async_work("bad").await
+}
+
+async fn good_pgpoolconn_fn(conn: PoolConnection<Postgres>) {
+    std::mem::drop(conn);
+    unrelated_async_work("good").await
+}
+
 #[tokio::main]
 async fn main() {
     // Actually call the functions to dead code warnings. But we're not actually running this code,
@@ -202,4 +239,5 @@ async fn main() {
     call_methods().await;
     good_txn_as_receiver().await;
     do_txn_by_value().await;
+    pgconn_calls().await;
 }

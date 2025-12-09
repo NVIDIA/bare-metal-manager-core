@@ -22,6 +22,7 @@ name = "carbide-lints"
 version = "0.1.0"
 dependencies = [
  "compiletest_rs",
+ "similar",
 ]
 
 [[package]]
@@ -322,6 +323,12 @@ dependencies = [
  "serde",
  "serde_core",
 ]
+
+[[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "syn"

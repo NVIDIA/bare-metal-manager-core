@@ -501,7 +501,7 @@ workspace = false
 description = "Run custom lints defined in lints/carbide-lints"
 dependencies = ["setup-carbide-lints"]
 script = [
-  "cargo carbide-lints",
+  "cargo carbide-lints --all-targets --all-features",
 ]
 
 [tasks.check-workspace-deps]
