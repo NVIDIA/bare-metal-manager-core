@@ -407,6 +407,7 @@ pub async fn is_assigned_machine_booting_scout(machine: &Machine) -> CarbideResu
 /// redfish utility functions
 ///
 /// host_power_control allows control over the power of the host
+#[allow(txn_held_across_await)]
 pub async fn host_power_control(
     redfish_client: &dyn Redfish,
     machine: &Machine,

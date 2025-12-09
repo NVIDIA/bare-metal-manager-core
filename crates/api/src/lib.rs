@@ -14,6 +14,9 @@
 //! The Carbide API server library.
 //!
 
+// It's too cumbersome for tests to adhere to this, which is less important in testing anyway.
+#![cfg_attr(test, allow(txn_held_across_await))]
+
 // NOTE on pub vs non-pub mods:
 //
 // carbide-api is a CLI crate, not a lib. The only reason we have lib.rs is to export things so that

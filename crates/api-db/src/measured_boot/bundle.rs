@@ -435,7 +435,7 @@ async fn match_bundle(
 
     let all_bundles = get_all_for_profile_id(txn, profile_id).await?;
 
-    let mut matching = get_matching_bundles(&all_bundles, values).await?;
+    let mut matching = get_matching_bundles(&all_bundles, values)?;
     // If there are no matching bundles, or a single matching
     // bundle, it's simple to handle here.
     if matching.is_empty() {
@@ -544,7 +544,7 @@ async fn find_closest_bundle(
     // FIRST
     let all_bundles = get_all_for_profile_id(txn, profile_id).await?;
 
-    let matching = get_matching_bundles(&all_bundles, values).await?;
+    let matching = get_matching_bundles(&all_bundles, values)?;
     if !matching.is_empty() {
         let matching_bundle_ids = matching.iter().fold(String::new(), |acc, bundle| {
             acc + " " + bundle.bundle_id.to_string().as_str()
@@ -770,7 +770,7 @@ fn get_active_bundles(bundles: &Vec<MeasurementBundle>) -> Vec<MeasurementBundle
     active
 }
 
-async fn get_matching_bundles(
+fn get_matching_bundles(
     all_bundles: &Vec<MeasurementBundle>,
     values: &[PcrRegisterValue],
 ) -> DatabaseResult<Vec<MeasurementBundle>> {

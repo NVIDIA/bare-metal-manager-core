@@ -218,6 +218,7 @@ pub async fn get_updated_power_options_desired_off(
 }
 
 // Fetch actual power state.
+#[allow(txn_held_across_await)]
 async fn get_power_state(
     mh_snapshot: &ManagedHostStateSnapshot,
     txn: &mut sqlx::PgConnection,

@@ -547,6 +547,7 @@ impl PreingestionManagerStatic {
     }
 
     /// in_upgrade_firmware_wait triggers when we are waiting for installation of firmware after an upload.
+    #[allow(txn_held_across_await)]
     async fn in_upgrade_firmware_wait(
         &self,
         txn: &mut PgConnection,
@@ -728,6 +729,7 @@ impl PreingestionManagerStatic {
         Ok(())
     }
 
+    #[allow(txn_held_across_await)]
     async fn in_reset_for_new_firmware(
         &self,
         txn: &mut PgConnection,
@@ -977,6 +979,7 @@ impl PreingestionManagerStatic {
             .await
     }
 
+    #[allow(txn_held_across_await)]
     async fn in_new_firmware_reported_wait(
         &self,
         txn: &mut PgConnection,
@@ -1051,6 +1054,7 @@ impl PreingestionManagerStatic {
         Ok(())
     }
 
+    #[allow(txn_held_across_await)]
     async fn pre_update_resets(
         &self,
         txn: &mut PgConnection,
@@ -1152,6 +1156,7 @@ impl PreingestionManagerStatic {
         }
     }
 
+    #[allow(txn_held_across_await)]
     async fn by_script(
         &self,
         endpoint_address: std::net::IpAddr,
@@ -1270,6 +1275,7 @@ impl PreingestionManagerStatic {
         Ok(())
     }
 
+    #[allow(txn_held_across_await)]
     async fn waiting_for_script(
         &self,
         txn: &mut PgConnection,
@@ -1369,6 +1375,7 @@ fn need_upgrade(
 /// downloaded; if that happens it also returns success, but has not modified the state.  On Redfish
 ///  errors, we return Ok but leave the state as it was, with the intention that we will retry
 ///  on the next go.
+#[allow(txn_held_across_await)]
 async fn initiate_update(
     txn: &mut PgConnection,
     endpoint_clone: &ExploredEndpoint,

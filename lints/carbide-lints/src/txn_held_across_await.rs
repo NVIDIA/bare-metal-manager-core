@@ -106,6 +106,8 @@ impl Default for TxnHeldAcrossAwait {
             "sqlx_core::transaction::Transaction".to_string(),
             "sqlx_postgres::PgTransaction".to_string(),
             "db::Transaction".to_string(),
+            "sqlx_postgres::connection::PgConnection".to_string(),
+            "sqlx_core::pool::connection::PoolConnection".to_string(),
         ]
         .into_iter()
         .map(|txn| {

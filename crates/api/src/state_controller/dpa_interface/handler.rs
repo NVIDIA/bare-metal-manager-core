@@ -292,6 +292,7 @@ async fn do_heartbeat(
 // Send a SetVni command to the DPA. The SetVni command could be a heart beat (identified by
 // revision being "NIL"). If needs_vni is true, get the VNI to use from the DB. Otherwise, vni
 // sent is 0.
+#[allow(txn_held_across_await)]
 async fn send_set_vni_command(
     state: &mut DpaInterface,
     txn: &mut PgConnection,

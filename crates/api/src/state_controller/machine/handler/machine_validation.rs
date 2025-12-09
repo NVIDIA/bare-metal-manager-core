@@ -168,6 +168,7 @@ pub(crate) async fn handle_machine_validation_state(
     }
 }
 
+#[allow(txn_held_across_await)]
 pub(crate) async fn handle_machine_validation_requested(
     txn: &mut PgConnection,
     mh_snapshot: &ManagedHostStateSnapshot,

@@ -555,6 +555,7 @@ impl MachineStateHandler {
         Self::clear_host_reprovision(mh_snaphost, txn).await
     }
 
+    #[allow(txn_held_across_await)]
     async fn attempt_state_transition(
         &self,
         host_machine_id: &MachineId,
@@ -1645,6 +1646,7 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[Machine]) -> bool {
         .any(|x| x.reprovision_requested.is_some())
 }
 
+#[allow(txn_held_across_await)]
 async fn handle_restart_verification(
     mh_snapshot: &ManagedHostStateSnapshot,
     txn: &mut PgConnection,
@@ -2090,6 +2092,7 @@ fn map_host_init_measuring_outcome_to_state_handler_outcome(
     }
 }
 
+#[allow(txn_held_across_await)]
 async fn handle_bfb_install_state(
     state: &ManagedHostStateSnapshot,
     substate: InstallDpuOsState,
@@ -2368,6 +2371,7 @@ pub fn identify_dpu(dpu_snapshot: &Machine) -> DpuModel {
 }
 
 /// Handle workflow of DPU reprovision
+#[allow(txn_held_across_await)]
 async fn handle_dpu_reprovision(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
@@ -2751,6 +2755,7 @@ async fn try_wait_for_dpu_discovery(
 /// Returns Option<StateHandlerOutcome>:
 ///     If Some(_) means at least one fw component is not updated.
 ///     If None: All fw components are updated.
+#[allow(txn_held_across_await)]
 async fn check_fw_component_version(
     services: &CommonStateHandlerServices,
     dpu_snapshot: &Machine,
@@ -3002,6 +3007,7 @@ impl DpuMachineStateHandler {
 }
 
 impl DpuMachineStateHandler {
+    #[allow(txn_held_across_await)]
     async fn handle_dpu_discovering_state(
         &self,
         state: &ManagedHostStateSnapshot,
@@ -3155,6 +3161,7 @@ impl DpuMachineStateHandler {
         }
     }
 
+    #[allow(txn_held_across_await)]
     async fn handle_dpuinit_state(
         &self,
         state: &ManagedHostStateSnapshot,
@@ -3893,6 +3900,7 @@ pub struct RebootStatus {
 /// In case a error is returned, last_reboot_requested won't be updated in db by state handler.
 /// This will cause continuous reboot of machine after first failure_retry_time is
 /// passed.
+#[allow(txn_held_across_await)]
 pub async fn trigger_reboot_if_needed(
     target: &Machine,
     state: &ManagedHostStateSnapshot,
@@ -4221,7 +4229,9 @@ async fn handle_host_boot_order_setup(
 
     Ok(StateHandlerOutcome::transition(next_state))
 }
+
 /// TODO: we need to handle the case where the job is deleted for some reason
+#[allow(txn_held_across_await)]
 async fn handle_host_uefi_setup(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -6355,6 +6365,8 @@ impl HostUpgradeState {
 
         Ok(ret)
     }
+
+    #[allow(txn_held_across_await)]
     async fn host_checking_fw_noclear(
         &self,
         state: &ManagedHostStateSnapshot,
@@ -6480,6 +6492,7 @@ impl HostUpgradeState {
         }
     }
 
+    #[allow(txn_held_across_await)]
     async fn by_script(
         &self,
         to_install: FirmwareEntry,
@@ -6621,6 +6634,7 @@ impl HostUpgradeState {
         )
     }
 
+    #[allow(txn_held_across_await)]
     async fn waiting_for_script(
         &self,
         state: &ManagedHostStateSnapshot,
@@ -6657,6 +6671,7 @@ impl HostUpgradeState {
         }
     }
 
+    #[allow(txn_held_across_await)]
     async fn pre_update_resets(
         &self,
         state: &ManagedHostStateSnapshot,
@@ -6756,6 +6771,7 @@ impl HostUpgradeState {
         }
     }
     /// Uploads a firmware update via multipart, returning the task ID, or None if upload was deferred
+    #[allow(txn_held_across_await)]
     async fn initiate_host_fw_update(
         &self,
         address: IpAddr,
@@ -6872,6 +6888,7 @@ impl HostUpgradeState {
         )
     }
 
+    #[allow(txn_held_across_await)]
     async fn waiting_for_upload(
         &self,
         details: &HostReprovisionState,
@@ -6966,6 +6983,7 @@ impl HostUpgradeState {
         }
     }
 
+    #[allow(txn_held_across_await)]
     async fn host_waiting_fw(
         &self,
         details: &HostReprovisionState,
@@ -7194,6 +7212,7 @@ impl HostUpgradeState {
         }
     }
 
+    #[allow(txn_held_across_await)]
     async fn host_reset_for_new_firmware(
         &self,
         state: &ManagedHostStateSnapshot,
@@ -7942,6 +7961,7 @@ async fn wait_for_boss_controller_job_to_complete(
     }
 }
 
+#[allow(txn_held_across_await)]
 async fn handle_boss_job_failure(
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
@@ -8029,6 +8049,7 @@ async fn handle_boss_job_failure(
     }
 }
 
+#[allow(txn_held_across_await)]
 pub async fn handler_host_power_control(
     managedhost_snapshot: &ManagedHostStateSnapshot,
     services: &CommonStateHandlerServices,
@@ -8092,6 +8113,7 @@ pub async fn handler_host_power_control(
     Ok(())
 }
 
+#[allow(txn_held_across_await)]
 async fn restart_dpu(
     machine: &Machine,
     services: &CommonStateHandlerServices,
@@ -8266,6 +8288,7 @@ async fn is_machine_validation_requested(state: &ManagedHostStateSnapshot) -> bo
     on_demand_machine_validation_request
 }
 
+#[allow(txn_held_across_await)]
 async fn handle_instance_host_platform_config(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -8569,6 +8592,7 @@ async fn handle_instance_host_platform_config(
     Ok(StateHandlerOutcome::transition(next_state))
 }
 
+#[allow(txn_held_across_await)]
 async fn configure_host_bios(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -8650,6 +8674,7 @@ async fn configure_host_bios(
 }
 
 // set_host_boot_order returns the next
+#[allow(txn_held_across_await)]
 async fn set_host_boot_order(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
