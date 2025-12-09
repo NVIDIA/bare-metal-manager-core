@@ -717,7 +717,6 @@ async fn test_site_explorer_audit_exploration_results(
         allow_changing_bmc_proxy: None,
         bmc_proxy: Arc::default(),
         reset_rate_limit: chrono::Duration::hours(1),
-        allow_proxy_to_unknown_host: false,
         allocate_secondary_vtep_ip: false,
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(true.into()),

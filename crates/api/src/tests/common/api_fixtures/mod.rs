@@ -922,7 +922,6 @@ pub fn get_config() -> CarbideConfig {
             concurrent_explorations: 0,
             explorations_per_run: 0,
             create_machines: Arc::new(false.into()),
-            allow_proxy_to_unknown_host: false,
             allocate_secondary_vtep_ip: true,
             ..Default::default()
         },
@@ -1332,7 +1331,6 @@ pub async fn create_test_env_with_overrides(
             bmc_proxy: Arc::new(Default::default()),
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Duration::hours(1),
-            allow_proxy_to_unknown_host: false,
             allocate_secondary_vtep_ip: true,
             create_power_shelves: Arc::new(true.into()),
             explore_power_shelves_from_static_ip: Arc::new(true.into()),
