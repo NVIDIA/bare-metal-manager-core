@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
@@ -43,7 +44,7 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Rack>>(
         .map_err(|e| DatabaseError::new(query.sql(), e))
 }
 pub async fn list(txn: &mut PgConnection) -> DatabaseResult<Vec<Rack>> {
-    let query = "SELECT * from racks".to_string();
+    let query = "SELECT * from racks where deleted IS NULL".to_string();
     sqlx::query_as(&query)
         .fetch_all(txn)
         .await
