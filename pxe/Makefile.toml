@@ -1093,7 +1093,7 @@ bfb_modify_os() {
   curl http://carbide-pxe.forge/api/v0/cloud-init/user-data -o user_data.sh
   sed -i '/ZOF/d' user_data.sh
   source user_data.sh
-  forge_modify_os
+  carbide_modify_os
 }" >> bf.cfg
 '''
 cwd = "static/blobs/internal/aarch64"
