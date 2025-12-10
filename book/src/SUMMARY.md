@@ -62,6 +62,8 @@
     - [State is stuck in Forge Cloud](playbooks/stuck_objects/stuck_in_forge_cloud.md)
     - [Adding new machines to an existing site](playbooks/stuck_objects/adding_new_machines.md)
     - [Troubleshooting noDpuLogsWarning alerts](playbooks/troubleshooting_noDpuLogsWarning_alerts.md)
+- [Debugging Machine]()
+    - [Collecting Debug Bundles](playbooks/debugging_machine/debug_bundle.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
 - [Hardware](playbooks/hardware/hardware.md)
     - [Lenovo SR670 V2](playbooks/hardware/sr670v2.md)
