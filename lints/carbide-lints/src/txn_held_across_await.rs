@@ -1,5 +1,5 @@
 use rustc_ast::UnOp;
-use rustc_data_structures::fx::{FxHashMap, FxHashSet};
+use rustc_data_structures::fx::FxHashMap;
 use rustc_hir as hir;
 use rustc_hir::def::Res;
 use rustc_hir::intravisit::{self, Visitor};
@@ -17,7 +17,6 @@ use rustc_mir_dataflow::impls::{MaybeInitializedPlaces, MaybeUninitializedPlaces
 use rustc_mir_dataflow::move_paths::MoveData;
 use rustc_span::def_id::{DefId, LocalDefId};
 use rustc_span::{Span, Symbol};
-use rustc_type_ir::TyKind;
 use rustc_type_ir::inherent::SliceLike;
 
 ///  ### What it does
@@ -213,9 +212,6 @@ impl TxnHeldAcrossAwait {
         // Gather typeck results, needed to get type info for locals
         let typeck_results = tcx.typeck_body(hir_body_id);
 
-        // Find any transaction-like locals
-        let txn_locals = self.find_txn_locals(tcx, hir_body, typeck_results);
-
         // Gather all move data in the MIR body (to analyze when txn's are moved out of scope)
         let move_data = MoveData::gather_moves(&mir_body, tcx, |_| true);
 
@@ -223,17 +219,6 @@ impl TxnHeldAcrossAwait {
         // find any transactions being held across them.
         for (variant, source_info) in coroutine.variant_source_info.iter_enumerated() {
             if source_info.span.is_empty() {
-                continue;
-            }
-
-            // If this await is from a function call where we're passing a transaction, don't warn.
-            if self.await_is_db_call(
-                tcx,
-                owner_def_id,
-                source_info.span,
-                &txn_locals,
-                typeck_results,
-            ) {
                 continue;
             }
 
@@ -264,12 +249,33 @@ impl TxnHeldAcrossAwait {
 
             // Now we have spans for each txn local in scope across this await point
             for local_span in txn_local_spans {
-                let Some(local) = self.find_mir_local(mir_body, local_span) else {
+                // Find the MIR (mid-level representation) local for this span
+                let Some((local, local_decl)) = self.find_mir_local(mir_body, local_span) else {
                     bug!("could not find mir local corresponding to local span");
                 };
 
-                // Don't warn if the local is not alive (ie. has been moved via a .commit() or something)
+                // Don't warn if the local is not alive (ie. has been moved via a .commit() or
+                // something)
                 if is_local_dead_at_span(local, source_info.span, &move_data, mir_body, tcx) {
+                    continue;
+                }
+
+                // If this await is from a function call where we're passing this transaction local,
+                // don't warn.
+                //
+                // Note: We pass the local_decl.source_info.span we got from the MIR local, and not
+                // the local_span we got from coroutine.variant_source_info, because the MIR local
+                // is the "real" definition of the variable, and the span it returns is the one that
+                // will actually match the HIR ID we're looking for. See comments in
+                // [`TxnHeldAcrossAwait::find_mir_local`] for more info.
+                if DbAwaitFinder::await_is_passing_local_as_param(DbAwaitSearch {
+                    await_span: source_info.span,
+                    txn_local_span: local_decl.source_info.span,
+                    lint: self,
+                    tcx,
+                    body: tcx.hir_body(outer_fn.body_id().unwrap()),
+                    typeck_results,
+                }) {
                     continue;
                 }
 
@@ -341,36 +347,6 @@ impl TxnHeldAcrossAwait {
         }
     }
 
-    /// Checks if `await_span` is logically performing database work, defined as whether it is passing
-    /// the local defined in `txn_local_span` as a parameter to a function or method.
-    ///
-    /// `await_span` would match `await` in `do_database_work(txn).await;`, that is, it's the await
-    /// statement itself.
-    fn await_is_db_call<'a, 'tcx>(
-        &self,
-        tcx: TyCtxt<'tcx>,
-        owner_def_id: LocalDefId,
-        await_span: Span,
-        txn_locals: &'a FxHashSet<(Span, HirId)>,
-        typeck_results: &'a TypeckResults<'tcx>,
-    ) -> bool {
-        // Get the body which contains `await_span` (the .await statement we're looking for)
-        let body = tcx.hir_body_owned_by(owner_def_id);
-
-        // Use DbAwaitFinder to see if it
-        let mut finder = DbAwaitFinder {
-            lint: self,
-            tcx,
-            await_span,
-            txn_locals,
-            is_db: false,
-            all_exprs: Default::default(),
-            typeck_results,
-        };
-        finder.visit_body(body);
-        finder.is_db
-    }
-
     /// Check if the expression contained in `txn_local_span` is being passed as an argument to the expression `awaited`.
     ///
     /// In the snippet:
@@ -394,9 +370,9 @@ impl TxnHeldAcrossAwait {
     /// - `txn.prepare("SELECT true") // txn is the receiver`
     /// - `some_fn(&mut txn) // any level of borrows are ok`
     /// - `some_fn(txn.deref_mut()) // deref_mut() is a special case`
-    fn is_passing_any_txn<'tcx>(
+    fn is_passing_txn<'tcx>(
         &self,
-        txn_locals: &FxHashSet<(Span, HirId)>,
+        txn_local_hir_id: HirId,
         awaited: &Expr<'tcx>,
         tcx: TyCtxt<'tcx>,
         typeck_results: &TypeckResults,
@@ -410,7 +386,7 @@ impl TxnHeldAcrossAwait {
                 // txn.prepare(...).await(), etc count as passing txn (as the self param)
                 if let ExprKind::Path(qpath) = recv.kind {
                     if let Some(Res::Local(hir_id)) = qpath_res(&qpath)
-                        && txn_locals.iter().any(|l| l.1 == hir_id)
+                        && hir_id == txn_local_hir_id
                     {
                         return true;
                     }
@@ -464,7 +440,7 @@ impl TxnHeldAcrossAwait {
 
             txn_param_res.is_some_and(|res| {
                 if let Res::Local(hir_id) = res {
-                    txn_locals.iter().any(|l| l.1 == *hir_id)
+                    hir_id.local_id == txn_local_hir_id.local_id
                 } else {
                     false
                 }
@@ -472,30 +448,20 @@ impl TxnHeldAcrossAwait {
         })
     }
 
-    fn find_txn_locals<'a>(
+    fn find_mir_local<'a, 'tcx>(
         &self,
-        tcx: TyCtxt<'a>,
-        body: &Body<'a>,
-        typeck_results: &TypeckResults<'a>,
-    ) -> FxHashSet<(Span, HirId)> {
-        let mut finder = TxnLocalFinder {
-            tcx,
-            lint: self,
-            txn_locals: Default::default(),
-            typeck_results,
-        };
-
-        finder.visit_body(body);
-        finder.txn_locals
-    }
-
-    fn find_mir_local(&self, mir_body: &mir::Body, txn_local: Span) -> Option<mir::Local> {
+        mir_body: &'a mir::Body<'tcx>,
+        txn_local_span: Span,
+    ) -> Option<(mir::Local, &'a mir::LocalDecl<'tcx>)> {
         for (local, decl) in mir_body.local_decls.iter_enumerated() {
-            if txn_local.contains(decl.source_info.span)
-                && decl.source_info.span.contains(txn_local)
+            // NOTE: We dont' check for equality here, but just check if the spans mutually contain
+            // each other. This answers the question "is this the same section of code", whereas
+            // equality gets messed up because the spans come from different representation
+            // (HIR vs MIR).
+            if txn_local_span.contains(decl.source_info.span)
+                && decl.source_info.span.contains(txn_local_span)
             {
-                return Some(local);
-            } else {
+                return Some((local, decl));
             }
         }
         None
@@ -516,104 +482,58 @@ impl ExprExt for Expr<'_> {
     }
 }
 
-/// Visitor for finding sqlx::Transaction locals in a given body
-struct TxnLocalFinder<'a, 'tcx> {
+/// Visitor to find two things:
+///
+/// - The expression that `await_span` (the `.await` statement itself) is chained to, for example
+///   `foo()` in `foo().await`
+/// - The `HirId` of the local variable that `txn_local_span` refers to.
+///
+/// With both of these pieces of information, we can answer the question "is this await statement
+/// passing this transaction as an argument?" which is how we "allow" a transaction to be held
+/// across an await.
+struct DbAwaitFinder<'a, 'tcx> {
     tcx: TyCtxt<'tcx>,
-    typeck_results: &'a TypeckResults<'tcx>,
-    lint: &'a TxnHeldAcrossAwait,
-    txn_locals: FxHashSet<(Span, HirId)>,
+    // The span containing the `await` statement itself
+    await_span: Span,
+    // The span for the original definition of the local variable holding the transaction (typically named `txn`, etc.) We get this from the data in mir_coroutine_witnesses
+    txn_local_span: Span,
+    // Keep track of all expressions so we can recover the one we're awaiting
+    all_exprs: FxHashMap<HirId, &'a Expr<'tcx>>,
+
+    // What we're trying to find:
+    txn_local_hir_id: Option<HirId>,
+    await_expr: Option<&'a Expr<'tcx>>,
 }
 
-impl<'a, 'tcx> Visitor<'tcx> for TxnLocalFinder<'a, 'tcx> {
-    type NestedFilter = nested_filter::All;
+impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'a, 'tcx> {
+    type NestedFilter = nested_filter::OnlyBodies;
 
     fn maybe_tcx(&mut self) -> Self::MaybeTyCtxt {
         self.tcx
     }
 
+    // visit_local is here to find the hir_id of the local indicated by self.txn_local_span, and
+    // assign it to self.txn_local_hir_id. This way we can correlate the locals sent to the awaited
+    // call, to the txn local being held across the await.
     fn visit_local(&mut self, let_stmt: &'tcx LetStmt<'tcx>) {
-        if let Some(ty) = let_stmt.ty
-            && ty.hir_id.owner == self.typeck_results.hir_owner
-            && let Some(def_id) = self.typeck_results.type_dependent_def_id(ty.hir_id)
-        {
-            // Expr has an explicit type, e.g. `let txn: Transaction = <expr>`
-            // Now get the def_id of the explicit type from typeck results
-            if self.lint.is_sqlx_transaction(self.tcx, def_id.into()) {
-                self.txn_locals
-                    .insert((let_stmt.pat.span, let_stmt.pat.hir_id));
-            }
-        } else if let Some(init) = let_stmt.init
-            && init.hir_id.owner == self.typeck_results.hir_owner
-            && let Some(init_ty) = self.typeck_results.expr_ty_opt(init)
-        {
-            if let TyKind::Tuple(types) = init_ty.kind()
-                && let PatKind::Tuple(tuple_vars, dotdot_position) = let_stmt.pat.kind
-            {
-                // Example:
-                // let (v1, v2, txn, ..) = foo();
-                //      ^---- pat ----^   ^init^
-                //
-                // - `init_ty` is the inferred type of the `init` expression
-                // - `tuple_vars` is the set of variables in the place tuple
-                // - `dotdot_position` is the position of the dotdot var, if any
-                for (type_index, ty) in types.iter().enumerate() {
-                    if self.lint.is_sqlx_transaction_ty(self.tcx, &ty) {
-                        if dotdot_position
-                            .as_opt_usize()
-                            .is_none_or(|pos| pos > type_index)
-                        {
-                            // Vars are to the left of `..`, use the var at type_index
-                            let v = tuple_vars[type_index];
-                            self.txn_locals.insert((v.span, v.hir_id));
-                        } else {
-                            // `..` is to the left of the txn local, count from the end of type_index
-                            // e.g.:
-                            // fn foo() -> (u8, u8, u8, u8, u8, Transaction, u8);
-                            // let (v1, .., v2, txn, v3) = foo();
-                            let last_type_idx = types.len() - 1; // 6
-                            let last_tuple_idx = tuple_vars.len() - 1; // 4
-
-                            //    (1)    =     (6)       -        (5)
-                            let from_end = last_type_idx - type_index;
-
-                            //                      (4)       -    (1)
-                            let v = tuple_vars[last_tuple_idx - from_end];
-                            self.txn_locals.insert((v.span, v.hir_id));
-                        }
-                    }
-                }
-            } else {
-                // Expr has an inferred type, e.g. `let txn = <expr>`
-                if self.lint.is_sqlx_transaction_ty(self.tcx, &init_ty) {
-                    self.txn_locals
-                        .insert((let_stmt.pat.span, let_stmt.pat.hir_id));
+        if let PatKind::Tuple(tuple_vars, _dotdot_position) = let_stmt.pat.kind {
+            // Statement is a tuple... e.g. `let (txn, stuff) = make_transaction_and_stuff()`;
+            for v in tuple_vars.iter() {
+                if v.span == self.txn_local_span {
+                    self.txn_local_hir_id = Some(v.hir_id);
                 }
             }
+        } else if let_stmt.pat.span == self.txn_local_span {
+            // Statement's `pat` (the place to the left of the equals sign) equals the span we're
+            // looking for.
+            self.txn_local_hir_id = Some(let_stmt.pat.hir_id);
         }
+
+        intravisit::walk_local(self, let_stmt);
     }
-}
 
-/// Visitor to find the original expression that `await_span` (the `.await` statement itself) is
-/// chained onto, and check if it's logically performing database work.
-struct DbAwaitFinder<'a, 'tcx> {
-    lint: &'a TxnHeldAcrossAwait,
-    tcx: TyCtxt<'tcx>,
-    // The span containing the `await` statement itself (not the thing being awaited, which is what we're trying to find)
-    await_span: Span,
-    // The span containing the local variable holding the transaction (typically named `txn`, etc)
-    txn_locals: &'a FxHashSet<(Span, HirId)>,
-    // The Symbol for the txn object itself
-    is_db: bool,
-    all_exprs: FxHashMap<HirId, &'a Expr<'tcx>>,
-    typeck_results: &'a TypeckResults<'tcx>,
-}
-
-impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'a, 'tcx> {
+    // visit_expr finds the actual function call that is being `.await`ed, and stores it as self.await_expr.
     fn visit_expr(&mut self, expr: &'tcx Expr<'tcx>) {
-        if self.is_db {
-            return; // already found
-        }
-
         // Keep track of all expressions in this body: We end up visiting the await statement itself
         // after the expression it's awaiting
         self.all_exprs.insert(expr.hir_id, expr);
@@ -630,15 +550,84 @@ impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'a, 'tcx> {
             if expr.span == self.await_span
                 // ... and for which we've already visited the awaited expression
                 && let Some(awaited_expr) = self.all_exprs.get(&awaited)
-                // ... and for which the awaited expression is a function call that passes a sqlx::Transaction
-                && self.lint.is_passing_any_txn(self.txn_locals, awaited_expr, self.tcx, self.typeck_results)
             {
-                self.is_db = true;
-                return;
+                self.await_expr = Some(*awaited_expr);
             }
         }
 
         intravisit::walk_expr(self, expr);
+    }
+}
+
+/// Helper to add explicit parameter names to DbAwaitFinder::await_is_passing_local_as_param (else
+/// two Span arguments can be error-prone.)
+struct DbAwaitSearch<'a, 'tcx> {
+    // The span containing the `await` statement itself
+    await_span: Span,
+    // The span for the original definition of the local variable holding the transaction (typically
+    // named `txn`, etc.) We get this from the data in mir_coroutine_witnesses
+    txn_local_span: Span,
+    /// The lint, for calling `.is_passing_txn()`
+    lint: &'a TxnHeldAcrossAwait,
+    tcx: TyCtxt<'tcx>,
+    body: &'a Body<'tcx>,
+    typeck_results: &'a TypeckResults<'tcx>,
+}
+
+impl<'a, 'tcx> DbAwaitFinder<'a, 'tcx> {
+    /// Checks if `await_span` is passing the local originally defined in `local_span` as a parameter.
+    ///
+    /// For example, in:
+    ///
+    /// ```ignore
+    /// let txn = make_transaction();
+    /// do_database_work(txn).await;
+    /// ```
+    ///
+    /// - Parameter `await_span` would match `await` (that is, it's the await statement itself)
+    /// - Parameter `local_span` would be `txn` in `let txn = ...` (it's the local we're checking for)
+    /// - this would return `true`, since txn is being passed.
+    ///
+    /// To do this, this function has to:
+    ///
+    /// - Find the `do_database_work(txn)` awaitee expression (the one being awaited)
+    /// - Find the original `let txn = make_transaction()` statement (extracting the hir_id of the
+    ///   `txn` variable)
+    /// - Once both are found, calls `lint.is_passing_txn()` with the awaitee expression and the txn
+    ///   hir_id, and so returns true if any of the args to the expression are locals with the same
+    ///   hir_id as the txn local.
+    fn await_is_passing_local_as_param(search: DbAwaitSearch<'a, 'tcx>) -> bool {
+        let DbAwaitSearch {
+            await_span,
+            txn_local_span,
+            lint,
+            tcx,
+            body,
+            typeck_results,
+        } = search;
+
+        let mut finder = Self {
+            tcx,
+            await_span,
+            txn_local_span,
+            all_exprs: Default::default(),
+            await_expr: None,
+            txn_local_hir_id: None,
+        };
+        finder.visit_body(body);
+
+        // If we've found both the await expr and the txn local, check if it's being passed.
+        if let Some(txn_local_hir_id) = finder.txn_local_hir_id
+            && let Some(await_expr) = finder.await_expr
+        {
+            lint.is_passing_txn(txn_local_hir_id, await_expr, tcx, typeck_results)
+        } else {
+            // Here is a good place to put a debugging eprintln if we need to expand the detection
+            // of txn locals: Right now we only find simple `let txn =` or `let (txn, ..) =`
+            // statements, and nothing complex like `if let Some(txn) =` or `let SomeStruct { txn,
+            // ..} =` yet.
+            false
+        }
     }
 }
 

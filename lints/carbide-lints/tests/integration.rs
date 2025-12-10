@@ -10,15 +10,15 @@ fn driver_runs_and_emits_expected_lint() {
         .join("app")
         .join("Cargo.toml");
 
-    let expected_stderr = std::fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("fixtures")
-            .join("app")
-            .join("src")
-            .join("main.stderr"),
-    )
-    .expect("Could not read main.stderr");
+    let stderr_fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("app")
+        .join("src")
+        .join("main.stderr");
+
+    let expected_stderr =
+        std::fs::read_to_string(&stderr_fixture_path).expect("Could not read main.stderr");
 
     // Path to the just-built compiler driver binary
     let driver = env!("CARGO_BIN_EXE_carbide-lints");

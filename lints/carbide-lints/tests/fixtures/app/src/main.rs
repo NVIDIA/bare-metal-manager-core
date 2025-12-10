@@ -12,26 +12,32 @@ async fn good_db_related() {
 async fn good_db_related_tuples() {
     let (mut txn, ..) = make_transaction_tuple_1();
     good_outer_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 
     let (_, mut txn, _) = make_transaction_tuple_2();
     good_outer_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 
     let (.., mut txn) = make_transaction_tuple_3();
     good_outer_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 }
 
 async fn bad_unrelated_tuples() {
     let (mut txn, ..) = make_transaction_tuple_1();
     unrelated_async_work("bad").await;
     good_outer_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 
     let (_, mut txn, _) = make_transaction_tuple_2();
     unrelated_async_work("bad").await;
     good_outer_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 
     let (.., mut txn) = make_transaction_tuple_3();
     unrelated_async_work("bad").await;
     good_outer_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 }
 
 // No warnings: non_async_work() is not async

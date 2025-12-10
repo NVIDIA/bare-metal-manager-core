@@ -1201,7 +1201,6 @@ async fn update_instance_network_config(
     Ok(())
 }
 
-#[allow(txn_held_across_await)]
 async fn update_instance_infiniband_config(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,

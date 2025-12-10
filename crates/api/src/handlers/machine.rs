@@ -219,7 +219,6 @@ pub(crate) async fn machine_set_auto_update(
     Ok(Response::new(rpc::MachineSetAutoUpdateResponse {}))
 }
 
-#[allow(txn_held_across_await)]
 pub(crate) async fn update_machine_metadata(
     api: &Api,
     request: Request<rpc::MachineMetadataUpdateRequest>,

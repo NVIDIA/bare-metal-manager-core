@@ -1,159 +1,123 @@
 error: A sqlx::Transaction is being held across this 'await' point
-  --> src/main.rs:25:33
+  --> src/main.rs:28:33
    |
-25 |     unrelated_async_work("bad").await;
+28 |     unrelated_async_work("bad").await;
    |                                 ^^^^^
    |
 note: Transaction declared here
-  --> src/main.rs:24:10
+  --> src/main.rs:27:10
    |
-24 |     let (mut txn, ..) = make_transaction_tuple_1();
+27 |     let (mut txn, ..) = make_transaction_tuple_1();
    |          ^^^^^^^
    = note: `-D txn-held-across-await` implied by `-D warnings`
    = help: to override `-D warnings` add `#[allow(txn_held_across_await)]`
 
 error: A sqlx::Transaction is being held across this 'await' point
-  --> src/main.rs:29:33
+  --> src/main.rs:33:33
    |
-29 |     unrelated_async_work("bad").await;
+33 |     unrelated_async_work("bad").await;
    |                                 ^^^^^
    |
 note: Transaction declared here
-  --> src/main.rs:24:10
+  --> src/main.rs:32:13
    |
-24 |     let (mut txn, ..) = make_transaction_tuple_1();
-   |          ^^^^^^^
-
-error: A sqlx::Transaction is being held across this 'await' point
-  --> src/main.rs:29:33
-   |
-29 |     unrelated_async_work("bad").await;
-   |                                 ^^^^^
-   |
-note: Transaction declared here
-  --> src/main.rs:28:13
-   |
-28 |     let (_, mut txn, _) = make_transaction_tuple_2();
+32 |     let (_, mut txn, _) = make_transaction_tuple_2();
    |             ^^^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-  --> src/main.rs:33:33
+  --> src/main.rs:38:33
    |
-33 |     unrelated_async_work("bad").await;
+38 |     unrelated_async_work("bad").await;
    |                                 ^^^^^
    |
 note: Transaction declared here
-  --> src/main.rs:24:10
+  --> src/main.rs:37:14
    |
-24 |     let (mut txn, ..) = make_transaction_tuple_1();
-   |          ^^^^^^^
-
-error: A sqlx::Transaction is being held across this 'await' point
-  --> src/main.rs:33:33
-   |
-33 |     unrelated_async_work("bad").await;
-   |                                 ^^^^^
-   |
-note: Transaction declared here
-  --> src/main.rs:28:13
-   |
-28 |     let (_, mut txn, _) = make_transaction_tuple_2();
-   |             ^^^^^^^
-
-error: A sqlx::Transaction is being held across this 'await' point
-  --> src/main.rs:33:33
-   |
-33 |     unrelated_async_work("bad").await;
-   |                                 ^^^^^
-   |
-note: Transaction declared here
-  --> src/main.rs:32:14
-   |
-32 |     let (.., mut txn) = make_transaction_tuple_3();
+37 |     let (.., mut txn) = make_transaction_tuple_3();
    |              ^^^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-  --> src/main.rs:56:33
+  --> src/main.rs:62:33
    |
-56 |     unrelated_async_work("bad").await;
+62 |     unrelated_async_work("bad").await;
    |                                 ^^^^^
    |
 note: Transaction declared here
-  --> src/main.rs:55:9
+  --> src/main.rs:61:9
    |
-55 |     let mut txn = make_transaction();
+61 |     let mut txn = make_transaction();
    |         ^^^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-  --> src/main.rs:78:33
+  --> src/main.rs:84:33
    |
-78 |     unrelated_async_work("bad").await;
+84 |     unrelated_async_work("bad").await;
    |                                 ^^^^^
    |
 note: Transaction declared here
-  --> src/main.rs:76:27
+  --> src/main.rs:82:27
    |
-76 | async fn bad_txn_by_value(mut txn: PgTransaction<'_>) {
+82 | async fn bad_txn_by_value(mut txn: PgTransaction<'_>) {
    |                           ^^^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:133:33
+   --> src/main.rs:139:33
     |
-133 |     unrelated_async_work("bad").await;
+139 |     unrelated_async_work("bad").await;
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:132:25
+   --> src/main.rs:138:25
     |
-132 | async fn bad_db_wrapper(txn: &mut PgTransaction<'_>) {
+138 | async fn bad_db_wrapper(txn: &mut PgTransaction<'_>) {
     |                         ^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:135:33
+   --> src/main.rs:141:33
     |
-135 |     unrelated_async_work("bad").await;
+141 |     unrelated_async_work("bad").await;
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:132:25
+   --> src/main.rs:138:25
     |
-132 | async fn bad_db_wrapper(txn: &mut PgTransaction<'_>) {
+138 | async fn bad_db_wrapper(txn: &mut PgTransaction<'_>) {
     |                         ^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:167:37
+   --> src/main.rs:173:37
     |
-167 |         unrelated_async_work("bad").await;
+173 |         unrelated_async_work("bad").await;
     |                                     ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:166:32
+   --> src/main.rs:172:32
     |
-166 |     pub async fn bad_fn(&self, _txn: &mut PgTransaction<'_>) {
+172 |     pub async fn bad_fn(&self, _txn: &mut PgTransaction<'_>) {
     |                                ^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:210:33
+   --> src/main.rs:216:33
     |
-210 |     unrelated_async_work("bad").await
+216 |     unrelated_async_work("bad").await
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:209:24
+   --> src/main.rs:215:24
     |
-209 | async fn bad_pgconn_fn(_conn: &mut PgConnection) {
+215 | async fn bad_pgconn_fn(_conn: &mut PgConnection) {
     |                        ^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:219:33
+   --> src/main.rs:225:33
     |
-219 |     unrelated_async_work("bad").await
+225 |     unrelated_async_work("bad").await
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:218:28
+   --> src/main.rs:224:28
     |
-218 | async fn bad_pgpoolconn_fn(_conn: &mut PoolConnection<Postgres>) {
+224 | async fn bad_pgpoolconn_fn(_conn: &mut PoolConnection<Postgres>) {
     |                            ^^^^^
 
-error: could not compile `sqlx_app` (bin "sqlx_app") due to 13 previous errors
+error: could not compile `sqlx_app` (bin "sqlx_app") due to 10 previous errors

@@ -158,6 +158,7 @@ pub async fn find_by_vpcs(
  * transaction
  * prefixes: A slice of the `NewNetworkPrefix` to create.
  */
+#[allow(txn_held_across_await)]
 pub async fn create_for(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
