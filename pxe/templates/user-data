@@ -14,11 +14,11 @@ BR_HBN_SFS={{ forge_hbn_sfs }}
 {{ forge_bmc_fw_update }}
 
 # This function is called by install.sh script embedded in the BFB
-forge_modify_os()
+carbide_modify_os()
 {
 # set errexit so that if any command fails, we exit the script
 set -e
-ilog "======== Start of forge_modify_os ============"
+ilog "======== Start of carbide_modify_os ============"
 ilog "$(/usr/sbin/fdisk -l)"
 ilog "$(/usr/bin/lsblk)"
 ilog "$(/usr/sbin/blkid)"
@@ -296,8 +296,9 @@ ilog "==================================="
 set +e
 }
 
+# This function is called by install.sh script embedded in the BFB
 bfb_modify_os() {
-  forge_modify_os
+  carbide_modify_os
 }
 ZOF
 
