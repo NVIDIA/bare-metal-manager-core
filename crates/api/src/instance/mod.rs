@@ -365,7 +365,6 @@ pub fn sort_ib_by_slot(
 
 /// Allocates an instance for a tenant
 /// This is a convenience wrapper around `batch_allocate_instances` for single instance allocation.
-#[allow(txn_held_across_await)]
 pub async fn allocate_instance(
     api: &Api,
     request: InstanceAllocationRequest,

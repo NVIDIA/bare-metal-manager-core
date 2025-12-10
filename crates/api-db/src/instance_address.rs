@@ -182,6 +182,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
 
 /// Tries to allocate IP addresses for a tenant network configuration
 /// Returns the updated configuration which includes allocated addresses
+#[allow(txn_held_across_await)]
 pub async fn allocate(
     txn: &mut PgConnection,
     instance_id: InstanceId,

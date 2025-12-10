@@ -32,6 +32,7 @@ pub async fn get_fw_updates_running_count(txn: &mut PgConnection) -> Result<i64,
     Ok(count)
 }
 
+#[allow(txn_held_across_await)]
 pub async fn trigger_reprovisioning_for_managed_host(
     txn: &mut PgConnection,
     machine_updates: &[DpuMachineUpdate],

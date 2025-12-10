@@ -358,6 +358,7 @@ pub async fn validate_existing_mac_and_create(
     }
 }
 
+#[allow(txn_held_across_await)]
 pub async fn create(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
