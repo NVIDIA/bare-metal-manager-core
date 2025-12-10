@@ -171,6 +171,7 @@ dependencies = [
 [tasks.create-ephemeral-image-x86-host-ci]
 category = "Ephemeral Image"
 dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-x86_64",
   "copy-forge-prod-root-ca-x86_64",
@@ -192,6 +193,7 @@ dependencies = [
 [tasks.create-ephemeral-image-x86-host]
 category = "Ephemeral Image"
 dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
   "mkdir-static",
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-x86_64",
@@ -214,6 +216,7 @@ dependencies = [
 [tasks.create-ephemeral-image-arm-host-ci]
 category = "Ephemeral Image"
 dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-aarch64",
   "copy-forge-prod-root-ca-aarch64",
@@ -235,6 +238,7 @@ dependencies = [
 [tasks.create-ephemeral-image-arm-host]
 category = "Ephemeral Image"
 dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
   "mkdir-static",
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-aarch64",
@@ -380,6 +384,12 @@ args = [
   "--output-dir=${MKOSI_BUILD_TMP}",
   "clean",
 ]
+
+[tasks.mkosi-remove-zypper-from-debian-tools]
+category = "Ephemeral Image"
+description = "Remove zypper from the debian-tools image, as it's been removed from the repo"
+command = "sed"
+args = ["-i", "/zypper/d", "${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-ubuntu/mkosi.conf"]
 
 [tasks.mkosi-generate-build-tmpdir]
 category = "Ephemeral Image"
