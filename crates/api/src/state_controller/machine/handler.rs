@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem::discriminant as enum_discr;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
@@ -72,7 +72,7 @@ use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
@@ -6503,9 +6503,7 @@ impl HostUpgradeState {
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let machine_id = state.host_snapshot.id;
 
-        self.upgrade_script_state
-            .started(machine_id.to_string())
-            .await;
+        self.upgrade_script_state.started(machine_id.to_string());
 
         let address = explored_endpoint.address.to_string().clone();
         let script = to_install.script.unwrap_or("/bin/false".into()); // Should always be Some at this point
@@ -6555,9 +6553,7 @@ impl HostUpgradeState {
                     tracing::error!(
                         "Upgrade script {machine_id} {address} command creation failed: {e}"
                     );
-                    upgrade_script_state
-                        .completed(machine_id.to_string(), false)
-                        .await;
+                    upgrade_script_state.completed(machine_id.to_string(), false);
                     return;
                 }
             };
@@ -6566,9 +6562,7 @@ impl HostUpgradeState {
                 tracing::error!("Upgrade script {machine_id} {address} STDOUT creation failed");
                 let _ = cmd.kill().await;
                 let _ = cmd.wait().await;
-                upgrade_script_state
-                    .completed(machine_id.to_string(), false)
-                    .await;
+                upgrade_script_state.completed(machine_id.to_string(), false);
                 return;
             };
             let stdout = tokio::io::BufReader::new(stdout);
@@ -6577,9 +6571,7 @@ impl HostUpgradeState {
                 tracing::error!("Upgrade script {machine_id} {address} STDERR creation failed");
                 let _ = cmd.kill().await;
                 let _ = cmd.wait().await;
-                upgrade_script_state
-                    .completed(machine_id.to_string(), false)
-                    .await;
+                upgrade_script_state.completed(machine_id.to_string(), false);
                 return;
             };
             let stderr = tokio::io::BufReader::new(stderr);
@@ -6604,25 +6596,19 @@ impl HostUpgradeState {
                     tracing::info!(
                         "Upgrade script {machine_id} {address} FAILED: Wait failure {e}"
                     );
-                    upgrade_script_state
-                        .completed(machine_id.to_string(), false)
-                        .await;
+                    upgrade_script_state.completed(machine_id.to_string(), false);
                 }
                 Ok(errorcode) => {
                     if errorcode.success() {
                         tracing::info!(
                             "Upgrade script {machine_id} {address} completed successfully"
                         );
-                        upgrade_script_state
-                            .completed(machine_id.to_string(), true)
-                            .await;
+                        upgrade_script_state.completed(machine_id.to_string(), true);
                     } else {
                         tracing::warn!(
                             "Upgrade script {machine_id} {address} FAILED: Exited with {errorcode}"
                         );
-                        upgrade_script_state
-                            .completed(machine_id.to_string(), false)
-                            .await;
+                        upgrade_script_state.completed(machine_id.to_string(), false);
                     }
                 }
             }
@@ -6643,12 +6629,12 @@ impl HostUpgradeState {
         _txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let machine_id = state.host_snapshot.id.to_string();
-        let Some(success) = self.upgrade_script_state.state(&machine_id).await else {
+        let Some(success) = self.upgrade_script_state.state(&machine_id) else {
             // Not yet completed, or we restarted (which specifically needs a manual restart of interrupted scripts)
             return Ok(None);
         };
 
-        self.upgrade_script_state.clear(&machine_id).await;
+        self.upgrade_script_state.clear(&machine_id);
 
         if success {
             scenario.actual_new_state(
@@ -6924,11 +6910,7 @@ impl HostUpgradeState {
             Err(_) => "unknown".to_string(),
         };
         let machine_id = machine_id.to_string();
-        match self
-            .async_firmware_uploader
-            .upload_status(&machine_id)
-            .await
-        {
+        match self.async_firmware_uploader.upload_status(&machine_id) {
             None => {
                 tracing::info!(
                     "Apparent restart before upload to {machine_id} {address} completion, returning to CheckingFirmware"
@@ -6967,9 +6949,7 @@ impl HostUpgradeState {
                                 )
                             }
                             UploadResult::Failure => {
-                                self.async_firmware_uploader
-                                    .finish_upload(&machine_id)
-                                    .await;
+                                self.async_firmware_uploader.finish_upload(&machine_id);
                                 // The upload thread already logged this
                                 scenario.actual_new_state(
                                     HostReprovisionState::CheckingFirmwareRepeat,
@@ -7025,8 +7005,7 @@ impl HostUpgradeState {
 
         // Now it's safe to clear the hashmap for the upload status
         self.async_firmware_uploader
-            .finish_upload(&state.host_snapshot.id.to_string())
-            .await;
+            .finish_upload(&state.host_snapshot.id.to_string());
 
         let address = state
             .host_snapshot
@@ -7511,27 +7490,27 @@ impl HostUpgradeState {
 
 #[derive(Debug, Default)]
 struct UpdateScriptManager {
-    active: tokio::sync::Mutex<HashMap<String, Option<bool>>>,
+    active: Mutex<HashMap<String, Option<bool>>>,
 }
 
 impl UpdateScriptManager {
-    async fn started(&self, id: String) {
-        let mut hashmap = self.active.lock().await;
+    fn started(&self, id: String) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
         hashmap.insert(id, None);
     }
 
-    async fn completed(&self, id: String, success: bool) {
-        let mut hashmap = self.active.lock().await;
+    fn completed(&self, id: String, success: bool) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
         hashmap.insert(id, Some(success));
     }
 
-    async fn clear(&self, id: &String) {
-        let mut hashmap = self.active.lock().await;
+    fn clear(&self, id: &String) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
         hashmap.remove(id);
     }
 
-    async fn state(&self, id: &String) -> Option<bool> {
-        let hashmap = self.active.lock().await;
+    fn state(&self, id: &String) -> Option<bool> {
+        let hashmap = self.active.lock().expect("lock poisoned");
         *hashmap.get(id).unwrap_or(&None)
     }
 }
@@ -7550,7 +7529,7 @@ impl AsyncFirmwareUploader {
         redfish_component_type: libredfish::model::update_service::ComponentType,
         address: String,
     ) {
-        if self.upload_status(&id).await.is_some() {
+        if self.upload_status(&id).is_some() {
             // This situation can happen during an upgrade (typically a config upgrade) where the new instance of carbide-api starts an upgrade,
             // the old one sees that it's not the uploader and returns us to Checking, then the new one is following this path.  As we would be
             // trying to return to the exact same state that we generated before and the upload is already in progress, all we need to do here is
@@ -7566,9 +7545,10 @@ impl AsyncFirmwareUploader {
             return;
         }
         // We set a None value to indicate that we know about this.  If we restart and we're in the next state but it's not set, we'll not find anything and know that the connection was reset.
-        let mut hashmap = self.active_uploads.lock().await;
-        hashmap.insert(id.clone(), None);
-        drop(hashmap);
+        self.active_uploads
+            .lock()
+            .expect("lock poisoned")
+            .insert(id.clone(), None);
 
         let active_uploads = self.active_uploads.clone();
         tokio::spawn(async move {
@@ -7582,23 +7562,23 @@ impl AsyncFirmwareUploader {
                 .await
             {
                 Ok(task_id) => {
-                    let mut hashmap = active_uploads.lock().await;
+                    let mut hashmap = active_uploads.lock().expect("lock poisoned");
                     hashmap.insert(id, Some(UploadResult::Success { task_id }));
                 }
                 Err(e) => {
                     tracing::warn!("Failed uploading firmware to {id} {address}: {e}");
-                    let mut hashmap = active_uploads.lock().await;
+                    let mut hashmap = active_uploads.lock().expect("lock poisoned");
                     hashmap.insert(id, Some(UploadResult::Failure));
                 }
             };
         });
     }
-    async fn upload_status(&self, id: &String) -> Option<Option<UploadResult>> {
-        let hashmap = self.active_uploads.lock().await;
+    fn upload_status(&self, id: &String) -> Option<Option<UploadResult>> {
+        let hashmap = self.active_uploads.lock().expect("lock poisoned");
         hashmap.get(id).cloned()
     }
-    async fn finish_upload(&self, id: &String) {
-        let mut hashmap = self.active_uploads.lock().await;
+    fn finish_upload(&self, id: &String) {
+        let mut hashmap = self.active_uploads.lock().expect("lock poisoned");
         hashmap.remove(id);
     }
 }
