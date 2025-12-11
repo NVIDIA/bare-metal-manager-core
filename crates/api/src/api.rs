@@ -11,6 +11,7 @@
  */
 
 use std::collections::HashMap;
+use std::panic::Location;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -2883,11 +2884,13 @@ fn truncate(mut s: String, len: usize) -> String {
 }
 
 impl Api {
-    pub async fn txn_begin(
+    #[track_caller]
+    pub fn txn_begin(
         &self,
         name: &'static str,
-    ) -> Result<db::Transaction<'_>, DatabaseError> {
-        db::Transaction::begin(&self.database_connection, name).await
+    ) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
+        let loc = Location::caller();
+        db::Transaction::begin_with_location(&self.database_connection, name, loc)
     }
 
     pub(crate) async fn load_machine(

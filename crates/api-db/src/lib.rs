@@ -84,6 +84,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops::{Deref, DerefMut};
 use std::panic::Location;
+use std::pin::Pin;
 
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
@@ -402,9 +403,11 @@ impl DatabaseError {
         })
     }
 
-    #[track_caller]
-    pub fn txn_begin(name: &str, source: sqlx::Error) -> DatabaseError {
-        let loc = Location::caller();
+    fn txn_begin(
+        name: &str,
+        source: sqlx::Error,
+        loc: &'static Location<'static>,
+    ) -> DatabaseError {
         DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
@@ -413,9 +416,11 @@ impl DatabaseError {
         })
     }
 
-    #[track_caller]
-    pub fn txn_commit(name: &str, source: sqlx::Error) -> DatabaseError {
-        let loc = Location::caller();
+    fn txn_commit(
+        name: &str,
+        source: sqlx::Error,
+        loc: &'static Location<'static>,
+    ) -> DatabaseError {
         DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
@@ -424,9 +429,11 @@ impl DatabaseError {
         })
     }
 
-    #[track_caller]
-    pub fn txn_rollback(name: &str, source: sqlx::Error) -> DatabaseError {
-        let loc = Location::caller();
+    fn txn_rollback(
+        name: &str,
+        source: sqlx::Error,
+        loc: &'static Location<'static>,
+    ) -> DatabaseError {
         DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
@@ -565,35 +572,77 @@ impl<'a> AsMut<sqlx::PgTransaction<'a>> for Transaction<'a> {
 }
 
 impl<'a> Transaction<'a> {
-    pub async fn begin(pool: &sqlx::PgPool, name: &'static str) -> Result<Self, DatabaseError> {
+    // This function can just async when
+    // https://github.com/rust-lang/rust/issues/110011 will be
+    // implemented
+    #[track_caller]
+    pub fn begin(
+        pool: &'a sqlx::PgPool,
+        name: &'static str,
+    ) -> Pin<Box<dyn Future<Output = Result<Self, DatabaseError>> + Send + 'a>> {
+        let loc = Location::caller();
+        Box::pin(async move {
+            pool.begin()
+                .await
+                .map_err(|e| DatabaseError::txn_begin(name, e, loc))
+                .map(|inner| Self { inner, name })
+        })
+    }
+
+    pub async fn begin_with_location(
+        pool: &sqlx::PgPool,
+        name: &'static str,
+        loc: &'static Location<'static>,
+    ) -> Result<Self, DatabaseError> {
         pool.begin()
             .await
-            .map_err(|e| DatabaseError::txn_begin(name, e))
+            .map_err(|e| DatabaseError::txn_begin(name, e, loc))
             .map(|inner| Self { inner, name })
     }
 
-    pub async fn begin_inner(
+    // This function can just async when
+    // https://github.com/rust-lang/rust/issues/110011 will be
+    // implemented
+    #[track_caller]
+    pub fn begin_inner(
         conn: &'a mut sqlx::PgConnection,
         name: &'static str,
-    ) -> Result<Self, DatabaseError> {
-        conn.begin()
-            .await
-            .map_err(|e| DatabaseError::txn_begin(name, e))
-            .map(|inner| Self { inner, name })
+    ) -> Pin<Box<dyn Future<Output = Result<Self, DatabaseError>> + Send + 'a>> {
+        let loc = Location::caller();
+        Box::pin(async move {
+            conn.begin()
+                .await
+                .map_err(|e| DatabaseError::txn_begin(name, e, loc))
+                .map(|inner| Self { inner, name })
+        })
     }
 
-    pub async fn commit(self) -> Result<(), DatabaseError> {
-        self.inner
-            .commit()
-            .await
-            .map_err(|e| DatabaseError::txn_commit(self.name, e))
+    // This function can just async when
+    // https://github.com/rust-lang/rust/issues/110011 will be
+    // implemented
+    #[track_caller]
+    pub fn commit(self) -> Pin<Box<dyn Future<Output = Result<(), DatabaseError>> + Send + 'a>> {
+        let loc = Location::caller();
+        Box::pin(async move {
+            self.inner
+                .commit()
+                .await
+                .map_err(|e| DatabaseError::txn_commit(self.name, e, loc))
+        })
     }
 
-    pub async fn rollback(self) -> Result<(), DatabaseError> {
-        self.inner
-            .rollback()
-            .await
-            .map_err(|e| DatabaseError::txn_rollback(self.name, e))
+    // This function can just async when
+    // https://github.com/rust-lang/rust/issues/110011 will be
+    // implemented
+    #[track_caller]
+    pub fn rollback(self) -> Pin<Box<dyn Future<Output = Result<(), DatabaseError>> + Send + 'a>> {
+        let loc = Location::caller();
+        Box::pin(async move {
+            self.inner
+                .rollback()
+                .await
+                .map_err(|e| DatabaseError::txn_rollback(self.name, e, loc))
+        })
     }
 
     pub fn as_pgconn(&mut self) -> &mut sqlx::PgConnection {
@@ -632,45 +681,6 @@ mod tests {
         assert_eq!(err.line, line!() - 4);
         assert_eq!(err.file, file!());
         assert!(format!("{err}").contains(OP_NAME))
-    }
-
-    #[test]
-    fn test_database_error_txn_begin() {
-        const DB_TXN_NAME: &str = "test txn";
-        let DatabaseError::Sqlx(err) =
-            DatabaseError::txn_begin(DB_TXN_NAME, sqlx::Error::protocol("some error"))
-        else {
-            unreachable!()
-        };
-        assert_eq!(err.line, line!() - 4);
-        assert_eq!(err.file, file!());
-        assert!(format!("{err}").contains(&format!("begin {DB_TXN_NAME}")))
-    }
-
-    #[test]
-    fn test_database_error_txn_commit() {
-        const DB_TXN_NAME: &str = "test txn";
-        let DatabaseError::Sqlx(err) =
-            DatabaseError::txn_commit(DB_TXN_NAME, sqlx::Error::protocol("some error"))
-        else {
-            unreachable!()
-        };
-        assert_eq!(err.line, line!() - 4);
-        assert_eq!(err.file, file!());
-        assert!(format!("{err}").contains(&format!("commit {DB_TXN_NAME}")))
-    }
-
-    #[test]
-    fn test_database_error_txn_rollback() {
-        const DB_TXN_NAME: &str = "test txn";
-        let DatabaseError::Sqlx(err) =
-            DatabaseError::txn_rollback(DB_TXN_NAME, sqlx::Error::protocol("some error"))
-        else {
-            unreachable!()
-        };
-        assert_eq!(err.line, line!() - 4);
-        assert_eq!(err.file, file!());
-        assert!(format!("{err}").contains(&format!("rollback {DB_TXN_NAME}")))
     }
 
     #[test]
