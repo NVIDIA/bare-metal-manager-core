@@ -31,6 +31,7 @@ struct TenantShow {
 
 struct TenantDisplay {
     organization_id: String,
+    routing_profile_type: String,
     metadata: rpc::forge::Metadata,
     version: String,
 }
@@ -38,6 +39,12 @@ struct TenantDisplay {
 impl From<forgerpc::Tenant> for TenantDisplay {
     fn from(tenant: forgerpc::Tenant) -> Self {
         Self {
+            routing_profile_type: if tenant.routing_profile_type.is_none() {
+                "None"
+            } else {
+                tenant.routing_profile_type().as_str_name()
+            }
+            .to_string(),
             organization_id: tenant.organization_id,
             metadata: tenant.metadata.unwrap_or_default(),
             version: tenant.version,

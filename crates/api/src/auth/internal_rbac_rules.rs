@@ -172,7 +172,7 @@ impl InternalRBACRules {
         x.perm("Echo", vec![Dhcp]);
         x.perm("CreateTenant", vec![SiteAgent]);
         x.perm("FindTenant", vec![SiteAgent, ForgeAdminCLI]);
-        x.perm("UpdateTenant", vec![SiteAgent]);
+        x.perm("UpdateTenant", vec![SiteAgent, ForgeAdminCLI]);
         x.perm("CreateTenantKeyset", vec![SiteAgent]);
         x.perm("FindTenantKeysetIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindTenantKeysetsByIds", vec![ForgeAdminCLI, SiteAgent]);
@@ -351,8 +351,11 @@ impl InternalRBACRules {
         x.perm("RedfishApproveAction", vec![ForgeAdminCLI]);
         x.perm("RedfishApplyAction", vec![ForgeAdminCLI]);
         x.perm("RedfishCancelAction", vec![ForgeAdminCLI]);
-        x.perm("FindTenantOrganizationIds", vec![SiteAgent]);
-        x.perm("FindTenantsByOrganizationIds", vec![SiteAgent]);
+        x.perm("FindTenantOrganizationIds", vec![SiteAgent, ForgeAdminCLI]);
+        x.perm(
+            "FindTenantsByOrganizationIds",
+            vec![SiteAgent, ForgeAdminCLI],
+        );
         x.perm("FindMacAddressByBmcIp", vec![SiteAgent]);
         x.perm("BmcCredentialStatus", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(

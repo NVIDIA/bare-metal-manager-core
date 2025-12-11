@@ -64,6 +64,22 @@ pub(crate) async fn create(
 
     metadata.validate(true).map_err(CarbideError::from)?;
 
+    // We won't use it if FNN isn't enabled, but we can still map so a caller integrating
+    // with us before FNN is enabled on a site will be told if they're sending invalid values.
+    let routing_profile_type = routing_profile_type
+        .map(rpc::RoutingProfileType::try_from)
+        .transpose()
+        .map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidValue(
+                e.to_string(),
+                "RoutingProfileType".to_string(),
+            ))
+        })?
+        .map(RoutingProfileType::try_from)
+        .transpose()
+        .map_err(CarbideError::from)?
+        .or(Some(RoutingProfileType::External));
+
     let mut txn = api.txn_begin("create_tenant").await?;
 
     let response = db::tenant::create_and_persist(
@@ -73,18 +89,6 @@ pub(crate) async fn create(
             None
         } else {
             routing_profile_type
-                .map(rpc::RoutingProfileType::try_from)
-                .transpose()
-                .map_err(|e| {
-                    CarbideError::from(RpcDataConversionError::InvalidValue(
-                        e.to_string(),
-                        "RoutingProfileType".to_string(),
-                    ))
-                })?
-                .map(RoutingProfileType::try_from)
-                .transpose()
-                .map_err(CarbideError::from)?
-                .or(Some(RoutingProfileType::External))
         },
         &mut txn,
     )
@@ -110,7 +114,7 @@ pub(crate) async fn find(
 
     let mut txn = api.txn_begin("find_tenant").await?;
 
-    let response = match db::tenant::find(tenant_organization_id, &mut txn)
+    let response = match db::tenant::find(tenant_organization_id, false, &mut txn)
         .await
         .map(Response::new)?
         .into_inner()
@@ -134,26 +138,78 @@ pub(crate) async fn update(
         organization_id,
         if_version_match,
         metadata,
+        routing_profile_type,
     } = request.into_inner();
 
     let metadata: Metadata = metadata_to_valid_tenant_metadata(metadata)?;
 
     metadata.validate(true).map_err(CarbideError::from)?;
 
+    let routing_profile_type = routing_profile_type
+        .map(rpc::RoutingProfileType::try_from)
+        .transpose()
+        .map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidValue(
+                e.to_string(),
+                "RoutingProfileType".to_string(),
+            ))
+        })?
+        .map(RoutingProfileType::try_from)
+        .transpose()
+        .map_err(CarbideError::from)?;
+
     let mut txn = api.txn_begin("update_tenant").await?;
 
-    let if_version_match: Option<config_version::ConfigVersion> =
-        if let Some(config_version_str) = if_version_match {
-            Some(config_version_str.parse().map_err(CarbideError::from)?)
-        } else {
-            None
-        };
+    // Grab the tenant details and a row-lock
+    let Some(current_tenant) = db::tenant::find(&organization_id, true, &mut txn).await? else {
+        return Err(CarbideError::NotFoundError {
+            kind: "tenant",
+            id: organization_id.clone(),
+        }
+        .into());
+    };
 
-    let response = db::tenant::update(organization_id, metadata, if_version_match, &mut txn)
+    // If a tenant routing profile is being updated,
+    // it can only be allowed if there are no existing VPCs
+    // for the tenant.  Technically, at the moment, it's probably
+    // ok to allow it as long it's not switching between profiles
+    // that have a differing `internal` value (e.g., switching from
+    // internal==true to false), but total restriction is safer
+    // and easy to loosen later if we find we need it.
+    if current_tenant.routing_profile_type != routing_profile_type
+        && !db::vpc::find_ids(
+            &mut txn,
+            rpc::VpcSearchFilter {
+                tenant_org_id: Some(organization_id.clone()),
+                ..Default::default()
+            },
+        )
         .await?
-        .try_into()
-        .map(Response::new)
-        .map_err(CarbideError::from)?;
+        .is_empty()
+    {
+        return Err(CarbideError::FailedPrecondition(
+            "cannot update tenant routing profile type for tenant with active VPCs".to_string(),
+        )
+        .into());
+    }
+
+    let expected_version = if let Some(config_version_str) = if_version_match {
+        config_version_str.parse().map_err(CarbideError::from)?
+    } else {
+        current_tenant.version
+    };
+
+    let response = db::tenant::update(
+        organization_id,
+        metadata,
+        expected_version,
+        routing_profile_type,
+        &mut txn,
+    )
+    .await?
+    .try_into()
+    .map(Response::new)
+    .map_err(CarbideError::from)?;
 
     txn.commit().await?;
 

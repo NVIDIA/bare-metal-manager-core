@@ -10,7 +10,7 @@ name = "rpc"
 
 [features]
 sqlx = ["dep:sqlx"]
-cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml"]
+cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml", "dep:csv"]
 
 [dependencies]
 
@@ -75,6 +75,7 @@ serde_yaml = { optional = true, workspace = true }
 data-encoding = { workspace = true }
 sha2 = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
+csv = { optional = true, workspace = true }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

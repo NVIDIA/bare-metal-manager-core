@@ -3848,6 +3848,9 @@ message UpdateTenantRequest {
   // if this field is set and non-empty, the request will only update the tenant if the version matches the server's view,
   // otherwise it will return a concurrency related error.
   optional string if_version_match = 3;
+
+  // Updating will only be allowed if the tenant has no active VPCs
+  optional RoutingProfileType routing_profile_type = 4;
 }
 message UpdateTenantResponse {
   // the updated tenant after modification
