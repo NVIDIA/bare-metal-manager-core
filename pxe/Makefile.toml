@@ -73,6 +73,7 @@ args = [
 cwd = "${BUILD_LOCATION}" # jf will try to upload the full path specified if the tool is executed out of the target directory
 
 [tasks.stage-nvinit]
+condition = { env_not_set = ["SA_ENABLEMENT"] }
 # Note that libnss-exec is located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
 description = "Stages files required for nvssh into the mkosi image for installation in postinst script"
 script = '''
@@ -119,6 +120,16 @@ dependencies = [
   "setup-apt-repo-amd64",
 ]
 
+[tasks.build-boot-artifacts-x86-host-sa]
+dependencies = [
+  "mkdir-static",
+  { name = "package-scout-x86_64-release-local", path = "${REPO_ROOT}" },
+  "build",
+  "create-ephemeral-image-x86-host",
+  "ipxe-x86_64",
+  "setup-apt-repo-amd64",
+]
+
 [tasks.build-boot-artifacts-x86-host-ci]
 dependencies = [
   "mkdir-static",
@@ -146,6 +157,29 @@ dependencies = [
   "ipxe-aarch64-ci",
   "setup-apt-repo-arm64",
 ]
+
+[tasks.build-boot-artifacts-bfb-sa]
+dependencies = [
+  "mkdir-static",
+  { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
+  "bfb-aarch64-sa",
+  "ipxe-aarch64-sa",
+  "setup-apt-repo-arm64",
+  "add-secure-boot-pk-pem",
+]
+
+[tasks.bfb-aarch64-sa]
+env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "/tmp/doca_container_configs.zip" }
+run_task = "internal-bfb-aarch64-sa"
+
+[tasks.ipxe-aarch64-sa]
+category = "iPXE Kernel"
+description = "Build iPXE kernel for aarch64 (EFI) for SA builds"
+dependencies = [
+  "ipxe-build-efi-aarch64",
+  "ipxe-install-efi-aarch64",
+]
+
 
 [tasks.build-boot-artifacts-bfb]
 dependencies = [
@@ -282,6 +316,7 @@ script = '''
 '''
 
 [tasks.copy-forge-prod-root-ca-x86_64]
+condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
@@ -291,6 +326,7 @@ args = [
 ]
 
 [tasks.copy-forge-prod-root-ca-aarch64]
+condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
@@ -300,6 +336,7 @@ args = [
 ]
 
 [tasks.copy-forge-dev-root-ca-x86_64]
+condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
@@ -309,6 +346,7 @@ args = [
 ]
 
 [tasks.copy-forge-dev-root-ca-aarch64]
+condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
@@ -403,11 +441,16 @@ set_env MKOSI_BUILD_TMP ${tmp_name}
 # `depmod` on our runners is in `/sbin`, so add to PATH
 [tasks.mkosi-build-scout-x86_64]
 category = "Ephemeral Image"
-command = "/bin/bash"
-args = [
-  "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
-]
+script = '''
+  PROFILE=""
+  if  [ -n "${SA_ENABLEMENT}" ]; then
+    PROFILE="scout-oss-x86_64"
+  else
+    PROFILE="scout-x86_64"
+  fi
+  export PATH=${PATH}:/sbin
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+'''
 
 [tasks.mkosi-build-scout-loader-x86_64]
 category = "Ephemeral Image"
@@ -419,11 +462,16 @@ args = [
 
 [tasks.mkosi-build-scout-aarch64]
 category = "Ephemeral Image"
-command = "/bin/bash"
-args = [
-  "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
-]
+script = '''
+  PROFILE=""
+  if  [ -n "${SA_ENABLEMENT}" ]; then
+    PROFILE="scout-oss-aarch64"
+  else
+    PROFILE="scout-aarch64"
+  fi
+  export PATH=${PATH}:/sbin
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+'''
 
 [tasks.mkosi-build-scout-loader-aarch64]
 category = "Ephemeral Image"
@@ -642,28 +690,45 @@ dependencies = ["ipxe-build-efi-aarch64-ci"]
 [tasks.ipxe-build-efi-x86_64]
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
-command = "make"
-args = [
-  "-j",
-  "bin-x86_64-efi/snponly.efi",
-  "VERSION=${IPXE_BANNER_VERSION}",
-  "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
-  "DEBUG=tls",
-]
+script = '''
+  LD_ARG=""
+  if [ -n "${SA_ENABLEMENT}" ]; then
+    LD_ARG="LD=/usr/bin/ld.bfd"
+  fi	
+  make -j ${LD_ARG} \
+    bin-x86_64-efi/snponly.efi \
+    VERSION=${IPXE_BANNER_VERSION} \
+    EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
+    DEBUG=tls
+'''
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
-command = "make"
-args = [
-  "-j",
-  "CROSS_COMPILE=aarch64-linux-gnu-",
-  "bin-arm64-efi/ipxe.efi",
-  "VERSION=${IPXE_BANNER_VERSION}",
-  "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
-  "DEBUG=snp,tls",
-]
+script = '''
+  if [ -n "${SA_ENABLEMENT}" ]; then
+    docker run --rm -u $(id -u):$(id -g) \
+    -v /etc/passwd:/etc/passwd:ro \
+    -v ${REPO_ROOT}:/src \
+    -w /src/pxe/ipxe/upstream/src \
+    build-artifacts-container-cross-aarch64 \
+    make -j \
+      CROSS_COMPILE=aarch64-linux-gnu- \
+      bin-arm64-efi/ipxe.efi \
+      VERSION=${IPXE_BANNER_VERSION} \
+      EMBED=/src/pxe/ipxe/local/embed.ipxe \
+      DEBUG=snp,tls \
+      EXTRA_CFLAGS="-Wno-unused-parameter -Wno-unused-variable"
+  else
+    make -j \
+      CROSS_COMPILE=aarch64-linux-gnu- \
+      bin-arm64-efi/ipxe.efi \
+      VERSION=${IPXE_BANNER_VERSION} \
+      EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
+      DEBUG=snp,tls
+  fi
+'''
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64-ci]
@@ -681,12 +746,51 @@ cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
 env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
-run_task = "internal-bfb-aarch64-ci"
+run_task = [
+  { name = "internal-bfb-aarch64-ci", condition = { env_not_set = ["SA_ENABLEMENT"] } },
+  { name = "internal-bfb-aarch64-sa", condition = { env_true = ["SA_ENABLEMENT"] } },
+]
 
 [tasks.bfb-aarch64]
 env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
-run_task = "internal-bfb-aarch64"
+run_task = [
+  { name = "internal-bfb-aarch64", condition = { env_not_set = ["SA_ENABLEMENT"] } },
+  { name = "internal-bfb-aarch64-sa", condition = { env_true = ["SA_ENABLEMENT"] } },
+]
 
+[tasks.internal-bfb-aarch64-sa]
+env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}" }
+category = "iPXE Kernel"
+description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+dependencies = [
+  "bfb-cleanup-tmp",
+  "bfb-create-tmp",
+  "bfb-download-sa",
+  "save-bfb-for-preingestion",
+  "bfbtools-download",
+  "bfb-extract",
+  "bfb-extract-efi-sa",
+  #"download-docker-containers",  // save doca_hbn.tar to /tmp/bfb-dump/initramfs-tmp
+  "bfb-extract-ifconfig",
+  "bfb-add-scout-to-bfb-ci",
+  "bfb-add-debs-to-bfb",
+  "bfb-add-nvinit-setup-to-bfb",
+  "bfb-add-prod-forge-root-ca-to-bfb",
+  "download-hbn-installer-to-bfb-sa",  # put doca_container_configs.zip in /tmp
+  "mkdir-hbn-folder-in-bfb",
+  "unzip-hbn-folder-in-bfb",
+  "mv-hbn-configs-to-bfb",
+  "mv-hbn-scripts-to-bfb",
+  "cleanup-hbn-scripts",
+  { name = "build-forge-dpu-deb-local", path = "${REPO_ROOT}/bluefield" },
+  "cp-forge-dpu-package-to-bfb",
+  "bfb-copy-efi",
+  "bfb-remove-extracted-efi",
+  "replace-bfpxe-script",
+  "bfb-rebuild-rootfs",
+  "bfb-copy-rootfs",
+  "bfb-rebuild-bfb",
+]
 [tasks.internal-bfb-aarch64-ci]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
@@ -766,6 +870,15 @@ description = "Download the BFB on aarch64 gitlab runner"
 command = "mkdir"
 args = ["-p", "${BUILD_LOCATION}"]
 
+# Used when SA's are building containers on site without access to internal
+# gitlab
+[tasks.bfb-download-sa]
+category = "iPXE Kernel"
+description = "Download the BFB on aarch64 gitlab runner"
+command = "wget"
+args = ["-Nnv", "${BFB_UPSTREAM_LOCATION}/${BFB_NAME}", "-P", "/tmp/bfb-dump"]
+
+
 [tasks.bfb-download]
 category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
@@ -795,6 +908,12 @@ description = "Extract the BFB on aarch64 gitlab runner"
 command = "python3"
 args = ["mlx-mkbfb", "-x", "${BFB_NAME}"]
 cwd = "/tmp/bfb-dump"
+
+[tasks.bfb-extract-efi-sa]
+category = "iPXE Kernel"
+description = "Extract the BFB initramfs using fakeroot"
+script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | fakeroot cpio -id"]
+cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-extract-efi]
 category = "iPXE Kernel"
@@ -831,12 +950,14 @@ args = ["xJf", "ubuntu/image.tar.xz", "./usr/sbin/ifconfig"]
 cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-add-prod-forge-root-ca-to-bfb]
+condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
 description = "Add the forge root CA to the bfb"
 command = "cp"
 args = ["${FORGE_CA_PATH}", "${BUILD_LOCATION}/forge_root.pem"]
 
 [tasks.bfb-add-dev-forge-root-ca-to-bfb]
+condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
 description = "Add the forge root CA to the bfb"
 command = "cp"
@@ -882,6 +1003,7 @@ script = '''
 dependencies = ["download-debs-for-bfb"]
 
 [tasks.bfb-add-nvinit-setup-to-bfb]
+condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
 description = "Add nvinit_setup folder to the bfb"
 command = "cp"
@@ -913,6 +1035,12 @@ category = "iPXE Kernel"
 description = "Add the HBN installer to the bfb"
 command = "cp"
 args = ["${HBN_CONFIG_URL}", "${BUILD_LOCATION}"]
+
+[tasks.download-hbn-installer-to-bfb-sa]
+category = "iPXE Kernel"
+description = "Add the HBN installer to the bfb"
+command = "cp"
+args = ["/tmp/doca_container_configs.zip", "${BUILD_LOCATION}"]
 
 [tasks.download-hbn-installer-to-bfb]
 category = "iPXE Kernel"
