@@ -203,6 +203,7 @@ dependencies = [
   # "setup-apt-repo-arm64", # FIXME: FORGE-7502 - Disabled until URM migration completed, due to bfb-aarch64-ci
 ]
 
+# FIXME: needs gitlab sync this zypper removal task
 [tasks.mkosi-remove-zypper-from-debian-tools]
 description = "Remove zypper from the debian-tools image, as it's been removed from the repo"
 command = "sed"
