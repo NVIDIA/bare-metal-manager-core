@@ -26,7 +26,7 @@ HBN_VERSION = "2.4.3"
 # As of 2.4.3, PID is used to download artifacts. A url like this http://pid/1138607 will be given to download the zip, which contains
 # the zip file, which was saved manually to the same name of teh hbn uri in the scripts/2.4.3/doca_hbn.yml which is also in the same zip.
 # once we know for sure the zip file in pid is the new way to get this file, we can automate all the manual steps that went in to upload
-# Such as making the doca_container_configs.zip manually from files inside the zip from pid and manually exporting the hbn image to 
+# Such as making the doca_container_configs.zip manually from files inside the zip from pid and manually exporting the hbn image to
 # the named DOCA_HBN_URI.
 HBN_UPSTREAM_CONFIG_URL = "/tmp/doca_container_configs.zip"
 IPXE_BANNER_VERSION = { script = [
@@ -72,6 +72,7 @@ args = [
 ]
 cwd = "${BUILD_LOCATION}" # jf will try to upload the full path specified if the tool is executed out of the target directory
 
+# FIXME: FORGE-7058 - Make authentication to scout & DPUs configurable by someone else
 [tasks.stage-nvinit]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
 # Note that libnss-exec is located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
@@ -196,11 +197,16 @@ dependencies = [
 dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
-  "bfb-aarch64-ci",
+  # "bfb-aarch64-ci", # FIXME: FORGE-7502 - Disabled until URM migration completed
   "ipxe-aarch64-ci",
-  "setup-apt-repo-arm64",
-  "add-secure-boot-pk-pem",
+  # "add-secure-boot-pk-pem", # FIXME: FORGE-7502 - Disabled until URM migration completed, due to bfb-aarch64-ci
+  # "setup-apt-repo-arm64", # FIXME: FORGE-7502 - Disabled until URM migration completed, due to bfb-aarch64-ci
 ]
+
+[tasks.mkosi-remove-zypper-from-debian-tools]
+description = "Remove zypper from the debian-tools image, as it's been removed from the repo"
+command = "sed"
+args = ["-i", "/zypper/d", "${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-kali-ubuntu/mkosi.conf"]
 
 [tasks.create-ephemeral-image-x86-host-ci]
 category = "Ephemeral Image"
@@ -219,9 +225,12 @@ dependencies = [
   "mkosi-copy-qcow-imager-to-webroot-x86_64",
   "mkosi-copy-scout-to-webroot-x86_64",
   "mkosi-copy-scout-loader-to-webroot-x86_64",
-  "mkosi-clean-qcow-imager",
-  "mkosi-clean-scout-x86_64",
-  "mkosi-clean-scout-loader-x86_64",
+  # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in CI.
+  # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
+  # TODO: Need to double confirm
+  # "mkosi-clean-qcow-imager",
+  # "mkosi-clean-scout-x86_64",
+  # "mkosi-clean-scout-loader-x86_64",
 ]
 
 [tasks.create-ephemeral-image-x86-host]
@@ -264,9 +273,12 @@ dependencies = [
   "mkosi-copy-scout-to-webroot-aarch64",
   "mkosi-copy-scout-loader-to-webroot-aarch64",
   "mkosi-copy-qcow-imager-to-webroot-aarch64",
-  "mkosi-clean-scout-aarch64",
-  "mkosi-clean-scout-loader-aarch64",
-  "mkosi-clean-qcow-imager-aarch64",
+  # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in Github CI.
+  # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
+  # TODO: Need to double confirm
+  # "mkosi-clean-scout-aarch64",
+  # "mkosi-clean-scout-loader-aarch64",
+  # "mkosi-clean-qcow-imager-aarch64",
 ]
 
 [tasks.create-ephemeral-image-arm-host]
@@ -320,9 +332,9 @@ condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
-  "-f",
-  "${FORGE_CA_PATH}",
-  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+ "-f",
+ "${FORGE_CA_PATH}", # FIXME: FORGE-7501 - Removed root CA before externalize
+ "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-prod-root-ca-aarch64]
@@ -330,9 +342,9 @@ condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
-  "-f",
-  "${FORGE_CA_PATH}",
-  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+ "-f",
+ "${FORGE_CA_PATH}", # FIXME: FORGE-7501 - Removed root CA before externalize
+ "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-dev-root-ca-x86_64]
@@ -444,6 +456,9 @@ set_env MKOSI_BUILD_TMP ${tmp_name}
 '''
 
 # `depmod` on our runners is in `/sbin`, so add to PATH
+# Note: mkosi requires root permissions, so we use sudo in GitHub Actions
+# Note: mkosi v25 uses built-in sandboxing via Linux namespaces (not bwrap)
+# which should work on GitHub Actions managed runners.
 [tasks.mkosi-build-scout-x86_64]
 category = "Ephemeral Image"
 script = '''
@@ -462,7 +477,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-scout-aarch64]
@@ -483,7 +498,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-qcow-imager]
@@ -491,7 +506,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-qcow-imager-aarch64]
@@ -499,7 +514,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-copy-qcow-imager-to-webroot-x86_64]
@@ -1009,6 +1024,7 @@ script = '''
 '''
 dependencies = ["download-debs-for-bfb"]
 
+# FIXME: FORGE-7058 - Make authentication to scout & DPUs configurable by someone else
 [tasks.bfb-add-nvinit-setup-to-bfb]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
