@@ -45,28 +45,19 @@ pub(crate) async fn create(
 
     let mut txn = api.txn_begin("create_vpc").await?;
 
-    let mut tenant = db::tenant::load_by_organization_ids(
-        &mut txn,
-        std::slice::from_ref(&vpc_creation_request.tenant_organization_id.clone()),
-    )
-    .await?;
-
-    if tenant.len() > 1 {
-        return Err(CarbideError::Internal {
-            message: format!(
-                "too many tenant records found for `{}`",
-                vpc_creation_request.tenant_organization_id
-            ),
-        }
-        .into());
-    }
+    // Grab the tenant details and a row-lock if found so we can coordinate around the tenant record.
+    // If we're still allowing VPC creation for tenant org IDs that don't actually exist
+    // in the DB, we're limited with the coordinating we can do, but it also doesn't matter
+    // because those VPCs are going to default to external and force us to deal with the missing,
+    // tenant records.
+    let tenant =
+        db::tenant::find(&vpc_creation_request.tenant_organization_id, true, &mut txn).await?;
 
     // A lot of tests seem to still allow tenant IDs for tenants that don't
     // exist.  We should audit and see if there are still sites with missing tenants
     // if we expect Carbide-core to have knowledge of tenants.  Otherwise, this would just go away
     // when we _remove_ any expectation of tenant knowledge from Carbide-core, and the details we
     // need from tenant would just come in from the VPC creation request.
-    let tenant = tenant.pop();
     if tenant.is_none() {
         tracing::warn!(
             tenant_organization_id = vpc_creation_request.tenant_organization_id.clone(),
@@ -199,6 +190,10 @@ pub(crate) async fn update(
             .into());
         }
     }
+
+    // Note: Because VNI allocation happens on creation and depends on the routing profile type,
+    // we can't allow VPCs to change routing profiles unless we also release and re-allocate their VNIs.
+    // It's better to keep the property immutable.
 
     let vpc = db::vpc::update(&UpdateVpc::try_from(request.into_inner())?, &mut txn).await?;
 

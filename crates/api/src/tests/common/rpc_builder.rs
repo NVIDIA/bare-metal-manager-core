@@ -55,6 +55,14 @@ pub struct VpcUpdateRequest {
         ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
 }
 
+// Reflection of rpc::forge::VpcCreationRequest. It should contain exactly
+// the same fields as rpc::forge::VpcDeletionRequest. Otherwise it will
+// produce error on carbide_prost_builder::Builder derivation.
+#[derive(carbide_prost_builder::Builder)]
+pub struct VpcDeletionRequest {
+    pub id: ::core::option::Option<::carbide_uuid::vpc::VpcId>,
+}
+
 // Reflection of rpc::forge::InstanceAllocationRequest. It should contain exactly
 // the same fields as rpc::forge::InstanceAllocationRequest. Otherwise it will
 // produce error on carbide_prost_builder::Builder derivation.

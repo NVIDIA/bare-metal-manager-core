@@ -42,54 +42,57 @@ pub async fn create_and_persist(
 
 pub async fn find<S: AsRef<str>>(
     organization_id: S,
+    for_update: bool,
     txn: &mut PgConnection,
 ) -> Result<Option<Tenant>, DatabaseError> {
-    let query = "SELECT * FROM tenants WHERE organization_id = $1";
-    let results = sqlx::query_as(query)
+    let mut query = sqlx::QueryBuilder::new("SELECT * FROM tenants WHERE organization_id = $1");
+
+    if for_update {
+        query.push(" FOR UPDATE ");
+    }
+
+    let results = query
+        .build_query_as()
         .bind(organization_id.as_ref())
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
     Ok(results)
 }
-
+/// Expects locking/coordination and the check for organization_id's
+/// existence to be handled by the caller.
 pub async fn update(
     organization_id: String,
     metadata: Metadata,
-    if_version_match: Option<ConfigVersion>,
+    expected_version: ConfigVersion,
+    routing_profile_type: Option<RoutingProfileType>,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Tenant> {
-    let current_version = match if_version_match {
-        Some(version) => version,
-        None => {
-            if let Some(tenant) = find(organization_id.as_str(), txn).await? {
-                tenant.version
-            } else {
-                return Err(DatabaseError::NotFoundError {
-                    id: organization_id,
-                    kind: "tenant",
-                });
-            }
-        }
-    };
-    let next_version = current_version.increment();
+    let next_version = expected_version.increment();
 
     let query = "UPDATE tenants
-            SET version=$1, organization_name=$2
-            WHERE organization_id=$3 AND version=$4
+            SET
+                version=$1,
+                organization_name=$2,
+                routing_profile_type=$3
+            WHERE
+                organization_id=$4
+                AND
+                version=$5
             RETURNING *";
 
     sqlx::query_as(query)
         .bind(next_version)
         .bind(metadata.name)
+        .bind(routing_profile_type.map(|p| p.to_string()))
         .bind(organization_id)
-        .bind(current_version)
+        .bind(expected_version)
         .fetch_one(txn)
         .await
         .map_err(|err| match err {
             sqlx::Error::RowNotFound => {
-                DatabaseError::ConcurrentModificationError("tenant", current_version.to_string())
+                DatabaseError::ConcurrentModificationError("tenant", expected_version.to_string())
             }
             error => DatabaseError::query(query, error),
         })

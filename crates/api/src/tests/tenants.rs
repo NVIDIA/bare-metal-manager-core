@@ -59,14 +59,17 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert_eq!(tenant_create.code(), Code::InvalidArgument);
     assert!(tenant_create.message().contains("description"));
 
-    // Test the legacy case of creating a tenant by using a known bad
-    // routing-profile, which should be ignored because FNN isn't configured.
-    // TODO:  We need another set of tests that covers FNN.
+    // Test the case of creating a tenant by using a known bad
+    // routing-profile.  As long as we are using a static set
+    // of profiles, this would be testing that the enum isn't allowed.
+    // If we were to switch to just allowing user-created profiles,
+    // this would pass and we would need a separate test for FNN
+    // that actually checks the requested profile in the DB.
     let _tenant_create = env
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "Organic".to_string(),
-            routing_profile_type: Some(rpc::forge::RoutingProfileType::Admin as i32),
+            routing_profile_type: Some(rpc::forge::RoutingProfileType::Admin.into()),
             metadata: Some(rpc::forge::Metadata {
                 name: "Name".to_string(),
                 description: "".to_string(),
@@ -74,7 +77,9 @@ async fn test_tenant(pool: sqlx::PgPool) {
             }),
         }))
         .await
-        .unwrap();
+        .unwrap_err()
+        .message()
+        .contains("Invalid value ROUTING_PROFILE_TYPE_ADMIN");
 
     // Now perform a good create
     let tenant_create = env
@@ -140,12 +145,14 @@ async fn test_tenant(pool: sqlx::PgPool) {
     );
 
     let version = tenant.version;
+    let tenant_org = tenant.organization_id;
 
     // Reject generally invalid metadata with just a name that is too short
     let update_tenant = env
         .api
         .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
             organization_id: "Org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: "x".to_string(),
                 description: "".to_string(),
@@ -163,6 +170,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .api
         .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
             organization_id: "Org".to_string(),
+            routing_profile_type: None,
             metadata: Some(rpc::forge::Metadata {
                 name: "AnotherName".to_string(),
                 description: "should not be stored".to_string(),
@@ -179,12 +187,67 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert_eq!(update_tenant.code(), Code::InvalidArgument);
     assert!(update_tenant.message().contains("description"));
 
-    // Now perform a good update
+    // Create a VPC for the tenant
+    // No network_virtualization_type, should default.
+    let new_vpc = env
+        .api
+        .create_vpc(
+            common::rpc_builder::VpcCreationRequest::builder("", tenant_org)
+                .metadata(rpc::forge::Metadata {
+                    name: "Forge".to_string(),
+                    description: "".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
 
+    // Now try to update the routing profile type and fail
+    assert!(
+        env.api
+            .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+                organization_id: "Org".to_string(),
+                routing_profile_type: Some(rpc::forge::RoutingProfileType::Maintenance.into()),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "AnotherName".to_string(),
+                    description: "".to_string(),
+                    labels: vec![],
+                }),
+                if_version_match: Some(version.clone()),
+            }))
+            .await
+            .unwrap_err()
+            .message()
+            .contains("cannot update tenant routing profile type")
+    );
+
+    //
+    // Make sure we get back an error if metadata isn't sent.
+    //
+    let update_tenant_err = env
+        .api
+        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+            organization_id: "Org".to_string(),
+            metadata: None,
+            routing_profile_type: None,
+            if_version_match: Some(version.clone()),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(update_tenant_err.code(), tonic::Code::InvalidArgument);
+    assert!(update_tenant_err.message().contains("metadata"));
+
+    // Now perform a good update that doesn't change the profile and so should
+    // pass.
     let update_tenant = env
         .api
         .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
             organization_id: "Org".to_string(),
+            // No change from whatever it was given on create.
+            routing_profile_type: tenant.routing_profile_type,
             metadata: Some(rpc::forge::Metadata {
                 name: "AnotherName".to_string(),
                 description: "".to_string(),
@@ -197,7 +260,6 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .into_inner();
 
     let tenant = update_tenant.tenant.unwrap();
-    let version = tenant.version.clone();
 
     assert_eq!(tenant.organization_id, "Org");
     assert_eq!(
@@ -212,21 +274,32 @@ async fn test_tenant(pool: sqlx::PgPool) {
         }
     );
 
-    //
-    // Make sure we get back an error if metadata isn't sent.
-    //
-    let update_tenant_err = env
+    // Now delete the VPC we created
+    let _ = env
+        .api
+        .delete_vpc(
+            common::rpc_builder::VpcDeletionRequest::builder()
+                .id(new_vpc.id.unwrap())
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    let _ = env
         .api
         .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
             organization_id: "Org".to_string(),
-            metadata: None,
-            if_version_match: Some(version.clone()),
+            routing_profile_type: Some(rpc::forge::RoutingProfileType::Maintenance.into()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "AnotherName".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+            if_version_match: Some(tenant.version),
         }))
         .await
-        .unwrap_err();
-
-    assert_eq!(update_tenant_err.code(), tonic::Code::InvalidArgument);
-    assert!(update_tenant_err.message().contains("metadata"));
+        .unwrap();
 }
 
 #[crate::sqlx_test]

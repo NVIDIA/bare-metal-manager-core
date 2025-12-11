@@ -14,3 +14,4 @@ pub mod instance_type;
 pub mod measurement;
 pub mod network_security_group;
 pub mod storage;
+pub mod tenant;

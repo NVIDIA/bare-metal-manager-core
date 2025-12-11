@@ -113,6 +113,9 @@ pub enum CarbideCliError {
     #[error("Error while handling yaml: {0}")]
     YamlError(#[from] serde_yaml::Error),
 
+    #[error("Error while handling csv: {0}")]
+    CsvError(#[from] csv::Error),
+
     #[error("Unexpected machine type.  expected {0:?} but found {1:?}")]
     UnexpectedMachineType(MachineType, MachineType),
 
@@ -124,6 +127,9 @@ pub enum CarbideCliError {
 
     #[error("Instance with id {0} not found")]
     InstanceNotFound(InstanceId),
+
+    #[error("Tenant with id {0} not found")]
+    TenantNotFound(String),
 
     #[error("I/O error. Does the file exist? {0}")]
     IOError(#[from] std::io::Error),
@@ -141,6 +147,9 @@ pub enum CarbideCliError {
 
     #[error("RPC data conversion error: {0}")]
     RpcDataConversionError(#[from] errors::RpcDataConversionError),
+
+    #[error("Invalid Routing Profile Type: {0}")]
+    InvalidRoutingProfileType(String),
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;

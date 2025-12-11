@@ -42,6 +42,7 @@ use cfg::cli_options::{
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
+use cfg::tenant::TenantActions;
 use clap::CommandFactory;
 use devenv::apply_devenv_config;
 use forge_secrets::credentials::Credentials;
@@ -108,6 +109,7 @@ mod site_explorer;
 mod sku;
 mod storage;
 mod switch;
+mod tenant;
 mod tenant_keyset;
 mod tpm;
 mod uefi;
@@ -2533,6 +2535,13 @@ async fn main() -> color_eyre::Result<()> {
             LogicalPartitionOptions::Delete(delete_options) => {
                 nvl_logical_partition::handle_delete(delete_options, &api_client).await?
             }
+        },
+
+        CliCommand::Tenant(action) => match action {
+            TenantActions::Show(args) => {
+                tenant::show(args, config.format, &api_client, config.internal_page_size).await?
+            }
+            TenantActions::Update(args) => tenant::update(args, config.format, &api_client).await?,
         },
     }
 

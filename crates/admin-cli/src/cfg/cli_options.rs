@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
 use crate::cfg::storage::OsImageActions;
-use crate::cfg::{instance_type, measurement, network_security_group};
+use crate::cfg::{instance_type, measurement, network_security_group, tenant};
 use crate::vpc_prefix::VpcPrefixSelector;
 use crate::{mlx, scout_stream};
 
@@ -306,6 +306,9 @@ pub enum CliCommand {
         visible_alias = "lp"
     )]
     LogicalPartition(LogicalPartitionOptions),
+
+    #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
+    Tenant(tenant::TenantActions),
 }
 
 #[derive(Parser, Debug)]
