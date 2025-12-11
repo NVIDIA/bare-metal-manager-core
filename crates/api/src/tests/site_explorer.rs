@@ -21,10 +21,7 @@ use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use config_version::ConfigVersion;
 use db::sku::CURRENT_SKU_VERSION;
-use db::{
-    self, DatabaseError, ObjectColumnFilter, ObjectFilter,
-    explored_endpoints as db_explored_endpoints,
-};
+use db::{self, ObjectColumnFilter, ObjectFilter, explored_endpoints as db_explored_endpoints};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -1840,7 +1837,7 @@ async fn test_site_explorer_clear_last_known_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-    let mut txn = env.pool.begin().await?;
+    let mut txn = db::Transaction::begin(&env.pool, "db::explored_endpoints::insert").await?;
     let ip_address = "192.168.1.1";
     let bmc_ip: IpAddr = IpAddr::from_str(ip_address)?;
     let last_error = Some(EndpointExplorationError::Unreachable {
@@ -1855,11 +1852,9 @@ async fn test_site_explorer_clear_last_known_error(
     dpu_report1.generate_machine_id(false)?;
 
     db::explored_endpoints::insert(bmc_ip, &dpu_report1, &mut txn).await?;
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit("db::explored_endpoints::insert", e))?;
+    txn.commit().await?;
 
-    txn = env.pool.begin().await?;
+    txn = db::Transaction::begin(&env.pool, "explored_endpoints::find_all_by_ip").await?;
     let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     assert_eq!(nodes.len(), 1);
     let node = nodes.first();

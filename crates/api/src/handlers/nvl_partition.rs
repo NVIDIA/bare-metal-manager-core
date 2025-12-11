@@ -11,9 +11,9 @@
  */
 
 use ::rpc::forge as rpc;
+use db::ObjectColumnFilter;
 // use db::nvl_logical_partition::{LogicalPartition, LogicalPartitionSearchConfig};
 use db::nvl_partition;
-use db::{DatabaseError, ObjectColumnFilter};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -25,13 +25,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkPartitionIdList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "NvLink partition find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("NvLink partition find_ids").await?;
 
     let filter: rpc::NvLinkPartitionSearchFilter = request.into_inner();
 
@@ -46,13 +40,7 @@ pub(crate) async fn find_by_ids(
 ) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "NvLink partition find by id";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("NvLink partition find by id").await?;
 
     let rpc::NvLinkPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
 
@@ -89,13 +77,7 @@ pub(crate) async fn for_tenant(
 ) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "NvLink partitions for tenant";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("NvLink partitions for tenant").await?;
 
     let rpc::TenantSearchQuery {
         tenant_organization_id,

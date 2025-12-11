@@ -13,7 +13,7 @@
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use db::nvl_logical_partition::{self, NewLogicalPartition};
-use db::{self, DatabaseError, ObjectColumnFilter, nvl_partition};
+use db::{self, ObjectColumnFilter, nvl_partition};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -47,13 +47,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionIdList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "Logical partition find_ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("Logical partition find_ids").await?;
 
     let filter: rpc::NvLinkLogicalPartitionSearchFilter = request.into_inner();
 
@@ -70,13 +64,7 @@ pub(crate) async fn find_by_ids(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "Logical partition find by ids";
-
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("Logical partition find by ids").await?;
 
     let rpc::NvLinkLogicalPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
 
@@ -120,12 +108,7 @@ pub(crate) async fn delete(
         .id
         .ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
-    const DB_TXN_NAME: &str = "Logical partition delete";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("Logical partition delete").await?;
 
     let mut partitions = db::nvl_logical_partition::find_by(
         &mut txn,
@@ -164,9 +147,7 @@ pub(crate) async fn delete(
         .map(|_| rpc::NvLinkLogicalPartitionDeletionResult {})
         .map(Response::new)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(resp)
 }
@@ -177,13 +158,9 @@ pub(crate) async fn for_tenant(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionList>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "NvLink logical partitions for tenant";
-
     let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+        .txn_begin("NvLink logical partitions for tenant")
+        .await?;
 
     let rpc::TenantSearchQuery {
         tenant_organization_id,
@@ -233,12 +210,7 @@ pub(crate) async fn update(
         .try_into()?;
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    const DB_TXN_NAME: &str = "Logical partition update";
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+    let mut txn = api.txn_begin("Logical partition update").await?;
 
     let mut partitions = db::nvl_logical_partition::find_by(
         &mut txn,
@@ -285,9 +257,7 @@ pub(crate) async fn update(
         .map(|_| rpc::NvLinkLogicalPartitionUpdateResult {})
         .map(Response::new)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+    txn.commit().await?;
 
     Ok(resp)
 }

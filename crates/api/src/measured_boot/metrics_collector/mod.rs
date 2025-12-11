@@ -13,7 +13,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use db::DatabaseError;
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementBundleState;
 use tokio::sync::oneshot;
@@ -88,9 +87,11 @@ impl MeasuredBootMetricsCollector {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = MeasuredBootMetricsCollectorMetrics::new();
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::txn_begin("MeasuredBootMetricsCollector::run_single_iteration", e)
-        })?;
+        let mut txn = db::Transaction::begin(
+            &self.database_connection,
+            "MeasuredBootMetricsCollector::run_single_iteration",
+        )
+        .await?;
 
         let profiles = db::measured_boot::profile::get_all(&mut txn).await?;
         for system_profile in profiles.iter() {

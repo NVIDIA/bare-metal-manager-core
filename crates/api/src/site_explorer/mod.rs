@@ -14,6 +14,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::panic::Location;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -206,8 +208,18 @@ impl SiteExplorer {
         }
     }
 
-    async fn txn_begin(&self, name: &'static str) -> CarbideResult<db::Transaction<'_>> {
-        Ok(db::Transaction::begin(&self.database_connection, name).await?)
+    // This function can just async when
+    // https://github.com/rust-lang/rust/issues/110011 will be
+    // implemented
+    #[track_caller]
+    fn txn_begin(
+        &self,
+        name: &'static str,
+    ) -> Pin<Box<dyn Future<Output = CarbideResult<db::Transaction<'_>>> + Send + '_>> {
+        let loc = Location::caller();
+        Box::pin(async move {
+            Ok(db::Transaction::begin_with_location(&self.database_connection, name, loc).await?)
+        })
     }
 
     #[allow(txn_held_across_await)]
