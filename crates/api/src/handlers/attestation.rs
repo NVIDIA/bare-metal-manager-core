@@ -11,6 +11,7 @@ use tss_esapi::{
     traits::UnMarshall,
 };
 
+#[cfg(feature = "linux-build")]
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
@@ -225,9 +226,8 @@ pub(crate) async fn attest_quote(
 
 #[cfg(not(feature = "linux-build"))]
 pub(crate) async fn attest_quote(
-    api: &Api,
-    request: Request<rpc::AttestQuoteRequest>,
+    _api: &Api,
+    _request: Request<rpc::AttestQuoteRequest>,
 ) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
-    log_request_data(&request);
     unimplemented!()
 }
