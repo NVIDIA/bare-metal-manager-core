@@ -27,7 +27,7 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::RouteServerEntries>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("route_servers.get").await?;
+    let mut txn = api.txn_begin().await?;
     let route_servers = db::route_servers::get(&mut txn).await?;
 
     Ok(tonic::Response::new(rpc::RouteServerEntries {
@@ -51,7 +51,7 @@ pub(crate) async fn add(
         .try_into()
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
-    let mut txn = api.txn_begin("route_servers.add").await?;
+    let mut txn = api.txn_begin().await?;
     db::route_servers::add(&mut txn, &route_servers, source_type.into()).await?;
     txn.commit().await?;
 
@@ -74,7 +74,7 @@ pub(crate) async fn remove(
         .try_into()
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
-    let mut txn = api.txn_begin("route_servers.remove").await?;
+    let mut txn = api.txn_begin().await?;
     db::route_servers::remove(&mut txn, &route_servers, source_type.into()).await?;
     txn.commit().await?;
 
@@ -98,7 +98,7 @@ pub(crate) async fn replace(
         .try_into()
         .map_err(|_| Status::invalid_argument("source_type"))?;
 
-    let mut txn = api.txn_begin("route_servers.replace").await?;
+    let mut txn = api.txn_begin().await?;
     db::route_servers::replace(&mut txn, &route_servers, source_type.into()).await?;
     txn.commit().await?;
 

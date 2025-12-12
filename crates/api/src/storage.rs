@@ -23,7 +23,7 @@ pub(crate) async fn create_os_image(
     api: &Api,
     request: Request<crate::api::rpc::OsImageAttributes>,
 ) -> Result<Response<crate::api::rpc::OsImage>, Status> {
-    let mut txn = api.txn_begin("create_os_image").await?;
+    let mut txn = api.txn_begin().await?;
     let attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     if attrs.source_url.is_empty() || attrs.digest.is_empty() {
@@ -45,7 +45,7 @@ pub(crate) async fn list_os_image(
     api: &Api,
     request: Request<crate::api::rpc::ListOsImageRequest>,
 ) -> Result<Response<crate::api::rpc::ListOsImageResponse>, Status> {
-    let mut txn = api.txn_begin("list_os_image").await?;
+    let mut txn = api.txn_begin().await?;
     let tenant: Option<TenantOrganizationId> = match request.into_inner().tenant_organization_id {
         Some(x) => Some(
             TenantOrganizationId::try_from(x)
@@ -74,7 +74,7 @@ pub(crate) async fn get_os_image(
     api: &Api,
     request: Request<rpc::Uuid>,
 ) -> Result<Response<crate::api::rpc::OsImage>, Status> {
-    let mut txn = api.txn_begin("get_os_image").await?;
+    let mut txn = api.txn_begin().await?;
     let image_id: Uuid = Uuid::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     let image = db::os_image::get(&mut txn, image_id)
@@ -93,7 +93,7 @@ pub(crate) async fn delete_os_image(
     api: &Api,
     request: Request<crate::api::rpc::DeleteOsImageRequest>,
 ) -> Result<Response<crate::api::rpc::DeleteOsImageResponse>, Status> {
-    let mut txn = api.txn_begin("delete_os_image").await?;
+    let mut txn = api.txn_begin().await?;
     let req = request.into_inner();
     if req.id.is_none() {
         return Err(Status::invalid_argument("os image id missing"));
@@ -127,7 +127,7 @@ pub(crate) async fn update_os_image(
     api: &Api,
     request: Request<crate::api::rpc::OsImageAttributes>,
 ) -> Result<Response<crate::api::rpc::OsImage>, Status> {
-    let mut txn = api.txn_begin("update_os_image").await?;
+    let mut txn = api.txn_begin().await?;
 
     let new_attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;

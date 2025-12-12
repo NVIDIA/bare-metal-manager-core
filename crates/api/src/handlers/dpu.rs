@@ -704,7 +704,7 @@ pub(crate) async fn get_managed_host_network_config(
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin("get_managed_host_network_config").await?;
+    let mut txn = api.txn_begin().await?;
 
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,
@@ -735,7 +735,7 @@ pub(crate) async fn update_agent_reported_inventory(
     let dpu_machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     if let Some(inventory) = request.inventory.as_ref() {
-        let mut txn = api.txn_begin("update_agent_reported_inventory").await?;
+        let mut txn = api.txn_begin().await?;
 
         let inventory =
             MachineInventory::try_from(inventory.clone()).map_err(CarbideError::from)?;
@@ -767,7 +767,7 @@ pub(crate) async fn record_dpu_network_status(
     // TODO: persist this somewhere
     let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
 
-    let mut txn = api.txn_begin("record_dpu_network_status").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Load the DPU Object. We require it to update the health report based
     // on the last report
@@ -859,9 +859,7 @@ pub(crate) async fn record_dpu_network_status(
     // Check if we need to flag this forge-dpu-agent for upgrade or mark an upgrade completed
     // We do this here because we just learnt about which version of forge-dpu-agent is
     // running.
-    let mut txn = api
-        .txn_begin("record_dpu_network_status upgrade check")
-        .await?;
+    let mut txn = api.txn_begin().await?;
 
     if let Some(policy) = dpu_agent_upgrade_policy::get(&mut txn).await? {
         let _needs_upgrade =
@@ -901,7 +899,7 @@ pub(crate) async fn get_all_managed_host_network_status(
 ) -> Result<Response<rpc::ManagedHostNetworkStatusResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("get_all_managed_host_network_status").await?;
+    let mut txn = api.txn_begin().await?;
 
     let all_status = db::machine::get_all_network_status_observation(&mut txn, 2000).await?;
 
@@ -942,7 +940,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
     BuildVersion::try_from(server_version)
         .map_err(|_| Status::internal("Invalid server version, cannot check for upgrade"))?;
 
-    let mut txn = api.txn_begin("dpu_agent_upgrade_check").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
@@ -981,7 +979,7 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
 ) -> Result<tonic::Response<rpc::DpuAgentUpgradePolicyResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("apply_agent_upgrade_policy_all").await?;
+    let mut txn = api.txn_begin().await?;
 
     let req = request.into_inner();
     let mut did_change = false;
@@ -1018,7 +1016,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     let machine_id = req.machine_id.as_ref().or(req.dpu_id.as_ref());
     let machine_id = convert_and_log_machine_id(machine_id)?;
 
-    let mut txn = api.txn_begin("trigger_dpu_reprovisioning").await?;
+    let mut txn = api.txn_begin().await?;
 
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,
@@ -1149,7 +1147,7 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 ) -> Result<Response<rpc::DpuReprovisioningListResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("list_dpu_waiting_for_reprovisioning").await?;
+    let mut txn = api.txn_begin().await?;
 
     let dpus = db::machine::list_machines_requested_for_reprovisioning(&mut txn)
         .await?

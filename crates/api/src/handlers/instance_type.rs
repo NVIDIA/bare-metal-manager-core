@@ -67,7 +67,7 @@ pub(crate) async fn create(
     }
 
     // Start a new transaction for a db write.
-    let mut txn = api.txn_begin("create_instance_type").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Write a new instance type to the DB and get back
     // our new InstanceType.
@@ -92,7 +92,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::FindInstanceTypeIdsResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("find_instance_type_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let instance_type_ids = instance_type::find_ids(&mut txn, false).await?;
 
@@ -138,7 +138,7 @@ pub(crate) async fn find_by_ids(
     }
 
     // Prepare our txn to grab the instance types from the DB
-    let mut txn = api.txn_begin("find_instance_types_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Make our DB query for the IDs to get our instance types
     let instance_types = instance_type::find_by_ids(&mut txn, &instance_type_ids, false).await?;
@@ -203,7 +203,7 @@ pub(crate) async fn update(
     }
 
     // Start a new transaction for a db write.
-    let mut txn = api.txn_begin("update_instance_type").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Look up the instance type.  We'll need to check the current
     // version. We could probably do everything with a single query
@@ -307,7 +307,7 @@ pub(crate) async fn delete(
         })?;
 
     // Prepare our txn to delete from the DB
-    let mut txn = api.txn_begin("delete_instance_type").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Look for any related machines.  Forge-Cloud provides users with
     // the behavior of removing all machine associations to an InstanceType for machines
@@ -390,7 +390,7 @@ pub(crate) async fn associate_machines(
         })?;
 
     // Prepare our txn to associate machines with the instance type
-    let mut txn = api.txn_begin("associate_machines").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Query the DB to make sure the instance type is valid/active.
     let instance_types =
@@ -538,7 +538,7 @@ pub(crate) async fn remove_machine_association(
         .map_err(|e| CarbideError::from(RpcDataConversionError::InvalidMachineId(e.to_string())))?;
 
     // Prepare our txn to associate machines with the instance type
-    let mut txn = api.txn_begin("remove_machine_association").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Grab a row lock on the requested machine so we can
     // coordinate with the instance allocation handler and

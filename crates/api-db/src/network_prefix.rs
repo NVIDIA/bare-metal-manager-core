@@ -164,8 +164,7 @@ pub async fn create_for(
     segment_id: &NetworkSegmentId,
     prefixes: &[NewNetworkPrefix],
 ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
-    let mut inner_transaction =
-        crate::Transaction::begin_inner(txn, "network_prefix::create_for").await?;
+    let mut inner_transaction = crate::Transaction::begin_inner(txn).await?;
 
     // https://github.com/launchbadge/sqlx/issues/294
     //

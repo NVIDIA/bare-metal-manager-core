@@ -82,7 +82,7 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseErr
         ));
     }
 
-    let mut inner_txn = Transaction::begin_inner(txn, "sku::create").await?;
+    let mut inner_txn = Transaction::begin_inner(txn).await?;
 
     let query = "LOCK TABLE machine_skus IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
@@ -203,7 +203,7 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
         ));
     }
 
-    let mut inner_txn = Transaction::begin_inner(txn, "sku::replace").await?;
+    let mut inner_txn = Transaction::begin_inner(txn).await?;
 
     let query = "LOCK TABLE machine_skus IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)

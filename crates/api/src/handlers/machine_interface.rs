@@ -27,7 +27,7 @@ pub(crate) async fn find_interfaces(
 ) -> Result<Response<rpc::InterfaceList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("find_interfaces").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
 
@@ -99,7 +99,7 @@ pub(crate) async fn delete_interface(
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("delete_interface").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::InterfaceDeleteQuery { id } = request.into_inner();
     let Some(id) = id else {
@@ -143,7 +143,7 @@ pub(crate) async fn find_mac_address_by_bmc_ip(
     let req = request.into_inner();
     let bmc_ip = req.bmc_ip;
 
-    let mut txn = api.txn_begin("find_mac_address_by_bmc_ip").await?;
+    let mut txn = api.txn_begin().await?;
 
     let interface = db::machine_interface::find_by_ip(&mut txn, bmc_ip.parse().unwrap())
         .await?

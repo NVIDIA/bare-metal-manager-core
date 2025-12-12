@@ -36,7 +36,7 @@ pub(crate) async fn find_machine_ids(
 ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("find_machines").await?;
+    let mut txn = api.txn_begin().await?;
 
     let search_config = request.into_inner().try_into()?;
 
@@ -53,7 +53,7 @@ pub(crate) async fn find_machine_ids_by_bmc_ips(
 ) -> Result<Response<rpc::MachineIdBmcIpPairs>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("find_machine_ids_by_bmc_ips").await?;
+    let mut txn = api.txn_begin().await?;
 
     let pairs =
         db::machine_topology::find_machine_bmc_pairs(&mut txn, request.into_inner().bmc_ips)
@@ -78,7 +78,7 @@ pub(crate) async fn find_machines_by_ids(
     log_request_data(&request);
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("find_machines_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_ids = request.machine_ids;
 
@@ -131,7 +131,7 @@ pub(crate) async fn find_machine_state_histories(
         );
     }
 
-    let mut txn = api.txn_begin("find_machine_state_histories").await?;
+    let mut txn = api.txn_begin().await?;
 
     let results = db::machine_state_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
 
@@ -171,7 +171,7 @@ pub(crate) async fn find_machine_health_histories(
         );
     }
 
-    let mut txn = api.txn_begin("find_machine_health_histories").await?;
+    let mut txn = api.txn_begin().await?;
 
     let results = db::machine_health_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
 
@@ -198,7 +198,7 @@ pub(crate) async fn machine_set_auto_update(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("machine_set_auto_update").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
     let Some(_machine) =
@@ -246,7 +246,6 @@ pub(crate) async fn update_machine_metadata(
                 include_predicted_host: true,
                 ..Default::default()
             },
-            "update_machine_metadata handler",
         )
         .await?;
 
@@ -284,7 +283,7 @@ pub(crate) async fn admin_force_delete_machine(
 
     tracing::info!("admin_force_delete_machine query='{query}'");
 
-    let mut txn = api.txn_begin("admin_force_delete_machine").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine = match db::machine::find_by_query(&mut txn, &query).await? {
         Some(machine) => machine,
@@ -392,9 +391,7 @@ pub(crate) async fn admin_force_delete_machine(
 
     // Note: The following deletion steps are all ordered in an idempotent fashion
 
-    let mut txn = api
-        .txn_begin("delete host and instance in admin_force_delete_machine")
-        .await?;
+    let mut txn = api.txn_begin().await?;
 
     if let Some(instance_id) = instance_id {
         crate::handlers::instance::force_delete_instance(
@@ -558,9 +555,7 @@ pub(crate) async fn admin_force_delete_machine(
     txn.commit().await?;
 
     for dpu_machine in dpu_machines.iter() {
-        let mut txn = api
-            .txn_begin("delete dpu in admin_force_delete_machine")
-            .await?;
+        let mut txn = api.txn_begin().await?;
 
         // Free up all loopback IPs allocated for this DPU.
         db::vpc_dpu_loopback::delete_and_deallocate(
@@ -644,7 +639,7 @@ pub(crate) async fn get_dpu_info_list(
 ) -> Result<Response<rpc::GetDpuInfoListResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("get_dpu_info_list").await?;
+    let mut txn = api.txn_begin().await?;
 
     let dpu_list = db::machine::find_dpu_ids_and_loopback_ips(&mut txn).await?;
 

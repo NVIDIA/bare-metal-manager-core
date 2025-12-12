@@ -47,9 +47,7 @@ pub async fn handle_create_system_measurement_profile(
     api: &Api,
     req: CreateMeasurementSystemProfileRequest,
 ) -> Result<CreateMeasurementSystemProfileResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_create_system_measurement_profile")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     // sys_vendor and product_name are the two baseline attrs, so
     // just treat them as requirements, and then smash the
     // remaining ones on as "extra-attrs".
@@ -77,9 +75,7 @@ pub async fn handle_rename_measurement_system_profile(
     api: &Api,
     req: RenameMeasurementSystemProfileRequest,
 ) -> Result<RenameMeasurementSystemProfileResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_rename_measurement_system_profile")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let profile = match req.selector {
         // Rename for the given system_profile ID.
         Some(rename_measurement_system_profile_request::Selector::ProfileId(
@@ -121,9 +117,7 @@ pub async fn handle_delete_measurement_system_profile(
     api: &Api,
     req: DeleteMeasurementSystemProfileRequest,
 ) -> Result<DeleteMeasurementSystemProfileResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_delete_measurement_system_profile")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let profile: Option<MeasurementSystemProfile> = match req.selector {
         // Deleting a profile based on profile ID.
         Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_uuid)) => {
@@ -153,9 +147,7 @@ pub async fn handle_show_measurement_system_profile(
     api: &Api,
     req: ShowMeasurementSystemProfileRequest,
 ) -> Result<ShowMeasurementSystemProfileResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_show_measurement_system_profile")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let system_profile = match req.selector {
         // Show a system profile with the given profile ID.
         Some(show_measurement_system_profile_request::Selector::ProfileId(profile_uuid)) => {
@@ -184,9 +176,7 @@ pub async fn handle_show_measurement_system_profiles(
     api: &Api,
     _req: ShowMeasurementSystemProfilesRequest,
 ) -> Result<ShowMeasurementSystemProfilesResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_show_measurement_system_profiles")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     Ok(ShowMeasurementSystemProfilesResponse {
         system_profiles: db::measured_boot::profile::get_all(&mut txn)
             .await
@@ -203,9 +193,7 @@ pub async fn handle_list_measurement_system_profiles(
     api: &Api,
     _req: ListMeasurementSystemProfilesRequest,
 ) -> Result<ListMeasurementSystemProfilesResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_list_measurement_system_profiles")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let system_profiles: Vec<MeasurementSystemProfileRecordPb> =
         export_measurement_profile_records(&mut txn)
             .await
@@ -223,9 +211,7 @@ pub async fn handle_list_measurement_system_profile_bundles(
     api: &Api,
     req: ListMeasurementSystemProfileBundlesRequest,
 ) -> Result<ListMeasurementSystemProfileBundlesResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_list_measurement_system_profile_bundles")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let bundle_ids = match req.selector {
         // ...and do it by profile ID.
         Some(list_measurement_system_profile_bundles_request::Selector::ProfileId(
@@ -254,9 +240,7 @@ pub async fn handle_list_measurement_system_profile_machines(
     api: &Api,
     req: ListMeasurementSystemProfileMachinesRequest,
 ) -> Result<ListMeasurementSystemProfileMachinesResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_list_measurement_system_profile_machines")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let machine_ids: Vec<String> = match req.selector {
         // ...and do it by profile ID.
         Some(list_measurement_system_profile_machines_request::Selector::ProfileId(profile_id)) => {

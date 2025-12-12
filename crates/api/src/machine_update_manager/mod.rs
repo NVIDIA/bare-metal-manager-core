@@ -169,11 +169,7 @@ impl MachineUpdateManager {
         let mut current_updating_count = 0;
         let mut max_concurrent_updates = 0;
 
-        let mut txn = Transaction::begin(
-            &self.database_connection,
-            "MachineUpdateManager::run_single_iteration",
-        )
-        .await?;
+        let mut txn = Transaction::begin(&self.database_connection).await?;
 
         if sqlx::query_scalar(MachineUpdateManager::DB_LOCK_QUERY)
             .fetch_one(txn.as_pgconn())

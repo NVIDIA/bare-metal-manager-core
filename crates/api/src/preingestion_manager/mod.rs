@@ -144,11 +144,7 @@ impl PreingestionManager {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = PreingestionMetrics::new();
 
-        let mut txn = Transaction::begin(
-            &self.static_info.database_connection,
-            "PreingestionManager::run_single_iteration",
-        )
-        .await?;
+        let mut txn = Transaction::begin(&self.static_info.database_connection).await?;
 
         if !sqlx::query_scalar(PreingestionManager::DB_LOCK_QUERY)
             .fetch_one(txn.as_pgconn())
@@ -240,11 +236,7 @@ async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
     endpoint: &ExploredEndpoint,
 ) -> CarbideResult<EndpointResult> {
-    let mut txn = Transaction::begin(
-        &static_info.database_connection,
-        "PreingestionManager::one_endpoint",
-    )
-    .await?;
+    let mut txn = Transaction::begin(&static_info.database_connection).await?;
 
     tracing::debug!("Preingestion on endpoint {:?}", endpoint);
 

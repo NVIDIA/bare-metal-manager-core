@@ -222,7 +222,7 @@ pub async fn start_api(
             "Not populating resource pools or route_servers in database, as listen_only=true"
         );
     } else {
-        let mut txn = Transaction::begin(&db_pool, "define resource pools").await?;
+        let mut txn = Transaction::begin(&db_pool).await?;
         db::resource_pool::define_all_from(
             &mut txn,
             carbide_config.pools.as_ref().ok_or_else(|| {
@@ -385,7 +385,7 @@ pub async fn initialize_and_start_controllers(
     // As soon as we get the database up, observe this version of forge so that we know when it was
     // first deployed
     {
-        let mut txn = Transaction::begin(db_pool, "observe forge_version").await?;
+        let mut txn = Transaction::begin(db_pool).await?;
 
         db::carbide_version::observe_as_latest_version(
             &mut txn,
@@ -402,7 +402,7 @@ pub async fn initialize_and_start_controllers(
         tracing::info!("Created initial domain {domain_name}");
     }
 
-    let mut txn = Transaction::begin(db_pool, "define resource pools").await?;
+    let mut txn = Transaction::begin(db_pool).await?;
     db::resource_pool::define_all_from(
         &mut txn,
         carbide_config.pools.as_ref().ok_or_else(|| {
@@ -419,7 +419,7 @@ pub async fn initialize_and_start_controllers(
         let expected_machines = serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str()).inspect_err(|err| {
                 tracing::error!("expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing: {err}.");
             })?;
-        let mut txn = Transaction::begin(db_pool, "define expected machines").await?;
+        let mut txn = Transaction::begin(db_pool).await?;
         db::expected_machine::create_missing_from(&mut txn, &expected_machines)
             .await
             .inspect_err(|err| {
@@ -454,7 +454,7 @@ pub async fn initialize_and_start_controllers(
         }
 
         // Populate IB specific resource pools
-        let mut txn = Transaction::begin(db_pool, "define resource pools").await?;
+        let mut txn = Transaction::begin(db_pool).await?;
 
         for (fabric_id, x) in carbide_config.ib_fabrics.iter() {
             db::resource_pool::define(

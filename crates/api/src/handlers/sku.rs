@@ -26,7 +26,7 @@ pub(crate) async fn create(
     request: Request<::rpc::forge::SkuList>,
 ) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin("create_sku").await?;
+    let mut txn = api.txn_begin().await?;
 
     let sku_list = request.into_inner();
 
@@ -45,7 +45,7 @@ pub(crate) async fn create(
 
 pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Response<()>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin("delete_sku").await?;
+    let mut txn = api.txn_begin().await?;
 
     let sku_id_list = request.into_inner().ids;
     let mut skus = db::sku::find(&mut txn, &sku_id_list).await?;
@@ -87,7 +87,7 @@ pub(crate) async fn generate_from_machine(
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.txn_begin("generate_sku_from_machine").await?;
+    let mut txn = api.txn_begin().await?;
 
     let sku = db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
 
@@ -99,7 +99,7 @@ pub(crate) async fn assign_to_machine(
     request: Request<::rpc::forge::SkuMachinePair>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin("assign_sku_to_machine").await?;
+    let mut txn = api.txn_begin().await?;
 
     let sku_machine_pair = request.into_inner();
     let machine_id = convert_and_log_machine_id(sku_machine_pair.machine_id.as_ref())?;
@@ -171,7 +171,7 @@ pub(crate) async fn verify_for_machine(
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.txn_begin("verify_sku_for_machine").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
@@ -210,7 +210,7 @@ pub(crate) async fn remove_sku_association(
     let request = request.into_inner();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin("remove_sku_association").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
@@ -247,7 +247,7 @@ pub(crate) async fn get_all_ids(
     request: Request<()>,
 ) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin("get_all_sku_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let sku_ids = db::sku::get_sku_ids(&mut txn).await?;
 
@@ -275,7 +275,7 @@ pub(crate) async fn find_skus_by_ids(
         );
     }
 
-    let mut txn = api.txn_begin("find_skus_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let skus = db::sku::find(&mut txn, &sku_ids).await?;
 
@@ -300,7 +300,7 @@ pub(crate) async fn update_sku_metadata(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("update_sku_metadata").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::sku::update_metadata(
         &mut txn,
@@ -320,7 +320,7 @@ pub(crate) async fn replace_sku(
     request: Request<::rpc::forge::Sku>,
 ) -> Result<Response<rpc::forge::Sku>, Status> {
     let request = request.into_inner().into();
-    let mut txn = api.txn_begin("replace_sku_components").await?;
+    let mut txn = api.txn_begin().await?;
 
     let sku = db::sku::replace(&mut txn, &request).await?;
 

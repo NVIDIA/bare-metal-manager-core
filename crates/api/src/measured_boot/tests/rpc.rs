@@ -175,7 +175,7 @@ mod tests {
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
 
         // princess-network
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         let princess_network = create_test_machine(
             &mut txn,
             "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
@@ -251,7 +251,7 @@ mod tests {
 
         // First, lets make a machine behind the scenes.
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         let princess_network = create_test_machine(
             &mut txn,
             "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
@@ -358,7 +358,7 @@ mod tests {
 
         // A machine is needed for sending a report, so lets inject one.
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         let princess_network = create_test_machine(
             &mut txn,
             "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
@@ -529,7 +529,7 @@ mod tests {
         // Make a machine and have it report measurements
         // so we get a journal entry.
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         let princess_network = create_test_machine(
             &mut txn,
             "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
@@ -844,7 +844,7 @@ mod tests {
 
         // A machine is needed for sending a report, so lets inject one.
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         let princess_network = create_test_machine(
             &mut txn,
             "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
@@ -1159,7 +1159,7 @@ mod tests {
         // machine containing the bundle id, but the first one still missing it
 
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         let princess_network = create_test_machine(
             &mut txn,
             "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
@@ -1169,7 +1169,7 @@ mod tests {
         txn.commit().await?;
 
         let lenovo_sr670_topology = load_topology_json("dell_r750.json");
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         let beer_louisiana = create_test_machine(
             &mut txn,
             "fm100htrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0",
@@ -1406,7 +1406,7 @@ mod tests {
 
         // Okay, so before trusted machine approvals, lets make a machine.
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         let princess_network = create_test_machine(
             &mut txn,
             "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
@@ -1700,7 +1700,7 @@ mod tests {
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
         let lenovo_sr670_v2_topology = load_topology_json("lenovo_sr670_v2.json");
 
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         // princess-network
         let princess_network = create_test_machine(
             &mut txn,
@@ -1972,7 +1972,7 @@ mod tests {
 
         // And then do a force-cleanup on all of them to make sure
         // that bit works (which will clean up all reports and journals).
-        let mut txn = api.txn_begin("test").await?;
+        let mut txn = api.txn_begin().await?;
         assert!(
             db::machine::force_cleanup(&mut txn, &princess_network.machine_id)
                 .await
@@ -2016,7 +2016,7 @@ mod tests {
         dell_r750_topology.dmi_data = None;
 
         // create "real" machine
-        let mut txn = api.txn_begin("test").await.unwrap();
+        let mut txn = api.txn_begin().await.unwrap();
         let princess_network = create_test_machine(
             &mut txn,
             "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",

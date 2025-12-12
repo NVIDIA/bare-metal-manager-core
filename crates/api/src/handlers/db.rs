@@ -21,7 +21,7 @@ pub(crate) async fn trim_table(
 ) -> Result<Response<rpc::TrimTableResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("trim_table").await?;
+    let mut txn = api.txn_begin().await?;
 
     let total_deleted = db::trim_table::trim_table(
         &mut txn,

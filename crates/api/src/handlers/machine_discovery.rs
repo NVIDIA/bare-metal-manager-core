@@ -82,7 +82,7 @@ pub(crate) async fn discover_machine(
         })?;
     log_machine_id(&stable_machine_id);
 
-    let mut txn = api.txn_begin("discover_machine").await?;
+    let mut txn = api.txn_begin().await?;
     tracing::debug!(
         ?remote_ip,
         ?interface_id,
@@ -423,7 +423,7 @@ pub(crate) async fn discover_machine(
         // Create a new transaction here for network devices. Inner transaction is not so
         // helpful in postgres and using same transaction creates deadlock with
         // machine_interface table.
-        let mut txn = api.txn_begin("discover_machine dpu").await?;
+        let mut txn = api.txn_begin().await?;
 
         // Create DPU and LLDP Association.
         if let Some(dpu_info) = hardware_info.dpu_info.as_ref() {
@@ -454,11 +454,7 @@ pub(crate) async fn discovery_completed(
     let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
     let (machine, mut txn) = api
-        .load_machine(
-            &machine_id,
-            MachineSearchConfig::default(),
-            "discovery_completed",
-        )
+        .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
     db::machine::update_discovery_time(&machine.id, &mut txn).await?;
 

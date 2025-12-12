@@ -27,7 +27,7 @@ pub async fn discover_dhcp(
     request: Request<rpc::DhcpDiscovery>,
     rack_level_service: Option<bool>,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
-    let mut txn = api.txn_begin("discover_dhcp").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::DhcpDiscovery {
         mac_address,
@@ -136,7 +136,7 @@ pub async fn discover_dhcp(
 
     txn.commit().await?;
 
-    let mut txn = api.txn_begin("discover_dhcp 2").await?;
+    let mut txn = api.txn_begin().await?;
 
     let record: rpc::DhcpRecord =
         db::dhcp_record::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)

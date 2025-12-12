@@ -40,11 +40,7 @@ pub(crate) async fn cleanup_machine_completed(
 
     // Load machine from DB
     let (machine, mut txn) = api
-        .load_machine(
-            &machine_id,
-            MachineSearchConfig::default(),
-            "cleanup_machine_completed",
-        )
+        .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
     db::machine::update_cleanup_time(&machine, &mut txn).await?;
 
@@ -98,11 +94,7 @@ pub(crate) async fn forge_agent_control(
     let machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
     let (machine, mut txn) = api
-        .load_machine(
-            &machine_id,
-            MachineSearchConfig::default(),
-            "forge_agent_control",
-        )
+        .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
 
     let is_dpu = machine.is_dpu();
@@ -304,11 +296,7 @@ pub(crate) async fn reboot_completed(
     let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
     let (machine, mut txn) = api
-        .load_machine(
-            &machine_id,
-            MachineSearchConfig::default(),
-            "reboot_completed",
-        )
+        .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
     db::machine::update_reboot_time(&machine, &mut txn).await?;
 

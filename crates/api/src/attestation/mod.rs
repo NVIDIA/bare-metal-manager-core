@@ -67,7 +67,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
     // - get hardware info and extract tpm ek cert
     // - call match_insert_new_ek_cert_status_against_ca()
 
-    let mut txn = Transaction::begin(db_pool, "begin backfill ek cert status").await?;
+    let mut txn = Transaction::begin(db_pool).await?;
 
     let machines: Vec<::carbide_uuid::machine::MachineId> =
         db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())

@@ -87,11 +87,7 @@ impl MeasuredBootMetricsCollector {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = MeasuredBootMetricsCollectorMetrics::new();
 
-        let mut txn = db::Transaction::begin(
-            &self.database_connection,
-            "MeasuredBootMetricsCollector::run_single_iteration",
-        )
-        .await?;
+        let mut txn = db::Transaction::begin(&self.database_connection).await?;
 
         let profiles = db::measured_boot::profile::get_all(&mut txn).await?;
         for system_profile in profiles.iter() {

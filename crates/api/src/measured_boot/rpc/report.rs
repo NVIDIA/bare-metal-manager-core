@@ -44,7 +44,7 @@ pub async fn handle_create_measurement_report(
     api: &Api,
     req: CreateMeasurementReportRequest,
 ) -> Result<CreateMeasurementReportResponse, Status> {
-    let mut txn = api.txn_begin("handle_create_measurement_report").await?;
+    let mut txn = api.txn_begin().await?;
     let report = db::measured_boot::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
@@ -67,7 +67,7 @@ pub async fn handle_delete_measurement_report(
     api: &Api,
     req: DeleteMeasurementReportRequest,
 ) -> Result<DeleteMeasurementReportResponse, Status> {
-    let mut txn = api.txn_begin("handle_delete_measurement_report").await?;
+    let mut txn = api.txn_begin().await?;
     let report = db::measured_boot::report::delete_for_id(
         &mut txn,
         req.report_id
@@ -88,7 +88,7 @@ pub async fn handle_promote_measurement_report(
     api: &Api,
     req: PromoteMeasurementReportRequest,
 ) -> Result<PromoteMeasurementReportResponse, Status> {
-    let mut txn = api.txn_begin("handle_promote_measurement_report").await?;
+    let mut txn = api.txn_begin().await?;
     let pcr_set: Option<PcrSet> =
         match !req.pcr_registers.is_empty() {
             true => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
@@ -126,7 +126,7 @@ pub async fn handle_revoke_measurement_report(
     api: &Api,
     req: RevokeMeasurementReportRequest,
 ) -> Result<RevokeMeasurementReportResponse, Status> {
-    let mut txn = api.txn_begin("handle_revoke_measurement_report").await?;
+    let mut txn = api.txn_begin().await?;
     let pcr_set: Option<PcrSet> =
         match &req.pcr_registers.len() {
             n if n < &1 => None,
@@ -164,9 +164,7 @@ pub async fn handle_show_measurement_report_for_id(
     api: &Api,
     req: ShowMeasurementReportForIdRequest,
 ) -> Result<ShowMeasurementReportForIdResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_show_measurement_report_for_id")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     Ok(ShowMeasurementReportForIdResponse {
         report: Some(
             db::measured_boot::report::from_id_with_txn(
@@ -187,9 +185,7 @@ pub async fn handle_show_measurement_reports_for_machine(
     api: &Api,
     req: ShowMeasurementReportsForMachineRequest,
 ) -> Result<ShowMeasurementReportsForMachineResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_show_measurement_reports_for_machine")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     Ok(ShowMeasurementReportsForMachineResponse {
         reports: db::measured_boot::report::get_all_for_machine_id(
             &mut txn,
@@ -211,7 +207,7 @@ pub async fn handle_show_measurement_reports(
     api: &Api,
     _req: ShowMeasurementReportsRequest,
 ) -> Result<ShowMeasurementReportsResponse, Status> {
-    let mut txn = api.txn_begin("handle_show_measurement_reports").await?;
+    let mut txn = api.txn_begin().await?;
     Ok(ShowMeasurementReportsResponse {
         reports: db::measured_boot::report::get_all(&mut txn)
             .await
@@ -228,7 +224,7 @@ pub async fn handle_list_measurement_report(
     api: &Api,
     req: ListMeasurementReportRequest,
 ) -> Result<ListMeasurementReportResponse, Status> {
-    let mut txn = api.txn_begin("handle_list_measurement_report").await?;
+    let mut txn = api.txn_begin().await?;
     let reports: Vec<MeasurementReportRecordPb> = match req.selector {
         Some(list_measurement_report_request::Selector::MachineId(machine_id)) => {
             get_measurement_report_records_for_machine_id(
@@ -259,7 +255,7 @@ pub async fn handle_match_measurement_report(
     api: &Api,
     req: MatchMeasurementReportRequest,
 ) -> Result<MatchMeasurementReportResponse, Status> {
-    let mut txn = api.txn_begin("handle_match_measurement_report").await?;
+    let mut txn = api.txn_begin().await?;
     let mut reports =
         match_latest_reports(&mut txn, &PcrRegisterValue::from_pb_vec(req.pcr_values))
             .await

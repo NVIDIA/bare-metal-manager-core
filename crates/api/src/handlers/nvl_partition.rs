@@ -25,7 +25,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("NvLink partition find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: rpc::NvLinkPartitionSearchFilter = request.into_inner();
 
@@ -40,7 +40,7 @@ pub(crate) async fn find_by_ids(
 ) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("NvLink partition find by id").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::NvLinkPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
 
@@ -77,7 +77,7 @@ pub(crate) async fn for_tenant(
 ) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("NvLink partitions for tenant").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::TenantSearchQuery {
         tenant_organization_id,

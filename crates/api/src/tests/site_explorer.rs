@@ -1837,7 +1837,7 @@ async fn test_site_explorer_clear_last_known_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-    let mut txn = db::Transaction::begin(&env.pool, "db::explored_endpoints::insert").await?;
+    let mut txn = db::Transaction::begin(&env.pool).await?;
     let ip_address = "192.168.1.1";
     let bmc_ip: IpAddr = IpAddr::from_str(ip_address)?;
     let last_error = Some(EndpointExplorationError::Unreachable {
@@ -1854,7 +1854,7 @@ async fn test_site_explorer_clear_last_known_error(
     db::explored_endpoints::insert(bmc_ip, &dpu_report1, &mut txn).await?;
     txn.commit().await?;
 
-    txn = db::Transaction::begin(&env.pool, "explored_endpoints::find_all_by_ip").await?;
+    txn = db::Transaction::begin(&env.pool).await?;
     let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     assert_eq!(nodes.len(), 1);
     let node = nodes.first();

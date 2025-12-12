@@ -50,7 +50,7 @@ pub(crate) async fn set_primary_dpu(
 
     log_machine_id(&host_machine_id);
 
-    let mut txn = api.txn_begin("set_primary_dpu").await?;
+    let mut txn = api.txn_begin().await?;
 
     let interface_map =
         db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id]).await?;
@@ -152,7 +152,7 @@ pub(crate) async fn set_primary_dpu(
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    let mut txn = api.txn_begin("set_primary_dpu").await?;
+    let mut txn = api.txn_begin().await?;
 
     // update the primary interface
     db::machine_interface::set_primary_interface(&current_primary_interface_id, false, &mut txn)
@@ -214,11 +214,7 @@ pub(crate) async fn set_maintenance(
     let machine_id = convert_and_log_machine_id(req.host_id.as_ref())?;
 
     let (host_machine, mut txn) = api
-        .load_machine(
-            &machine_id,
-            MachineSearchConfig::default(),
-            "maintenance handler",
-        )
+        .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
     if host_machine.is_dpu() {
         return Err(Status::invalid_argument(

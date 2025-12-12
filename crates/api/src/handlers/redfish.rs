@@ -91,7 +91,7 @@ pub async fn redfish_list_actions(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("list redfish actions").await?;
+    let mut txn = api.txn_begin().await?;
 
     let result = list_requests(request, &mut txn).await?;
 
@@ -114,7 +114,7 @@ pub async fn redfish_create_action(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("create redfish action").await?;
+    let mut txn = api.txn_begin().await?;
 
     let ip_to_serial = find_serials(&request.ips, &mut txn).await?;
     let machine_ips: Vec<_> = ip_to_serial.keys().cloned().collect();
@@ -146,7 +146,7 @@ pub async fn redfish_approve_action(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("approve redfish action").await?;
+    let mut txn = api.txn_begin().await?;
     let action_request = fetch_request(request, &mut txn).await?;
     if action_request.approvers.contains(&approver) {
         return Err(
@@ -180,7 +180,7 @@ pub async fn redfish_apply_action(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("apply redfish action").await?;
+    let mut txn = api.txn_begin().await?;
 
     let action_request = fetch_request(request, &mut txn).await?;
     if action_request.applied_at.is_some() {
@@ -252,7 +252,7 @@ async fn update_response_in_tx(
     index: usize,
     response: BMCResponse,
 ) -> Result<(), tonic::Status> {
-    let mut txn = Transaction::begin(pool, "update redfish action response").await?;
+    let mut txn = Transaction::begin(pool).await?;
     update_response(request, &mut txn, response, index).await?;
     txn.commit().await?;
     Ok(())
@@ -395,7 +395,7 @@ pub async fn redfish_cancel_action(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("update redfish action response").await?;
+    let mut txn = api.txn_begin().await?;
 
     delete_request(request, &mut txn).await?;
 

@@ -69,7 +69,7 @@ pub(crate) async fn create(
         validate_extension_service_credential(&service_type, credential)?;
     }
 
-    let mut txn = api.txn_begin("create_extension_service").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (service, version) = extension_service::create(
         &mut txn,
@@ -170,7 +170,7 @@ pub(crate) async fn update(
         ))
     })?;
 
-    let mut txn = api.txn_begin("update_extension_service").await?;
+    let mut txn = api.txn_begin().await?;
 
     // We lock the extension service for update so that no other request can update the service
     let current_service_res = extension_service::find_by_ids(&mut txn, &[service_id], true).await?;
@@ -324,7 +324,7 @@ pub(crate) async fn delete(
         ))
     })?;
 
-    let mut txn = api.txn_begin("delete_extension_service").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Parse versions from strings to ConfigVersion
     let versions: Vec<config_version::ConfigVersion> = req
@@ -444,7 +444,7 @@ pub(crate) async fn find_ids(
         }
     };
 
-    let mut txn = api.txn_begin("find_extension_service_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let ids = extension_service::find_ids(
         &mut txn,
@@ -482,7 +482,7 @@ pub(crate) async fn find_by_ids(
         ids.push(id);
     }
 
-    let mut txn = api.txn_begin("find_extension_services_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let snapshots = extension_service::find_snapshots_by_ids(&mut txn, &ids)
         .await
@@ -528,7 +528,7 @@ pub(crate) async fn get_versions_info(
         None
     };
 
-    let mut txn = api.txn_begin("get_extension_service_version_info").await?;
+    let mut txn = api.txn_begin().await?;
 
     let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
         CarbideError::from(RpcDataConversionError::InvalidUuid(
@@ -583,7 +583,7 @@ pub(crate) async fn find_instances_by_extension_service(
         })
         .transpose()?;
 
-    let mut txn = api.txn_begin("find_instances_by_extension_service").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Verify extension service exists
     let extension_service_res =

@@ -30,7 +30,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NetworkSegmentIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("network_segment::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
 
@@ -46,7 +46,7 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::NetworkSegmentsByIdsRequest>,
 ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin("network_segment::find_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::NetworkSegmentsByIdsRequest {
         network_segments_ids,
@@ -124,7 +124,7 @@ pub(crate) async fn create(
         }
     }
 
-    let mut txn = api.txn_begin("create_network_segment").await?;
+    let mut txn = api.txn_begin().await?;
 
     let allocate_svi_ip = if let Some(vpc_id) = new_network_segment.vpc_id {
         if new_network_segment.can_stretch.unwrap_or(true) {
@@ -159,7 +159,7 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin("delete_network_segment").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
@@ -199,7 +199,7 @@ pub(crate) async fn for_vpc(
 ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin("network_segments_for_vpc").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::VpcSearchQuery { id, .. } = request.into_inner();
 

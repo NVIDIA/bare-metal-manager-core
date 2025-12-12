@@ -47,7 +47,7 @@ pub(crate) async fn create(
     crate::api::log_request_data(&request);
     let authored_by = external_user_name(&request)?;
 
-    let mut txn = api.txn_begin("create_remediation").await?;
+    let mut txn = api.txn_begin().await?;
     let response = Ok(db::dpu_remediation::persist_remediation(
         NewRemediation::try_from((request.into_inner(), authored_by))?,
         &mut txn,
@@ -68,7 +68,7 @@ pub(crate) async fn approve(
     crate::api::log_request_data(&request);
     let approved_by = external_user_name(&request)?;
 
-    let mut txn = api.txn_begin("approve_remediation").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::dpu_remediation::persist_approve_remediation(
         ApproveRemediation::try_from((request.into_inner(), approved_by))?,
@@ -88,7 +88,7 @@ pub(crate) async fn revoke(
     crate::api::log_request_data(&request);
     let revoked_by = external_user_name(&request)?;
 
-    let mut txn = api.txn_begin("revoke_remediation").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::dpu_remediation::persist_revoke_remediation(
         RevokeRemediation::try_from((request.into_inner(), revoked_by))?,
@@ -108,7 +108,7 @@ pub(crate) async fn enable(
     crate::api::log_request_data(&request);
     let enabled_by = external_user_name(&request)?;
 
-    let mut txn = api.txn_begin("enable_remediation").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::dpu_remediation::persist_enable_remediation(
         EnableRemediation::try_from((request.into_inner(), enabled_by))?,
@@ -128,7 +128,7 @@ pub(crate) async fn disable(
     crate::api::log_request_data(&request);
     let disabled_by = external_user_name(&request)?;
 
-    let mut txn = api.txn_begin("disable_remediation").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::dpu_remediation::persist_disable_remediation(
         DisableRemediation::try_from((request.into_inner(), disabled_by))?,
@@ -146,7 +146,7 @@ pub(crate) async fn find_remediation_ids(
     request: Request<()>,
 ) -> Result<Response<rpc::RemediationIdList>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api.txn_begin("find_remediation_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let remediation_ids = db::dpu_remediation::find_remediation_ids(&mut txn).await?;
     let response = rpc::RemediationIdList { remediation_ids };
@@ -161,7 +161,7 @@ pub(crate) async fn find_remediations_by_ids(
     request: Request<rpc::RemediationIdList>,
 ) -> Result<Response<rpc::RemediationList>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api.txn_begin("begin find_remediation_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let remediation_ids = request.into_inner().remediation_ids;
 
@@ -197,7 +197,7 @@ pub(crate) async fn find_applied_remediation_ids(
     request: Request<rpc::FindAppliedRemediationIdsRequest>,
 ) -> Result<Response<rpc::AppliedRemediationIdList>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api.txn_begin("find_applied_remediation_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
 
@@ -240,7 +240,7 @@ pub(crate) async fn find_applied_remediations(
     request: Request<rpc::FindAppliedRemediationsRequest>,
 ) -> Result<Response<rpc::AppliedRemediationList>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api.txn_begin("find_applied_remediations").await?;
+    let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
 
@@ -276,7 +276,7 @@ pub(crate) async fn get_next_remediation_for_machine(
     request: Request<rpc::GetNextRemediationForMachineRequest>,
 ) -> Result<Response<rpc::GetNextRemediationForMachineResponse>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api.txn_begin("get_next_remediation_for_machine").await?;
+    let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
     let machine_id = request
@@ -304,7 +304,7 @@ pub(crate) async fn remediation_applied(
     request: Request<rpc::RemediationAppliedRequest>,
 ) -> Result<Response<()>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api.txn_begin("remediation_applied").await?;
+    let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
     let remediation_id = request

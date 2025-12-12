@@ -79,11 +79,7 @@ impl MachineValidationManager {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = MachineValidationMetrics::new();
 
-        let mut txn = db::Transaction::begin(
-            &self.database_connection,
-            "MachineValidationManager::run_single_iteration",
-        )
-        .await?;
+        let mut txn = db::Transaction::begin(&self.database_connection).await?;
 
         metrics.completed_validation = db::machine_validation::find_by(
             &mut txn,
