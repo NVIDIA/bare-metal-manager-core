@@ -29,7 +29,7 @@ pub(crate) async fn create(
 ) -> Result<Response<rpc::IbPartition>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("create_ib_partition").await?;
+    let mut txn = api.txn_begin().await?;
 
     let mut resp = NewIBPartition::try_from(request.into_inner())?;
     let fabric_config = api.ib_fabric_manager.get_config();
@@ -64,7 +64,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::IbPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("ib_partition::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: rpc::IbPartitionSearchFilter = request.into_inner();
 
@@ -79,7 +79,7 @@ pub(crate) async fn find_by_ids(
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("ib_partition::find_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::IbPartitionsByIdsRequest {
         ib_partition_ids, ..
@@ -118,7 +118,7 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("delete_ib_partition").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
@@ -157,7 +157,7 @@ pub(crate) async fn for_tenant(
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("find_ib_partions_for_tenant").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::TenantSearchQuery {
         tenant_organization_id,

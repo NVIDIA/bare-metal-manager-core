@@ -27,7 +27,7 @@ pub(crate) async fn get_pxe_instructions(
 ) -> Result<Response<rpc::PxeInstructions>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("get_pxe_instructions").await?;
+    let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner().try_into()?;
 
@@ -46,7 +46,7 @@ pub(crate) async fn get_cloud_init_instructions(
     let cloud_name = "nvidia".to_string();
     let platform = "forge".to_string();
 
-    let mut txn = api.txn_begin("get_cloud_init_instructions").await?;
+    let mut txn = api.txn_begin().await?;
 
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str

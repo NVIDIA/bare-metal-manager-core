@@ -25,7 +25,7 @@ pub(crate) async fn get_network_topology(
     log_request_data(&request);
     let req = request.into_inner();
 
-    let mut txn = api.txn_begin("get_network_topology").await?;
+    let mut txn = api.txn_begin().await?;
 
     let query = match &req.id {
         Some(x) => ObjectFilter::One(x.as_str()),
@@ -45,7 +45,7 @@ pub(crate) async fn find_network_devices_by_device_ids(
 ) -> Result<Response<rpc::NetworkTopologyData>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("find_network_devices_by_device_ids").await?;
+    let mut txn = api.txn_begin().await?;
     let request = request.into_inner(); // keep lifetime for this scope
     let network_device_ids: Vec<&str> = request
         .network_device_ids
@@ -70,9 +70,7 @@ pub(crate) async fn find_connected_devices_by_dpu_machine_ids(
 ) -> Result<Response<rpc::ConnectedDeviceList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api
-        .txn_begin("find_connected_devices_by_dpu_machine_ids")
-        .await?;
+    let mut txn = api.txn_begin().await?;
 
     let dpu_ids = request.into_inner().machine_ids;
 

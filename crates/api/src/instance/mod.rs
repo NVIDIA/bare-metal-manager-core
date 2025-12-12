@@ -420,7 +420,7 @@ pub async fn batch_allocate_instances(
     }
 
     // Start a single transaction for all allocations
-    let mut txn = api.txn_begin("batch_allocate_instances").await?;
+    let mut txn = api.txn_begin().await?;
 
     // ==== Phase 2: Batch query machines (FOR UPDATE) ====
     let machine_ids: Vec<_> = requests.iter().map(|r| r.machine_id).collect();

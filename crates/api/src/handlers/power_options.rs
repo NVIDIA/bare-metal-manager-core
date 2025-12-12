@@ -24,7 +24,7 @@ pub(crate) async fn get_power_options(
     log_request_data(&request);
     let req = request.into_inner();
 
-    let mut txn = api.txn_begin("get_power_options").await?;
+    let mut txn = api.txn_begin().await?;
     let power_options = if req.machine_id.is_empty() {
         db::power_options::get_all(&mut txn).await
     } else {
@@ -58,7 +58,7 @@ pub(crate) async fn update_power_option(
 
     log_machine_id(&machine_id);
 
-    let mut txn = api.txn_begin("update_power_options").await?;
+    let mut txn = api.txn_begin().await?;
 
     let current_power_state = db::power_options::get_by_ids(&[machine_id], &mut txn).await?;
 

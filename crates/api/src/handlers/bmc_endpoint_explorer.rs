@@ -41,7 +41,7 @@ pub(crate) async fn admin_bmc_reset(
         .map(|id| try_parse_machine_id(id))
         .transpose()?;
 
-    let mut txn = api.txn_begin("admin_bmc_reset").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
@@ -79,7 +79,7 @@ pub(crate) async fn disable_secure_boot(
     log_request_data(&request);
     let req = request.into_inner();
 
-    let mut txn = api.txn_begin("disable_secure_boot").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, Some(req), None).await?;
@@ -115,7 +115,7 @@ pub(crate) async fn lockdown(
         rpc::LockdownAction::Disable => libredfish::EnabledDisabled::Disabled,
     };
 
-    let mut txn = api.txn_begin("lockdown").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
         &mut txn,
@@ -151,7 +151,7 @@ pub(crate) async fn lockdown_status(
     log_request_data(&request);
     let req = request.into_inner();
 
-    let mut txn = api.txn_begin("lockdown_status").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
         &mut txn,
@@ -188,7 +188,7 @@ pub(crate) async fn enable_infinite_boot(
         .map(|id| try_parse_machine_id(id))
         .transpose()?;
 
-    let mut txn = api.txn_begin("enable_infinite_boot").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
@@ -227,7 +227,7 @@ pub(crate) async fn is_infinite_boot_enabled(
         .map(|id| try_parse_machine_id(id))
         .transpose()?;
 
-    let mut txn = api.txn_begin("is_infinite_boot_enabled").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
@@ -269,7 +269,7 @@ pub(crate) async fn forge_setup(
         .map(|id| try_parse_machine_id(id))
         .transpose()?;
 
-    let mut txn = api.txn_begin("forge_setup").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
@@ -312,7 +312,7 @@ pub(crate) async fn set_dpu_first_boot_order(
         .map(|id| try_parse_machine_id(id))
         .transpose()?;
 
-    let mut txn = api.txn_begin("set_dpu_first_boot_order").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
@@ -365,7 +365,7 @@ pub(crate) async fn admin_power_control(
 
     let action = req.action();
 
-    let mut txn = api.txn_begin("admin_power_control").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, machine_id) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
@@ -588,7 +588,7 @@ async fn resolve_bmc_interface(
     if let Some(mac_str) = &request.mac_address {
         bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
     } else {
-        let mut txn = api.txn_begin("resolve_bmc_interface").await?;
+        let mut txn = api.txn_begin().await?;
 
         if let Some(bmc_machine_interface) = find_by_ip(&mut txn, bmc_addr.ip()).await? {
             bmc_mac_address = bmc_machine_interface.mac_address;
@@ -665,7 +665,7 @@ pub(crate) async fn create_bmc_user(
         .map(|id| try_parse_machine_id(id))
         .transpose()?;
 
-    let mut txn = api.txn_begin("create_bmc_user").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
@@ -724,7 +724,7 @@ pub(crate) async fn delete_bmc_user(
         .map(|id| try_parse_machine_id(id))
         .transpose()?;
 
-    let mut txn = api.txn_begin("delete_bmc_user").await?;
+    let mut txn = api.txn_begin().await?;
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
             .await?;

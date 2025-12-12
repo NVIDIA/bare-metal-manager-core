@@ -78,7 +78,7 @@ pub(crate) async fn create(
     validate_expanded_rule_set(&rules, max_nsg_size)?;
 
     // Start a new transaction for a db write.
-    let mut txn = api.txn_begin("create_network_security_group").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Write a new NetworkSecurityGroup to the DB and get back
     // our new NetworkSecurityGroup.
@@ -118,7 +118,7 @@ pub(crate) async fn find_ids(
 
     let req = request.into_inner();
 
-    let mut txn = api.txn_begin("find_network_security_group_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let network_security_group_ids = network_security_group::find_ids(
         &mut txn,
@@ -184,7 +184,7 @@ pub(crate) async fn find_by_ids(
         })?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    let mut txn = api.txn_begin("find_network_security_groups_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Make our DB query for the IDs to get our NetworkSecurityGroups
     let network_security_groups = network_security_group::find_by_ids(
@@ -271,7 +271,7 @@ pub(crate) async fn update(
     validate_expanded_rule_set(&rules, max_nsg_size)?;
 
     // Start a new transaction for a db write.
-    let mut txn = api.txn_begin("update_network_security_group").await?;
+    let mut txn = api.txn_begin().await?;
 
     let tenant_organization_id =
         req.tenant_organization_id
@@ -380,7 +380,7 @@ pub(crate) async fn delete(
     })?;
 
     // Prepare our txn to delete from the DB
-    let mut txn = api.txn_begin("delete_network_security_group").await?;
+    let mut txn = api.txn_begin().await?;
 
     let tenant_organization_id =
         req.tenant_organization_id
@@ -498,7 +498,7 @@ pub(crate) async fn get_propagation_status(
         })?;
 
     // Prepare our txn to associate machines with the NetworkSecurityGroup
-    let mut txn = api.txn_begin("get_propagation_status").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Query the DB for propagation status.
     let (vpcs, instances) = network_security_group::get_propagation_status(
@@ -567,7 +567,7 @@ pub(crate) async fn get_attachments(
             ))
         })?;
 
-    let mut txn = api.txn_begin("get_attachments").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Query the DB for propagation status.
     let attachments = network_security_group::find_objects_with_attachments(

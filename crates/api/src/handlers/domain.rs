@@ -25,7 +25,7 @@ pub(crate) async fn create(
 ) -> Result<Response<rpc::Domain>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin("create_domain").await?;
+    let mut txn = api.txn_begin().await?;
 
     let response = Ok(
         db::domain::persist(NewDomain::try_from(request.into_inner())?, &mut txn)
@@ -45,7 +45,7 @@ pub(crate) async fn update(
 ) -> Result<Response<rpc::Domain>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin("update_domain").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::Domain { id, name, .. } = request.into_inner();
 
@@ -87,7 +87,7 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin("delete_domain").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::DomainDeletion { id, .. } = request.into_inner();
 
@@ -132,7 +132,7 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::DomainList>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin("find_domain").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
     let domains = match (id, name) {

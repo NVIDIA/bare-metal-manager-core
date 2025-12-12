@@ -25,9 +25,7 @@ pub(crate) async fn create(
 ) -> Result<Response<rpc::NvLinkLogicalPartition>, Status> {
     log_request_data(&request);
 
-    const DB_TXN_NAME: &str = "create Logical partition";
-
-    let mut txn = api.txn_begin(DB_TXN_NAME).await?;
+    let mut txn = api.txn_begin().await?;
 
     let req = NewLogicalPartition::try_from(request.into_inner())?;
 
@@ -47,7 +45,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("Logical partition find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: rpc::NvLinkLogicalPartitionSearchFilter = request.into_inner();
 
@@ -64,7 +62,7 @@ pub(crate) async fn find_by_ids(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("Logical partition find by ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::NvLinkLogicalPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
 
@@ -108,7 +106,7 @@ pub(crate) async fn delete(
         .id
         .ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
-    let mut txn = api.txn_begin("Logical partition delete").await?;
+    let mut txn = api.txn_begin().await?;
 
     let mut partitions = db::nvl_logical_partition::find_by(
         &mut txn,
@@ -158,9 +156,7 @@ pub(crate) async fn for_tenant(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api
-        .txn_begin("NvLink logical partitions for tenant")
-        .await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::TenantSearchQuery {
         tenant_organization_id,
@@ -210,7 +206,7 @@ pub(crate) async fn update(
         .try_into()?;
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("Logical partition update").await?;
+    let mut txn = api.txn_begin().await?;
 
     let mut partitions = db::nvl_logical_partition::find_by(
         &mut txn,

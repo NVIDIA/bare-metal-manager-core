@@ -24,7 +24,7 @@ pub(crate) async fn get(
 
     let machine_interface_id = request.into_inner();
 
-    let mut txn = api.txn_begin("get_machine_boot_override ").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,
@@ -55,7 +55,7 @@ pub(crate) async fn set(
     crate::api::log_request_data(&request);
 
     let mbo: MachineBootOverride = request.into_inner().try_into()?;
-    let mut txn = api.txn_begin("set_machine_boot_override").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, mbo.machine_interface_id).await
     {
@@ -93,7 +93,7 @@ pub(crate) async fn clear(
 
     let machine_interface_id = request.into_inner();
 
-    let mut txn = api.txn_begin("clear_machine_boot_override").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,

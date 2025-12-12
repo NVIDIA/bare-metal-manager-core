@@ -27,7 +27,7 @@ pub(crate) async fn reset_host_reprovisioning(
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.txn_begin("reset_host_reprovisioning").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::host_machine_update::reset_host_reprovisioning_request(&mut txn, &machine_id, false)
         .await?;
@@ -46,7 +46,7 @@ pub(crate) async fn trigger_host_reprovisioning(
     let req = request.into_inner();
     let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin("trigger_host_reprovisioning").await?;
+    let mut txn = api.txn_begin().await?;
 
     let snapshot =
         db::managed_host::load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
@@ -91,9 +91,7 @@ pub(crate) async fn list_hosts_waiting_for_reprovisioning(
 ) -> Result<Response<rpc::HostReprovisioningListResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api
-        .txn_begin("list_hosts_waiting_for_reprovisioning")
-        .await?;
+    let mut txn = api.txn_begin().await?;
 
     let hosts = db::machine::list_machines_requested_for_host_reprovisioning(&mut txn)
         .await?

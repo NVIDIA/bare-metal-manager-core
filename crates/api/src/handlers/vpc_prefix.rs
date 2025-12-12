@@ -55,7 +55,7 @@ pub async fn create(
         }
     }
 
-    let mut txn = api.txn_begin("vpc_prefix::create").await?;
+    let mut txn = api.txn_begin().await?;
 
     let conflicting_vpc_prefixes = db::probe(new_prefix.prefix, &mut txn).await?;
     if !conflicting_vpc_prefixes.is_empty() {
@@ -197,7 +197,7 @@ pub async fn search(
         })
         .transpose()?;
 
-    let mut txn = api.txn_begin("vpc_prefix::search").await?;
+    let mut txn = api.txn_begin().await?;
 
     let vpc_prefix_ids = db::search(&mut txn, vpc_id, name, prefix_match).await?;
 
@@ -223,7 +223,7 @@ pub async fn get(
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
-    let mut txn = api.txn_begin("vpc_prefix::get").await?;
+    let mut txn = api.txn_begin().await?;
 
     let vpc_prefixes = db::get_by_id(
         &mut txn,
@@ -245,7 +245,7 @@ pub async fn update(
 
     let update_prefix = vpc_prefix::UpdateVpcPrefix::try_from(request.into_inner())?;
 
-    let mut txn = api.txn_begin("vpc_prefix::update").await?;
+    let mut txn = api.txn_begin().await?;
 
     let updated = db::update(&update_prefix, &mut txn).await?;
 
@@ -262,7 +262,7 @@ pub async fn delete(
 
     let delete_prefix = vpc_prefix::DeleteVpcPrefix::try_from(request.into_inner())?;
 
-    let mut txn = api.txn_begin("vpc_prefix::delete").await?;
+    let mut txn = api.txn_begin().await?;
 
     // TODO: We could probably produce some nicer errors here when trying
     // to delete prefixes that are still being used by network segments, or

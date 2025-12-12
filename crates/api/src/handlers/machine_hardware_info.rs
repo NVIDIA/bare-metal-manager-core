@@ -41,7 +41,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
         ))
     })?;
 
-    let mut txn = api.txn_begin("update machine hardware info").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_topology =
         db::machine_topology::find_latest_by_machine_ids(&mut txn, &[machine_id]).await?;

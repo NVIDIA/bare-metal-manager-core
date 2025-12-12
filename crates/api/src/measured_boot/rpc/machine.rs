@@ -35,7 +35,7 @@ pub async fn handle_attest_candidate_machine(
     api: &Api,
     req: AttestCandidateMachineRequest,
 ) -> Result<AttestCandidateMachineResponse, Status> {
-    let mut txn = api.txn_begin("handle_attest_candidate_machine").await?;
+    let mut txn = api.txn_begin().await?;
     let report = db::measured_boot::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
@@ -57,7 +57,7 @@ pub async fn handle_show_candidate_machine(
     api: &Api,
     req: ShowCandidateMachineRequest,
 ) -> Result<ShowCandidateMachineResponse, Status> {
-    let mut txn = api.txn_begin("handle_show_candidate_machine").await?;
+    let mut txn = api.txn_begin().await?;
     let machine = match req.selector {
         // Show a machine with the given ID.
         Some(show_candidate_machine_request::Selector::MachineId(machine_uuid)) => {
@@ -84,7 +84,7 @@ pub async fn handle_show_candidate_machines(
     api: &Api,
     _req: ShowCandidateMachinesRequest,
 ) -> Result<ShowCandidateMachinesResponse, Status> {
-    let mut txn = api.txn_begin("handle_show_candidate_machines").await?;
+    let mut txn = api.txn_begin().await?;
     Ok(ShowCandidateMachinesResponse {
         machines: db::measured_boot::machine::get_all(&mut txn)
             .await
@@ -100,7 +100,7 @@ pub async fn handle_list_candidate_machines(
     api: &Api,
     _req: ListCandidateMachinesRequest,
 ) -> Result<ListCandidateMachinesResponse, Status> {
-    let mut txn = api.txn_begin("handle_list_candidate_machines").await?;
+    let mut txn = api.txn_begin().await?;
     Ok(ListCandidateMachinesResponse {
         machines: get_candidate_machine_records(&mut txn)
             .await

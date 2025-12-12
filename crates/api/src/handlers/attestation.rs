@@ -24,7 +24,7 @@ pub(crate) async fn trigger_machine_attestation(
     let request = request.get_ref();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin("trigger_machine_attestation").await?;
+    let mut txn = api.txn_begin().await?;
     let attestation_request = SpdmMachineAttestation {
         machine_id,
         requested_at: chrono::Utc::now(),
@@ -49,7 +49,7 @@ pub(crate) async fn cancel_machine_attestation(
     let request = request.get_ref();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin("trigger_cancel_machine_attestation").await?;
+    let mut txn = api.txn_begin().await?;
     db::attestation::spdm::cancel_machine_attestation(&mut txn, &machine_id).await?;
     txn.commit().await?;
 
@@ -62,7 +62,7 @@ pub(crate) async fn list_machine_ids_under_attestation(
 ) -> Result<Response<MachineIdList>, Status> {
     log_request_data(&_request);
 
-    let mut txn = api.txn_begin("trigger_list_machine_attestation").await?;
+    let mut txn = api.txn_begin().await?;
     let machine_ids = db::attestation::spdm::find_machine_ids(&mut txn).await?;
     txn.commit().await?;
 
@@ -76,7 +76,7 @@ pub(crate) async fn list_machines_under_attestation(
     log_request_data(&request);
     let request = request.get_ref();
 
-    let mut txn = api.txn_begin("trigger_list_machine_attestation").await?;
+    let mut txn = api.txn_begin().await?;
     let snapshot =
         db::attestation::spdm::load_snapshot_for_machine_ids(&mut txn, &request.machine_ids)
             .await?;
@@ -101,7 +101,7 @@ pub(crate) async fn attest_quote(
     // in bind_attest_key
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin("machine attestation verify quote").await?;
+    let mut txn = api.txn_begin().await?;
 
     let ak_pub_bytes =
         match db::attestation::secret_ak_pub::get_by_secret(&mut txn, &request.credential).await? {
@@ -187,7 +187,7 @@ pub(crate) async fn attest_quote(
     // - get attestation result
     // - if enabled and not successful, send response without certs
     // - else send response with certs
-    let mut txn = api.txn_begin("machine attestation verify quote").await?;
+    let mut txn = api.txn_begin().await?;
 
     if api.runtime_config.attestation_enabled
         && !crate::attestation::has_passed_attestation(&mut txn, &machine_id, &report.report_id)

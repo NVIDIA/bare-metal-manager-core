@@ -412,7 +412,7 @@ pub async fn new(
     name: Option<String>,
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<MeasurementSystemProfile> {
-    let mut txn = Transaction::begin(db_conn, "MeasurementSystemProfile.new").await?;
+    let mut txn = Transaction::begin(db_conn).await?;
 
     let profile = new_with_txn(&mut txn, name, attrs).await?;
 
@@ -449,7 +449,7 @@ pub async fn load_from_id(
     db_conn: &Pool<Postgres>,
     profile_id: MeasurementSystemProfileId,
 ) -> DatabaseResult<MeasurementSystemProfile> {
-    let mut txn = Transaction::begin(db_conn, "MeasurementProfile.load_from_id").await?;
+    let mut txn = Transaction::begin(db_conn).await?;
     load_from_id_with_txn(&mut txn, profile_id).await
 }
 

@@ -53,7 +53,7 @@ pub async fn handle_import_site_measurements(
     api: &Api,
     req: ImportSiteMeasurementsRequest,
 ) -> Result<ImportSiteMeasurementsResponse, Status> {
-    let mut txn = api.txn_begin("handle_import_site_measurements").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Convert the site model from the SiteModelPb (and
     // make sure its good).
@@ -82,7 +82,7 @@ pub async fn handle_export_site_measurements(
     api: &Api,
     _req: ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
-    let mut txn = api.txn_begin("handle_export_site_measurements").await?;
+    let mut txn = api.txn_begin().await?;
     let site_model = db::measured_boot::site::export(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("export failed: {e}")))?;
@@ -101,9 +101,7 @@ pub async fn handle_add_measurement_trusted_machine(
     api: &Api,
     req: AddMeasurementTrustedMachineRequest,
 ) -> Result<AddMeasurementTrustedMachineResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_add_measurement_trusted_machine")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let approval_type = req.approval_type();
     let approval_record = insert_into_approved_machines(
         &mut txn,
@@ -129,9 +127,7 @@ pub async fn handle_remove_measurement_trusted_machine(
     api: &Api,
     req: RemoveMeasurementTrustedMachineRequest,
 ) -> Result<RemoveMeasurementTrustedMachineResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_remove_measurement_trusted_machine")
-        .await?;
+    let mut txn = api.txn_begin().await?;
 
     let approval_record: MeasurementApprovedMachineRecord = match req.selector {
         // Remove by approval ID.
@@ -171,9 +167,7 @@ pub async fn handle_list_measurement_trusted_machines(
     api: &Api,
     _req: ListMeasurementTrustedMachinesRequest,
 ) -> Result<ListMeasurementTrustedMachinesResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_list_measurement_trusted_machines")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let approval_records: Vec<MeasurementApprovedMachineRecordPb> = get_approved_machines(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("failed to fetch machine approvals: {e}")))?
@@ -190,9 +184,7 @@ pub async fn handle_add_measurement_trusted_profile(
     api: &Api,
     req: AddMeasurementTrustedProfileRequest,
 ) -> Result<AddMeasurementTrustedProfileResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_add_measurement_trusted_profile")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let approval_type = req.approval_type();
     let approval_record = insert_into_approved_profiles(
         &mut txn,
@@ -217,9 +209,7 @@ pub async fn handle_remove_measurement_trusted_profile(
     api: &Api,
     req: RemoveMeasurementTrustedProfileRequest,
 ) -> Result<RemoveMeasurementTrustedProfileResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_remove_measurement_trusted_profile")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let approval_record: MeasurementApprovedProfileRecord = match req.selector {
         // Remove by approval ID.
         Some(remove_measurement_trusted_profile_request::Selector::ApprovalId(approval_uuid)) => {
@@ -253,9 +243,7 @@ pub async fn handle_list_measurement_trusted_profiles(
     api: &Api,
     _req: ListMeasurementTrustedProfilesRequest,
 ) -> Result<ListMeasurementTrustedProfilesResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_list_measurement_trusted_profiles")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let approval_records: Vec<MeasurementApprovedProfileRecordPb> = get_approved_profiles(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("failed to fetch profile approvals: {e}")))?
@@ -270,7 +258,7 @@ pub async fn handle_list_attestation_summary(
     api: &Api,
     _req: ListAttestationSummaryRequest,
 ) -> Result<ListAttestationSummaryResponse, Status> {
-    let mut txn = api.txn_begin("handle_list_attestation_summary").await?;
+    let mut txn = api.txn_begin().await?;
     let attestation_summary = list_attestation_summary(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("failed to fetch attestation summary: {e}")))?;

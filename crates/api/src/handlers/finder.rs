@@ -115,7 +115,7 @@ pub(crate) async fn identify_serial(
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
-    let mut txn = api.txn_begin("identify_serial").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_ids = if req.exact {
         db::machine_topology::find_by_serial(&mut txn, &req.serial_number).await
@@ -202,7 +202,7 @@ async fn search(
         ));
     }
 
-    let mut txn = api.txn_begin("IP search").await?;
+    let mut txn = api.txn_begin().await?;
 
     use Finder::*;
     let match_result = match finder {
@@ -370,7 +370,7 @@ async fn search(
 }
 
 async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, CarbideError> {
-    let mut txn = api.txn_begin("UUID search").await?;
+    let mut txn = api.txn_begin().await?;
 
     if let Ok(ns_id) = NetworkSegmentId::from_str(&u.value) {
         let segments = db::network_segment::find_by(
@@ -439,7 +439,7 @@ async fn by_mac(
     api: &Api,
     mac: mac_address::MacAddress,
 ) -> Result<Option<(String, rpc::MacOwner)>, DatabaseError> {
-    let mut txn = api.txn_begin("MAC search").await?;
+    let mut txn = api.txn_begin().await?;
 
     match db::machine_interface::find_by_mac_address(&mut txn, mac).await {
         Ok(interfaces) if interfaces.len() == 1 => {

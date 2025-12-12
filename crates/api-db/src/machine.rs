@@ -1956,7 +1956,7 @@ pub async fn update_dpu_asns(
     db_pool: &Pool<Postgres>,
     common_pools: &CommonPools,
 ) -> Result<(), DatabaseError> {
-    let mut txn = Transaction::begin(db_pool, "agent upgrade policy").await?;
+    let mut txn = Transaction::begin(db_pool).await?;
 
     if crate::resource_pool::stats(txn.as_pgconn(), common_pools.ethernet.pool_fnn_asn.name())
         .await?

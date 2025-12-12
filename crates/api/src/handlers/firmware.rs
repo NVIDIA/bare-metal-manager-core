@@ -42,7 +42,7 @@ pub(crate) async fn set_firmware_update_time_window(
         }
     }
 
-    let mut txn = api.txn_begin("set_firmware_update_time_window").await?;
+    let mut txn = api.txn_begin().await?;
 
     tracing::info!(
         "set_firmware_update_time_window: Setting update start/end ({:?} {:?}) for {:?}",

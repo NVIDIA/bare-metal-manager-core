@@ -34,7 +34,7 @@ pub async fn create_initial_domain(
     db_pool: sqlx::pool::Pool<Postgres>,
     domain_name: &str,
 ) -> Result<bool, CarbideError> {
-    let mut txn = Transaction::begin(&db_pool, "create_initial_domain").await?;
+    let mut txn = Transaction::begin(&db_pool).await?;
     let domains =
         db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     if domains.is_empty() {
@@ -60,7 +60,7 @@ pub async fn create_initial_networks(
     db_pool: &Pool<Postgres>,
     networks: &HashMap<String, NetworkDefinition>,
 ) -> Result<(), CarbideError> {
-    let mut txn = Transaction::begin(db_pool, "create_initial_networks").await?;
+    let mut txn = Transaction::begin(db_pool).await?;
     let all_domains =
         db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     if all_domains.len() != 1 {
@@ -92,7 +92,7 @@ pub async fn create_initial_networks(
 }
 
 pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<(), CarbideError> {
-    let mut txn = Transaction::begin(db_pool, "allocate SVI IP").await?;
+    let mut txn = Transaction::begin(db_pool).await?;
     let all_segments = db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::<network_segment::IdColumn>::All,
@@ -139,7 +139,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
             continue;
         }
 
-        let mut txn = Transaction::begin(db_pool, "internal allocate SVI IP").await?;
+        let mut txn = Transaction::begin(db_pool).await?;
 
         match db::network_segment::allocate_svi_ip(&segment, &mut txn).await {
             Ok(_) => {
@@ -162,7 +162,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
     db_pool: &Pool<Postgres>,
     initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 ) -> Result<(), CarbideError> {
-    let mut txn = Transaction::begin(db_pool, "agent upgrade policy").await?;
+    let mut txn = Transaction::begin(db_pool).await?;
     let initial_policy: AgentUpgradePolicy = initial_dpu_agent_upgrade_policy
         .unwrap_or(AgentUpgradePolicyChoice::UpOnly)
         .into();
@@ -190,7 +190,7 @@ pub(crate) async fn create_admin_vpc(
         ));
     };
 
-    let mut txn = Transaction::begin(db_pool, "agent upgrade policy").await?;
+    let mut txn = Transaction::begin(db_pool).await?;
 
     let admin_segment = db::network_segment::admin(&mut txn).await?;
     let existing_vpc = db::vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;

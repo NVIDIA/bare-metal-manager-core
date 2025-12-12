@@ -353,7 +353,7 @@ pub(crate) async fn get_dpu_ssh_credential(
 
     let query = request.into_inner().host_id;
 
-    let mut txn = api.txn_begin("get_dpu_ssh_credential").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_id = match db::machine::find_by_query(&mut txn, &query).await? {
         Some(machine) => {

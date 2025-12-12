@@ -30,7 +30,7 @@ pub(crate) async fn create(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("create_tenant_keyset").await?;
+    let mut txn = api.txn_begin().await?;
 
     let keyset = db::tenant_keyset::create(&keyset_request, &mut txn).await?;
 
@@ -47,7 +47,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("tenant_keyset::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
@@ -66,7 +66,7 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::TenantKeysetsByIdsRequest>,
 ) -> Result<Response<rpc::TenantKeySetList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin("tenant_keyset::find_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::TenantKeysetsByIdsRequest {
         keyset_ids,
@@ -108,7 +108,7 @@ pub(crate) async fn update(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("update_tenant_keyset").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::tenant_keyset::update(&update_request, &mut txn).await?;
 
@@ -125,7 +125,7 @@ pub(crate) async fn delete(
 
     let rpc::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
 
-    let mut txn = api.txn_begin("delete_tenant_keyset").await?;
+    let mut txn = api.txn_begin().await?;
 
     let Some(keyset_identifier) = keyset_identifier else {
         return Err(CarbideError::MissingArgument("keyset_identifier").into());
@@ -154,7 +154,7 @@ pub(crate) async fn validate_public_key(
     let request = TenantPublicKeyValidationRequest::try_from(request.into_inner())
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("validate_tenant_public_key").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::tenant::validate_public_key(&request, &mut txn).await?;
 

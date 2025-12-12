@@ -135,7 +135,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::InstanceIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("instance::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: rpc::InstanceSearchFilter = request.into_inner();
 
@@ -164,7 +164,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let mut txn = api.txn_begin("instance::find_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let snapshots = db::managed_host::load_by_instance_ids(
         &mut txn,
@@ -189,7 +189,7 @@ pub(crate) async fn find_by_machine_id(
 
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.txn_begin("find_instance_by_machine_id").await?;
+    let mut txn = api.txn_begin().await?;
 
     let mh_snapshot = match db::managed_host::load_snapshot(
         &mut txn,
@@ -576,7 +576,7 @@ pub(crate) async fn release(
     log_request_data(&request);
     let delete_instance = DeleteInstance::try_from(request.into_inner())?;
 
-    let mut txn = api.txn_begin("release_instance").await?;
+    let mut txn = api.txn_begin().await?;
 
     let instance = db::instance::find_by_id(&mut txn, delete_instance.instance_id)
         .await?
@@ -662,9 +662,7 @@ pub(crate) async fn update_phone_home_last_contact(
         .instance_id
         .ok_or(CarbideError::MissingArgument("id"))?;
 
-    let mut txn = api
-        .txn_begin("update_instance_phone_home_last_contact")
-        .await?;
+    let mut txn = api.txn_begin().await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
@@ -690,7 +688,7 @@ pub(crate) async fn invoke_power(
 ) -> Result<Response<rpc::InstancePowerResult>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("invoke_instance_power").await?;
+    let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
@@ -864,7 +862,7 @@ pub(crate) async fn update_operating_system(
     };
     os.validate().map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("update_instance_operating_system").await?;
+    let mut txn = api.txn_begin().await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
@@ -947,7 +945,7 @@ pub(crate) async fn update_instance_config(
         CarbideError::InvalidArgument(format!("Instance metadata is not valid: {e}"))
     })?;
 
-    let mut txn = api.txn_begin("update_instance_config").await?;
+    let mut txn = api.txn_begin().await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?

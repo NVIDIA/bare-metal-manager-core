@@ -33,7 +33,7 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::ExpectedMachine>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("get_expected_machine").await?;
+    let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
 
@@ -109,7 +109,7 @@ pub(crate) async fn add(
         db_data.override_id = Some(Uuid::new_v4());
     }
 
-    let mut txn = api.txn_begin("add_expected_machines").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::expected_machine::create(&mut txn, parsed_mac, db_data).await?;
 
@@ -147,7 +147,7 @@ pub(crate) async fn delete(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("delete_expected_machines").await?;
+    let mut txn = api.txn_begin().await?;
 
     if let Some(uuid_val) = request.id.clone() {
         let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
@@ -186,7 +186,7 @@ pub(crate) async fn update(
     let request_rack_id = request.rack_id.clone();
     let data: ExpectedMachineData = request.try_into()?;
 
-    let mut txn = api.txn_begin("update_expected_machine").await?;
+    let mut txn = api.txn_begin().await?;
 
     if let Some(uuid_val) = request_id.clone() {
         let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
@@ -244,7 +244,7 @@ pub(crate) async fn replace_all(
     log_request_data(&request);
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("replace_all_expected_machines").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::expected_machine::clear(&mut txn).await?;
 
@@ -262,7 +262,7 @@ pub(crate) async fn get_all(
 ) -> Result<tonic::Response<rpc::ExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("get_all_expected_machines").await?;
+    let mut txn = api.txn_begin().await?;
 
     let expected_machine_list: Vec<ExpectedMachine> =
         db::expected_machine::find_all(&mut txn).await?;
@@ -277,7 +277,7 @@ pub(crate) async fn get_linked(
     request: tonic::Request<()>,
 ) -> Result<tonic::Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin("get_linked").await?;
+    let mut txn = api.txn_begin().await?;
 
     let out = db::expected_machine::find_all_linked(&mut txn).await?;
     let list = rpc::LinkedExpectedMachineList {
@@ -292,7 +292,7 @@ pub(crate) async fn delete_all(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("delete_all_expected_machines").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::expected_machine::clear(&mut txn).await?;
 
@@ -306,7 +306,7 @@ pub(crate) async fn query(
     api: &Api,
     mac: MacAddress,
 ) -> Result<Option<ExpectedMachine>, CarbideError> {
-    let mut txn = api.txn_begin("find_many_by_bmc_mac_address").await?;
+    let mut txn = api.txn_begin().await?;
 
     let mut expected = db::expected_machine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
 

@@ -26,7 +26,7 @@ pub(crate) async fn grow(
 
     let toml_text = request.into_inner().text;
 
-    let mut txn = api.txn_begin("admin_grow_resource_pool").await?;
+    let mut txn = api.txn_begin().await?;
 
     let mut pools = HashMap::new();
     let table: toml::Table = toml_text
@@ -58,7 +58,7 @@ pub(crate) async fn list(
 ) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin("admin_list_resource_pools").await?;
+    let mut txn = api.txn_begin().await?;
 
     let snapshot = db::resource_pool::all(&mut txn)
         .await

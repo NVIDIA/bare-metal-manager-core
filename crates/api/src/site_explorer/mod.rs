@@ -214,11 +214,10 @@ impl SiteExplorer {
     #[track_caller]
     fn txn_begin(
         &self,
-        name: &'static str,
     ) -> Pin<Box<dyn Future<Output = CarbideResult<db::Transaction<'_>>> + Send + '_>> {
         let loc = Location::caller();
         Box::pin(async move {
-            Ok(db::Transaction::begin_with_location(&self.database_connection, name, loc).await?)
+            Ok(db::Transaction::begin_with_location(&self.database_connection, loc).await?)
         })
     }
 
@@ -322,9 +321,7 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
         matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
     ) -> CarbideResult<()> {
-        let mut txn = self
-            .txn_begin("load audit_exploration_results data")
-            .await?;
+        let mut txn = self.txn_begin().await?;
 
         // Grab them all because we care about everything,
         // not just the subset in the current run.
@@ -342,7 +339,7 @@ impl SiteExplorer {
             }
 
             // We need to find the last health report for the endpoint in order to update it with latest health data
-            let mut txn = self.txn_begin("update SiteExplorer Health Report").await?;
+            let mut txn = self.txn_begin().await?;
             let machine_id = db::machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
             let machine = match machine_id.as_ref() {
                 Some(id) => db::machine::find(
@@ -711,7 +708,7 @@ impl SiteExplorer {
     ) -> CarbideResult<bool> {
         let mut managed_host = ManagedHost::init(explored_host);
 
-        let mut txn = Transaction::begin(pool, "create_managed_host").await?;
+        let mut txn = Transaction::begin(pool).await?;
 
         let (metadata, sku_id) = match expected_machine {
             Some(m) => (Some(&m.data.metadata), m.data.sku_id.as_ref()),
@@ -990,9 +987,7 @@ impl SiteExplorer {
         HashMap<IpAddr, ExploredEndpoint>,
         HashMap<IpAddr, ExploredEndpoint>,
     )> {
-        let mut txn = self
-            .txn_begin("find_all_preingestion_complete data")
-            .await?;
+        let mut txn = self.txn_begin().await?;
 
         // TODO: We reload the endpoint list even though we just regenerated it
         // Could optimize this by keeping it in memory. But since the manipulations
@@ -1335,9 +1330,7 @@ impl SiteExplorer {
             metrics.exploration_identified_managed_hosts += 1;
         }
 
-        let mut txn = self
-            .txn_begin("load update_explored_managed_host data")
-            .await?;
+        let mut txn = self.txn_begin().await?;
 
         db::explored_managed_host::update(
             &mut txn,
@@ -1436,9 +1429,7 @@ impl SiteExplorer {
         HashMap<IpAddr, ExpectedPowerShelf>,
         HashMap<IpAddr, ExpectedSwitch>,
     )> {
-        let mut txn = self
-            .txn_begin("load update_explored_endpoints data")
-            .await?;
+        let mut txn = self.txn_begin().await?;
 
         let underlay_segments =
             db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
@@ -1552,7 +1543,7 @@ impl SiteExplorer {
 
         // The unknown endpoints can quickly be cleaned up
         if !delete_endpoints.is_empty() {
-            let mut txn = self.txn_begin("delete unknown endpoints").await?;
+            let mut txn = self.txn_begin().await?;
 
             // TODO: Explore deleting all old endpoints in a single query, which would be more efficient
             // Since we practically never delete `MachineInterface`s anyway, this however isn't that important.
@@ -1649,7 +1640,7 @@ impl SiteExplorer {
             self.config.concurrent_explorations as usize,
         ));
 
-        let mut txn = self.txn_begin("expected machine find_all").await?;
+        let mut txn = self.txn_begin().await?;
         let expected = db::expected_machine::find_all(&mut txn).await?;
 
         // Load SKU information for expected machines to record metrics
@@ -1855,7 +1846,7 @@ impl SiteExplorer {
         }
 
         // All subtasks finished. We now update the database
-        let mut txn = self.txn_begin("update endpoint information").await?;
+        let mut txn = self.txn_begin().await?;
 
         for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
             let address = endpoint.address;
@@ -2995,7 +2986,7 @@ impl SiteExplorer {
             .await
         {
             Ok(_) => {
-                let mut txn = self.txn_begin("set_last_ipmitool_bmc_reset").await?;
+                let mut txn = self.txn_begin().await?;
 
                 db::explored_endpoints::set_last_ipmitool_bmc_reset(endpoint.address, &mut txn)
                     .await?;
@@ -3024,7 +3015,7 @@ impl SiteExplorer {
             .await
         {
             Ok(_) => {
-                let mut txn = self.txn_begin("set_last_redfish_bmc_reset").await?;
+                let mut txn = self.txn_begin().await?;
 
                 db::explored_endpoints::set_last_redfish_bmc_reset(endpoint.address, &mut txn)
                     .await?;
@@ -3093,7 +3084,7 @@ impl SiteExplorer {
             .await
         {
             Ok(()) => {
-                let mut txn = self.txn_begin("set_last_redfish_reboot").await?;
+                let mut txn = self.txn_begin().await?;
 
                 db::explored_endpoints::set_last_redfish_reboot(endpoint.address, &mut txn).await?;
 
@@ -3112,9 +3103,7 @@ impl SiteExplorer {
         &self,
         bmc_ip_address: IpAddr,
     ) -> CarbideResult<bool> {
-        let mut txn = self
-            .txn_begin("is_managed_host_created_for_endpoint")
-            .await?;
+        let mut txn = self.txn_begin().await?;
 
         let is_endpoint_in_managed_host =
             is_endpoint_in_managed_host(bmc_ip_address, &mut txn).await?;
@@ -3221,7 +3210,7 @@ impl SiteExplorer {
         self.redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
             .await?;
 
-        let mut txn = self.txn_begin("set_last_redfish_powercycle").await?;
+        let mut txn = self.txn_begin().await?;
 
         db::explored_endpoints::set_last_redfish_powercycle(bmc_ip_address, &mut txn).await?;
 
@@ -3232,7 +3221,7 @@ impl SiteExplorer {
         &self,
         ip_address: IpAddr,
     ) -> CarbideResult<MachineInterfaceSnapshot> {
-        let mut txn = self.txn_begin("find_machine_interface_for_ip").await?;
+        let mut txn = self.txn_begin().await?;
 
         let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip_address).await?;
 
@@ -3608,7 +3597,7 @@ pub async fn get_machine_state_by_bmc_ip(
     database_connection: &PgPool,
     bmc_ip: &str,
 ) -> Result<String, DatabaseError> {
-    let mut txn = Transaction::begin(database_connection, "get_machine_state_by_bmc_ip").await?;
+    let mut txn = Transaction::begin(database_connection).await?;
 
     let state = match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip).await? {
         Some(machine_id) => {

@@ -25,7 +25,7 @@ pub async fn record_hardware_health_report(
     api: &Api,
     request: Request<rpc::HardwareHealthReport>,
 ) -> Result<Response<()>, Status> {
-    let mut txn = api.txn_begin("record_hardware_health_report").await?;
+    let mut txn = api.txn_begin().await?;
     let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
@@ -57,7 +57,7 @@ pub async fn get_hardware_health_report(
     api: &Api,
     request: Request<MachineId>,
 ) -> Result<Response<rpc::OptionalHealthReport>, Status> {
-    let mut txn = api.txn_begin("get_hardware_health_report").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_id = request.into_inner();
     let machine_id = convert_and_log_machine_id(Some(&machine_id))?;
@@ -90,7 +90,7 @@ pub async fn list_health_report_overrides(
     api: &Api,
     machine_id: Request<MachineId>,
 ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
-    let mut txn = api.txn_begin("list_health_report_overrides").await?;
+    let mut txn = api.txn_begin().await?;
 
     let machine_id = convert_and_log_machine_id(Some(&machine_id.into_inner()))?;
 
@@ -120,7 +120,7 @@ pub async fn record_log_parser_health_report(
     api: &Api,
     request: Request<rpc::HardwareHealthReport>,
 ) -> Result<Response<()>, Status> {
-    let mut txn = api.txn_begin("record_log_parser_health_report").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
@@ -210,7 +210,7 @@ pub async fn insert_health_report_override(
         )
         .into());
     }
-    let mut txn = api.txn_begin("insert_health_report_override").await?;
+    let mut txn = api.txn_begin().await?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
@@ -237,7 +237,7 @@ pub async fn remove_health_report_override(
     api: &Api,
     request: Request<rpc::RemoveHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
-    let mut txn = api.txn_begin("remove_health_report_override").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::RemoveHealthReportOverrideRequest { machine_id, source } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;

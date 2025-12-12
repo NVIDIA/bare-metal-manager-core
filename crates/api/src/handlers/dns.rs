@@ -22,7 +22,7 @@ pub(crate) async fn lookup_record(
 ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("lookup_record").await?;
+    let mut txn = api.txn_begin().await?;
 
     let rpc::dns_message::DnsQuestion {
         q_name,

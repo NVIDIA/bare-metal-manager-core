@@ -25,7 +25,7 @@ pub(crate) async fn clear_host_uefi_password(
 ) -> Result<Response<rpc::ClearHostUefiPasswordResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("clear_host_uefi_password").await?;
+    let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
     let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
@@ -84,7 +84,7 @@ pub(crate) async fn set_host_uefi_password(
         ));
     }
 
-    let mut txn = api.txn_begin("set_host_uefi_password").await?;
+    let mut txn = api.txn_begin().await?;
 
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,

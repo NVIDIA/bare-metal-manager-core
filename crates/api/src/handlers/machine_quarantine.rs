@@ -34,7 +34,7 @@ pub(crate) async fn set_managed_host_quarantine_state(
     let quarantine_state: ManagedHostQuarantineState =
         quarantine_state.try_into().map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("set_managed_host_quarantine_state").await?;
+    let mut txn = api.txn_begin().await?;
 
     let prior_quarantine_state =
         db::machine::set_quarantine_state(&mut txn, &machine_id, quarantine_state)
@@ -56,7 +56,7 @@ pub(crate) async fn get_managed_host_quarantine_state(
     let rpc::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin("get_managed_host_quarantine_state").await?;
+    let mut txn = api.txn_begin().await?;
 
     let quarantine_state = db::machine::get_quarantine_state(&mut txn, &machine_id)
         .await?
@@ -78,7 +78,7 @@ pub(crate) async fn clear_managed_host_quarantine_state(
     let rpc::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin("clear_managed_host_quarantine_state").await?;
+    let mut txn = api.txn_begin().await?;
 
     let prior_quarantine_state = db::machine::clear_quarantine_state(&mut txn, &machine_id)
         .await?

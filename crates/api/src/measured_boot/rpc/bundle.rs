@@ -44,7 +44,7 @@ pub async fn handle_create_measurement_bundle(
     api: &Api,
     req: CreateMeasurementBundleRequest,
 ) -> Result<CreateMeasurementBundleResponse, Status> {
-    let mut txn = api.txn_begin("handle_create_measurement_bundle").await?;
+    let mut txn = api.txn_begin().await?;
     let state = req.state();
     let bundle = db::measured_boot::bundle::new_with_txn(
         &mut txn,
@@ -69,7 +69,7 @@ pub async fn handle_delete_measurement_bundle(
     api: &Api,
     req: DeleteMeasurementBundleRequest,
 ) -> Result<DeleteMeasurementBundleResponse, Status> {
-    let mut txn = api.txn_begin("handle_delete_measurement_bundle").await?;
+    let mut txn = api.txn_begin().await?;
     let bundle = match req.selector {
         // Delete for the given bundle ID.
         Some(delete_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
@@ -103,7 +103,7 @@ pub async fn handle_rename_measurement_bundle(
     api: &Api,
     req: RenameMeasurementBundleRequest,
 ) -> Result<RenameMeasurementBundleResponse, Status> {
-    let mut txn = api.txn_begin("handle_rename_measurement_bundle").await?;
+    let mut txn = api.txn_begin().await?;
     let bundle = match req.selector {
         // Rename for the given bundle ID.
         Some(rename_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
@@ -137,7 +137,7 @@ pub async fn handle_update_measurement_bundle(
     api: &Api,
     req: UpdateMeasurementBundleRequest,
 ) -> Result<UpdateMeasurementBundleResponse, Status> {
-    let mut txn = api.txn_begin("handle_update_measurement_bundle").await?;
+    let mut txn = api.txn_begin().await?;
     let state = req.state();
     let bundle_id = match req.selector {
         // Update for the given bundle ID.
@@ -172,7 +172,7 @@ pub async fn handle_show_measurement_bundle(
     api: &Api,
     req: ShowMeasurementBundleRequest,
 ) -> Result<ShowMeasurementBundleResponse, Status> {
-    let mut txn = api.txn_begin("handle_show_measurement_bundle").await?;
+    let mut txn = api.txn_begin().await?;
     let bundle = match req.selector {
         Some(show_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
             db::measured_boot::bundle::from_id_with_txn(&mut txn, bundle_uuid)
@@ -198,7 +198,7 @@ pub async fn handle_show_measurement_bundles(
     api: &Api,
     _req: ShowMeasurementBundlesRequest,
 ) -> Result<ShowMeasurementBundlesResponse, Status> {
-    let mut txn = api.txn_begin("handle_show_measurement_bundles").await?;
+    let mut txn = api.txn_begin().await?;
     Ok(ShowMeasurementBundlesResponse {
         bundles: db::measured_boot::bundle::get_all(&mut txn)
             .await
@@ -215,7 +215,7 @@ pub async fn handle_list_measurement_bundles(
     api: &Api,
     _req: ListMeasurementBundlesRequest,
 ) -> Result<ListMeasurementBundlesResponse, Status> {
-    let mut txn = api.txn_begin("handle_list_measurement_bundles").await?;
+    let mut txn = api.txn_begin().await?;
     let bundles: Vec<MeasurementBundleRecordPb> = get_measurement_bundle_records_with_txn(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("{e}")))?
@@ -232,9 +232,7 @@ pub async fn handle_list_measurement_bundle_machines(
     api: &Api,
     req: ListMeasurementBundleMachinesRequest,
 ) -> Result<ListMeasurementBundleMachinesResponse, Status> {
-    let mut txn = api
-        .txn_begin("handle_list_measurement_bundle_machines")
-        .await?;
+    let mut txn = api.txn_begin().await?;
     let machine_ids: Vec<String> = match req.selector {
         // Select by bundle ID.
         Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_uuid)) => {
@@ -265,7 +263,7 @@ pub async fn handle_find_closest_match(
     api: &Api,
     req: FindClosestBundleMatchRequest,
 ) -> Result<ShowMeasurementBundleResponse, Status> {
-    let mut txn = api.txn_begin("handle_find_closest_match").await?;
+    let mut txn = api.txn_begin().await?;
 
     let report_id = req
         .report_id

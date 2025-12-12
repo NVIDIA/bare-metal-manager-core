@@ -23,7 +23,7 @@ pub(crate) async fn get(
     log_request_data(&request);
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("get_bmc_meta_data").await?;
+    let mut txn = api.txn_begin().await?;
 
     let (bmc_endpoint_request, _) = validate_and_complete_bmc_endpoint_request(
         &mut txn,

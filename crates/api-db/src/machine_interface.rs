@@ -368,7 +368,7 @@ pub async fn create(
     _addresses: AddressSelectionStrategy,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     // We're potentially about to insert a couple rows, so create a savepoint.
-    let mut inner_txn = Transaction::begin_inner(txn, "machine_interface::create").await?;
+    let mut inner_txn = Transaction::begin_inner(txn).await?;
 
     // If either requested addresses are auto-generated, we lock the entire table
     // by way of the inner_txn.

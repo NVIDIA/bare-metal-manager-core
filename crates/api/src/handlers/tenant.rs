@@ -80,7 +80,7 @@ pub(crate) async fn create(
         .map_err(CarbideError::from)?
         .or(Some(RoutingProfileType::External));
 
-    let mut txn = api.txn_begin("create_tenant").await?;
+    let mut txn = api.txn_begin().await?;
 
     let response = db::tenant::create_and_persist(
         organization_id,
@@ -112,7 +112,7 @@ pub(crate) async fn find(
         tenant_organization_id,
     } = request.into_inner();
 
-    let mut txn = api.txn_begin("find_tenant").await?;
+    let mut txn = api.txn_begin().await?;
 
     let response = match db::tenant::find(tenant_organization_id, false, &mut txn)
         .await
@@ -158,7 +158,7 @@ pub(crate) async fn update(
         .transpose()
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("update_tenant").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Grab the tenant details and a row-lock
     let Some(current_tenant) = db::tenant::find(&organization_id, true, &mut txn).await? else {
@@ -223,7 +223,7 @@ pub(crate) async fn find_tenants_by_organization_ids(
     crate::api::log_request_data(&request);
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin("find_tenants_by_organization_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let tenant_organization_ids: Vec<String> = request.organization_ids;
 
@@ -256,7 +256,7 @@ pub(crate) async fn find_tenant_organization_ids(
     request: Request<rpc::TenantSearchFilter>,
 ) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api.txn_begin("find_tenant_organization_ids").await?;
+    let mut txn = api.txn_begin().await?;
     let search_config = request.into_inner();
     let tenant_org_ids = db::tenant::find_tenant_organization_ids(&mut txn, search_config).await?;
     Ok(tonic::Response::new(rpc::TenantOrganizationIdList {

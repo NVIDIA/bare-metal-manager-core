@@ -27,7 +27,7 @@ pub(crate) async fn find_explored_endpoint_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredEndpointIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("site_exporter::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: ::rpc::site_explorer::ExploredEndpointSearchFilter = request.into_inner();
 
@@ -46,7 +46,7 @@ pub(crate) async fn find_explored_endpoints_by_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredEndpointList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("site_exporter::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let ips: Vec<IpAddr> = request
         .into_inner()
@@ -86,7 +86,7 @@ pub(crate) async fn find_explored_managed_host_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredManagedHostIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("site_exporter::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter = request.into_inner();
 
@@ -105,7 +105,7 @@ pub(crate) async fn find_explored_managed_hosts_by_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredManagedHostList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("site_exporter::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let ips: Vec<IpAddr> = request
         .into_inner()
@@ -146,7 +146,7 @@ pub(crate) async fn get_site_exploration_report(
 ) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("get_site_exploration_report").await?;
+    let mut txn = api.txn_begin().await?;
 
     let report = db::site_exploration_report::fetch(&mut txn).await?;
 
@@ -164,7 +164,7 @@ pub(crate) async fn clear_site_exploration_error(
 
     let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("clear_last_known_error").await?;
+    let mut txn = api.txn_begin().await?;
 
     db::explored_endpoints::clear_last_known_error(bmc_ip, &mut txn).await?;
 
@@ -187,7 +187,7 @@ pub(crate) async fn re_explore_endpoint(
         .transpose()
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("re_explore_endpoint").await?;
+    let mut txn = api.txn_begin().await?;
 
     let eps = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     if eps.is_empty() {
@@ -236,7 +236,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
     let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("pause_explored_endpoint_remediation").await?;
+    let mut txn = api.txn_begin().await?;
 
     let eps = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     if eps.is_empty() {
@@ -286,9 +286,7 @@ pub(crate) async fn is_bmc_in_managed_host(
         )));
     };
 
-    let mut txn = api
-        .txn_begin("site_exporter::is_endpoint_in_managed_host")
-        .await?;
+    let mut txn = api.txn_begin().await?;
 
     let in_managed_host =
         crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &mut txn)
@@ -311,7 +309,7 @@ pub(crate) async fn delete_explored_endpoint(
 
     let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin("delete_explored_endpoint").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Check if the endpoint exists
     let endpoints = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;

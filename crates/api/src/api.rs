@@ -659,7 +659,7 @@ impl Forge for Api {
             })?;
 
             // Start database transaction
-            let mut txn = self.txn_begin("find_machine_health_histories").await?;
+            let mut txn = self.txn_begin().await?;
 
             // Call database function to get health history records with time filter
             let db_records = db::machine_health_history::find_by_time_range(
@@ -2884,40 +2884,48 @@ fn truncate(mut s: String, len: usize) -> String {
 }
 
 impl Api {
+    // This function can just async when
+    // https://github.com/rust-lang/rust/issues/110011 will be
+    // implemented
     #[track_caller]
-    pub fn txn_begin(
-        &self,
-        name: &'static str,
-    ) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
+    pub fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
         let loc = Location::caller();
-        db::Transaction::begin_with_location(&self.database_connection, name, loc)
+        db::Transaction::begin_with_location(&self.database_connection, loc)
     }
 
-    pub(crate) async fn load_machine(
+    // This function can just async when
+    // https://github.com/rust-lang/rust/issues/110011 will be
+    // implemented
+    #[track_caller]
+    pub(crate) fn load_machine(
         &self,
         machine_id: &MachineId,
         search_config: MachineSearchConfig,
-        txn_name: &'static str,
-    ) -> CarbideResult<(Machine, db::Transaction<'_>)> {
-        let mut txn = self.txn_begin(txn_name).await?;
+    ) -> impl Future<Output = CarbideResult<(Machine, db::Transaction<'_>)>> {
+        let loc = Location::caller();
+        let machine_id = *machine_id;
+        async move {
+            let mut txn =
+                db::Transaction::begin_with_location(&self.database_connection, loc).await?;
 
-        let machine = match db::machine::find_one(&mut txn, machine_id, search_config).await {
-            Err(err) => {
-                tracing::warn!(%machine_id, error = %err, "failed loading machine");
-                return Err(CarbideError::InvalidArgument(
-                    "err loading machine".to_string(),
-                ));
-            }
-            Ok(None) => {
-                tracing::info!(%machine_id, "machine not found");
-                return Err(CarbideError::NotFoundError {
-                    kind: "machine",
-                    id: machine_id.to_string(),
-                });
-            }
-            Ok(Some(m)) => m,
-        };
-        Ok((machine, txn))
+            let machine = match db::machine::find_one(&mut txn, &machine_id, search_config).await {
+                Err(err) => {
+                    tracing::warn!(%machine_id, error = %err, "failed loading machine");
+                    return Err(CarbideError::InvalidArgument(
+                        "err loading machine".to_string(),
+                    ));
+                }
+                Ok(None) => {
+                    tracing::info!(%machine_id, "machine not found");
+                    return Err(CarbideError::NotFoundError {
+                        kind: "machine",
+                        id: machine_id.to_string(),
+                    });
+                }
+                Ok(Some(m)) => m,
+            };
+            Ok((machine, txn))
+        }
     }
 
     pub fn log_filter_string(&self) -> String {

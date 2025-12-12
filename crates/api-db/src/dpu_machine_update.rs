@@ -37,8 +37,7 @@ pub async fn trigger_reprovisioning_for_managed_host(
     txn: &mut PgConnection,
     machine_updates: &[DpuMachineUpdate],
 ) -> Result<(), DatabaseError> {
-    let mut inner_txn =
-        Transaction::begin_inner(txn, "trigger_reprovisioning_for_managed_host").await?;
+    let mut inner_txn = Transaction::begin_inner(txn).await?;
 
     for machine_update in machine_updates {
         let initiator = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {

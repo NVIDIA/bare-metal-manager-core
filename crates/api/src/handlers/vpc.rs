@@ -43,7 +43,7 @@ pub(crate) async fn create(
         .into());
     }
 
-    let mut txn = api.txn_begin("create_vpc").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Grab the tenant details and a row-lock if found so we can coordinate around the tenant record.
     // If we're still allowing VPC creation for tenant org IDs that don't actually exist
@@ -138,7 +138,7 @@ pub(crate) async fn update(
 
     let vpc_update_request = request.get_ref();
 
-    let mut txn = api.txn_begin("update_vpc").await?;
+    let mut txn = api.txn_begin().await?;
 
     // If a security group is applied to the VPC, we need to do some validation.
     if let Some(ref nsg_id) = vpc_update_request.network_security_group_id {
@@ -210,7 +210,7 @@ pub(crate) async fn update_virtualization(
 ) -> Result<Response<rpc::VpcUpdateVirtualizationResult>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("update_vpc").await?;
+    let mut txn = api.txn_begin().await?;
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
@@ -245,7 +245,7 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::VpcDeletionResult>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("delete_vpc").await?;
+    let mut txn = api.txn_begin().await?;
 
     // TODO: This needs to validate that nothing references the VPC anymore
     // (like NetworkSegments)
@@ -328,7 +328,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::VpcIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("vpc::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let filter: rpc::VpcSearchFilter = request.into_inner();
 
@@ -342,7 +342,7 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::VpcsByIdsRequest>,
 ) -> Result<Response<rpc::VpcList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin("vpc::find_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let vpc_ids = request.into_inner().vpc_ids;
 

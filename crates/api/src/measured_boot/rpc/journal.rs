@@ -38,7 +38,7 @@ pub async fn handle_delete_measurement_journal(
     api: &Api,
     req: DeleteMeasurementJournalRequest,
 ) -> Result<DeleteMeasurementJournalResponse, Status> {
-    let mut txn = api.txn_begin("handle_delete_measurement_journal").await?;
+    let mut txn = api.txn_begin().await?;
     let journal = db::measured_boot::journal::delete_where_id(
         &mut txn,
         req.journal_id
@@ -60,7 +60,7 @@ pub async fn handle_show_measurement_journal(
     api: &Api,
     req: ShowMeasurementJournalRequest,
 ) -> Result<ShowMeasurementJournalResponse, Status> {
-    let mut txn = api.txn_begin("handle_show_measurement_journal").await?;
+    let mut txn = api.txn_begin().await?;
     let journal = match req.selector {
         Some(selector) => match selector {
             show_measurement_journal_request::Selector::JournalId(journal_id) => {
@@ -99,7 +99,7 @@ pub async fn handle_show_measurement_journals(
     api: &Api,
     _req: ShowMeasurementJournalsRequest,
 ) -> Result<ShowMeasurementJournalsResponse, Status> {
-    let mut txn = api.txn_begin("handle_show_measurement_journals").await?;
+    let mut txn = api.txn_begin().await?;
 
     Ok(ShowMeasurementJournalsResponse {
         journals: db::measured_boot::journal::get_all(&mut txn)
@@ -117,7 +117,7 @@ pub async fn handle_list_measurement_journal(
     api: &Api,
     req: ListMeasurementJournalRequest,
 ) -> Result<ListMeasurementJournalResponse, Status> {
-    let mut txn = api.txn_begin("handle_list_measurement_journal").await?;
+    let mut txn = api.txn_begin().await?;
 
     let journals: Vec<MeasurementJournalRecordPb> = match &req.selector {
         Some(list_measurement_journal_request::Selector::MachineId(machine_id)) => {

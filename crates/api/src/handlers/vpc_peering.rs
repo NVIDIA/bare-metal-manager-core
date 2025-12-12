@@ -35,7 +35,7 @@ pub async fn create(
     let peer_vpc_id =
         peer_vpc_id.ok_or_else(|| CarbideError::MissingArgument("peer_vpc_id cannot be null"))?;
 
-    let mut txn = api.txn_begin("vpc_peering::create").await?;
+    let mut txn = api.txn_begin().await?;
 
     // Check this VPC peering is permitted under current site vpc_peering_policy
     match api.runtime_config.vpc_peering_policy {
@@ -90,7 +90,7 @@ pub async fn find_ids(
 
     let rpc::VpcPeeringSearchFilter { vpc_id } = request.into_inner();
 
-    let mut txn = api.txn_begin("vpc_peering::find_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let vpc_peering_ids = db::find_ids(&mut txn, vpc_id).await?;
 
@@ -109,7 +109,7 @@ pub async fn find_by_ids(
 
     let rpc::VpcPeeringsByIdsRequest { vpc_peering_ids } = request.into_inner();
 
-    let mut txn = api.txn_begin("vpc_peering::find_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let vpc_peerings = db::find_by_ids(&mut txn, vpc_peering_ids).await?;
 
@@ -130,7 +130,7 @@ pub async fn delete(
 
     let id = id.ok_or_else(|| CarbideError::MissingArgument("id cannot be null"))?;
 
-    let mut txn = api.txn_begin("vpc_peering::delete").await?;
+    let mut txn = api.txn_begin().await?;
 
     let _ = db::delete(&mut txn, id).await?;
 

@@ -191,7 +191,7 @@ pub async fn allocate(
 ) -> DatabaseResult<InstanceNetworkConfig> {
     // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
     // We're potentially about to insert a couple rows, so create a savepoint.
-    let mut inner_txn = Transaction::begin_inner(txn, "instance_address::allocate").await?;
+    let mut inner_txn = Transaction::begin_inner(txn).await?;
 
     let segment_ids = updated_config
         .interfaces

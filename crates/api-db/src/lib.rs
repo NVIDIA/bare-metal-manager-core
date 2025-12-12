@@ -403,41 +403,29 @@ impl DatabaseError {
         })
     }
 
-    fn txn_begin(
-        name: &str,
-        source: sqlx::Error,
-        loc: &'static Location<'static>,
-    ) -> DatabaseError {
+    fn txn_begin(source: sqlx::Error, loc: &'static Location<'static>) -> DatabaseError {
         DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
-            query: format!("begin {name}"),
+            query: "transaction begin".into(),
             source,
         })
     }
 
-    fn txn_commit(
-        name: &str,
-        source: sqlx::Error,
-        loc: &'static Location<'static>,
-    ) -> DatabaseError {
+    fn txn_commit(source: sqlx::Error, loc: &'static Location<'static>) -> DatabaseError {
         DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
-            query: format!("commit {name}"),
+            query: "transaction commit".into(),
             source,
         })
     }
 
-    fn txn_rollback(
-        name: &str,
-        source: sqlx::Error,
-        loc: &'static Location<'static>,
-    ) -> DatabaseError {
+    fn txn_rollback(source: sqlx::Error, loc: &'static Location<'static>) -> DatabaseError {
         DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
-            query: format!("rollback {name}"),
+            query: "transaction rollback".into(),
             source,
         })
     }
@@ -561,7 +549,6 @@ impl From<::measured_boot::Error> for DatabaseError {
 
 pub struct Transaction<'a> {
     inner: sqlx::PgTransaction<'a>,
-    name: &'static str,
 }
 
 impl<'a> AsMut<sqlx::PgTransaction<'a>> for Transaction<'a> {
@@ -578,26 +565,24 @@ impl<'a> Transaction<'a> {
     #[track_caller]
     pub fn begin(
         pool: &'a sqlx::PgPool,
-        name: &'static str,
     ) -> Pin<Box<dyn Future<Output = Result<Self, DatabaseError>> + Send + 'a>> {
         let loc = Location::caller();
         Box::pin(async move {
             pool.begin()
                 .await
-                .map_err(|e| DatabaseError::txn_begin(name, e, loc))
-                .map(|inner| Self { inner, name })
+                .map_err(|e| DatabaseError::txn_begin(e, loc))
+                .map(|inner| Self { inner })
         })
     }
 
     pub async fn begin_with_location(
         pool: &sqlx::PgPool,
-        name: &'static str,
         loc: &'static Location<'static>,
     ) -> Result<Self, DatabaseError> {
         pool.begin()
             .await
-            .map_err(|e| DatabaseError::txn_begin(name, e, loc))
-            .map(|inner| Self { inner, name })
+            .map_err(|e| DatabaseError::txn_begin(e, loc))
+            .map(|inner| Self { inner })
     }
 
     // This function can just async when
@@ -606,14 +591,13 @@ impl<'a> Transaction<'a> {
     #[track_caller]
     pub fn begin_inner(
         conn: &'a mut sqlx::PgConnection,
-        name: &'static str,
     ) -> Pin<Box<dyn Future<Output = Result<Self, DatabaseError>> + Send + 'a>> {
         let loc = Location::caller();
         Box::pin(async move {
             conn.begin()
                 .await
-                .map_err(|e| DatabaseError::txn_begin(name, e, loc))
-                .map(|inner| Self { inner, name })
+                .map_err(|e| DatabaseError::txn_begin(e, loc))
+                .map(|inner| Self { inner })
         })
     }
 
@@ -627,7 +611,7 @@ impl<'a> Transaction<'a> {
             self.inner
                 .commit()
                 .await
-                .map_err(|e| DatabaseError::txn_commit(self.name, e, loc))
+                .map_err(|e| DatabaseError::txn_commit(e, loc))
         })
     }
 
@@ -641,7 +625,7 @@ impl<'a> Transaction<'a> {
             self.inner
                 .rollback()
                 .await
-                .map_err(|e| DatabaseError::txn_rollback(self.name, e, loc))
+                .map_err(|e| DatabaseError::txn_rollback(e, loc))
         })
     }
 

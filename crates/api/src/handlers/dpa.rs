@@ -42,7 +42,7 @@ pub(crate) async fn create(
     }
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("create dpa").await?;
+    let mut txn = api.txn_begin().await?;
 
     let new_dpa =
         db::dpa_interface::persist(NewDpaInterface::try_from(request.into_inner())?, &mut txn)
@@ -61,7 +61,7 @@ async fn create_internal(
     api: &Api,
     dpa_info: NewDpaInterface,
 ) -> CarbideResult<Response<::rpc::forge::DpaInterface>> {
-    let mut txn = api.txn_begin("create dpa").await?;
+    let mut txn = api.txn_begin().await?;
 
     let new_dpa = db::dpa_interface::persist(dpa_info, &mut txn).await?;
 
@@ -93,7 +93,7 @@ pub(crate) async fn delete(
     ))?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    let mut txn = api.txn_begin("delete dpa interface").await?;
+    let mut txn = api.txn_begin().await?;
 
     let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
 
@@ -120,7 +120,7 @@ pub(crate) async fn get_all_ids(
 ) -> Result<Response<::rpc::forge::DpaInterfaceIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin("dpa get_all_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let ids = db::dpa_interface::find_ids(&mut txn).await?;
 
@@ -151,7 +151,7 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
     }
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    let mut txn = api.txn_begin("find_dpa_interfaces_by_ids").await?;
+    let mut txn = api.txn_begin().await?;
 
     let dpa_ifs_int =
         db::dpa_interface::find_by_ids(&mut txn, &req.ids, req.include_history).await?;
@@ -185,7 +185,7 @@ pub(crate) async fn set_dpa_network_observation_status(
     ))?;
 
     // Prepare our txn to grab the dpa interfaces from the DB
-    let mut txn = api.txn_begin("set_dpa_network_observation_status").await?;
+    let mut txn = api.txn_begin().await?;
 
     let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
 
@@ -313,7 +313,7 @@ async fn process_mlx_observation(
     request: tonic::Request<mlx_device_pb::PublishMlxObservationReportRequest>,
 ) -> CarbideResult<()> {
     // Prepare our txn to grab the dpa interfaces from the DB
-    let mut txn = api.txn_begin("process_mlx_observation").await?;
+    let mut txn = api.txn_begin().await?;
 
     let req = request.into_inner();
 
