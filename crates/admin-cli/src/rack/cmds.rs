@@ -14,12 +14,11 @@ use color_eyre::Result;
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::OutputFormat;
 
-use crate::cfg::cli_options::{
-    AvailableFwImages, FirmwareInventory, PowerState, RackDelete, RackShow, RemoveNode,
-};
+use super::args::{DeleteRack, ShowRack};
+use crate::cfg::cli_options::{AvailableFwImages, FirmwareInventory, PowerState, RemoveNode};
 use crate::rpc::ApiClient;
 
-pub async fn show_rack(api_client: &ApiClient, show_opts: &RackShow) -> Result<()> {
+pub async fn show_rack(api_client: &ApiClient, show_opts: &ShowRack) -> Result<()> {
     let query = rpc::forge::GetRackRequest {
         id: show_opts.identifier.clone(),
     };
@@ -123,7 +122,7 @@ pub async fn list_racks(api_client: &ApiClient) -> Result<()> {
     Ok(())
 }
 
-pub async fn delete_rack(api_client: &ApiClient, delete_opts: &RackDelete) -> Result<()> {
+pub async fn delete_rack(api_client: &ApiClient, delete_opts: &DeleteRack) -> Result<()> {
     let query = rpc::forge::DeleteRackRequest {
         id: delete_opts.identifier.clone(),
     };

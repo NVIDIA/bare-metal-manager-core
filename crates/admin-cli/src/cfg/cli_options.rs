@@ -37,7 +37,10 @@ use utils::has_duplicates;
 use crate::cfg::storage::OsImageActions;
 use crate::cfg::{instance_type, measurement, network_security_group, tenant};
 use crate::vpc_prefix::VpcPrefixSelector;
-use crate::{domain, mlx, ping, scout_stream, version};
+use crate::{
+    domain, expected_power_shelf, expected_switch, mlx, ping, power_shelf, rack, scout_stream,
+    switch, version,
+};
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
@@ -205,9 +208,9 @@ pub enum CliCommand {
         subcommand,
         visible_alias = "ep"
     )]
-    ExpectedPowerShelf(ExpectedPowerShelfAction),
+    ExpectedPowerShelf(expected_power_shelf::Cmd),
     #[clap(about = "Expected switch handling", subcommand, visible_alias = "ew")]
-    ExpectedSwitch(ExpectedSwitchAction),
+    ExpectedSwitch(expected_switch::Cmd),
     #[clap(about = "VPC related handling", subcommand)]
     Vpc(VpcOptions),
     #[clap(about = "VPC peering handling", subcommand)]
@@ -262,13 +265,13 @@ pub enum CliCommand {
     Ssh(SshActions),
 
     #[clap(about = "Power Shelf management", subcommand, visible_alias = "ps")]
-    PowerShelf(PowerShelfActions),
+    PowerShelf(power_shelf::Cmd),
 
     #[clap(about = "Switch management", subcommand, visible_alias = "sw")]
-    Switch(SwitchActions),
+    Switch(switch::Cmd),
 
     #[clap(about = "Rack Management", subcommand)]
-    Rack(RackActions),
+    Rack(rack::Cmd),
 
     #[clap(about = "Rms Actions", subcommand)]
     Rms(RmsActions),
@@ -572,38 +575,6 @@ pub enum ExpectedMachineAction {
     Erase,
 }
 
-#[derive(Parser, Debug)]
-pub enum ExpectedPowerShelfAction {
-    #[clap(about = "Show expected power shelf")]
-    Show(ShowExpectedPowerShelfQuery),
-    #[clap(about = "Add expected power shelf")]
-    Add(ExpectedPowerShelf),
-    #[clap(about = "Delete expected power shelf")]
-    Delete(DeleteExpectedPowerShelf),
-    #[clap(about = "Update expected power shelf")]
-    Update(UpdateExpectedPowerShelf),
-    #[clap(about = "Replace all expected power shelves")]
-    ReplaceAll(ExpectedPowerShelfReplaceAllRequest),
-    #[clap(about = "Erase all expected power shelves")]
-    Erase,
-}
-
-#[derive(Parser, Debug)]
-pub enum ExpectedSwitchAction {
-    #[clap(about = "Show expected switch")]
-    Show(ShowExpectedSwitchQuery),
-    #[clap(about = "Add expected switch")]
-    Add(ExpectedSwitch),
-    #[clap(about = "Delete expected switch")]
-    Delete(DeleteExpectedSwitch),
-    #[clap(about = "Update expected switch")]
-    Update(UpdateExpectedSwitch),
-    #[clap(about = "Replace all expected switches")]
-    ReplaceAll(ExpectedSwitchReplaceAllRequest),
-    #[clap(about = "Erase all expected switches")]
-    Erase,
-}
-
 #[derive(Parser, Debug, Serialize, Deserialize)]
 pub struct ExpectedMachine {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
@@ -680,114 +651,6 @@ pub struct ExpectedMachine {
     pub rack_id: Option<String>,
 }
 
-#[derive(Parser, Debug, Serialize, Deserialize)]
-pub struct ExpectedPowerShelf {
-    #[clap(
-        short = 'a',
-        long,
-        help = "BMC MAC Address of the expected power shelf"
-    )]
-    pub bmc_mac_address: MacAddress,
-    #[clap(short = 'u', long, help = "BMC username of the expected power shelf")]
-    pub bmc_username: String,
-    #[clap(short = 'p', long, help = "BMC password of the expected power shelf")]
-    pub bmc_password: String,
-    #[clap(short = 's', long, help = "Serial number of the expected power shelf")]
-    pub shelf_serial_number: String,
-
-    #[clap(
-        long = "meta-name",
-        value_name = "META_NAME",
-        help = "The name that should be used as part of the Metadata for newly created Power Shelf. If empty, the Power Shelf Id will be used"
-    )]
-    pub meta_name: Option<String>,
-
-    #[clap(
-        long = "meta-description",
-        value_name = "META_DESCRIPTION",
-        help = "The description that should be used as part of the Metadata for newly created Power Shelf"
-    )]
-    pub meta_description: Option<String>,
-
-    #[clap(
-        long = "label",
-        value_name = "LABEL",
-        help = "A label that will be added as metadata for the newly created Power Shelf. The labels key and value must be separated by a : character. E.g. DATACENTER:XYZ",
-        action = clap::ArgAction::Append
-    )]
-    pub labels: Option<Vec<String>>,
-
-    #[clap(
-        long = "host_name",
-        value_name = "HOST_NAME",
-        help = "Host name of the power shelf",
-        action = clap::ArgAction::Append
-    )]
-    pub host_name: Option<String>,
-
-    #[clap(
-        long = "rack_id",
-        value_name = "RACK_ID",
-        help = "Rack ID for this machine",
-        action = clap::ArgAction::Append
-    )]
-    pub rack_id: Option<String>,
-
-    #[clap(
-        long = "ip_address",
-        value_name = "IP_ADDRESS",
-        help = "IP address of the power shelf",
-        action = clap::ArgAction::Append
-    )]
-    pub ip_address: Option<String>,
-}
-
-#[derive(Parser, Debug, Serialize, Deserialize)]
-pub struct ExpectedSwitch {
-    #[clap(short = 'a', long, help = "BMC MAC Address of the expected switch")]
-    pub bmc_mac_address: MacAddress,
-    #[clap(short = 'u', long, help = "BMC username of the expected switch")]
-    pub bmc_username: String,
-    #[clap(short = 'p', long, help = "BMC password of the expected switch")]
-    pub bmc_password: String,
-    #[clap(
-        short = 's',
-        long,
-        help = "Chassis serial number of the expected switch"
-    )]
-    pub switch_serial_number: String,
-
-    #[clap(
-        long = "meta-name",
-        value_name = "META_NAME",
-        help = "The name that should be used as part of the Metadata for newly created Switches. If empty, the SwitchId will be used"
-    )]
-    pub meta_name: Option<String>,
-
-    #[clap(
-        long = "meta-description",
-        value_name = "META_DESCRIPTION",
-        help = "The description that should be used as part of the Metadata for newly created Machines"
-    )]
-    pub meta_description: Option<String>,
-
-    #[clap(
-        long = "label",
-        value_name = "LABEL",
-        help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character. E.g. DATACENTER:XYZ",
-        action = clap::ArgAction::Append
-    )]
-    pub labels: Option<Vec<String>>,
-
-    #[clap(
-        long = "rack_id",
-        value_name = "RACK_ID",
-        help = "Rack ID for this machine",
-        action = clap::ArgAction::Append
-    )]
-    pub rack_id: Option<String>,
-}
-
 impl ExpectedMachine {
     pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
         let mut labels = Vec::new();
@@ -830,85 +693,6 @@ pub struct ExpectedMachineJson {
     #[serde(default)]
     pub host_nics: Vec<rpc::forge::ExpectedHostNic>,
     pub rack_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExpectedPowerShelfJson {
-    pub bmc_mac_address: MacAddress,
-    pub bmc_username: String,
-    pub bmc_password: String,
-    pub shelf_serial_number: String,
-    #[serde(default)]
-    pub metadata: Option<rpc::forge::Metadata>,
-    pub host_name: Option<String>,
-    pub rack_id: Option<String>,
-    pub ip_address: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExpectedSwitchJson {
-    pub bmc_mac_address: MacAddress,
-    pub bmc_username: String,
-    pub bmc_password: String,
-    pub switch_serial_number: String,
-    #[serde(default)]
-    pub metadata: Option<rpc::forge::Metadata>,
-    pub rack_id: Option<String>,
-}
-
-impl ExpectedPowerShelf {
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
-    }
-}
-
-impl ExpectedSwitch {
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1035,97 +819,9 @@ impl PatchExpectedMachine {
     }
 }
 
-impl UpdateExpectedPowerShelf {
-    pub fn validate(&self) -> Result<(), String> {
-        // TODO: It is possible to do these checks by clap itself, via arg groups
-        if self.bmc_username.is_none()
-            && self.bmc_password.is_none()
-            && self.shelf_serial_number.is_none()
-        {
-            return Err("One of the following options must be specified: bmc-user-name and bmc-password or shelf-serial-number".to_string());
-        }
-        Ok(())
-    }
-
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
-    }
-}
-
-impl UpdateExpectedSwitch {
-    pub fn validate(&self) -> Result<(), String> {
-        // TODO: It is possible to do these checks by clap itself, via arg groups
-        if self.bmc_username.is_none()
-            && self.bmc_password.is_none()
-            && self.switch_serial_number.is_none()
-        {
-            return Err("One of the following options must be specified: bmc-user-name and bmc-password or switch-serial-number".to_string());
-        }
-        Ok(())
-    }
-
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
-    }
-}
-
 #[derive(Parser, Debug)]
 pub struct DeleteExpectedMachine {
     #[clap(help = "BMC MAC address of the expected machine to delete.")]
-    pub bmc_mac_address: MacAddress,
-}
-
-#[derive(Parser, Debug)]
-pub struct DeleteExpectedPowerShelf {
-    #[clap(help = "BMC MAC address of expected power shelf to delete.")]
-    pub bmc_mac_address: MacAddress,
-}
-
-#[derive(Parser, Debug)]
-pub struct DeleteExpectedSwitch {
-    #[clap(help = "BMC MAC address of expected switch to delete.")]
     pub bmc_mac_address: MacAddress,
 }
 
@@ -1139,160 +835,6 @@ pub struct UpdateExpectedMachine {
     pub filename: String,
 }
 
-#[derive(Parser, Debug, Serialize, Deserialize)]
-#[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[
-"bmc_username",
-"bmc_password",
-"shelf_serial_number",
-])))]
-pub struct UpdateExpectedPowerShelf {
-    #[clap(
-        short = 'a',
-        required = true,
-        long,
-        help = "BMC MAC Address of the expected power shelf"
-    )]
-    pub bmc_mac_address: MacAddress,
-    #[clap(
-        short = 'u',
-        long,
-        group = "group",
-        requires("bmc_password"),
-        help = "BMC username of the expected power shelf"
-    )]
-    pub bmc_username: Option<String>,
-    #[clap(
-        short = 'p',
-        long,
-        group = "group",
-        requires("bmc_username"),
-        help = "BMC password of the expected power shelf"
-    )]
-    pub bmc_password: Option<String>,
-    #[clap(
-        short = 's',
-        long,
-        group = "group",
-        help = "Chassis serial number of the expected power shelf"
-    )]
-    pub shelf_serial_number: Option<String>,
-
-    #[clap(
-        long = "meta-name",
-        value_name = "META_NAME",
-        help = "The name that should be used as part of the Metadata for newly created Power Shelves. If empty, the Power Shelf Id will be used"
-    )]
-    pub meta_name: Option<String>,
-
-    #[clap(
-        long = "meta-description",
-        value_name = "META_DESCRIPTION",
-        help = "The description that should be used as part of the Metadata for newly created Power Shelves"
-    )]
-    pub meta_description: Option<String>,
-
-    #[clap(
-        long = "label",
-        value_name = "LABEL",
-        help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character",
-        action = clap::ArgAction::Append
-    )]
-    pub labels: Option<Vec<String>>,
-
-    #[clap(
-        long = "host_name",
-        value_name = "HOST_NAME",
-        help = "Host name of the power shelf",
-        action = clap::ArgAction::Append
-    )]
-    pub host_name: Option<String>,
-
-    #[clap(
-        long = "rack_id",
-        value_name = "RACK_ID",
-        help = "Rack ID for this power shelf",
-        action = clap::ArgAction::Append
-    )]
-    pub rack_id: Option<String>,
-
-    #[clap(
-        long = "ip_address",
-        value_name = "IP_ADDRESS",
-        help = "IP address of the power shelf",
-        action = clap::ArgAction::Append
-    )]
-    pub ip_address: Option<String>,
-}
-
-#[derive(Parser, Debug, Serialize, Deserialize)]
-#[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[
-"bmc_username",
-"bmc_password",
-"switch_serial_number",
-])))]
-pub struct UpdateExpectedSwitch {
-    #[clap(
-        short = 'a',
-        required = true,
-        long,
-        help = "BMC MAC Address of the expected switch"
-    )]
-    pub bmc_mac_address: MacAddress,
-    #[clap(
-        short = 'u',
-        long,
-        group = "group",
-        requires("bmc_password"),
-        help = "BMC username of the expected switch"
-    )]
-    pub bmc_username: Option<String>,
-    #[clap(
-        short = 'p',
-        long,
-        group = "group",
-        requires("bmc_username"),
-        help = "BMC password of the expected switch"
-    )]
-    pub bmc_password: Option<String>,
-    #[clap(
-        short = 's',
-        long,
-        group = "group",
-        help = "Switch serial number of the expected switch"
-    )]
-    pub switch_serial_number: Option<String>,
-
-    #[clap(
-        long = "meta-name",
-        value_name = "META_NAME",
-        help = "The name that should be used as part of the Metadata for newly created Switches. If empty, the SwitchId will be used"
-    )]
-    pub meta_name: Option<String>,
-
-    #[clap(
-        long = "meta-description",
-        value_name = "META_DESCRIPTION",
-        help = "The description that should be used as part of the Metadata for newly created Machines"
-    )]
-    pub meta_description: Option<String>,
-
-    #[clap(
-        long = "label",
-        value_name = "LABEL",
-        help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character",
-        action = clap::ArgAction::Append
-    )]
-    pub labels: Option<Vec<String>>,
-
-    #[clap(
-        long = "rack_id",
-        value_name = "RACK_ID",
-        help = "Rack ID for this switch",
-        action = clap::ArgAction::Append
-    )]
-    pub rack_id: Option<String>,
-}
-
 #[derive(Parser, Debug)]
 pub struct ShowExpectedMachineQuery {
     #[clap(
@@ -1303,37 +845,7 @@ pub struct ShowExpectedMachineQuery {
 }
 
 #[derive(Parser, Debug)]
-pub struct ShowExpectedPowerShelfQuery {
-    #[clap(
-        default_value(None),
-        help = "BMC MAC address of the expected power shelf to show. Leave unset for all."
-    )]
-    pub bmc_mac_address: Option<MacAddress>,
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowExpectedSwitchQuery {
-    #[clap(
-        default_value(None),
-        help = "BMC MAC address of the expected switch to show. Leave unset for all."
-    )]
-    pub bmc_mac_address: Option<MacAddress>,
-}
-
-#[derive(Parser, Debug)]
 pub struct ExpectedMachineReplaceAllRequest {
-    #[clap(short, long)]
-    pub filename: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct ExpectedPowerShelfReplaceAllRequest {
-    #[clap(short, long)]
-    pub filename: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct ExpectedSwitchReplaceAllRequest {
     #[clap(short, long)]
     pub filename: String,
 }
@@ -3782,58 +3294,6 @@ pub struct CopyBfbArgs {
     pub ssh_args: SshArgs,
     #[clap(help = "BFB Path")]
     pub bfb_path: String,
-}
-
-#[derive(Parser, Debug)]
-pub enum PowerShelfActions {
-    #[clap(about = "Show power shelf information")]
-    Show(PowerShelfShow),
-    #[clap(about = "List all power shelves")]
-    List,
-}
-
-#[derive(Parser, Debug)]
-pub struct PowerShelfShow {
-    #[clap(help = "Power shelf ID or name to show (leave empty for all)")]
-    pub identifier: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub enum SwitchActions {
-    #[clap(about = "Show switch information")]
-    Show(SwitchShow),
-    #[clap(about = "List all switches")]
-    List,
-}
-
-#[derive(Parser, Debug)]
-pub struct SwitchShow {
-    #[clap(help = "Switch ID or name to show (leave empty for all)")]
-    pub identifier: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub enum RackActions {
-    #[clap(about = "Show rack information")]
-    Show(crate::cfg::cli_options::RackShow),
-    #[clap(about = "List all racks")]
-    List,
-    #[clap(about = "Delete the rack")]
-    Delete(crate::cfg::cli_options::RackDelete),
-}
-
-#[derive(Parser, Debug)]
-pub struct RackShow {
-    #[clap(help = "Rack ID or name to show (leave empty for all)")]
-    pub identifier: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct RackDelete {
-    #[clap(
-        help = "Rack ID or name to delete (should not have any associated compute trays, nvlink switches or power shelves)"
-    )]
-    pub identifier: String,
 }
 
 #[derive(Parser, Debug)]

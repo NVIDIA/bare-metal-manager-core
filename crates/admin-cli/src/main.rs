@@ -32,13 +32,12 @@ use carbide_uuid::machine::MachineId;
 use cfg::cli_options::DpuAction::{AgentUpgradePolicy, Reprovision, Versions};
 use cfg::cli_options::{
     AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
-    CredentialAction, DpaOptions, DpuAction, DpuReprovision, ExpectedMachineJson,
-    ExpectedPowerShelfJson, ExpectedSwitchJson, Firmware, HostAction, HostReprovision,
-    IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions, Machine, MachineHardwareInfo,
-    MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
-    ManagedHost, NetworkCommand, NetworkSegment, NvlPartitionOptions, RedfishCommand, ResourcePool,
-    SetAction, Shell, SiteExplorer, TenantKeySetOptions, TpmCa, UriInfo, VpcOptions,
-    VpcPeeringOptions, VpcPrefixOptions,
+    CredentialAction, DpaOptions, DpuAction, DpuReprovision, ExpectedMachineJson, Firmware,
+    HostAction, HostReprovision, IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions,
+    Machine, MachineHardwareInfo, MachineHardwareInfoCommand, MachineInterfaces,
+    MachineMetadataCommand, MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment,
+    NvlPartitionOptions, RedfishCommand, ResourcePool, SetAction, Shell, SiteExplorer,
+    TenantKeySetOptions, TpmCa, UriInfo, VpcOptions, VpcPeeringOptions, VpcPrefixOptions,
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
@@ -75,8 +74,8 @@ mod dpa;
 mod dpu;
 mod dpu_remediation;
 mod expected_machines;
-mod expected_power_shelves;
-mod expected_switches;
+mod expected_power_shelf;
+mod expected_switch;
 mod extension_service;
 mod firmware;
 mod host;
@@ -1573,171 +1572,12 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.0.delete_all_expected_machines().await?;
             }
         },
-        CliCommand::ExpectedPowerShelf(expected_power_shelf_action) => {
-            match expected_power_shelf_action {
-                cfg::cli_options::ExpectedPowerShelfAction::Show(expected_power_shelf_query) => {
-                    expected_power_shelves::show_expected_power_shelves(
-                        &expected_power_shelf_query,
-                        &api_client,
-                        config.format,
-                    )
-                    .await?;
-                }
-                cfg::cli_options::ExpectedPowerShelfAction::Add(expected_power_shelf_data) => {
-                    let metadata = expected_power_shelf_data.metadata()?;
-                    api_client
-                        .add_expected_power_shelf(
-                            expected_power_shelf_data.bmc_mac_address,
-                            expected_power_shelf_data.bmc_username,
-                            expected_power_shelf_data.bmc_password,
-                            expected_power_shelf_data.shelf_serial_number,
-                            metadata,
-                            expected_power_shelf_data.rack_id,
-                            expected_power_shelf_data.ip_address,
-                        )
-                        .await?;
-                }
-                cfg::cli_options::ExpectedPowerShelfAction::Delete(expected_power_shelf_query) => {
-                    api_client
-                        .0
-                        .delete_expected_power_shelf(
-                            expected_power_shelf_query.bmc_mac_address.to_string(),
-                        )
-                        .await?;
-                }
-                cfg::cli_options::ExpectedPowerShelfAction::Update(expected_power_shelf_data) => {
-                    if let Err(e) = expected_power_shelf_data.validate() {
-                        eprintln!("{e}");
-                        return Ok(());
-                    }
-                    let metadata = expected_power_shelf_data.metadata()?;
-                    api_client
-                        .update_expected_power_shelf(
-                            expected_power_shelf_data.bmc_mac_address,
-                            expected_power_shelf_data.bmc_username,
-                            expected_power_shelf_data.bmc_password,
-                            expected_power_shelf_data.shelf_serial_number,
-                            metadata,
-                            expected_power_shelf_data.rack_id,
-                            expected_power_shelf_data.ip_address,
-                        )
-                        .await?;
-                }
-                cfg::cli_options::ExpectedPowerShelfAction::ReplaceAll(request) => {
-                    let json_file_path = Path::new(&request.filename);
-                    let reader = BufReader::new(File::open(json_file_path)?);
-                    #[derive(Debug, Serialize, Deserialize)]
-                    struct ExpectedPowerShelfList {
-                        expected_power_shelves: Vec<ExpectedPowerShelfJson>,
-                        expected_power_shelves_count: Option<usize>,
-                    }
-                    let expected_power_shelf_list: ExpectedPowerShelfList =
-                        serde_json::from_reader(reader)?;
-
-                    if expected_power_shelf_list
-                        .expected_power_shelves_count
-                        .is_some_and(|count| {
-                            count != expected_power_shelf_list.expected_power_shelves.len()
-                        })
-                    {
-                        return Err(CarbideCliError::GenericError(format!(
-                            "Json File specified an invalid count: {:#?}; actual count: {}",
-                            expected_power_shelf_list
-                                .expected_power_shelves_count
-                                .unwrap_or_default(),
-                            expected_power_shelf_list.expected_power_shelves.len()
-                        ))
-                        .into());
-                    }
-
-                    api_client
-                        .replace_all_expected_power_shelves(
-                            expected_power_shelf_list.expected_power_shelves,
-                        )
-                        .await?;
-                }
-                cfg::cli_options::ExpectedPowerShelfAction::Erase => {
-                    api_client.0.delete_all_expected_power_shelves().await?;
-                }
-            }
+        CliCommand::ExpectedPowerShelf(cmd) => {
+            expected_power_shelf::dispatch(&cmd, &api_client, config.format).await?
         }
-        CliCommand::ExpectedSwitch(expected_switch_action) => match expected_switch_action {
-            cfg::cli_options::ExpectedSwitchAction::Show(expected_switch_query) => {
-                expected_switches::show_expected_switches(
-                    &expected_switch_query,
-                    &api_client,
-                    config.format,
-                )
-                .await?;
-            }
-            cfg::cli_options::ExpectedSwitchAction::Add(expected_switch_data) => {
-                let metadata = expected_switch_data.metadata()?;
-                api_client
-                    .add_expected_switch(
-                        expected_switch_data.bmc_mac_address,
-                        expected_switch_data.bmc_username,
-                        expected_switch_data.bmc_password,
-                        expected_switch_data.switch_serial_number,
-                        metadata,
-                        expected_switch_data.rack_id,
-                    )
-                    .await?;
-            }
-            cfg::cli_options::ExpectedSwitchAction::Delete(expected_switch_query) => {
-                api_client
-                    .0
-                    .delete_expected_switch(expected_switch_query.bmc_mac_address.to_string())
-                    .await?;
-            }
-            cfg::cli_options::ExpectedSwitchAction::Update(expected_switch_data) => {
-                if let Err(e) = expected_switch_data.validate() {
-                    eprintln!("{e}");
-                    return Ok(());
-                }
-                let metadata = expected_switch_data.metadata()?;
-                api_client
-                    .update_expected_switch(
-                        expected_switch_data.bmc_mac_address,
-                        expected_switch_data.bmc_username,
-                        expected_switch_data.bmc_password,
-                        expected_switch_data.switch_serial_number,
-                        metadata,
-                        expected_switch_data.rack_id,
-                    )
-                    .await?;
-            }
-            cfg::cli_options::ExpectedSwitchAction::ReplaceAll(request) => {
-                let json_file_path = Path::new(&request.filename);
-                let reader = BufReader::new(File::open(json_file_path)?);
-                #[derive(Debug, Serialize, Deserialize)]
-                struct ExpectedSwitchList {
-                    expected_switches: Vec<ExpectedSwitchJson>,
-                    expected_switches_count: Option<usize>,
-                }
-                let expected_switch_list: ExpectedSwitchList = serde_json::from_reader(reader)?;
-
-                if expected_switch_list
-                    .expected_switches_count
-                    .is_some_and(|count| count != expected_switch_list.expected_switches.len())
-                {
-                    return Err(CarbideCliError::GenericError(format!(
-                        "Json File specified an invalid count: {:#?}; actual count: {}",
-                        expected_switch_list
-                            .expected_switches_count
-                            .unwrap_or_default(),
-                        expected_switch_list.expected_switches.len()
-                    ))
-                    .into());
-                }
-
-                api_client
-                    .replace_all_expected_switches(expected_switch_list.expected_switches)
-                    .await?;
-            }
-            cfg::cli_options::ExpectedSwitchAction::Erase => {
-                api_client.0.delete_all_expected_switches().await?;
-            }
-        },
+        CliCommand::ExpectedSwitch(cmd) => {
+            expected_switch::dispatch(&cmd, &api_client, config.format).await?
+        }
         CliCommand::Vpc(vpc) => match vpc {
             VpcOptions::Show(vpc) => {
                 vpc::handle_show(vpc, config.format, &api_client, config.internal_page_size).await?
@@ -2352,57 +2192,35 @@ async fn main() -> color_eyre::Result<()> {
                 println!("OBMC Console Log:\n{log}");
             }
         },
-        CliCommand::PowerShelf(action) => match action {
-            cfg::cli_options::PowerShelfActions::Show(show_opts) => {
-                power_shelf::handle_show(show_opts, config.format, &api_client).await?;
-            }
-            cfg::cli_options::PowerShelfActions::List => {
-                power_shelf::list_power_shelves(&api_client).await?;
-            }
-        },
-        CliCommand::Switch(action) => match action {
-            cfg::cli_options::SwitchActions::Show(show_opts) => {
-                switch::handle_show(show_opts, config.format, &api_client).await?;
-            }
-            cfg::cli_options::SwitchActions::List => {
-                switch::list_switches(&api_client).await?;
-            }
-        },
-        CliCommand::Rack(action) => match action {
-            cfg::cli_options::RackActions::Show(show_opts) => {
-                rack::show_rack(&api_client, &show_opts).await?;
-            }
-            cfg::cli_options::RackActions::List => {
-                rack::list_racks(&api_client).await?;
-            }
-            cfg::cli_options::RackActions::Delete(delete_opts) => {
-                rack::delete_rack(&api_client, &delete_opts).await?;
-            }
-        },
+        CliCommand::PowerShelf(cmd) => {
+            power_shelf::dispatch(&cmd, &api_client, config.format).await?
+        }
+        CliCommand::Switch(cmd) => switch::dispatch(&cmd, &api_client, config.format).await?,
+        CliCommand::Rack(cmd) => rack::dispatch(&cmd, &api_client).await?,
         CliCommand::Rms(action) => match action {
             cfg::cli_options::RmsActions::Inventory => {
-                rack::get_inventory(&api_client).await?;
+                rack::cmds::get_inventory(&api_client).await?;
             }
             cfg::cli_options::RmsActions::RemoveNode(remove_node_opts) => {
-                rack::remove_node(&api_client, &remove_node_opts).await?;
+                rack::cmds::remove_node(&api_client, &remove_node_opts).await?;
             }
             cfg::cli_options::RmsActions::PoweronOrder => {
-                rack::get_poweron_order(&api_client).await?;
+                rack::cmds::get_poweron_order(&api_client).await?;
             }
             cfg::cli_options::RmsActions::PowerState(power_state_opts) => {
-                rack::get_power_state(&api_client, &power_state_opts).await?;
+                rack::cmds::get_power_state(&api_client, &power_state_opts).await?;
             }
             cfg::cli_options::RmsActions::FirmwareInventory(firmware_inventory_opts) => {
-                rack::get_firmware_inventory(&api_client, &firmware_inventory_opts).await?;
+                rack::cmds::get_firmware_inventory(&api_client, &firmware_inventory_opts).await?;
             }
             cfg::cli_options::RmsActions::AvailableFwImages(available_fw_images_opts) => {
-                rack::get_available_fw_images(&api_client, &available_fw_images_opts).await?;
+                rack::cmds::get_available_fw_images(&api_client, &available_fw_images_opts).await?;
             }
             cfg::cli_options::RmsActions::BkcFiles => {
-                rack::get_bkc_files(&api_client).await?;
+                rack::cmds::get_bkc_files(&api_client).await?;
             }
             cfg::cli_options::RmsActions::CheckBkcCompliance => {
-                rack::check_bkc_compliance(&api_client).await?;
+                rack::cmds::check_bkc_compliance(&api_client).await?;
             }
         },
         CliCommand::Firmware(action) => match action {
