@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: carbide-api
+      app.kubernetes.io/component: api
+    includeSelectors: true
+    includeTemplates: true
+
+resources:
+  - api-service.yaml
+  - certificate.yaml
+  - deployment.yaml
+  - metrics-service.yaml
+  - profiler-service.yaml
+  - role.yaml
+  - rolebinding.yaml
+  - service-account.yaml
+  - migration.yaml
+
+configMapGenerator:
+  - name: carbide-api-config-files
+    files:
+      - config-files/carbide-api-config.toml
+      - config-files/casbin-policy.csv
+  - name: carbide-api-site-config-files
+    # Site specific list of files is added in `envs`
+    files: []
+
+generatorOptions:
+  disableNameSuffixHash: true
+

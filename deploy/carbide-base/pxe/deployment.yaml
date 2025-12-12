@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-pxe
+  namespace: default
+  annotations:
+    configmap.reloader.stakater.com/reload: "carbide-pxe-config"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: carbide-pxe
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: carbide-pxe
+    spec:
+      containers:
+        - name: carbide-pxe
+          image: yourdockerregistry.com/path/to/carbide-core:latest
+          command:
+            - /opt/carbide/carbide
+          args:
+            - -s
+            - /forge-boot-artifacts
+          env:
+            - name: ROCKET_CONFIG
+              value: "/tmp/carbide/Rocket.toml"
+            - name: ROCKET_TEMPLATE_DIR
+              value: "/opt/carbide/pxe/templates"
+            - name: ROCKET_ENV
+              value: "production"
+            - name: FORGE_ROOT_CAFILE_PATH
+              value: "/var/run/secrets/spiffe.io/ca.crt"
+            - name: FORGE_CLIENT_CERT_PATH
+              value: "/var/run/secrets/spiffe.io/tls.crt"
+            - name: FORGE_CLIENT_KEY_PATH
+              value: "/var/run/secrets/spiffe.io/tls.key"
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: RUST_LIB_BACKTRACE # See https://doc.rust-lang.org/std/backtrace/index.html#environment-variables
+              value: "0"
+          envFrom:
+            - configMapRef:
+                name: carbide-pxe-env-config
+                optional: true
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 8080
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /tmp/carbide
+            - name: spiffe
+              mountPath: /var/run/secrets/spiffe.io
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: carbide-pxe-certificate

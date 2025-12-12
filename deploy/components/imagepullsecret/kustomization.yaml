@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  # add imagepullsecret to deployments
+  - path: patch-imagepullsecret.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+  
+  # add imagepullsecret to jobs
+  - path: patch-imagepullsecret.yaml
+    target:
+      group: batch
+      version: v1
+      kind: Job
+
+  # add imagepullsecret to statefulsets
+  - path: patch-imagepullsecret.yaml
+    target:
+      group: apps
+      version: v1
+      kind: StatefulSet

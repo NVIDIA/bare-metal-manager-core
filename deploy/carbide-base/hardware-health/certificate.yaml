@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-hardware-health-certificate
+  namespace: default
+spec:
+  duration: 720h0m0s
+  renewBefore: 360h0m0s
+  dnsNames:
+    - carbide-hardware-health.default.svc.cluster.local
+  uris:
+    - spiffe://forge.local/default/sa/carbide-hardware-health
+  privateKey:
+    algorithm: ECDSA
+    size: 384
+  issuerRef:
+    kind: ClusterIssuer
+    name: vault-forge-issuer
+    group: cert-manager.io
+  secretName: carbide-hardware-health-certificate

@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbide-api-migrate
+  namespace: default
+  labels:
+    app: carbide-api-migrate
+  annotations:
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/hook: PreSync
+spec:
+  template:
+    metadata:
+      name: carbide-api-migrate
+      labels:
+        app: carbide-api-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: carbide-api-migrate
+          image: yourdockerregistry.com/path/to/carbide-core:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            # yamllint disable-line rule:line-length
+            - /opt/carbide/carbide-api migrate --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}"
+          env:
+            - name: DATASTORE_USER
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: forge-system.carbide.forge-pg-cluster.credentials
+            - name: DATASTORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: forge-system.carbide.forge-pg-cluster.credentials
+            - name: DATASTORE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: forge-system-carbide-database-config
+                  key: DB_HOST
+            - name: DATASTORE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: forge-system-carbide-database-config
+                  key: DB_PORT
+            - name: DATASTORE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: forge-system-carbide-database-config
+                  key: DB_NAME
