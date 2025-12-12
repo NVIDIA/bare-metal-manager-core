@@ -14,7 +14,6 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use carbide_uuid::domain::DomainId;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::infiniband::IBPartitionId;
@@ -38,7 +37,7 @@ use utils::has_duplicates;
 use crate::cfg::storage::OsImageActions;
 use crate::cfg::{instance_type, measurement, network_security_group, tenant};
 use crate::vpc_prefix::VpcPrefixSelector;
-use crate::{mlx, scout_stream};
+use crate::{domain, mlx, ping, scout_stream, version};
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
@@ -130,7 +129,7 @@ pub enum SortField {
 #[derive(Parser, Debug)]
 pub enum CliCommand {
     #[clap(about = "Print API server version", visible_alias = "v")]
-    Version(Version),
+    Version(version::Opts),
     #[clap(about = "Machine related handling", subcommand, visible_alias = "m")]
     Machine(Machine),
     #[clap(about = "Instance related handling", subcommand, visible_alias = "i")]
@@ -142,7 +141,7 @@ pub enum CliCommand {
     )]
     NetworkSegment(NetworkSegment),
     #[clap(about = "Domain related handling", subcommand, visible_alias = "d")]
-    Domain(Domain),
+    Domain(domain::Cmd),
     #[clap(
         about = "Managed host related handling",
         subcommand,
@@ -196,7 +195,7 @@ pub enum CliCommand {
     #[clap(
         about = "Query the Version gRPC endpoint repeatedly printing how long it took and any failures."
     )]
-    Ping(PingOptions),
+    Ping(ping::Opts),
     #[clap(about = "Set carbide-api dynamic features", subcommand)]
     Set(SetAction),
     #[clap(about = "Expected machine handling", subcommand, visible_alias = "em")]
@@ -358,12 +357,6 @@ pub enum SetAction {
         #[arg(num_args = 1, value_parser = BoolishValueParser::new(), action = clap::ArgAction::Set, value_name = "true|false")]
         value: bool,
     },
-}
-
-#[derive(Parser, Debug)]
-pub struct Version {
-    #[clap(short, long, action, help = "Display Runtime Config also.")]
-    pub show_runtime_config: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -2607,30 +2600,6 @@ pub struct UpdateIbConfig {
 }
 
 #[derive(Parser, Debug)]
-pub enum Domain {
-    #[clap(about = "Display Domain information")]
-    Show(ShowDomain),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowDomain {
-    #[clap(
-        short,
-        long,
-        action,
-        conflicts_with = "domain",
-        help = "Show all domains (DEPRECATED)"
-    )]
-    pub all: bool,
-
-    #[clap(
-        default_value(None),
-        help = "The domain to query, leave empty for all (default)"
-    )]
-    pub domain: Option<DomainId>,
-}
-
-#[derive(Parser, Debug)]
 pub enum NetworkSegment {
     #[clap(about = "Display Network Segment information")]
     Show(ShowNetwork),
@@ -3090,17 +3059,6 @@ pub enum Shell {
     Bash,
     Fish,
     Zsh,
-}
-
-#[derive(Parser, Debug)]
-pub struct PingOptions {
-    #[clap(
-        short,
-        long,
-        default_value("1.0"),
-        help = "Wait interval seconds between sending each request. Real number allowed with dot as a decimal separator."
-    )]
-    pub interval: f32,
 }
 
 #[derive(Parser, Debug)]

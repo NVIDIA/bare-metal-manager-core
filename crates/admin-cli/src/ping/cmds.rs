@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -15,10 +15,10 @@ use std::time::{Duration, Instant};
 
 use rpc::forge::VersionRequest;
 
-use crate::cfg::cli_options::PingOptions;
+use super::Opts;
 use crate::rpc::ApiClient;
 
-pub async fn ping(client: &ApiClient, opts: PingOptions) -> color_eyre::Result<()> {
+pub async fn ping(client: &ApiClient, opts: &Opts) -> color_eyre::Result<()> {
     let interval = Duration::from_secs_f32(opts.interval);
     let mut total_count = 1;
     let mut err_count = 0;

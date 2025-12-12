@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -17,7 +18,7 @@ use carbide_uuid::domain::DomainId;
 use prettytable::{Table, row};
 use tracing::warn;
 
-use super::cfg::cli_options::ShowDomain;
+use crate::domain::args::ShowDomain;
 use crate::rpc::ApiClient;
 
 // timestamp_or_default returns a String representation of
@@ -109,7 +110,7 @@ async fn show_domain_information(
 }
 
 pub async fn handle_show(
-    args: ShowDomain,
+    args: &ShowDomain,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
