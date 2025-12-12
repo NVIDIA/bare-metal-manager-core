@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,10 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
 use prettytable::{Cell, Row, Table, row};
 
-use crate::cfg::cli_options::Version;
+use super::Opts;
 use crate::rpc::ApiClient;
 
 macro_rules! r {
@@ -41,11 +42,11 @@ macro_rules! rv {
 }
 
 pub async fn handle_show_version(
-    version: Version,
-    format: OutputFormat,
+    opts: &Opts,
     api_client: &ApiClient,
+    format: OutputFormat,
 ) -> Result<(), CarbideCliError> {
-    let v = api_client.0.version(version.show_runtime_config).await?;
+    let v = api_client.0.version(opts.show_runtime_config).await?;
     if format == OutputFormat::Json {
         println!("{}", serde_json::to_string(&v)?);
         return Ok(());
@@ -60,7 +61,7 @@ pub async fn handle_show_version(
     println!();
     println!("forge-admin-cli:\n\t{}", carbide_version::version!());
 
-    if version.show_runtime_config {
+    if opts.show_runtime_config {
         let config = v
             .runtime_config
             .ok_or_else(|| CarbideCliError::GenericError("Config not found.".to_owned()))?;

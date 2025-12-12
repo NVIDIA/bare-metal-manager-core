@@ -32,7 +32,7 @@ use carbide_uuid::machine::MachineId;
 use cfg::cli_options::DpuAction::{AgentUpgradePolicy, Reprovision, Versions};
 use cfg::cli_options::{
     AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
-    CredentialAction, Domain, DpaOptions, DpuAction, DpuReprovision, ExpectedMachineJson,
+    CredentialAction, DpaOptions, DpuAction, DpuReprovision, ExpectedMachineJson,
     ExpectedPowerShelfJson, ExpectedSwitchJson, Firmware, HostAction, HostReprovision,
     IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions, Machine, MachineHardwareInfo,
     MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
@@ -208,7 +208,7 @@ async fn main() -> color_eyre::Result<()> {
     // Command to talk to Carbide API.
     match command {
         CliCommand::Version(version) => {
-            version::handle_show_version(version, config.format, &api_client).await?
+            version::dispatch(&version, &api_client, config.format).await?
         }
         CliCommand::Mlx(cmd) => mlx::dispatch(cmd, &api_client, &config.format).await?,
         CliCommand::Machine(machine) => match machine {
@@ -718,9 +718,7 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
             }
         },
-        CliCommand::Domain(domain) => match domain {
-            Domain::Show(domain) => domain::handle_show(domain, config.format, &api_client).await?,
-        },
+        CliCommand::Domain(cmd) => domain::dispatch(&cmd, &api_client, config.format).await?,
         CliCommand::ManagedHost(managed_host) => match managed_host {
             ManagedHost::Show(managed_host) => {
                 managed_host::handle_show(
@@ -1403,7 +1401,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CliCommand::Ping(opts) => ping::ping(&api_client, opts).await?,
+        CliCommand::Ping(opts) => ping::dispatch(&opts, &api_client).await?,
         CliCommand::Set(subcmd) => match subcmd {
             SetAction::LogFilter(opts) => {
                 api_client
@@ -2012,8 +2010,8 @@ async fn main() -> color_eyre::Result<()> {
                             .await?
                         }
                         forgerpc::UuidType::Domain => {
-                            domain::handle_show(
-                                cfg::cli_options::ShowDomain {
+                            domain::cmds::handle_show(
+                                &domain::args::ShowDomain {
                                     domain: Some(j.id.parse()?),
                                     all: false,
                                 },
