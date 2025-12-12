@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-api
+  namespace: default
+  annotations:
+    configmap.reloader.stakater.com/reload: "carbide-api-config-files,carbide-api-site-config-files"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: carbide-api
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: carbide-api
+    spec:
+      serviceAccountName: carbide-api
+      containers:
+        - name: carbide-api
+          image: yourdockerregistry.com/path/to/carbide-core:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          # yamllint disable rule:line-length
+          command:
+            - /bin/sh
+            - -c
+            # if you change this command, keep it in sync (as appropriate) with the overlay in local-dev for the local workflow
+            - /opt/carbide/carbide-api run --config-path /etc/forge/carbide-api/carbide-api-config.toml --site-config-path /etc/forge/carbide-api/site/carbide-api-site-config.toml
+          env:
+            - name: VAULT_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: carbide-vault-approle-tokens
+                  key: VAULT_ROLE_ID
+                  optional: true
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: carbide-vault-approle-tokens
+                  key: VAULT_SECRET_ID
+                  optional: true
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: carbide-vault-token
+                  key: token
+            - name: VAULT_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: vault-cluster-info
+                  key: VAULT_SERVICE
+            - name: VAULT_MOUNT_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: vault-cluster-info
+                  key: FORGE_VAULT_MOUNT
+            - name: VAULT_KV_MOUNT_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: vault-cluster-info
+                  key: FORGE_VAULT_MOUNT
+            - name: VAULT_PKI_MOUNT_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: vault-cluster-info
+                  key: FORGE_VAULT_PKI_MOUNT
+            - name: VAULT_PKI_ROLE_NAME
+              value: "forge-cluster"
+            - name: DATASTORE_USER
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: forge-system.carbide.forge-pg-cluster.credentials
+            - name: DATASTORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: forge-system.carbide.forge-pg-cluster.credentials
+            - name: DATASTORE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: forge-system-carbide-database-config
+                  key: DB_HOST
+            - name: DATASTORE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: forge-system-carbide-database-config
+                  key: DB_PORT
+            - name: DATASTORE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: forge-system-carbide-database-config
+                  key: DB_NAME
+            - name: CARBIDE_API_DATABASE_URL # Overwrites `database_url` in carbide-api-config.toml
+              value: postgres://$(DATASTORE_USER):$(DATASTORE_PASSWORD)@$(DATASTORE_HOST):$(DATASTORE_PORT)/$(DATASTORE_NAME)
+            - name: CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY
+              value: $(DATASTORE_PASSWORD)
+            # - name: CARBIDE_WEB_OAUTH2_CLIENT_SECRET
+            #   valueFrom:
+            #     secretKeyRef:
+            #       key: client_secret
+            #       name: azure-sso-carbide-web-client-secret
+            # - name: CARBIDE_WEB_HOSTNAME
+            #   valueFrom:
+            #     configMapKeyRef:
+            #       name: carbide-web-api-hostname
+            #       key: hostname
+            # - name: CARBIDE_WEB_AUTH_TYPE
+            #   value: oauth2
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: RUST_LIB_BACKTRACE # See https://doc.rust-lang.org/std/backtrace/index.html#environment-variables
+              value: "0"
+          ports:
+            - name: grpc
+              containerPort: 1079
+            - name: metrics
+              containerPort: 1080
+            - name: profiler
+              containerPort: 1081
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              port: 1080
+              scheme: HTTP
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            successThreshold: 1
+            timeoutSeconds: 20
+          volumeMounts:
+            - name: carbide-api-config-files
+              mountPath: /etc/forge/carbide-api
+            - name: carbide-api-site-config-files
+              mountPath: /etc/forge/carbide-api/site
+            - name: persistence
+              mountPath: /mnt/persistence
+            - name: spiffe
+              mountPath: "/var/run/secrets/spiffe.io"
+              readOnly: true
+            - name: forge-roots
+              mountPath: "/var/run/secrets/forge-roots"
+              readOnly: true
+            - name: firmware
+              mountPath: "/opt/carbide/firmware"
+              readOnly: true
+
+      volumes:
+        - name: carbide-api-config-files
+          configMap:
+            name: carbide-api-config-files
+        - name: carbide-api-site-config-files
+          configMap:
+            name: carbide-api-site-config-files
+        - name: persistence
+          emptyDir: {}
+        - name: spiffe
+          secret:
+            secretName: carbide-api-certificate
+        - name: forge-roots
+          secret:
+            secretName: forge-roots
+        - name: firmware
+          emptyDir: {}

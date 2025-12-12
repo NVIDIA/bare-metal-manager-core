@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: carbide-dns
+      app.kubernetes.io/component: dns
+    includeSelectors: true
+    includeTemplates: true
+
+resources:
+  - certificate.yaml
+  - statefulset.yaml
+  - role.yaml
+  - rolebinding.yaml
+  - service-account.yaml
+  - service.yaml

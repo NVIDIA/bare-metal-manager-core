@@ -1,0 +1,131 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+generatorOptions:
+  disableNameSuffixHash: true
+
+namespace: forge-system
+
+resources:
+  - namespace.yaml
+  - external-services.yaml
+  - ../carbide-base
+  - ../carbide-unbound-base
+
+components:
+  - ../components/imagepullsecret
+  - ../components/boot-artifacts-containers
+
+configMapGenerator:
+  - name: carbide-dns
+    behavior: create
+    literals:
+      - "CARBIDE_API=https://carbide-api.forge-system.svc.cluster.local:1079"
+  - name: forge-system-carbide-database-config
+    literals:
+      - DB_HOST=forge-pg-cluster.postgres.svc.cluster.local
+      - DB_PORT=5432
+      - DB_NAME=forge_system_carbide
+      - SECRET_REF=forge-system.carbide.forge-pg-cluster.credentials.postgresql.acid.zalan.do
+  - name: vault-cluster-info
+    literals:
+      - VAULT_SERVICE=https://vault.vault.svc.cluster.local:8200
+      - FORGE_VAULT_MOUNT=secrets
+      - FORGE_VAULT_PKI_MOUNT=forgeca
+
+patches:
+  - patch: |-
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: carbide-dns-certificate
+      spec:
+        dnsNames:
+          - carbide-dns.forge-system.svc.cluster.local
+        uris:
+          - spiffe://forge.local/forge-system/sa/carbide-dns
+    target:
+      group: cert-manager.io
+      version: v1
+      kind: Certificate
+      name: carbide-dns-certificate
+  - patch: |-
+      kind: Certificate
+      metadata:
+        name: carbide-pxe-certificate
+      spec:
+        dnsNames:
+          - carbide-pxe.forge-system.svc.cluster.local
+        uris:
+          - spiffe://forge.local/forge-system/sa/carbide-pxe
+    target:
+      group: cert-manager.io
+      version: v1
+      kind: Certificate
+      name: carbide-pxe-certificate
+  - patch: |-
+      kind: Certificate
+      metadata:
+        name: carbide-dhcp-certificate
+      spec:
+        dnsNames:
+          - carbide-dhcp.forge-system.svc.cluster.local
+        uris:
+          - spiffe://forge.local/forge-system/sa/carbide-dhcp
+    target:
+      group: cert-manager.io
+      version: v1
+      kind: Certificate
+      name: carbide-dhcp-certificate
+  - patch: |-
+      kind: Certificate
+      metadata:
+        name: carbide-api-certificate
+      spec:
+        dnsNames:
+          - carbide-api.forge-system.svc.cluster.local
+          - carbide-api.forge
+        uris:
+          - spiffe://forge.local/forge-system/sa/carbide-api
+    target:
+      group: cert-manager.io
+      version: v1
+      kind: Certificate
+      name: carbide-api-certificate
+  - patch: |-
+      kind: Certificate
+      metadata:
+        name: carbide-hardware-health-certificate
+      spec:
+        dnsNames:
+          - carbide-hardware-health.forge-system.svc.cluster.local
+        uris:
+          - spiffe://forge.local/forge-system/sa/carbide-hardware-health
+    target:
+      group: cert-manager.io
+      version: v1
+      kind: Certificate
+      name: carbide-hardware-health-certificate
+  - patch: |-
+      kind: Certificate
+      metadata:
+        name: carbide-ssh-console-rs-certificate
+      spec:
+        dnsNames:
+          - carbide-ssh-console-rs.forge-system.svc.cluster.local
+        uris:
+          - spiffe://forge.local/forge-system/sa/carbide-ssh-console-rs
+    target:
+      group: cert-manager.io
+      version: v1
+      kind: Certificate
+      name: carbide-ssh-console-rs-certificate
+  - patch: |-
+      apiVersion: acid.zalan.do/v1
+      kind: postgresql
+      metadata:
+        name: forge-pg-cluster
+    target:
+      group: acid.zalan.do
+      version: v1
+      kind: postgresql
+      name: forge-pg-cluster

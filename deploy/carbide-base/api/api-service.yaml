@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-api
+  labels:
+    app: carbide-api
+spec:
+  ports:
+    - port: 1079
+      name: grpc
+      protocol: TCP

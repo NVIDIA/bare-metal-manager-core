@@ -1,0 +1,148 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+buildMetadata: [originAnnotations]
+
+resources:
+  - forge-system
+
+images:
+  - name: yourdockerregistry.com/path/to/carbide-core
+    newName: CARBIDE_REGISTRY_PATH/carbide-core
+    newTag: CARBIDE_TAG 
+  - name: yourdockerregistry.com/path/to/boot-artifacts-aarch64
+    newName: CARBIDE_REGISTRY_PATH/boot-artifacts-aarch64
+    newTag: BOOT_ARTIFACTS_AARCH64_TAG
+  - name: yourdockerregistry.com/path/to/boot-artifacts-x86_64
+    newName: CARBIDE_REGISTRY_PATH/boot-artifacts-x86_64
+    newTag: BOOT_ARTIFACTS_X86_TAG
+  - name: yourdockerregistry.com/path/to/nvmetal-scout-burn-in
+    newName: CARBIDE_REGISTRY_PATH/machine_validation
+    newTag: MACHINE_VALIDATION_TAG
+
+#
+# IP addresses are from the metallb IP pool from this environment
+#
+patches:
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_DHCP_EXTERNAL_IP
+    target:
+      version: v1
+      kind: Service
+      name: carbide-dhcp-external
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_DNS_INSTANCE_0_IP
+    target:
+      version: v1
+      kind: Service
+      labelSelector: app.kubernetes.io/part-of=carbide-dns-instance-0
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_DNS_INSTANCE_1_IP
+    target:
+      version: v1
+      kind: Service
+      labelSelector: app.kubernetes.io/part-of=carbide-dns-instance-1
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_PXE_IP
+    target:
+      version: v1
+      kind: Service
+      labelSelector: app.kubernetes.io/part-of=carbide-pxe
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_API_EXTERNAL_IP
+    target:
+      version: v1
+      kind: Service
+      name: carbide-api-external
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_SSH_CONSOLE_EXTERNAL_IP
+    target:
+      version: v1
+      kind: Service
+      name: carbide-ssh-console-rs-external
+  - patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: forge-unbound
+      spec:
+        type: LoadBalancer
+        loadBalancerIP: FORGE_UNBOUND_EXTERNAL_IP
+    target:
+      version: v1
+      kind: Service
+      name: forge-unbound
+  - patch: |-
+      - op: add
+        path: "/spec/dnsNames/0"
+        value: "api-ENVIORNMENT_NAME.SITE_DOMAIN_NAME"
+    target:
+      group: cert-manager.io
+      version: v1
+      kind: Certificate
+      name: carbide-api-certificate
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_NTP_SERVERS_IP_0
+    target:
+      kind: Service
+      labelSelector: app.kubernetes.io/part-of=carbide-ntp-instance-0
+      version: v1
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_NTP_SERVERS_IP_1
+    target:
+      kind: Service
+      labelSelector: app.kubernetes.io/part-of=carbide-ntp-instance-1
+      version: v1
+  - patch: |-
+      - op: add
+        path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
+        value: CARBIDE_NTP_SERVERS_IP_2
+    target:
+      kind: Service
+      labelSelector: app.kubernetes.io/part-of=carbide-ntp-instance-2
+      version: v1
+
+configMapGenerator:
+  - name: carbide-dhcp-config
+    files:
+      - files/kea_config.json
+  - name: carbide-api-site-config-files
+    behavior: merge
+    files:
+      - files/carbide-api/carbide-api-site-config.toml
+      - files/carbide-api/admin_root_cert_pem
+  - name: carbide-dns-config
+    literals:
+      - "CARBIDE_API=https://carbide-api.forge-system.svc.cluster.local:1079"
+  - name: carbide-pxe-env-config
+    literals:
+      - "CARBIDE_STATIC_PXE_URL=http://carbide-static-pxe.forge"
+  - name: unbound-local-config
+    behavior: merge
+    files:
+      # Set up DNS records
+      - local_data.conf=files/unbound/local_data.conf
+      # Set up forwarders
+      - forwarders.conf=files/unbound/forwarders.conf
+  - name: carbide-web-api-hostname
+    literals:
+      - "hostname=api-ENVIORNMENT_NAME.SITE_DOMAIN_NAME"

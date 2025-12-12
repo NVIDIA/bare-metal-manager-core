@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+
+configMapGenerator:
+  - name: unbound-envvars
+    envs:
+      - unbound.env
+  - name: unbound-local-config
+    files:
+      - access_control.conf=local.conf.d/access_control.conf
+      - extended_statistics.conf=local.conf.d/extended_statistics.conf
+      - verbosity.conf=local.conf.d/verbosity.conf
+      - forge_local_unknowndomain.conf=local.conf.d/forge_local_unknowndomain.conf
+      - forwarders.conf=local.conf.d/patchme.conf
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: unbound
+      app.kubernetes.io/component: recursive-dns
+    includeSelectors: true
+    includeTemplates: true
+
+commonAnnotations:
+  managed-by: argocd.argoproj.io
+
+generatorOptions:
+  disableNameSuffixHash: true

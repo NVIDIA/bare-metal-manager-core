@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: patch-boot-artifacts.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: carbide-pxe
+  - path: patch-boot-artifacts.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: carbide-api

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-ssh-console-rs-metrics
+  namespace: default
+  labels:
+    app: carbide-ssh-console-rs
+    app.kubernetes.io/metrics: carbide-ssh-console-rs
+spec:
+  ports:
+    - port: 9009
+      name: http
+      protocol: TCP
+      targetPort: 9009
