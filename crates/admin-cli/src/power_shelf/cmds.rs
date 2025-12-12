@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use std::str::FromStr;
 
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -16,10 +17,9 @@ use color_eyre::Result;
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::PowerShelf;
 
-use crate::cfg::cli_options::PowerShelfShow;
+use super::args::ShowPowerShelf;
 use crate::rpc::ApiClient;
 
-/// Show power shelf information
 pub async fn show_power_shelves(
     power_shelves: Vec<PowerShelf>,
     output_format: OutputFormat,
@@ -161,7 +161,6 @@ pub async fn show_power_shelves(
     Ok(())
 }
 
-/// List all power shelves
 pub async fn list_power_shelves(api_client: &ApiClient) -> Result<()> {
     let query = rpc::forge::PowerShelfQuery {
         name: None,
@@ -221,7 +220,7 @@ pub async fn list_power_shelves(api_client: &ApiClient) -> Result<()> {
 }
 
 pub async fn handle_show(
-    args: PowerShelfShow,
+    args: &ShowPowerShelf,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {

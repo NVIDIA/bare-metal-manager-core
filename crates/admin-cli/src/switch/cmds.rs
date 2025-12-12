@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use std::str::FromStr;
 
 use carbide_uuid::switch::SwitchId;
@@ -16,10 +17,9 @@ use color_eyre::Result;
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::Switch;
 
-use crate::cfg::cli_options::SwitchShow;
+use super::args::ShowSwitch;
 use crate::rpc::ApiClient;
 
-/// Show switch information
 pub async fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Result<()> {
     match output_format {
         OutputFormat::AsciiTable => {
@@ -123,7 +123,6 @@ pub async fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -
     Ok(())
 }
 
-/// List all switches
 pub async fn list_switches(api_client: &ApiClient) -> Result<()> {
     let query = rpc::forge::SwitchQuery {
         name: None,
@@ -183,7 +182,7 @@ pub async fn list_switches(api_client: &ApiClient) -> Result<()> {
 }
 
 pub async fn handle_show(
-    args: SwitchShow,
+    args: &ShowSwitch,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {

@@ -1,17 +1,36 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
 
 use prettytable::{Table, row};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use serde::{Deserialize, Serialize};
 
-use crate::cfg::cli_options::ShowExpectedSwitchQuery;
+use super::args::{
+    AddExpectedSwitch, DeleteExpectedSwitch, ExpectedSwitchJson, ReplaceAllExpectedSwitch,
+    ShowExpectedSwitchQuery, UpdateExpectedSwitch,
+};
 use crate::rpc::ApiClient;
 
-pub async fn show_expected_switches(
-    expected_switch_query: &ShowExpectedSwitchQuery,
+pub async fn show(
+    query: &ShowExpectedSwitchQuery,
     api_client: &ApiClient,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
-    if let Some(bmc_mac_address) = expected_switch_query.bmc_mac_address {
+    if let Some(bmc_mac_address) = query.bmc_mac_address {
         let expected_switch = api_client
             .0
             .get_expected_switch(bmc_mac_address.to_string())
@@ -127,5 +146,86 @@ fn convert_and_print_into_nice_table(
 
     table.printstd();
 
+    Ok(())
+}
+
+pub async fn add(data: &AddExpectedSwitch, api_client: &ApiClient) -> color_eyre::Result<()> {
+    let metadata = data.metadata()?;
+    api_client
+        .add_expected_switch(
+            data.bmc_mac_address,
+            data.bmc_username.clone(),
+            data.bmc_password.clone(),
+            data.switch_serial_number.clone(),
+            metadata,
+            data.rack_id.clone(),
+        )
+        .await?;
+    Ok(())
+}
+
+pub async fn delete(query: &DeleteExpectedSwitch, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .delete_expected_switch(query.bmc_mac_address.to_string())
+        .await?;
+    Ok(())
+}
+
+pub async fn update(data: &UpdateExpectedSwitch, api_client: &ApiClient) -> color_eyre::Result<()> {
+    if let Err(e) = data.validate() {
+        eprintln!("{e}");
+        return Ok(());
+    }
+    let metadata = data.metadata()?;
+    api_client
+        .update_expected_switch(
+            data.bmc_mac_address,
+            data.bmc_username.clone(),
+            data.bmc_password.clone(),
+            data.switch_serial_number.clone(),
+            metadata,
+            data.rack_id.clone(),
+        )
+        .await?;
+    Ok(())
+}
+
+pub async fn replace_all(
+    request: &ReplaceAllExpectedSwitch,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let json_file_path = Path::new(&request.filename);
+    let reader = BufReader::new(File::open(json_file_path)?);
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct ExpectedSwitchList {
+        expected_switches: Vec<ExpectedSwitchJson>,
+        expected_switches_count: Option<usize>,
+    }
+
+    let expected_switch_list: ExpectedSwitchList = serde_json::from_reader(reader)?;
+
+    if expected_switch_list
+        .expected_switches_count
+        .is_some_and(|count| count != expected_switch_list.expected_switches.len())
+    {
+        return Err(CarbideCliError::GenericError(format!(
+            "Json File specified an invalid count: {:#?}; actual count: {}",
+            expected_switch_list
+                .expected_switches_count
+                .unwrap_or_default(),
+            expected_switch_list.expected_switches.len()
+        )));
+    }
+
+    api_client
+        .replace_all_expected_switches(expected_switch_list.expected_switches)
+        .await?;
+    Ok(())
+}
+
+pub async fn erase(api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client.0.delete_all_expected_switches().await?;
     Ok(())
 }
