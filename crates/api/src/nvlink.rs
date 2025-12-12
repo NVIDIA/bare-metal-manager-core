@@ -116,6 +116,7 @@ pub mod test_support {
     pub struct NmxmSimClient {
         _state: Arc<Mutex<u32>>,
         _partitions: Arc<Mutex<Vec<libnmxm::nmxm_model::Partition>>>,
+        _gpus: Arc<Mutex<Vec<libnmxm::nmxm_model::Gpu>>>,
     }
 
     impl Default for NmxmSimClient {
@@ -123,7 +124,305 @@ pub mod test_support {
             NmxmSimClient {
                 _state: Arc::new(Mutex::new(0)),
                 _partitions: Arc::new(Mutex::new(Vec::new())),
+                _gpus: Arc::new(Mutex::new(Self::default_gpus())),
             }
+        }
+    }
+
+    impl NmxmSimClient {
+        pub fn with_default_partition() -> Self {
+            let client = NmxmSimClient::default();
+            client.create_default_partition(
+                client
+                    ._gpus
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|gpu| gpu.id.clone())
+                    .collect(),
+            );
+            client
+        }
+
+        /// Creates a default partition with partition_id 32766 containing the specified GPU IDs.
+        fn create_default_partition(&self, gpu_ids: Vec<String>) {
+            let partition = libnmxm::nmxm_model::Partition {
+                id: "default-partition".to_string(),
+                partition_id: 32766,
+                name: "Default Partition".to_string(),
+                r#type: libnmxm::nmxm_model::PartitionType::PartitionTypeIDBased,
+                health: libnmxm::nmxm_model::PartitionHealth::PartitionHealthHealthy,
+                members: Box::new(libnmxm::nmxm_model::PartitionMembers::Ids(gpu_ids)),
+                created_at: "2021-01-01T12:00:00Z".to_string(),
+                updated_at: "2021-01-01T12:00:00Z".to_string(),
+            };
+            self._partitions.lock().unwrap().push(partition);
+        }
+
+        fn default_gpus() -> Vec<libnmxm::nmxm_model::Gpu> {
+            let all_ones_uuid = Uuid::from_bytes([
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0xFF, 0xFF,
+            ]);
+            let all_ones_minus_one_uuid = Uuid::from_bytes([
+                0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0xFF, 0xFF,
+            ]);
+
+            let location1 = libnmxm::nmxm_model::LocationInfo {
+                chassis_id: Some(101),
+                chassis_serial_number: Some(String::from("SN_WHATISTHIS")),
+                slot_id: Some(0),
+                tray_index: Some(0),
+                host_id: Some(1),
+            };
+
+            let location2 = libnmxm::nmxm_model::LocationInfo {
+                chassis_id: Some(101),
+                chassis_serial_number: Some(String::from("SN_WHATISTHIS1")),
+                slot_id: Some(0),
+                tray_index: Some(0),
+                host_id: Some(1),
+            };
+
+            let location3 = libnmxm::nmxm_model::LocationInfo {
+                chassis_id: Some(101),
+                chassis_serial_number: Some(String::from("SN_WHATISTHIS2")),
+                slot_id: Some(0),
+                tray_index: Some(0),
+                host_id: Some(1),
+            };
+
+            vec![
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu1")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 1")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_uuid),
+                    location_info: Some(Box::new(location1.clone())),
+                    device_uid: 12345,
+                    device_id: 1,
+                    device_pcie_id: 1001,
+                    system_uid: 10001,
+                    vendor_id: 4318,
+                    alid_list: vec![1111, 2222],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu2")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 2")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_minus_one_uuid),
+                    location_info: Some(Box::new(location1.clone())),
+                    device_uid: 12346,
+                    device_id: 2,
+                    device_pcie_id: 1002,
+                    system_uid: 10002,
+                    vendor_id: 4318,
+                    alid_list: vec![3333, 4444],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu3")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 3")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_uuid),
+                    location_info: Some(Box::new(location1.clone())),
+                    device_uid: 12347,
+                    device_id: 3,
+                    device_pcie_id: 1003,
+                    system_uid: 10003,
+                    vendor_id: 4318,
+                    alid_list: vec![5555, 6666],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu4")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 4")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_uuid),
+                    location_info: Some(Box::new(location1)),
+                    device_uid: 12348,
+                    device_id: 4,
+                    device_pcie_id: 1004,
+                    system_uid: 10004,
+                    vendor_id: 4318,
+                    alid_list: vec![7777, 8888],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu11")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 11")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_uuid),
+                    location_info: Some(Box::new(location2.clone())),
+                    device_uid: 12345,
+                    device_id: 1,
+                    device_pcie_id: 1001,
+                    system_uid: 10001,
+                    vendor_id: 4318,
+                    alid_list: vec![1111, 2222],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu12")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 12")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_minus_one_uuid),
+                    location_info: Some(Box::new(location2.clone())),
+                    device_uid: 12346,
+                    device_id: 2,
+                    device_pcie_id: 1002,
+                    system_uid: 10002,
+                    vendor_id: 4318,
+                    alid_list: vec![3333, 4444],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu13")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 13")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_uuid),
+                    location_info: Some(Box::new(location2.clone())),
+                    device_uid: 12347,
+                    device_id: 3,
+                    device_pcie_id: 1003,
+                    system_uid: 10003,
+                    vendor_id: 4318,
+                    alid_list: vec![5555, 6666],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu14")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 14")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_uuid),
+                    location_info: Some(Box::new(location2)),
+                    device_uid: 12348,
+                    device_id: 4,
+                    device_pcie_id: 1004,
+                    system_uid: 10004,
+                    vendor_id: 4318,
+                    alid_list: vec![7777, 8888],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu21")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 21")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_minus_one_uuid),
+                    location_info: Some(Box::new(location3.clone())),
+                    device_uid: 12349,
+                    device_id: 1,
+                    device_pcie_id: 1005,
+                    system_uid: 10005,
+                    vendor_id: 4318,
+                    alid_list: vec![9999, 9888],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu22")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 22")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_minus_one_uuid),
+                    location_info: Some(Box::new(location3.clone())),
+                    device_uid: 12350,
+                    device_id: 2,
+                    device_pcie_id: 1006,
+                    system_uid: 10006,
+                    vendor_id: 4318,
+                    alid_list: vec![1212, 2121],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu23")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 23")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_minus_one_uuid),
+                    location_info: Some(Box::new(location3.clone())),
+                    device_uid: 12351,
+                    device_id: 3,
+                    device_pcie_id: 1007,
+                    system_uid: 10007,
+                    vendor_id: 4318,
+                    alid_list: vec![1313, 1414],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+                libnmxm::nmxm_model::Gpu {
+                    id: Some(String::from("gpu24")),
+                    name: Some(String::from("NVIDIA GB200 NVL")),
+                    description: Some(String::from("High-end gaming GPU")),
+                    internal_description: Some(String::from("Internal description for GPU 24")),
+                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
+                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
+                    domain_uuid: Some(all_ones_minus_one_uuid),
+                    location_info: Some(Box::new(location3)),
+                    device_uid: 12352,
+                    device_id: 4,
+                    device_pcie_id: 1008,
+                    system_uid: 10008,
+                    vendor_id: 4318,
+                    alid_list: vec![1515, 1616],
+                    partition_id: None,
+                    port_id_list: None,
+                    health: None,
+                },
+            ]
         }
     }
 
@@ -161,292 +460,7 @@ pub mod test_support {
             &self,
             _id: Option<String>,
         ) -> Result<Vec<libnmxm::nmxm_model::Gpu>, NmxmApiError> {
-            let all_ones_uuid = Uuid::from_bytes([
-                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                0xFF, 0xFF,
-            ]);
-            let all_ones_minus_one_uuid = Uuid::from_bytes([
-                0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                0xFF, 0xFF,
-            ]);
-
-            let location1 = libnmxm::nmxm_model::LocationInfo {
-                chassis_id: Some(101),
-                chassis_serial_number: Some(String::from("SN_WHATISTHIS")),
-                slot_id: Some(0),
-                tray_index: Some(0),
-                host_id: Some(1),
-            };
-
-            let location2 = libnmxm::nmxm_model::LocationInfo {
-                chassis_id: Some(101),
-                chassis_serial_number: Some(String::from("SN_WHATISTHIS1")),
-                slot_id: Some(0),
-                tray_index: Some(0),
-                host_id: Some(1),
-            };
-
-            let _location3 = libnmxm::nmxm_model::LocationInfo {
-                chassis_id: Some(101),
-                chassis_serial_number: Some(String::from("SN_WHATISTHIS1")),
-                slot_id: Some(1),
-                tray_index: Some(1),
-                host_id: Some(1),
-            };
-
-            let location4 = libnmxm::nmxm_model::LocationInfo {
-                chassis_id: Some(101),
-                chassis_serial_number: Some(String::from("SN_WHATISTHIS2")),
-                slot_id: Some(0),
-                tray_index: Some(0),
-                host_id: Some(1),
-            };
-
-            let gpu1 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu1")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 1")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_uuid),
-                location_info: Some(Box::new(location1.clone())),
-                device_uid: 12345,
-                device_id: 1,
-                device_pcie_id: 1001,
-                system_uid: 10001,
-                vendor_id: 4318,
-                //alid_list: vec![String::from("ALID-1"), String::from("ALID-2")],
-                alid_list: vec![1111, 2222],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu2 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu2")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 2")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_minus_one_uuid),
-                location_info: Some(Box::new(location1.clone())),
-                device_uid: 12346,
-                device_id: 2,
-                device_pcie_id: 1002,
-                system_uid: 10002,
-                vendor_id: 4318,
-                alid_list: vec![3333, 4444],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu3 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu3")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 3")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_uuid),
-                location_info: Some(Box::new(location1.clone())),
-                device_uid: 12347,
-                device_id: 3,
-                device_pcie_id: 1003,
-                system_uid: 10003,
-                vendor_id: 4318,
-                alid_list: vec![5555, 6666],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu4 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu4")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 4")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_uuid),
-                location_info: Some(Box::new(location1)),
-                device_uid: 12348,
-                device_id: 4,
-                device_pcie_id: 1004,
-                system_uid: 10004,
-                vendor_id: 4318,
-                alid_list: vec![7777, 8888],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu11 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu11")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 1")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_uuid),
-                location_info: Some(Box::new(location2.clone())),
-                device_uid: 12345,
-                device_id: 1,
-                device_pcie_id: 1001,
-                system_uid: 10001,
-                vendor_id: 4318,
-                alid_list: vec![1111, 2222],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu12 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu12")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-performance gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 2")),
-                created_at: Some(String::from("2021-02-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-07-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_uuid),
-                location_info: Some(Box::new(location2.clone())),
-                device_uid: 12346,
-                device_id: 2,
-                device_pcie_id: 1002,
-                system_uid: 10002,
-                vendor_id: 4318,
-                alid_list: vec![3333, 4444],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu13 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu13")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("Latest generation gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 3")),
-                created_at: Some(String::from("2021-03-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-08-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_uuid),
-                location_info: Some(Box::new(location2.clone())),
-                device_uid: 12347,
-                device_id: 3,
-                device_pcie_id: 1003,
-                system_uid: 10003,
-                vendor_id: 4318,
-                alid_list: vec![5555, 6666],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu14 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu14")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("Top-tier gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 4")),
-                created_at: Some(String::from("2021-04-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-09-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_uuid),
-                location_info: Some(Box::new(location2)),
-                device_uid: 12348,
-                device_id: 4,
-                device_pcie_id: 1004,
-                system_uid: 10004,
-                vendor_id: 4318,
-                alid_list: vec![7777, 8888],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu21 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu21")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 21")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_minus_one_uuid),
-                location_info: Some(Box::new(location4.clone())),
-                device_uid: 12349,
-                device_id: 1,
-                device_pcie_id: 1005,
-                system_uid: 10005,
-                vendor_id: 4318,
-                alid_list: vec![9999, 9888],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu22 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu22")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 22")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_minus_one_uuid),
-                location_info: Some(Box::new(location4.clone())),
-                device_uid: 12350,
-                device_id: 2,
-                device_pcie_id: 1006,
-                system_uid: 10006,
-                vendor_id: 4318,
-                alid_list: vec![1212, 2121],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu23 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu23")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 23")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_minus_one_uuid),
-                location_info: Some(Box::new(location4.clone())),
-                device_uid: 12351,
-                device_id: 3,
-                device_pcie_id: 1007,
-                system_uid: 10007,
-                vendor_id: 4318,
-                alid_list: vec![1313, 1414],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpu24 = libnmxm::nmxm_model::Gpu {
-                id: Some(String::from("gpu24")),
-                name: Some(String::from("NVIDIA GB200 NVL")),
-                description: Some(String::from("High-end gaming GPU")),
-                internal_description: Some(String::from("Internal description for GPU 24")),
-                created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                domain_uuid: Some(all_ones_minus_one_uuid),
-                location_info: Some(Box::new(location4)),
-                device_uid: 12352,
-                device_id: 4,
-                device_pcie_id: 1008,
-                system_uid: 10008,
-                vendor_id: 4318,
-                alid_list: vec![1515, 1616],
-                partition_id: None,
-                port_id_list: None,
-                health: None,
-            };
-
-            let gpus = vec![
-                gpu1, gpu2, gpu3, gpu4, gpu11, gpu12, gpu13, gpu14, gpu21, gpu22, gpu23, gpu24,
-            ];
-            Ok(gpus)
+            Ok(self._gpus.lock().unwrap().clone())
         }
 
         async fn get_gpu_count(
@@ -612,6 +626,7 @@ pub mod test_support {
             Ok(Box::new(NmxmSimClient {
                 _state: self._state.clone(),
                 _partitions: self._partitions.clone(),
+                _gpus: self._gpus.clone(),
             }))
         }
     }

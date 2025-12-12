@@ -255,6 +255,7 @@ pub struct TestEnvOverrides {
     pub network_segments_drain_period: Option<chrono::Duration>,
     pub power_manager_enabled: Option<bool>,
     pub dpf_config: Option<DpfConfig>,
+    pub nmxm_default_partition: Option<bool>,
 }
 
 impl TestEnvOverrides {
@@ -1226,7 +1227,12 @@ pub async fn create_test_env_with_overrides(
     populate_default_credentials(credential_provider.as_ref()).await;
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
-    let nmxm_sim: Arc<dyn NmxmClientPool> = Arc::new(NmxmSimClient::default());
+    let nmxm_sim: Arc<dyn NmxmClientPool> =
+        Arc::new(if overrides.nmxm_default_partition == Some(true) {
+            NmxmSimClient::with_default_partition()
+        } else {
+            NmxmSimClient::default()
+        });
 
     let mut config = overrides.config.unwrap_or(get_config());
     if let Some(threshold) = overrides.dpu_agent_version_staleness_threshold {
