@@ -454,13 +454,10 @@ impl TxnHeldAcrossAwait {
         txn_local_span: Span,
     ) -> Option<(mir::Local, &'a mir::LocalDecl<'tcx>)> {
         for (local, decl) in mir_body.local_decls.iter_enumerated() {
-            // NOTE: We dont' check for equality here, but just check if the spans mutually contain
-            // each other. This answers the question "is this the same section of code", whereas
-            // equality gets messed up because the spans come from different representation
-            // (HIR vs MIR).
-            if txn_local_span.contains(decl.source_info.span)
-                && decl.source_info.span.contains(txn_local_span)
-            {
+            // NOTE: We need to use source_equal here (and other places in this file) because we're
+            // comparing HIR vs MIR representations of the code, and spans there don't always
+            // compare equal, even if they're the same source location.
+            if txn_local_span.source_equal(decl.source_info.span) {
                 return Some((local, decl));
             }
         }
@@ -519,11 +516,11 @@ impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'a, 'tcx> {
         if let PatKind::Tuple(tuple_vars, _dotdot_position) = let_stmt.pat.kind {
             // Statement is a tuple... e.g. `let (txn, stuff) = make_transaction_and_stuff()`;
             for v in tuple_vars.iter() {
-                if v.span == self.txn_local_span {
+                if v.span.source_equal(self.txn_local_span) {
                     self.txn_local_hir_id = Some(v.hir_id);
                 }
             }
-        } else if let_stmt.pat.span == self.txn_local_span {
+        } else if let_stmt.pat.span.source_equal(self.txn_local_span) {
             // Statement's `pat` (the place to the left of the equals sign) equals the span we're
             // looking for.
             self.txn_local_hir_id = Some(let_stmt.pat.hir_id);
@@ -547,7 +544,7 @@ impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'a, 'tcx> {
         ) = expr.kind
         {
             // ... particularly the one that equals `await_span`
-            if expr.span == self.await_span
+            if expr.span.source_equal(self.await_span)
                 // ... and for which we've already visited the awaited expression
                 && let Some(awaited_expr) = self.all_exprs.get(&awaited)
             {
@@ -663,7 +660,7 @@ fn is_local_dead_at_span<'a, 'tcx>(
             };
 
             // We got to the span we're looking for, we're done, and we can return `is_dead`.
-            if statement.source_info.span.contains(span) {
+            if statement.source_info.span.source_equal(span) {
                 break 'outer;
             }
 
