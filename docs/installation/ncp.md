@@ -67,7 +67,7 @@ docker build --build-arg CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_
 ## Building carbide-core container
 
 ```sh
-docker build --build-arg "CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64" --build-arg "CONTAINER_BUILD_X86_64=carbide-build-container-x86_64" -f dev/docker/Dockerfile.release-container-sa-x86_64 -t carbide .
+docker build --build-arg "CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64" --build-arg "CONTAINER_BUILD_X86_64=carbide-buildcontainer-x86_64" -f dev/docker/Dockerfile.release-container-sa-x86_64 -t carbide .
 ```
 
 ## Building the AARCH64 Containers and artifacts

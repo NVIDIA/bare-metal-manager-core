@@ -357,11 +357,16 @@ args = [
 
 [tasks.copy-forge-scout-x86_64]
 category = "Copy Forge Scout locally"
-command = "cp"
-args = [
-  "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb",
-  "mkosi.profiles/scout-x86_64/mkosi.extra/build-output/forge-scout.deb",
-]
+script = '''
+  if [ -n "${SA_ENABLEMENT}" ]; then
+    PROFILE="scout-oss-x86_64"
+  else
+    PROFILE="scout-x86_64"
+  fi
+  mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
+  cp ${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb \
+  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/forge-scout.deb
+'''
 dependencies = ["mkdir-static"]
 
 [tasks.copy-forge-scout-aarch64]
