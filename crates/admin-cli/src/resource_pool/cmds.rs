@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,16 +9,21 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::admin_cli::CarbideCliResult;
+
+use std::fs;
+
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
+use super::args::GrowResourcePool;
 use crate::rpc::ApiClient;
 
 pub async fn list(api_client: &ApiClient) -> CarbideCliResult<()> {
     let response = api_client.0.admin_list_resource_pools().await?;
     if response.pools.is_empty() {
         println!("No resource pools defined");
-        return Err(super::CarbideCliError::Empty);
+        return Err(CarbideCliError::Empty);
     }
 
     let mut table = Table::new();
@@ -37,5 +42,12 @@ pub async fn list(api_client: &ApiClient) -> CarbideCliResult<()> {
         ]);
     }
     table.printstd();
+    Ok(())
+}
+
+pub async fn grow(data: &GrowResourcePool, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let defs = fs::read_to_string(&data.filename)?;
+    let rpc_req = forgerpc::GrowResourcePoolRequest { text: defs };
+    api_client.0.admin_grow_resource_pool(rpc_req).await?;
     Ok(())
 }

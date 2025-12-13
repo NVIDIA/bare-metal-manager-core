@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -16,10 +16,7 @@ use carbide_uuid::machine::MachineId;
 use crate::cfg::cli_options::MachineQuery;
 use crate::rpc::ApiClient;
 
-pub async fn set_host_uefi_password(
-    query: MachineQuery,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+pub async fn set_password(query: &MachineQuery, api_client: &ApiClient) -> CarbideCliResult<()> {
     let response = api_client
         .0
         .set_host_uefi_password(query.query.parse::<MachineId>()?)
@@ -31,10 +28,7 @@ pub async fn set_host_uefi_password(
     Ok(())
 }
 
-pub async fn clear_host_uefi_password(
-    query: MachineQuery,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+pub async fn clear_password(query: &MachineQuery, api_client: &ApiClient) -> CarbideCliResult<()> {
     let response = api_client
         .0
         .clear_host_uefi_password(query.query.parse::<MachineId>()?)

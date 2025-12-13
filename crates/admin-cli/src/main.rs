@@ -14,12 +14,12 @@
 #![allow(clippy::large_enum_variant)]
 use std::collections::{HashSet, VecDeque};
 use std::fs::File;
+use std::io;
 use std::io::{BufReader, Write};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::str::FromStr;
-use std::{fs, io};
 
 use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
 use ::rpc::forge::ConfigSetting;
@@ -32,12 +32,12 @@ use carbide_uuid::machine::MachineId;
 use cfg::cli_options::DpuAction::{AgentUpgradePolicy, Reprovision, Versions};
 use cfg::cli_options::{
     AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
-    CredentialAction, DpaOptions, DpuAction, DpuReprovision, ExpectedMachineJson, Firmware,
-    HostAction, HostReprovision, IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions,
-    Machine, MachineHardwareInfo, MachineHardwareInfoCommand, MachineInterfaces,
-    MachineMetadataCommand, MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment,
-    NvlPartitionOptions, RedfishCommand, ResourcePool, SetAction, Shell, SiteExplorer,
-    TenantKeySetOptions, TpmCa, UriInfo, VpcOptions, VpcPeeringOptions, VpcPrefixOptions,
+    CredentialAction, DpuAction, DpuReprovision, ExpectedMachineJson, Firmware, HostAction,
+    HostReprovision, IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions, Machine,
+    MachineHardwareInfo, MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand,
+    MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment, NvlPartitionOptions,
+    RedfishCommand, SetAction, Shell, SiteExplorer, TenantKeySetOptions, TpmCa, UriInfo,
+    VpcOptions, VpcPrefixOptions,
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
@@ -822,17 +822,7 @@ async fn main() -> color_eyre::Result<()> {
             };
             measurement::dispatch(&cmd, &args, &api_client).await?
         }
-        CliCommand::ResourcePool(rp) => match rp {
-            ResourcePool::Grow(def) => {
-                let defs = fs::read_to_string(&def.filename)?;
-                let rpc_req = forgerpc::GrowResourcePoolRequest { text: defs };
-                let _ = api_client.0.admin_grow_resource_pool(rpc_req).await?;
-                tracing::info!("Resource Pool request sent.");
-            }
-            ResourcePool::List => {
-                resource_pool::list(&api_client).await?;
-            }
-        },
+        CliCommand::ResourcePool(cmd) => resource_pool::dispatch(&cmd, &api_client).await?,
         CliCommand::Ip(ip_command) => match ip_command {
             IpAction::Find(find) => {
                 let req = forgerpc::FindIpAddressRequest {
@@ -935,10 +925,10 @@ async fn main() -> color_eyre::Result<()> {
         },
         CliCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {
-                uefi::set_host_uefi_password(query, &api_client).await?;
+                uefi::cmds::set_password(&query, &api_client).await?;
             }
             HostAction::ClearUefiPassword(query) => {
-                uefi::clear_host_uefi_password(query, &api_client).await?;
+                uefi::cmds::clear_password(&query, &api_client).await?;
             }
             HostAction::GenerateHostUefiPassword => {
                 let password = Credentials::generate_password_no_special_char();
@@ -1586,24 +1576,11 @@ async fn main() -> color_eyre::Result<()> {
                 vpc::set_network_virtualization_type(&api_client, set_vpc_virt).await?
             }
         },
-        CliCommand::Dpa(dpa) => match dpa {
-            DpaOptions::Show(dpa) => {
-                dpa::handle_show(dpa, config.format, &api_client, config.internal_page_size).await?
-            }
-        },
-        CliCommand::VpcPeering(vpc_peering_command) => {
-            use VpcPeeringOptions::*;
-            match vpc_peering_command {
-                Create(create_options) => {
-                    vpc_peering::handle_create(create_options, config.format, &api_client).await?;
-                }
-                Show(show_options) => {
-                    vpc_peering::handle_show(show_options, config.format, &api_client).await?;
-                }
-                Delete(delete_options) => {
-                    vpc_peering::handle_delete(delete_options, config.format, &api_client).await?;
-                }
-            }
+        CliCommand::Dpa(cmd) => {
+            dpa::dispatch(&cmd, &api_client, config.format, config.internal_page_size).await?
+        }
+        CliCommand::VpcPeering(cmd) => {
+            vpc_peering::dispatch(&cmd, &api_client, config.format).await?
         }
         CliCommand::VpcPrefix(vpc_prefix_command) => {
             use VpcPrefixOptions::*;
@@ -1776,7 +1753,7 @@ async fn main() -> color_eyre::Result<()> {
                             )
                             .await?
                         }
-                        ResourcePool => resource_pool::list(&api_client).await?,
+                        ResourcePool => resource_pool::cmds::list(&api_client).await?,
                     };
                 }
 
@@ -1861,8 +1838,8 @@ async fn main() -> color_eyre::Result<()> {
                             .await?
                         }
                         forgerpc::UuidType::DpaInterfaceId => {
-                            dpa::handle_show(
-                                cfg::cli_options::ShowDpa {
+                            dpa::cmds::show(
+                                &dpa::args::ShowDpa {
                                     id: Some(j.id.parse()?),
                                 },
                                 config.format,
