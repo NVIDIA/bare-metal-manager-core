@@ -14,14 +14,12 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
-use carbide_uuid::vpc_peering::VpcPeeringId;
 use clap::builder::BoolishValueParser;
 use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
 use forge_network::virtualization::VpcVirtualizationType;
@@ -38,8 +36,8 @@ use crate::cfg::storage::OsImageActions;
 use crate::cfg::{instance_type, measurement, network_security_group, tenant};
 use crate::vpc_prefix::VpcPrefixSelector;
 use crate::{
-    domain, expected_power_shelf, expected_switch, mlx, ping, power_shelf, rack, scout_stream,
-    switch, version,
+    domain, dpa, expected_power_shelf, expected_switch, mlx, ping, power_shelf, rack,
+    resource_pool, scout_stream, switch, version, vpc_peering,
 };
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
@@ -158,7 +156,7 @@ pub enum CliCommand {
     )]
     Measurement(measurement::Cmd),
     #[clap(about = "Resource pool handling", subcommand, visible_alias = "rp")]
-    ResourcePool(ResourcePool),
+    ResourcePool(resource_pool::Cmd),
     #[clap(about = "Redfish BMC actions", visible_alias = "rf")]
     Redfish(RedfishAction),
     #[clap(about = "Network Devices handling", subcommand)]
@@ -214,7 +212,7 @@ pub enum CliCommand {
     #[clap(about = "VPC related handling", subcommand)]
     Vpc(VpcOptions),
     #[clap(about = "VPC peering handling", subcommand)]
-    VpcPeering(VpcPeeringOptions),
+    VpcPeering(vpc_peering::Cmd),
     #[clap(about = "VPC prefix handling", subcommand)]
     VpcPrefix(VpcPrefixOptions),
     #[clap(
@@ -280,7 +278,7 @@ pub enum CliCommand {
     Firmware(Firmware),
 
     #[clap(about = "DPA related handling", subcommand)]
-    Dpa(DpaOptions),
+    Dpa(dpa::Cmd),
     #[clap(about = "Trim DB tables", subcommand)]
     TrimTable(TrimTableTarget),
     #[clap(about = "Dpu Remediation handling", subcommand)]
@@ -2147,26 +2145,6 @@ impl CliOptions {
 }
 
 #[derive(Parser, Debug)]
-pub enum ResourcePool {
-    #[clap(
-        about = "Add capacity to one or more resource pools from a TOML file. See carbide-api admin_grow_resource_pool docs for example TOML."
-    )]
-    Grow(ResourcePoolDefinition),
-    #[clap(about = "List all resource pools with stats")]
-    List,
-}
-
-#[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("grow")
-        .required(true)
-        .args(&["filename"])))]
-pub struct ResourcePoolDefinition {
-    #[clap(short, long)]
-    pub filename: String,
-}
-
-#[derive(Parser, Debug)]
 pub enum BmcAction {
     #[clap(about = "Reset BMC")]
     BmcReset(BmcResetArgs),
@@ -2636,48 +2614,6 @@ pub struct SetVpcVirt {
 }
 
 #[derive(Parser, Debug)]
-pub enum VpcPeeringOptions {
-    #[clap(about = "Create VPC peering.")]
-    Create(VpcPeeringCreate),
-    #[clap(about = "Show list of VPC peerings.")]
-    Show(VpcPeeringShow),
-    #[clap(about = "Delete VPC peering.")]
-    Delete(VpcPeeringDelete),
-}
-
-#[derive(Parser, Debug)]
-pub struct VpcPeeringCreate {
-    #[clap(help = "The ID of one VPC ID to peer")]
-    pub vpc1_id: VpcId,
-
-    #[clap(help = "The ID of another one VPC ID to peer")]
-    pub vpc2_id: VpcId,
-}
-
-#[derive(Parser, Debug)]
-pub struct VpcPeeringShow {
-    #[clap(
-        long,
-        conflicts_with = "vpc_id",
-        help = "Search by ID of the VPC peering"
-    )]
-    pub id: Option<VpcPeeringId>,
-
-    #[clap(
-        long,
-        conflicts_with = "id",
-        help = "Search by VPC ID to show list of related VPC peerings"
-    )]
-    pub vpc_id: Option<VpcId>,
-}
-
-#[derive(Parser, Debug)]
-pub struct VpcPeeringDelete {
-    #[clap(long, required(true), help = "The ID of the VPC peering to delete")]
-    pub id: VpcPeeringId,
-}
-
-#[derive(Parser, Debug)]
 pub enum VpcPrefixOptions {
     #[clap(hide = true)]
     Create(VpcPrefixCreate),
@@ -2761,18 +2697,6 @@ pub struct VpcPrefixShow {
 pub struct VpcPrefixDelete {
     #[clap(value_name = "VpcPrefixId")]
     pub vpc_prefix_id: VpcPrefixId,
-}
-
-#[derive(Parser, Debug)]
-pub enum DpaOptions {
-    #[clap(about = "Display Dpa information")]
-    Show(ShowDpa),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowDpa {
-    #[clap(help = "The DPA Interface ID to query, leave empty for all (default)")]
-    pub id: Option<DpaInterfaceId>,
 }
 
 #[derive(Parser, Debug)]

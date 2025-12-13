@@ -15,11 +15,11 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use prettytable::{Table, row};
 use rpc::forge::{VpcPeering, VpcPeeringIdList};
 
-use crate::cfg::cli_options::{VpcPeeringCreate, VpcPeeringDelete, VpcPeeringShow};
+use super::args::{CreateVpcPeering, DeleteVpcPeering, ShowVpcPeering};
 use crate::rpc::ApiClient;
 
-pub async fn handle_create(
-    args: VpcPeeringCreate,
+pub async fn create(
+    args: &CreateVpcPeering,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -45,8 +45,8 @@ pub async fn handle_create(
     Ok(())
 }
 
-pub async fn handle_show(
-    args: VpcPeeringShow,
+pub async fn show(
+    args: &ShowVpcPeering,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -81,8 +81,8 @@ pub async fn handle_show(
     Ok(())
 }
 
-pub async fn handle_delete(
-    args: VpcPeeringDelete,
+pub async fn delete(
+    args: &DeleteVpcPeering,
     _output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
