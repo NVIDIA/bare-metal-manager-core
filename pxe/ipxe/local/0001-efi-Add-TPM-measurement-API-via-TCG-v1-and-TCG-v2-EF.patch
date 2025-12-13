@@ -1,15 +1,9 @@
-From d86f90b3e40cdf913080f10311220f047e3cab5a Mon Sep 17 00:00:00 2001
+From e4de2437c47a5a549b8a91fbe2323e23786d16f1 Mon Sep 17 00:00:00 2001
 From: Vishnu Rangayyan <vrangayyan@nvidia.com>
-Date: Fri, 31 May 2024 23:23:20 +0530
+Date: Wed, 12 Jun 2024 13:34:31 -0700
 Subject: [PATCH] [efi] Add TPM measurement API via TCG v1 and TCG v2 EFI
  protocols
 
-This follows the TCG EFI firmware profile spec and
-provides an api for the rest of ipxe to measure
-a given memory segment into a specified tpm pcr.
-Also allows to log a separator event at the end of ipxe measurements.
-Absence of a TPM or a disabled TPM is not treated as an error.
-Measure kernel and kernel commandline.
 ---
  src/config/config_tpm.c                       |  30 ++
  src/config/defaults/efi.h                     |   2 +
@@ -33,7 +27,7 @@ Measure kernel and kernel commandline.
 
 diff --git a/src/config/config_tpm.c b/src/config/config_tpm.c
 new file mode 100644
-index 00000000..026ab98d
+index 000000000..026ab98d8
 --- /dev/null
 +++ b/src/config/config_tpm.c
 @@ -0,0 +1,30 @@
@@ -68,7 +62,7 @@ index 00000000..026ab98d
 +REQUIRE_OBJECT ( efi_tpm );
 +#endif
 diff --git a/src/config/defaults/efi.h b/src/config/defaults/efi.h
-index b62ddb46..6e896e25 100644
+index b62ddb46a..6e896e25b 100644
 --- a/src/config/defaults/efi.h
 +++ b/src/config/defaults/efi.h
 @@ -47,6 +47,8 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
@@ -82,7 +76,7 @@ index b62ddb46..6e896e25 100644
  #define EFI_SETTINGS		/* EFI variable settings */
 diff --git a/src/config/tpm.h b/src/config/tpm.h
 new file mode 100644
-index 00000000..5c1d7a3a
+index 000000000..5c1d7a3a7
 --- /dev/null
 +++ b/src/config/tpm.h
 @@ -0,0 +1,25 @@
@@ -112,7 +106,7 @@ index 00000000..5c1d7a3a
 +
 +#endif /* CONFIG_TPM_H */
 diff --git a/src/image/efi_image.c b/src/image/efi_image.c
-index 104753a8..468c0095 100644
+index 104753a85..468c00953 100644
 --- a/src/image/efi_image.c
 +++ b/src/image/efi_image.c
 @@ -38,6 +38,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
@@ -165,7 +159,7 @@ index 104753a8..468c0095 100644
  	/* Attempt loading image */
  	handle = NULL;
 diff --git a/src/include/ipxe/efi/IndustryStandard/UefiTcgPlatform.h b/src/include/ipxe/efi/IndustryStandard/UefiTcgPlatform.h
-index a8998671..6b49fb0a 100644
+index a89986712..6b49fb0a0 100644
 --- a/src/include/ipxe/efi/IndustryStandard/UefiTcgPlatform.h
 +++ b/src/include/ipxe/efi/IndustryStandard/UefiTcgPlatform.h
 @@ -31,6 +31,7 @@ FILE_LICENCE ( BSD2_PATENT );
@@ -178,7 +172,7 @@ index a8998671..6b49fb0a 100644
  #define EV_NONHOST_INFO             ((TCG_EVENTTYPE) 0x00000011)
 diff --git a/src/include/ipxe/efi/Protocol/Tcg2Protocol.h b/src/include/ipxe/efi/Protocol/Tcg2Protocol.h
 new file mode 100644
-index 00000000..de1eb5e0
+index 000000000..de1eb5e07
 --- /dev/null
 +++ b/src/include/ipxe/efi/Protocol/Tcg2Protocol.h
 @@ -0,0 +1,335 @@
@@ -519,7 +513,7 @@ index 00000000..de1eb5e0
 +#endif
 diff --git a/src/include/ipxe/efi/efi_tpm.h b/src/include/ipxe/efi/efi_tpm.h
 new file mode 100644
-index 00000000..92ebf144
+index 000000000..92ebf1445
 --- /dev/null
 +++ b/src/include/ipxe/efi/efi_tpm.h
 @@ -0,0 +1,18 @@
@@ -542,7 +536,7 @@ index 00000000..92ebf144
 +
 +#endif /* _IPXE_EFI_TPM_H */
 diff --git a/src/include/ipxe/errfile.h b/src/include/ipxe/errfile.h
-index 96981dd0..edee2980 100644
+index 96981dd06..edee29800 100644
 --- a/src/include/ipxe/errfile.h
 +++ b/src/include/ipxe/errfile.h
 @@ -417,6 +417,8 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
@@ -556,7 +550,7 @@ index 96981dd0..edee2980 100644
  
 diff --git a/src/include/ipxe/null_tpm.h b/src/include/ipxe/null_tpm.h
 new file mode 100644
-index 00000000..c9309604
+index 000000000..c93096049
 --- /dev/null
 +++ b/src/include/ipxe/null_tpm.h
 @@ -0,0 +1,18 @@
@@ -580,7 +574,7 @@ index 00000000..c9309604
 +#endif /* _IPXE_NULL_TPM_H */
 diff --git a/src/include/ipxe/tpm.h b/src/include/ipxe/tpm.h
 new file mode 100644
-index 00000000..9b457a3f
+index 000000000..9b457a3fd
 --- /dev/null
 +++ b/src/include/ipxe/tpm.h
 @@ -0,0 +1,59 @@
@@ -645,7 +639,7 @@ index 00000000..9b457a3f
 +#endif /* _IPXE_TPM_H */
 diff --git a/src/interface/efi/efi_tpm.c b/src/interface/efi/efi_tpm.c
 new file mode 100644
-index 00000000..3fa2bddd
+index 000000000..7f4e5abf2
 --- /dev/null
 +++ b/src/interface/efi/efi_tpm.c
 @@ -0,0 +1,476 @@
@@ -867,7 +861,7 @@ index 00000000..3fa2bddd
 +
 +#if defined (MDE_CPU_IA32)
 +	buf_addr = (uint32_t)buf;
-+#elif defined (MDE_CPU_X64)
++#elif (defined (MDE_CPU_X64) || defined (MDE_CPU_AARCH64))
 +	buf_addr = (uint64_t)buf;
 +#endif
 +	event->PCRIndex = pcr;
@@ -950,7 +944,7 @@ index 00000000..3fa2bddd
 +
 +#if defined (MDE_CPU_IA32)
 +	buf_addr = (uint32_t)&zeroes;
-+#elif defined (MDE_CPU_X64)
++#elif (defined (MDE_CPU_X64) || defined (MDE_CPU_AARCH64))
 +	buf_addr = (uint64_t)&zeroes;
 +#endif
 +	event->PCRIndex = pcr;
@@ -991,7 +985,7 @@ index 00000000..3fa2bddd
 +
 +#if defined (MDE_CPU_IA32)
 +	buf_addr = (uint32_t)&zeroes;
-+#elif defined (MDE_CPU_X64)
++#elif (defined (MDE_CPU_X64) || defined (MDE_CPU_AARCH64))
 +	buf_addr = (uint64_t)&zeroes;
 +#endif
 +	event->Header.HeaderSize = sizeof ( EFI_TCG2_EVENT_HEADER );

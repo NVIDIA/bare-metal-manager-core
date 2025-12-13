@@ -654,6 +654,7 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 dependencies = [
   "ipxe-config",
+  "ipxe-patch-measured-boot",
   "ipxe-patch-mlnx",
   "ipxe-patch-grace-grace",
   "ipxe-patch-efi-rng",
@@ -665,6 +666,7 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 dependencies = [
   "ipxe-config",
+  "ipxe-patch-measured-boot",
   "ipxe-patch-mlnx",
   "ipxe-patch-grace-grace",
   "ipxe-patch-efi-rng",
@@ -676,7 +678,7 @@ category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
 args = [
-  "ipxe/upstream/src/bin-arm64-efi/ipxe.efi",
+  "ipxe/upstream/src/bin-arm64-efi/snponly.efi",
   "static/blobs/internal/aarch64/ipxe.efi",
 ]
 dependencies = ["ipxe-build-efi-aarch64"]
@@ -686,7 +688,7 @@ category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
 args = [
-  "ipxe/upstream/src/bin-arm64-efi/ipxe.efi",
+  "ipxe/upstream/src/bin-arm64-efi/snponly.efi",
   "static/blobs/internal/aarch64/ipxe.efi",
 ]
 dependencies = ["ipxe-build-efi-aarch64-ci"]
@@ -720,7 +722,7 @@ script = '''
     build-artifacts-container-cross-aarch64 \
     make -j \
       CROSS_COMPILE=aarch64-linux-gnu- \
-      bin-arm64-efi/ipxe.efi \
+      bin-arm64-efi/snponly.efi \
       VERSION=${IPXE_BANNER_VERSION} \
       EMBED=/src/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls \
@@ -728,7 +730,7 @@ script = '''
   else
     make -j \
       CROSS_COMPILE=aarch64-linux-gnu- \
-      bin-arm64-efi/ipxe.efi \
+      bin-arm64-efi/snponly.efi \
       VERSION=${IPXE_BANNER_VERSION} \
       EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls
@@ -742,7 +744,7 @@ description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
 args = [
   "-j",
-  "bin-arm64-efi/ipxe.efi",
+  "bin-arm64-efi/snponly.efi",
   "VERSION=${IPXE_BANNER_VERSION}",
   "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
   "DEBUG=snp,tls",
