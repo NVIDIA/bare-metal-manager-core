@@ -15,7 +15,6 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
@@ -33,8 +32,9 @@ use utils::has_duplicates;
 use crate::cfg::storage::OsImageActions;
 use crate::cfg::{instance_type, measurement, network_security_group, tenant};
 use crate::{
-    domain, dpa, expected_power_shelf, expected_switch, firmware, mlx, ping, power_shelf, rack,
-    resource_pool, scout_stream, switch, tpm_ca, version, vpc, vpc_peering, vpc_prefix,
+    domain, dpa, expected_power_shelf, expected_switch, firmware, ib_partition, mlx, ping,
+    power_shelf, rack, resource_pool, scout_stream, switch, tenant_keyset, tpm_ca, version, vpc,
+    vpc_peering, vpc_prefix,
 };
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
@@ -217,13 +217,13 @@ pub enum CliCommand {
         subcommand,
         visible_alias = "ibp"
     )]
-    IbPartition(IbPartitionOptions),
+    IbPartition(ib_partition::Cmd),
     #[clap(
         about = "Tenant KeySet related handling",
         subcommand,
         visible_alias = "tks"
     )]
-    TenantKeySet(TenantKeySetOptions),
+    TenantKeySet(tenant_keyset::Cmd),
 
     #[clap(
         about = "Broad search across multiple object types",
@@ -2540,45 +2540,6 @@ pub struct BmcProxyOptions {
     pub enabled: bool,
     #[clap(long, action = clap::ArgAction::Set, help = "host:port string use as a proxy for talking to BMC's")]
     pub proxy: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub enum IbPartitionOptions {
-    #[clap(about = "Display InfiniBand Partition information")]
-    Show(ShowIbPartition),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowIbPartition {
-    #[clap(
-        default_value(None),
-        help = "The InfiniBand Partition ID to query, leave empty for all (default)"
-    )]
-    pub id: Option<IBPartitionId>,
-
-    #[clap(short, long, help = "The Tenant Org ID to query")]
-    pub tenant_org_id: Option<String>,
-
-    #[clap(short, long, help = "The InfiniBand Partition name to query")]
-    pub name: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub enum TenantKeySetOptions {
-    #[clap(about = "Display Tenant KeySet information")]
-    Show(ShowTenantKeySet),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowTenantKeySet {
-    #[clap(
-        default_value(""),
-        help = "The Tenant KeySet ID in the format of <tenant_org_id>/<keyset_id> to query, leave empty for all (default)"
-    )]
-    pub id: String,
-
-    #[clap(short, long, help = "The Tenant Org ID to query")]
-    pub tenant_org_id: Option<String>,
 }
 
 #[derive(Parser, Debug)]

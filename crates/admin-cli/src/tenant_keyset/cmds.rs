@@ -16,10 +16,10 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
-use super::cfg::cli_options::ShowTenantKeySet;
+use super::args::ShowTenantKeySet;
 use crate::rpc::ApiClient;
 
-pub async fn handle_show(
+pub async fn show(
     args: ShowTenantKeySet,
     output_format: OutputFormat,
     api_client: &ApiClient,
