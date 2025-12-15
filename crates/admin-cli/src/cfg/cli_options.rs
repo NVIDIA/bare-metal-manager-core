@@ -19,11 +19,9 @@ use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use carbide_uuid::vpc::VpcPrefixId;
 use clap::builder::BoolishValueParser;
 use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
-use forge_network::virtualization::VpcVirtualizationType;
-use ipnet::IpNet;
 use libredfish::model::update_service::ComponentType;
 use mac_address::MacAddress;
 use rpc::InstanceInfinibandConfig;
@@ -34,10 +32,9 @@ use utils::has_duplicates;
 
 use crate::cfg::storage::OsImageActions;
 use crate::cfg::{instance_type, measurement, network_security_group, tenant};
-use crate::vpc_prefix::VpcPrefixSelector;
 use crate::{
-    domain, dpa, expected_power_shelf, expected_switch, mlx, ping, power_shelf, rack,
-    resource_pool, scout_stream, switch, version, vpc_peering,
+    domain, dpa, expected_power_shelf, expected_switch, firmware, mlx, ping, power_shelf, rack,
+    resource_pool, scout_stream, switch, tpm_ca, version, vpc, vpc_peering, vpc_prefix,
 };
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
@@ -210,11 +207,11 @@ pub enum CliCommand {
     #[clap(about = "Expected switch handling", subcommand, visible_alias = "ew")]
     ExpectedSwitch(expected_switch::Cmd),
     #[clap(about = "VPC related handling", subcommand)]
-    Vpc(VpcOptions),
+    Vpc(vpc::Cmd),
     #[clap(about = "VPC peering handling", subcommand)]
     VpcPeering(vpc_peering::Cmd),
     #[clap(about = "VPC prefix handling", subcommand)]
-    VpcPrefix(VpcPrefixOptions),
+    VpcPrefix(vpc_prefix::Cmd),
     #[clap(
         about = "InfiniBand Partition related handling",
         subcommand,
@@ -241,7 +238,7 @@ pub enum CliCommand {
     OsImage(OsImageActions),
 
     #[clap(about = "Manage TPM CA certificates", subcommand)]
-    TpmCa(TpmCa),
+    TpmCa(tpm_ca::Cmd),
 
     #[clap(
         about = "Network security group management",
@@ -275,7 +272,7 @@ pub enum CliCommand {
     Rms(RmsActions),
 
     #[clap(about = "Firmware related actions", subcommand)]
-    Firmware(Firmware),
+    Firmware(firmware::Cmd),
 
     #[clap(about = "DPA related handling", subcommand)]
     Dpa(dpa::Cmd),
@@ -309,38 +306,6 @@ pub enum CliCommand {
 
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
     Tenant(tenant::TenantActions),
-}
-
-#[derive(Parser, Debug)]
-pub enum TpmCa {
-    #[clap(about = "Show all TPM CA certificates")]
-    Show,
-    #[clap(about = "Delete TPM CA certificate with a given id")]
-    Delete(TpmCaDbId),
-    #[clap(about = "Add TPM CA certificate encoded in DER/CER/PEM format in a given file")]
-    Add(TpmCaFile),
-    #[clap(about = "Show TPM EK certificates for which there is no CA match")]
-    ShowUnmatchedEk,
-    #[clap(about = "Add all certificates in a dir as CA certificates")]
-    AddBulk(TpmCaDir),
-}
-
-#[derive(Parser, Debug)]
-pub struct TpmCaDir {
-    #[clap(short, long, help = "Directory path containing all CA certs")]
-    pub dirname: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct TpmCaDbId {
-    #[clap(short, long, help = "TPM CA id obtained from the show command")]
-    pub ca_id: i32,
-}
-
-#[derive(Parser, Debug)]
-pub struct TpmCaFile {
-    #[clap(short, long, help = "File name containing certificate in DER format")]
-    pub filename: String,
 }
 
 #[derive(Parser, Debug)]
@@ -2578,128 +2543,6 @@ pub struct BmcProxyOptions {
 }
 
 #[derive(Parser, Debug)]
-pub enum VpcOptions {
-    #[clap(about = "Display VPC information")]
-    Show(ShowVpc),
-    SetVirtualizer(SetVpcVirt),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowVpc {
-    #[clap(
-        default_value(None),
-        help = "The VPC ID to query, leave empty for all (default)"
-    )]
-    pub id: Option<VpcId>,
-
-    #[clap(short, long, help = "The Tenant Org ID to query")]
-    pub tenant_org_id: Option<String>,
-
-    #[clap(short, long, help = "The VPC name to query")]
-    pub name: Option<String>,
-
-    #[clap(long, help = "The key of VPC label to query")]
-    pub label_key: Option<String>,
-
-    #[clap(long, help = "The value of VPC label to query")]
-    pub label_value: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct SetVpcVirt {
-    #[clap(help = "The VPC ID for the VPC to update")]
-    pub id: VpcId,
-    #[clap(help = "The virtualizer to use for this VPC")]
-    pub virtualizer: VpcVirtualizationType,
-}
-
-#[derive(Parser, Debug)]
-pub enum VpcPrefixOptions {
-    #[clap(hide = true)]
-    Create(VpcPrefixCreate),
-    Show(VpcPrefixShow),
-    #[clap(hide = true)]
-    Delete(VpcPrefixDelete),
-}
-
-#[derive(Parser, Debug)]
-pub struct VpcPrefixCreate {
-    #[clap(
-        long,
-        name = "vpc-id",
-        value_name = "VpcId",
-        help = "The ID of the VPC to contain this prefix"
-    )]
-    pub vpc_id: VpcId,
-
-    #[clap(
-        long,
-        name = "prefix",
-        value_name = "CIDR-prefix",
-        help = "The IP prefix in CIDR notation"
-    )]
-    pub prefix: IpNet,
-
-    #[clap(
-        long,
-        name = "name",
-        value_name = "prefix-name",
-        help = "A short descriptive name for the prefix"
-    )]
-    pub name: String,
-
-    #[clap(
-        long,
-        name = "vpc-prefix-id",
-        value_name = "VpcPrefixId",
-        help = "Specify the VpcPrefixId for the API to use instead of it auto-generating one"
-    )]
-    pub vpc_prefix_id: Option<VpcPrefixId>,
-}
-
-#[derive(Parser, Debug)]
-pub struct VpcPrefixShow {
-    #[clap(
-        name = "VpcPrefixSelector",
-        help = "The VPC prefix (by ID or exact unique prefix) to show (omit for all)"
-    )]
-    pub prefix_selector: Option<VpcPrefixSelector>,
-
-    #[clap(
-        long,
-        name = "vpc-id",
-        value_name = "VpcId",
-        help = "Search by VPC ID",
-        conflicts_with = "VpcPrefixSelector"
-    )]
-    pub vpc_id: Option<VpcId>,
-
-    #[clap(
-        long,
-        name = "contains",
-        value_name = "address-or-prefix",
-        help = "Search by an address or prefix the VPC prefix contains",
-        conflicts_with_all = ["VpcPrefixSelector", "contained-by"],
-    )]
-    pub contains: Option<IpNet>,
-
-    #[clap(
-        long,
-        name = "contained-by",
-        value_name = "prefix",
-        help = "Search by a prefix containing the VPC prefix",
-        conflicts_with_all = ["VpcPrefixSelector", "contains"],
-    )]
-    pub contained_by: Option<IpNet>,
-}
-
-#[derive(Parser, Debug)]
-pub struct VpcPrefixDelete {
-    #[clap(value_name = "VpcPrefixId")]
-    pub vpc_prefix_id: VpcPrefixId,
-}
-
-#[derive(Parser, Debug)]
 pub enum IbPartitionOptions {
     #[clap(about = "Display InfiniBand Partition information")]
     Show(ShowIbPartition),
@@ -3276,15 +3119,6 @@ pub struct BulkUpdatyeSkuMetadata {
     #[clap(help = "The CSV file to use to update metadata for multiple skus")]
     pub filename: String,
 }
-
-#[derive(Parser, Debug)]
-pub enum Firmware {
-    #[clap(about = "Show available firmware")]
-    Show(ShowFirmware),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowFirmware {}
 
 #[derive(Parser, Debug)]
 pub enum DpuRemediation {
