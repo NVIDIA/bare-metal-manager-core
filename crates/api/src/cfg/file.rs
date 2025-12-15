@@ -52,9 +52,11 @@ const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 static BF2_NIC: &str = "24.43.3608";
 static BF2_BMC: &str = "BF-24.10-33";
 static BF2_CEC: &str = "4-15";
+static BF2_UEFI: &str = "4.9.3-22-g5c9f881c3f";
 static BF3_NIC: &str = "32.43.3608";
 static BF3_BMC: &str = "BF-24.10-33";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
+static BF3_UEFI: &str = "4.9.3-22-g5c9f881c3f";
 
 /// carbide-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1448,6 +1450,16 @@ impl Default for DpuConfig {
                                     known_firmware: vec![FirmwareEntry::standard(BF2_NIC)],
                                 },
                             ),
+                            (
+                                FirmwareComponentType::Uefi,
+                                FirmwareComponent {
+                                    current_version_reported_as: Some(
+                                        Regex::new("DPU_UEFI").unwrap(),
+                                    ),
+                                    preingest_upgrade_when_below: None,
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_UEFI)],
+                                },
+                            ),
                         ]),
                     },
                 ),
@@ -1491,6 +1503,16 @@ impl Default for DpuConfig {
                                     ),
                                     preingest_upgrade_when_below: None,
                                     known_firmware: vec![FirmwareEntry::standard(BF3_NIC)],
+                                },
+                            ),
+                            (
+                                FirmwareComponentType::Uefi,
+                                FirmwareComponent {
+                                    current_version_reported_as: Some(
+                                        Regex::new("DPU_UEFI").unwrap(),
+                                    ),
+                                    preingest_upgrade_when_below: None,
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_UEFI)],
                                 },
                             ),
                         ]),
