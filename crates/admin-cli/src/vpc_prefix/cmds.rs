@@ -24,11 +24,11 @@ use rpc::forge::{
 };
 use serde::Serialize;
 
-use crate::cfg::cli_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
+use super::args::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
 use crate::rpc::ApiClient;
 
-pub async fn handle_show(
-    args: VpcPrefixShow,
+pub async fn show(
+    args: &VpcPrefixShow,
     output_format: OutputFormat,
     api_client: &ApiClient,
     batch_size: usize,
@@ -41,20 +41,20 @@ pub async fn handle_show(
         .map_err(CarbideCliError::from)
 }
 
-pub async fn handle_create(
-    args: VpcPrefixCreate,
+pub async fn create(
+    args: &VpcPrefixCreate,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let output = create(api_client, args).await?;
+    let output = do_create(api_client, args).await?;
 
     output
         .write_output(output_format, ::rpc::admin_cli::Destination::Stdout())
         .map_err(CarbideCliError::from)
 }
 
-pub async fn handle_delete(args: VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
-    delete(api_client, args).await
+pub async fn delete(args: &VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
+    do_delete(api_client, args).await
 }
 
 #[derive(Debug)]
@@ -78,24 +78,18 @@ impl ShowOutput {
     }
 }
 
-impl From<VpcPrefixShow> for ShowMethod {
-    fn from(show_args: VpcPrefixShow) -> Self {
-        let VpcPrefixShow {
-            prefix_selector,
-            vpc_id,
-            contains,
-            contained_by,
-        } = show_args;
-        match prefix_selector {
-            Some(selector) => ShowMethod::Get(selector),
+impl From<&VpcPrefixShow> for ShowMethod {
+    fn from(show_args: &VpcPrefixShow) -> Self {
+        match &show_args.prefix_selector {
+            Some(selector) => ShowMethod::Get(selector.clone()),
             None => {
                 let mut search = match_all();
-                search.vpc_id = vpc_id;
-                if let Some(prefix) = contains {
+                search.vpc_id = show_args.vpc_id;
+                if let Some(prefix) = &show_args.contains {
                     search.prefix_match_type = Some(PrefixMatchType::PrefixContains as i32);
                     search.prefix_match = Some(prefix.to_string());
                 };
-                if let Some(prefix) = contained_by {
+                if let Some(prefix) = &show_args.contained_by {
                     search.prefix_match_type = Some(PrefixMatchType::PrefixContainedBy as i32);
                     search.prefix_match = Some(prefix.to_string());
                 };
@@ -105,21 +99,15 @@ impl From<VpcPrefixShow> for ShowMethod {
     }
 }
 
-async fn create(
+async fn do_create(
     api_client: &ApiClient,
-    create_args: VpcPrefixCreate,
+    create_args: &VpcPrefixCreate,
 ) -> Result<ShowOutput, CarbideCliError> {
-    let VpcPrefixCreate {
-        vpc_id,
-        prefix,
-        name,
-        vpc_prefix_id,
-    } = create_args;
     let new_prefix = VpcPrefixCreationRequest {
-        id: vpc_prefix_id,
-        prefix: prefix.to_string(),
-        name,
-        vpc_id: Some(vpc_id),
+        id: create_args.vpc_prefix_id,
+        prefix: create_args.prefix.to_string(),
+        name: create_args.name.clone(),
+        vpc_id: Some(create_args.vpc_id),
     };
     Ok(api_client
         .0
@@ -128,13 +116,12 @@ async fn create(
         .map(ShowOutput::One)?)
 }
 
-async fn delete(
+async fn do_delete(
     api_client: &ApiClient,
-    delete_args: VpcPrefixDelete,
+    delete_args: &VpcPrefixDelete,
 ) -> Result<(), CarbideCliError> {
-    let VpcPrefixDelete { vpc_prefix_id } = delete_args;
     let delete_prefix = VpcPrefixDeletionRequest {
-        id: Some(vpc_prefix_id),
+        id: Some(delete_args.vpc_prefix_id),
     };
     api_client.0.delete_vpc_prefix(delete_prefix).await?;
     Ok(())

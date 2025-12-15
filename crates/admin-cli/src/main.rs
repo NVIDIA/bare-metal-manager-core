@@ -32,12 +32,11 @@ use carbide_uuid::machine::MachineId;
 use cfg::cli_options::DpuAction::{AgentUpgradePolicy, Reprovision, Versions};
 use cfg::cli_options::{
     AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
-    CredentialAction, DpuAction, DpuReprovision, ExpectedMachineJson, Firmware, HostAction,
-    HostReprovision, IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions, Machine,
-    MachineHardwareInfo, MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand,
-    MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment, NvlPartitionOptions,
-    RedfishCommand, SetAction, Shell, SiteExplorer, TenantKeySetOptions, TpmCa, UriInfo,
-    VpcOptions, VpcPrefixOptions,
+    CredentialAction, DpuAction, DpuReprovision, ExpectedMachineJson, HostAction, HostReprovision,
+    IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions, Machine, MachineHardwareInfo,
+    MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
+    ManagedHost, NetworkCommand, NetworkSegment, NvlPartitionOptions, RedfishCommand, SetAction,
+    Shell, SiteExplorer, TenantKeySetOptions, UriInfo,
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
@@ -110,7 +109,7 @@ mod storage;
 mod switch;
 mod tenant;
 mod tenant_keyset;
-mod tpm;
+mod tpm_ca;
 mod uefi;
 mod version;
 mod vpc;
@@ -799,7 +798,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
             ManagedHost::StartUpdates(options) => {
-                crate::firmware::start_updates(&api_client, options).await?
+                firmware::cmds::start_updates(&api_client, options).await?
             }
             ManagedHost::DebugBundle(debug_bundle) => {
                 debug_bundle::handle_debug_bundle(debug_bundle, &api_client).await?;
@@ -936,7 +935,7 @@ async fn main() -> color_eyre::Result<()> {
             }
             HostAction::Reprovision(reprovision) => match reprovision {
                 HostReprovision::Set(data) => {
-                    host::trigger_reprovisioning(
+                    host::cmds::trigger_reprovisioning(
                         data.id,
                         ::rpc::forge::host_reprovisioning_request::Mode::Set,
                         &api_client,
@@ -945,7 +944,7 @@ async fn main() -> color_eyre::Result<()> {
                     .await?
                 }
                 HostReprovision::Clear(data) => {
-                    host::trigger_reprovisioning(
+                    host::cmds::trigger_reprovisioning(
                         data.id,
                         ::rpc::forge::host_reprovisioning_request::Mode::Clear,
                         &api_client,
@@ -953,7 +952,7 @@ async fn main() -> color_eyre::Result<()> {
                     )
                     .await?
                 }
-                HostReprovision::List => host::list_hosts_pending(&api_client).await?,
+                HostReprovision::List => host::cmds::list_hosts_pending(&api_client).await?,
             },
         },
         CliCommand::Redfish(action) => {
@@ -1568,39 +1567,18 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::ExpectedSwitch(cmd) => {
             expected_switch::dispatch(&cmd, &api_client, config.format).await?
         }
-        CliCommand::Vpc(vpc) => match vpc {
-            VpcOptions::Show(vpc) => {
-                vpc::handle_show(vpc, config.format, &api_client, config.internal_page_size).await?
-            }
-            VpcOptions::SetVirtualizer(set_vpc_virt) => {
-                vpc::set_network_virtualization_type(&api_client, set_vpc_virt).await?
-            }
-        },
+        CliCommand::Vpc(cmd) => {
+            vpc::dispatch(cmd, &api_client, config.format, config.internal_page_size).await?
+        }
         CliCommand::Dpa(cmd) => {
             dpa::dispatch(&cmd, &api_client, config.format, config.internal_page_size).await?
         }
         CliCommand::VpcPeering(cmd) => {
             vpc_peering::dispatch(&cmd, &api_client, config.format).await?
         }
-        CliCommand::VpcPrefix(vpc_prefix_command) => {
-            use VpcPrefixOptions::*;
-            match vpc_prefix_command {
-                Create(create_options) => {
-                    vpc_prefix::handle_create(create_options, config.format, &api_client).await?
-                }
-                Show(show_options) => {
-                    vpc_prefix::handle_show(
-                        show_options,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                    )
-                    .await?
-                }
-                Delete(delete_options) => {
-                    vpc_prefix::handle_delete(delete_options, &api_client).await?
-                }
-            }
+        CliCommand::VpcPrefix(cmd) => {
+            vpc_prefix::dispatch(&cmd, &api_client, config.format, config.internal_page_size)
+                .await?
         }
         CliCommand::IbPartition(ibp) => match ibp {
             IbPartitionOptions::Show(ibp) => {
@@ -1812,8 +1790,8 @@ async fn main() -> color_eyre::Result<()> {
                             .await?
                         }
                         forgerpc::UuidType::Vpc => {
-                            vpc::handle_show(
-                                cfg::cli_options::ShowVpc {
+                            vpc::cmds::show(
+                                vpc::args::ShowVpc {
                                     id: Some(j.id.parse()?),
                                     tenant_org_id: None,
                                     name: None,
@@ -2032,19 +2010,7 @@ async fn main() -> color_eyre::Result<()> {
                 storage::os_image_update(os_image, &api_client).await?
             }
         },
-        CliCommand::TpmCa(subcmd) => match subcmd {
-            TpmCa::Show => tpm::show_ca_certs(&api_client).await?,
-            TpmCa::Delete(delete_opts) => {
-                tpm::delete_ca_cert(delete_opts.ca_id, &api_client).await?
-            }
-            TpmCa::Add(add_opts) => {
-                tpm::add_ca_cert_filename(&add_opts.filename, &api_client).await?
-            }
-            TpmCa::AddBulk(add_opts) => {
-                tpm::add_ca_cert_bulk(&add_opts.dirname, &api_client).await?
-            }
-            TpmCa::ShowUnmatchedEk => tpm::show_unmatched_ek_certs(&api_client).await?,
-        },
+        CliCommand::TpmCa(cmd) => tpm_ca::dispatch(&cmd, &api_client).await?,
         CliCommand::NetworkSecurityGroup(nsg_action) => match nsg_action {
             NetworkSecurityGroupActions::Create(args) => {
                 network_security_group::nsg_create(args, config.format, &api_client).await?
@@ -2200,11 +2166,9 @@ async fn main() -> color_eyre::Result<()> {
                 rack::cmds::check_bkc_compliance(&api_client).await?;
             }
         },
-        CliCommand::Firmware(action) => match action {
-            Firmware::Show(_) => {
-                firmware::firmware_show(&api_client, config.format, &mut output_file).await?;
-            }
-        },
+        CliCommand::Firmware(cmd) => {
+            firmware::dispatch(&cmd, &api_client, config.format, &mut output_file).await?
+        }
         CliCommand::TrimTable(target) => {
             match target {
                 cfg::cli_options::TrimTableTarget::MeasuredBoot(keep_entries) => {

@@ -17,10 +17,10 @@ use ::rpc::forge::{self as forgerpc};
 use carbide_uuid::vpc::VpcId;
 use prettytable::{Table, row};
 
-use crate::cfg::cli_options::{SetVpcVirt, ShowVpc};
+use super::args::{SetVpcVirt, ShowVpc};
 use crate::rpc::ApiClient;
 
-pub async fn handle_show(
+pub async fn show(
     args: ShowVpc,
     output_format: OutputFormat,
     api_client: &ApiClient,

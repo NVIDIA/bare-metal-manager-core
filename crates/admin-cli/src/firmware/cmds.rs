@@ -12,11 +12,12 @@
 
 use std::pin::Pin;
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use chrono::TimeZone;
 use prettytable::{Table, row};
 
+use super::args::ShowFirmware;
 use crate::async_write;
 use crate::cfg::cli_options::StartUpdates;
 use crate::rpc::ApiClient;
@@ -72,13 +73,14 @@ pub async fn start_updates(
     Ok(())
 }
 
-pub async fn firmware_show(
-    api_client: &ApiClient,
-    cfg_format: OutputFormat,
+pub async fn show(
+    _args: &ShowFirmware,
+    format: OutputFormat,
     output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
-) -> color_eyre::Result<()> {
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
     let resp = api_client.0.list_host_firmware().await?;
-    match cfg_format {
+    match format {
         OutputFormat::AsciiTable => {
             let mut table = Box::new(Table::new());
             table.set_titles(row![
@@ -104,8 +106,7 @@ pub async fn firmware_show(
         _ => {
             return Err(CarbideCliError::NotImplemented(
                 "Format option not implemented".to_string(),
-            )
-            .into());
+            ));
         }
     }
     Ok(())

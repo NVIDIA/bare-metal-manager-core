@@ -14,32 +14,26 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
 
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use x509_parser::certificate::X509Certificate;
 use x509_parser::pem::parse_x509_pem;
 use x509_parser::prelude::FromDer;
 use x509_parser::validate::*;
 
-use crate::CarbideCliError;
 use crate::rpc::ApiClient;
 
-pub async fn show_ca_certs(api_client: &ApiClient) -> Result<(), CarbideCliError> {
+pub async fn show(api_client: &ApiClient) -> CarbideCliResult<()> {
     let ca_certs = api_client.0.tpm_show_ca_certs().await?.tpm_ca_cert_details;
     println!("{}", serde_json::to_string_pretty(&ca_certs)?);
 
     Ok(())
 }
 
-pub async fn delete_ca_cert(
-    ca_cert_id: i32,
-    api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+pub async fn delete(ca_cert_id: i32, api_client: &ApiClient) -> CarbideCliResult<()> {
     Ok(api_client.0.tpm_delete_ca_cert(ca_cert_id).await?)
 }
 
-pub async fn add_ca_cert_filename(
-    filename: &str,
-    api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+pub async fn add_filename(filename: &str, api_client: &ApiClient) -> CarbideCliResult<()> {
     let filepath = Path::new(filename);
     let is_pem = filepath.with_extension("pem").is_file();
     let is_der =
@@ -51,14 +45,14 @@ pub async fn add_ca_cert_filename(
         ));
     }
 
-    add_ca_cert_individual(filepath, is_pem, api_client).await
+    add_individual(filepath, is_pem, api_client).await
 }
 
-async fn add_ca_cert_individual(
+async fn add_individual(
     filepath: &Path,
     is_pem: bool,
     api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+) -> CarbideCliResult<()> {
     println!("Adding CA Certificate {0}", filepath.to_string_lossy());
     let mut ca_file = File::open(filepath).map_err(CarbideCliError::IOError)?;
 
@@ -108,7 +102,7 @@ async fn add_ca_cert_individual(
     Ok(())
 }
 
-fn validate_ca_cert(ca_cert_bytes: &[u8]) -> Result<(), CarbideCliError> {
+fn validate_ca_cert(ca_cert_bytes: &[u8]) -> CarbideCliResult<()> {
     let ca_cert = X509Certificate::from_der(ca_cert_bytes)
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
         .1;
@@ -124,10 +118,7 @@ fn validate_ca_cert(ca_cert_bytes: &[u8]) -> Result<(), CarbideCliError> {
     Ok(())
 }
 
-pub async fn add_ca_cert_bulk(
-    dirname: &str,
-    api_client: &ApiClient,
-) -> Result<(), CarbideCliError> {
+pub async fn add_bulk(dirname: &str, api_client: &ApiClient) -> CarbideCliResult<()> {
     let dirpath = Path::new(dirname);
 
     // read all files ending with .cer/.der
@@ -140,15 +131,13 @@ pub async fn add_ca_cert_bulk(
     for dir_entry in dir_entry_iter {
         if (dir_entry.path().with_extension("cer").is_file()
             || dir_entry.path().with_extension("der").is_file())
-            && let Err(e) =
-                add_ca_cert_individual(dir_entry.path().as_path(), false, api_client).await
+            && let Err(e) = add_individual(dir_entry.path().as_path(), false, api_client).await
         {
             // we log the error but continue the iteration
             eprintln!("Could not add ca cert {dir_entry:?}: {e}");
         }
         if dir_entry.path().with_extension("pem").is_file()
-            && let Err(e) =
-                add_ca_cert_individual(dir_entry.path().as_path(), true, api_client).await
+            && let Err(e) = add_individual(dir_entry.path().as_path(), true, api_client).await
         {
             // we log the error but continue the iteration
             eprintln!("Could not add ca cert {dir_entry:?}: {e}");
@@ -158,7 +147,7 @@ pub async fn add_ca_cert_bulk(
     Ok(())
 }
 
-pub async fn show_unmatched_ek_certs(api_client: &ApiClient) -> Result<(), CarbideCliError> {
+pub async fn show_unmatched_ek(api_client: &ApiClient) -> CarbideCliResult<()> {
     let unmatched_eks = api_client
         .0
         .tpm_show_unmatched_ek_certs()
