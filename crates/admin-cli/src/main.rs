@@ -33,10 +33,10 @@ use cfg::cli_options::DpuAction::{AgentUpgradePolicy, Reprovision, Versions};
 use cfg::cli_options::{
     AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
     CredentialAction, DpuAction, DpuReprovision, ExpectedMachineJson, HostAction, HostReprovision,
-    IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions, Machine, MachineHardwareInfo,
+    Instance, IpAction, LogicalPartitionOptions, Machine, MachineHardwareInfo,
     MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
     ManagedHost, NetworkCommand, NetworkSegment, NvlPartitionOptions, RedfishCommand, SetAction,
-    Shell, SiteExplorer, TenantKeySetOptions, UriInfo,
+    Shell, SiteExplorer, UriInfo,
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
@@ -1580,28 +1580,14 @@ async fn main() -> color_eyre::Result<()> {
             vpc_prefix::dispatch(&cmd, &api_client, config.format, config.internal_page_size)
                 .await?
         }
-        CliCommand::IbPartition(ibp) => match ibp {
-            IbPartitionOptions::Show(ibp) => {
-                ib_partition::handle_show(
-                    ibp,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
+        CliCommand::IbPartition(cmd) => {
+            ib_partition::dispatch(cmd, &api_client, config.format, config.internal_page_size)
                 .await?
-            }
-        },
-        CliCommand::TenantKeySet(tks) => match tks {
-            TenantKeySetOptions::Show(tks) => {
-                tenant_keyset::handle_show(
-                    tks,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
+        }
+        CliCommand::TenantKeySet(cmd) => {
+            tenant_keyset::dispatch(cmd, &api_client, config.format, config.internal_page_size)
                 .await?
-            }
-        },
+        }
         CliCommand::Jump(j) => {
             // Is it a machine ID?
             // Grab the machine details.
