@@ -78,6 +78,7 @@ pub mod vpc;
 pub mod vpc_dpu_loopback;
 pub mod vpc_peering;
 pub mod vpc_prefix;
+pub mod work_lock_manager;
 
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::error::Error;
@@ -431,6 +432,17 @@ impl DatabaseError {
     }
 
     #[track_caller]
+    pub fn acquire(source: sqlx::Error) -> DatabaseError {
+        let loc = Location::caller();
+        DatabaseError::Sqlx(AnnotatedSqlxError {
+            file: loc.file(),
+            line: loc.line(),
+            query: "acquire connection".into(),
+            source,
+        })
+    }
+
+    #[track_caller]
     pub fn query(query: &str, source: sqlx::Error) -> DatabaseError {
         let loc = Location::caller();
         DatabaseError::Sqlx(AnnotatedSqlxError {
@@ -647,6 +659,47 @@ impl DerefMut for Transaction<'_> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
+    }
+}
+
+#[cfg(test)]
+#[ctor::ctor]
+fn setup_test_logging() {
+    use tracing::metadata::LevelFilter;
+    use tracing_subscriber::filter::EnvFilter;
+    use tracing_subscriber::fmt::TestWriter;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    // This duplicates code from api-test-helper, but we don't want to take a dependency on that.
+    // Copy/pasting is fine.
+    if let Err(e) = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::Layer::default()
+                .compact()
+                .with_writer(TestWriter::new),
+        )
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy()
+                .add_directive("sqlx=warn".parse().unwrap())
+                .add_directive("tower=warn".parse().unwrap())
+                .add_directive("rustify=off".parse().unwrap())
+                .add_directive("rustls=warn".parse().unwrap())
+                .add_directive("hyper=warn".parse().unwrap())
+                .add_directive("h2=warn".parse().unwrap())
+                // Silence permissive mode related messages
+                .add_directive("carbide::auth=error".parse().unwrap()),
+        )
+        .try_init()
+    {
+        // Note: Resist the temptation to ignore this error. We really should only have one place in
+        // the test binary that initializes logging.
+        panic!(
+            "Failed to initialize trace logging for api-db tests. It's possible some earlier \
+            code path has already set a global default log subscriber: {e}"
+        );
     }
 }
 

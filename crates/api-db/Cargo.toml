@@ -42,15 +42,15 @@ rustc-hash = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
-  "mac_address",
-  "ipnetwork",
-  "uuid",
-  "migrate",
-  "postgres",
-  "chrono",
-  "macros",
-  "json",
+    "runtime-tokio-rustls",
+    "mac_address",
+    "ipnetwork",
+    "uuid",
+    "migrate",
+    "postgres",
+    "chrono",
+    "macros",
+    "json",
 ] }
 thiserror = { workspace = true }
 time = { workspace = true }
@@ -66,9 +66,9 @@ uuid = { features = ["v4", "serde"], workspace = true }
 [features]
 default = ["linux-build"]
 linux-build = [
-  "tss-esapi",
-  "carbide-sqlx-testing/linux-build",
-  "carbide-host-support/linux-build",
+    "tss-esapi",
+    "carbide-sqlx-testing/linux-build",
+    "carbide-host-support/linux-build",
 ]
 
 [build-dependencies]
@@ -78,6 +78,8 @@ carbide-version = { path = "../version" }
 lazy_static = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+tracing-subscriber = { workspace = true }
+ctor = { workspace = true }
 
 [lints]
 workspace = true

@@ -20,6 +20,7 @@ use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::DatabaseError;
+use db::work_lock_manager::WorkLockManagerHandle;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use model::machine::Machine;
@@ -57,6 +58,7 @@ pub struct Api {
     #[allow(unused)]
     pub(crate) rms_client: Arc<Box<dyn RmsApi>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
+    pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
 }
 
 pub(crate) type ScoutStreamType =
