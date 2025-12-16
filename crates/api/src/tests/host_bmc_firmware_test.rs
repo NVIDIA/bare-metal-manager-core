@@ -61,6 +61,7 @@ async fn test_preingestion_bmc_upgrade(
         None,
         None,
         None,
+        env.api.work_lock_manager_handle.clone(),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -249,6 +250,7 @@ async fn test_preingestion_upgrade_script(
         None,
         None,
         None,
+        env.api.work_lock_manager_handle.clone(),
     );
 
     let response = env
@@ -911,6 +913,7 @@ async fn test_preingestion_preupdate_powercycling(
         None,
         None,
         None,
+        env.api.work_lock_manager_handle.clone(),
     );
 
     let mut txn = pool.begin().await.unwrap();

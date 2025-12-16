@@ -26,6 +26,7 @@ use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
+use db::work_lock_manager;
 use dpu::DpuConfig;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
@@ -1073,6 +1074,12 @@ pub async fn create_test_env_with_overrides(
     overrides: TestEnvOverrides,
 ) -> TestEnv {
     let db_pool = create_pool(db_pool).await;
+    let work_lock_manager_handle = work_lock_manager::start(
+        db_pool.clone(),
+        work_lock_manager::KeepaliveConfig::default(),
+    )
+    .await
+    .expect("work_lock_manager failed to start: no availble connections?");
     let test_meter = TestMeter::default();
     let credential_provider = Arc::new(TestCredentialProvider::default());
     populate_default_credentials(credential_provider.as_ref()).await;
@@ -1215,6 +1222,7 @@ pub async fn create_test_env_with_overrides(
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
         rms_client,
         nmxm_pool: nmxm_sim.clone(),
+        work_lock_manager_handle,
     });
 
     let attestation_enabled = config.attestation_enabled;

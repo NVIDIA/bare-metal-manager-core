@@ -12,10 +12,12 @@
 
 use std::collections::HashMap;
 use std::default::Default;
+use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, Transaction};
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
@@ -61,11 +63,16 @@ struct PreingestionManagerStatic {
     hgx_bmc_gpu_reboot_delay: Duration,
     upgrade_script_state: Arc<UpdateScriptManager>,
     credential_provider: Option<Arc<dyn CredentialProvider>>,
+    work_lock_manager_handle: WorkLockManagerHandle,
 }
 
 impl PreingestionManager {
-    const DB_LOCK_QUERY: &'static str = "SELECT pg_try_advisory_xact_lock((SELECT 'preingestion_manager_lock'::regclass::oid)::integer)";
+    const ITERATION_WORK_KEY: &'static str = "PreingestionManager::run_single_iteration";
 
+    // Note on allow(too_many_arguments): It's normal for long-running services like this, which
+    // integrate a lot of other services together (redfish, credentialss, config, work manager,
+    // etc.) to require a lot of arguments. We can't really avoid this.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
@@ -74,6 +81,7 @@ impl PreingestionManager {
         downloader: Option<FirmwareDownloader>,
         upload_limiter: Option<Arc<Semaphore>>,
         credential_provider: Option<Arc<dyn CredentialProvider>>,
+        work_lock_manager_handle: WorkLockManagerHandle,
     ) -> PreingestionManager {
         let hold_period = config
             .firmware_global
@@ -105,6 +113,7 @@ impl PreingestionManager {
                     .hgx_bmc_gpu_reboot_delay
                     .to_std()
                     .unwrap_or(Duration::from_secs(30)),
+                work_lock_manager_handle,
             }),
             metric_holder,
         }
@@ -140,22 +149,36 @@ impl PreingestionManager {
 
     /// run_single_iteration runs a single iteration of the state machine across all explored endpoints in the preingestion state.
     /// Returns true if we stopped early due to a timeout.
-    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = PreingestionMetrics::new();
+        let db = &self.static_info.database_connection;
 
-        let mut txn = Transaction::begin(&self.static_info.database_connection).await?;
-
-        if !sqlx::query_scalar(PreingestionManager::DB_LOCK_QUERY)
-            .fetch_one(txn.as_pgconn())
+        let _work_lock = match self
+            .static_info
+            .work_lock_manager_handle
+            .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
             .await
-            .unwrap_or(false)
         {
-            // Unable to obtain the lock, we'll sleep and try again later.  There must be another instance of carbide-api running.
-            return Ok(());
-        }
+            Ok(lock) => lock,
+            Err(e) => {
+                // Unable to obtain the lock, we'll sleep and try again later.  There must be another instance of carbide-api running.
+                tracing::warn!(
+                    "Unable to acquire lock for {}. Will try again on next iteration: {}",
+                    Self::ITERATION_WORK_KEY,
+                    e
+                );
+                return Ok(());
+            }
+        };
 
-        let items = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+        let items = db::explored_endpoints::find_preingest_not_waiting_not_error(
+            db.acquire()
+                .await
+                .map_err(DatabaseError::acquire)?
+                .deref_mut(),
+        )
+        .await?;
+
         if !items.is_empty() && items.len() < 3 {
             // Show states if a modest amount, just count otherwise
             tracing::debug!(
@@ -206,12 +229,14 @@ impl PreingestionManager {
             }
         }
 
+        let mut conn = db.acquire().await.map_err(DatabaseError::acquire)?;
+
         metrics.machines_in_preingestion =
-            db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn)
+            db::explored_endpoints::find_preingest_not_waiting_not_error(&mut conn)
                 .await?
                 .len();
         metrics.waiting_for_installation =
-            db::explored_endpoints::find_preingest_installing(&mut txn)
+            db::explored_endpoints::find_preingest_installing(&mut conn)
                 .await?
                 .len();
 
@@ -223,7 +248,6 @@ impl PreingestionManager {
         );
         self.metric_holder.update_metrics(metrics);
 
-        txn.commit().await?;
         Ok(())
     }
 }

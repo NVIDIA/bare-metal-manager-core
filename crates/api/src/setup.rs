@@ -15,9 +15,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use db::Transaction;
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
+use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
@@ -196,6 +196,12 @@ pub async fn start_api(
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
+    let work_lock_manager_handle = work_lock_manager::start(
+        db_pool.clone(),
+        work_lock_manager::KeepaliveConfig::default(),
+    )
+    .await?;
+
     let rms_api_url = carbide_config.rms_api_url.clone().unwrap_or_default();
     let rms_client_pool = RmsClientPool::new(&rms_api_url);
     let shared_rms_client = rms_client_pool.create_client().await;
@@ -336,6 +342,7 @@ pub async fn start_api(
         scout_stream_registry: ConnectionRegistry::new(),
         rms_client,
         nmxm_pool: shared_nmxm_pool,
+        work_lock_manager_handle,
     });
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
@@ -380,6 +387,7 @@ pub async fn initialize_and_start_controllers(
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
         nmxm_pool: shared_nmxm_pool,
+        work_lock_manager_handle,
         ..
     } = api_service.as_ref();
     // As soon as we get the database up, observe this version of forge so that we know when it was
@@ -711,6 +719,7 @@ pub async fn initialize_and_start_controllers(
         Some(downloader.clone()),
         Some(upload_limiter),
         Some(api_service.credential_provider.clone()),
+        work_lock_manager_handle.clone(),
     );
     let _preingestion_manager_stop_handle = preingestion_manager.start()?;
 
