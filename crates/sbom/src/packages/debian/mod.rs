@@ -17,6 +17,49 @@ pub fn ensure_apt_initialized() {
     });
 }
 
+/// Check if a package is installed
+pub fn is_package_installed(package_name: &str) -> bool {
+    let output = Command::new("dpkg-query")
+        .args(["-W", "-f=${Status}", package_name])
+        .output();
+
+    if let Ok(output) = output {
+        let status = String::from_utf8_lossy(&output.stdout);
+        output.status.success() && status.contains("install ok installed")
+    } else {
+        false
+    }
+}
+
+/// Ensure a package is installed, installing it if necessary
+pub fn ensure_package_installed(package_name: &str) -> Result<()> {
+    if is_package_installed(package_name) {
+        tracing::debug!("Package {package_name} is already installed");
+        return Ok(());
+    }
+
+    tracing::info!("Installing package: {package_name}");
+    ensure_apt_initialized();
+
+    let output = Command::new("apt-get")
+        .args(["install", "-y", "--no-install-recommends", package_name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .context("Failed to run apt-get install")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::error!("Failed to install {package_name}: {stderr}");
+        return Err(anyhow::anyhow!(
+            "Failed to install {package_name}: {stderr}"
+        ));
+    }
+
+    tracing::info!("Successfully installed {package_name}");
+    Ok(())
+}
+
 /// Setup Debian source repositories
 fn setup_source_repositories() -> Result<()> {
     tracing::info!("Setting up Debian source repositories...");

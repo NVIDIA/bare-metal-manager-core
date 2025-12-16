@@ -10,36 +10,35 @@ use super::{ensure_apt_initialized, get_all_dependencies};
 use crate::types::{DISTROLESS_BASE_PACKAGES, PackageConfig};
 
 /// Get source package name for a binary package
+/// Uses apt-cache show which works for non-installed packages
 fn get_source_package_name(package_name: &str) -> Result<String> {
     tracing::info!("Getting source package name for {package_name}");
-    let output = Command::new("dpkg-query")
-        .args(["-W", "-f=${Source}", package_name])
+
+    let output = Command::new("apt-cache")
+        .args(["show", package_name])
         .output()
-        .context("Failed to run dpkg-query")?;
+        .context("Failed to run apt-cache show")?;
 
     if !output.status.success() {
-        tracing::error!("dpkg-query failed for {package_name}");
-        return Err(anyhow::anyhow!(
-            "dpkg-query -W -f=\"${{Source}}\" failed for {package_name}"
-        ));
+        tracing::error!("apt-cache show failed for {package_name}");
+        return Err(anyhow::anyhow!("apt-cache show failed for {package_name}"));
     }
 
-    let source_field = String::from_utf8_lossy(&output.stdout);
-    tracing::debug!("Source field: {source_field}");
-    // Source field may contain version like "curl (7.88.1-10)"
-    let source_pkg = source_field
-        .split_whitespace()
-        .next()
-        .unwrap_or(package_name)
-        .to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout);
 
-    Ok(if source_pkg.is_empty() {
-        tracing::error!("Source package is empty for {package_name}");
-        package_name.to_string()
-    } else {
-        tracing::debug!("Source package: {source_pkg}");
-        source_pkg
-    })
+    // Look for "Source: <name>" line (may include version like "Source: newt (0.52.21-4)")
+    for line in stdout.lines() {
+        if let Some(source) = line.strip_prefix("Source: ") {
+            // Take first word (source package name without version)
+            let source_pkg = source.split_whitespace().next().unwrap_or(package_name);
+            tracing::debug!("Source package for {package_name}: {source_pkg}");
+            return Ok(source_pkg.to_string());
+        }
+    }
+
+    // No Source field means binary package name == source package name
+    tracing::debug!("No Source field, using package name: {package_name}");
+    Ok(package_name.to_string())
 }
 
 /// Check if source package already downloaded
@@ -115,6 +114,13 @@ pub fn download_sources<S: ::std::hash::BuildHasher + Default>(
                 "Failed to get source package name for {pkg}"
             ));
         };
+
+        // Skip if source package is in the exclusion list
+        // (e.g., liblzma5 has source "xz-utils" which is in DISTROLESS_BASE_PACKAGES)
+        if excluded.contains(&source_pkg) {
+            tracing::debug!("Skipping source {source_pkg} (from binary {pkg}) - in exclusion list");
+            continue;
+        }
 
         // Skip if already processed
         if downloaded_sources.contains(&source_pkg) {
