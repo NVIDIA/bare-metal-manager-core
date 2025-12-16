@@ -36,8 +36,6 @@ fn main() {
         .file(format!("{kea_shim_root}/callouts.cc"))
         .file(format!("{kea_shim_root}/carbide_logger.cc"))
         .include(kea_include_path)
-        .shared_flag(false)
-        .static_flag(false)
         .pic(true)
         .compile("keashim");
 

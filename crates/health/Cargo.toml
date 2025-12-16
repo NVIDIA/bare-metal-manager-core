@@ -11,35 +11,34 @@ name = "forge-hw-health"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = { workspace = true }
 base64 = { workspace = true }
-clap = { workspace = true }
 chrono = { workspace = true }
-eyre = { workspace = true }
+dashmap = { workspace = true }
+figment = { workspace = true, features = ["toml", "env"] }
 futures = { workspace = true }
-libredfish = { workspace = true }
+http = { workspace = true }
 humantime = { workspace = true }
+humantime-serde = { workspace = true }
 hyper = { workspace = true }
-hyper-util = { workspace = true, features = ["tokio"] }
-http-body-util = { workspace = true }
-lazy_static = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-prometheus = { workspace = true }
+hyper-util = { workspace = true }
 prometheus = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
-# The "*" version has old `digest` who's `subtle` conflicts with reqwest
-sha2 = { workspace = true }
+serde_with = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = [
-  "env-filter",
-  "local-time",
+    "env-filter",
+    "local-time",
 ], workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
+nv-redfish = { workspace = true }
+nv-redfish-core = { workspace = true }
+nv-redfish-bmc-http = { workspace = true }
+rand = { workspace = true }
+url = { workspace = true }
 
 # [local-dependencies]
 carbide-health-report = { path = "../health-report" }
