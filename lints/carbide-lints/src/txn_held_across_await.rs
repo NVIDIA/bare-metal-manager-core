@@ -9,13 +9,14 @@ use rustc_hir::{
 };
 use rustc_lint_defs::{Lint, LintPass, LintVec};
 use rustc_middle::hir::nested_filter;
-use rustc_middle::mir::Location;
-use rustc_middle::ty::{Adt, Ty as MiddleTy, TyCtxt, TypeckResults};
+use rustc_middle::hir::place::{Place as HirPlace, PlaceBase};
+use rustc_middle::mir::{Location, ProjectionElem};
+use rustc_middle::ty::{Adt, Ty as MiddleTy, TyCtxt, TypeckResults, UpvarId, UpvarPath};
 use rustc_middle::{bug, mir};
 use rustc_mir_dataflow::Analysis;
 use rustc_mir_dataflow::impls::{MaybeInitializedPlaces, MaybeUninitializedPlaces};
-use rustc_mir_dataflow::move_paths::MoveData;
-use rustc_span::def_id::{DefId, LocalDefId};
+use rustc_mir_dataflow::move_paths::{LookupResult, MoveData};
+use rustc_span::def_id::DefId;
 use rustc_span::{Span, Symbol};
 use rustc_type_ir::inherent::SliceLike;
 
@@ -143,61 +144,24 @@ impl LintPass for TxnHeldAcrossAwait {
 }
 
 impl TxnHeldAcrossAwait {
-    pub fn check_coroutine<'a, 'tcx>(
+    /// Perform the TxnHeldAcrossAwait lint on any locals which are "interior" to a closure. For
+    /// desugared `async fn` bodies, this checks both locals declared in the function, and any of
+    /// its input parameters. For `async move { ... }` closures, it can only check locals defined
+    /// inside the closure, and does *not* check variables referenced from the parent scope.
+    pub fn check_closure_locals<'tcx>(
         &mut self,
         tcx: TyCtxt<'tcx>,
-        def_id: LocalDefId,
-        mir_body: &'a mir::Body<'tcx>,
+        closure: &'tcx hir::Closure<'tcx>,
     ) {
+        let mir_body = tcx.mir_promoted(closure.def_id).0.borrow();
         // In async rust, functions are turned into a coroutine closure, capturing what is
         // essentially an enum, with variants corresponding to each chunk of code between await
         // points. These are what we're checking.
-        if let Some(coroutine_layout) = tcx.mir_coroutine_witnesses(def_id) {
-            self.check_interior_types(tcx, def_id, coroutine_layout, mir_body);
-        }
-    }
-
-    /// Check if the given DefId resolves to a sqlx::Transaction
-    fn is_sqlx_transaction(&self, tcx: TyCtxt<'_>, def_id: DefId) -> bool {
-        let path = tcx.def_path(def_id);
-        let path_as_syms = path
-            .data
-            .iter()
-            .map(|i| i.as_sym(false))
-            .collect::<Vec<_>>();
-        let result = self
-            .txn_symbol_paths
-            .iter()
-            // TODO: ignoring crates via skip(1), we shouldn't do that
-            .any(|txn_path| txn_path.iter().skip(1).eq(path_as_syms.iter()));
-
-        result
-    }
-
-    /// Check if the given rustc_middle::Ty (ie. output from typeck) resolves to a sqlx::Transaction
-    fn is_sqlx_transaction_ty(&self, tcx: TyCtxt<'_>, ty: &MiddleTy) -> bool {
-        let def_id = match ty.peel_refs().kind() {
-            Adt(adt, _) => adt.did(),
-            _ => {
-                return false;
-            }
+        let Some(coroutine) = tcx.mir_coroutine_witnesses(closure.def_id) else {
+            return;
         };
-        self.is_sqlx_transaction(tcx, def_id)
-    }
-
-    // Check a given coroutine (the implementation of a function with await statements) for any fields
-    // carried between await statements (expressed as variants of the coroutine layout) that are
-    // `sqlx::Transaction` types, and for which the await statement is not coming from a function in
-    // `db::*`. If so, emit a lint warning.
-    fn check_interior_types<'a, 'tcx>(
-        &self,
-        tcx: TyCtxt<'tcx>,
-        owner_def_id: LocalDefId,
-        coroutine: &mir::CoroutineLayout<'tcx>,
-        mir_body: &'a mir::Body<'tcx>,
-    ) {
         // Get the user-visible function that desugared into this coroutine
-        let outer_fn = tcx.parent_hir_node(tcx.local_def_id_to_hir_id(owner_def_id));
+        let outer_fn = tcx.parent_hir_node(tcx.local_def_id_to_hir_id(closure.def_id));
 
         // Get any txns passed as input parameters (which are sometimes not included in coroutine
         // variants)
@@ -205,7 +169,7 @@ impl TxnHeldAcrossAwait {
 
         // Get the HIR (high-level representation) body for this coroutine's owner (the function
         // itself)
-        let hir_node = tcx.hir_node_by_def_id(owner_def_id);
+        let hir_node = tcx.hir_node_by_def_id(closure.def_id);
         let hir_body_id = hir_node.body_id().expect("no HIR body");
         let hir_body = tcx.hir_body(hir_body_id);
 
@@ -250,13 +214,13 @@ impl TxnHeldAcrossAwait {
             // Now we have spans for each txn local in scope across this await point
             for local_span in txn_local_spans {
                 // Find the MIR (mid-level representation) local for this span
-                let Some((local, local_decl)) = self.find_mir_local(mir_body, local_span) else {
+                let Some((local, local_decl)) = self.find_mir_local(&mir_body, local_span) else {
                     bug!("could not find mir local corresponding to local span");
                 };
 
                 // Don't warn if the local is not alive (ie. has been moved via a .commit() or
                 // something)
-                if is_local_dead_at_span(local, source_info.span, &move_data, mir_body, tcx) {
+                if is_local_dead_at_span(local, source_info.span, &move_data, &mir_body, tcx) {
                     continue;
                 }
 
@@ -268,14 +232,16 @@ impl TxnHeldAcrossAwait {
                 // is the "real" definition of the variable, and the span it returns is the one that
                 // will actually match the HIR ID we're looking for. See comments in
                 // [`TxnHeldAcrossAwait::find_mir_local`] for more info.
-                if DbAwaitFinder::await_is_passing_local_as_param(DbAwaitSearch {
-                    await_span: source_info.span,
-                    txn_local_span: local_decl.source_info.span,
-                    lint: self,
-                    tcx,
-                    body: tcx.hir_body(outer_fn.body_id().unwrap()),
+                if DbAwaitFinder::await_is_passing_local_as_param(
+                    &self,
+                    DbAwaitSearchParams {
+                        await_span: source_info.span,
+                        txn_local: SpanOrHirId::Span(local_decl.source_info.span),
+                    },
+                    hir_body,
                     typeck_results,
-                }) {
+                    tcx,
+                ) {
                     continue;
                 }
 
@@ -292,6 +258,159 @@ impl TxnHeldAcrossAwait {
                 );
             }
         }
+    }
+
+    /// Perform the TxnHeldAcrossAwait lint on an explicit async closure (ie. async move { ... }),
+    /// checking for transactions captured as "upvars" (variables captured from the surrounding
+    /// scope.) This uses different logic for finding alive variables from the sort of closures
+    /// generated by `async fn` desugaring, so it gets a separate function.
+    pub fn check_closure_upvars<'tcx>(
+        &mut self,
+        tcx: TyCtxt<'tcx>,
+        closure: &'tcx hir::Closure<'tcx>,
+    ) {
+        let mir_body = tcx.mir_promoted(closure.def_id).0.borrow();
+        let Some(coroutine) = tcx.mir_coroutine_witnesses(closure.def_id) else {
+            return;
+        };
+
+        // Gather typeck results, needed to get type info for locals
+        let typeck_results = tcx.typeck_body(closure.body);
+
+        // Gather all move data in the MIR body (to analyze when txn's are moved out of scope)
+        let move_data = MoveData::gather_moves(&mir_body, tcx, |_| true);
+
+        // For upvars, we use `tcx.closure_captures()` to discover which values are captured. For
+        // liveness checking we need a MIR `Place` that refers to the storage of that capture. In
+        // closure/coroutine MIR, the first argument is the closure/coroutine environment (`self`).
+        // Captured upvars are stored as fields in that environment, in the same order as
+        // `closure_captures()`. So the `capture_idx`th capture corresponds to `self.<field capture_idx>`
+        // (or `(*self).<field capture_idx>` when `self` is by reference).
+        let txn_local_places = tcx
+            .closure_captures(closure.def_id)
+            .iter()
+            .enumerate()
+            .filter_map(|(capture_idx, place)| {
+                if !self.is_sqlx_transaction_ty(tcx, &place.place.base_ty) {
+                    return None;
+                }
+
+                // In closure/coroutine MIR, the first argument is the environment (`self`) that
+                // stores captured upvars. It’s an Adt, so a struct with anonymous/numbered fields
+                // that correspond to the captures (in the same order that `closure_captures`
+                // returns)
+                let Some(self_local) = mir_body.args_iter().next() else {
+                    bug!("Closure/coroutine MIR body should have a first self argument");
+                };
+                let mut proj = vec![];
+
+                // Get the MIR LocalDecl for the self arg
+                let self_ty = mir_body.local_decls[self_local].ty;
+
+                // If the env argument is by reference, MIR represents access to captures as
+                // (*self).field, so we add a Deref projection before selecting the capture field
+                if self_ty.is_ref() {
+                    proj.push(ProjectionElem::Deref);
+                }
+
+                // Another projection is the `capture_idx`th field within the self Adt, which is
+                // the actual upvar we want.
+                let field = rustc_abi::FieldIdx::from_usize(capture_idx);
+                proj.push(ProjectionElem::Field(field, place.place.ty()));
+
+                let mir_place = mir::Place {
+                    local: self_local,
+                    projection: tcx.mk_place_elems(&proj),
+                };
+                Some((mir_place, *place))
+            })
+            .collect::<Vec<_>>();
+
+        // Now we go through each variant of the coroutine (which correspond to await points), and
+        // find any transactions being held across them.
+        for source_info in coroutine.variant_source_info.iter() {
+            if source_info.span.is_empty() {
+                continue;
+            }
+
+            // Are any Transactions being held across this await?
+            // Now we have "place" information for each txn local in scope across this await point
+            for (mir_local_place, hir_local_place) in txn_local_places.iter() {
+                let Some(txn_local_hir_id) = hir_local_place.place.hir_id() else {
+                    bug!(
+                        "No hir_id for txn local at {:?}",
+                        hir_local_place.var_ident.span
+                    );
+                };
+
+                // Don't warn if the local is not alive (ie. has been moved via a .commit() or
+                // something)
+                if is_local_dead_at_place(
+                    &mir_local_place,
+                    source_info.span,
+                    &move_data,
+                    &mir_body,
+                    tcx,
+                ) {
+                    continue;
+                }
+
+                // If this await is from a function call where we're passing this transaction local,
+                // don't warn.
+                if DbAwaitFinder::await_is_passing_local_as_param(
+                    &self,
+                    DbAwaitSearchParams {
+                        await_span: source_info.span,
+                        txn_local: SpanOrHirId::HirId(txn_local_hir_id),
+                    },
+                    tcx.hir_body(closure.body),
+                    typeck_results,
+                    tcx,
+                ) {
+                    continue;
+                }
+
+                tcx.node_span_lint(
+                    TXN_HELD_ACROSS_AWAIT,
+                    closure.body.hir_id,
+                    source_info.span,
+                    |diag| {
+                        diag.primary_message(
+                            "A sqlx::Transaction is being held across this 'await' point",
+                        );
+                        diag.span_note(hir_local_place.var_ident.span, "Transaction declared here");
+                    },
+                );
+            }
+        }
+    }
+
+    /// Check if the given DefId resolves to a sqlx::Transaction
+    fn is_sqlx_transaction(&self, tcx: TyCtxt<'_>, def_id: DefId) -> bool {
+        let path = tcx.def_path(def_id);
+        let path_as_syms = path
+            .data
+            .iter()
+            .map(|i| i.as_sym(false))
+            .collect::<Vec<_>>();
+        let result = self
+            .txn_symbol_paths
+            .iter()
+            // TODO: ignoring crates via skip(1), we shouldn't do that
+            .any(|txn_path| txn_path.iter().skip(1).eq(path_as_syms.iter()));
+
+        result
+    }
+
+    /// Check if the given rustc_middle::Ty (ie. output from typeck) resolves to a sqlx::Transaction
+    pub fn is_sqlx_transaction_ty(&self, tcx: TyCtxt<'_>, ty: &MiddleTy) -> bool {
+        let def_id = match ty.peel_refs().kind() {
+            Adt(adt, _) => adt.did(),
+            _ => {
+                return false;
+            }
+        };
+        self.is_sqlx_transaction(tcx, def_id)
     }
 
     /// Given a function Node, get any input parameters of type sqlx::Transaction
@@ -370,7 +489,7 @@ impl TxnHeldAcrossAwait {
     /// - `txn.prepare("SELECT true") // txn is the receiver`
     /// - `some_fn(&mut txn) // any level of borrows are ok`
     /// - `some_fn(txn.deref_mut()) // deref_mut() is a special case`
-    fn is_passing_txn<'tcx>(
+    pub fn is_passing_txn<'tcx>(
         &self,
         txn_local_hir_id: HirId,
         awaited: &Expr<'tcx>,
@@ -483,27 +602,24 @@ impl ExprExt for Expr<'_> {
 ///
 /// - The expression that `await_span` (the `.await` statement itself) is chained to, for example
 ///   `foo()` in `foo().await`
-/// - The `HirId` of the local variable that `txn_local_span` refers to.
+/// - The `HirId` of the local variable that `txn_local_span` refers to, if it's not already known.
 ///
 /// With both of these pieces of information, we can answer the question "is this await statement
 /// passing this transaction as an argument?" which is how we "allow" a transaction to be held
 /// across an await.
-struct DbAwaitFinder<'a, 'tcx> {
+struct DbAwaitFinder<'tcx> {
     tcx: TyCtxt<'tcx>,
-    // The span containing the `await` statement itself
-    await_span: Span,
-    // The span for the original definition of the local variable holding the transaction (typically named `txn`, etc.) We get this from the data in mir_coroutine_witnesses
-    txn_local_span: Span,
+    params: DbAwaitSearchParams,
     // Keep track of all expressions so we can recover the one we're awaiting
-    all_exprs: FxHashMap<HirId, &'a Expr<'tcx>>,
+    all_exprs: FxHashMap<HirId, &'tcx Expr<'tcx>>,
 
     // What we're trying to find:
-    txn_local_hir_id: Option<HirId>,
-    await_expr: Option<&'a Expr<'tcx>>,
+    found_txn_local_hir_id: Option<HirId>,
+    awaited_expr_hir_id: Option<HirId>,
 }
 
-impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'a, 'tcx> {
-    type NestedFilter = nested_filter::OnlyBodies;
+impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'tcx> {
+    type NestedFilter = nested_filter::All;
 
     fn maybe_tcx(&mut self) -> Self::MaybeTyCtxt {
         self.tcx
@@ -513,18 +629,21 @@ impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'a, 'tcx> {
     // assign it to self.txn_local_hir_id. This way we can correlate the locals sent to the awaited
     // call, to the txn local being held across the await.
     fn visit_local(&mut self, let_stmt: &'tcx LetStmt<'tcx>) {
-        if let PatKind::Tuple(tuple_vars, _dotdot_position) = let_stmt.pat.kind {
-            // Statement is a tuple... e.g. `let (txn, stuff) = make_transaction_and_stuff()`;
-            for v in tuple_vars.iter() {
-                if v.span.source_equal(self.txn_local_span) {
-                    self.txn_local_hir_id = Some(v.hir_id);
+        // Are we looking for the HIR id of the txn local?
+        if let SpanOrHirId::Span(txn_local_span) = self.params.txn_local {
+            if let PatKind::Tuple(tuple_vars, _dotdot_position) = let_stmt.pat.kind {
+                // Statement is a tuple... e.g. `let (txn, stuff) = make_transaction_and_stuff()`;
+                for v in tuple_vars.iter() {
+                    if v.span.source_equal(txn_local_span) {
+                        self.found_txn_local_hir_id = Some(v.hir_id);
+                    }
                 }
+            } else if let_stmt.pat.span.source_equal(txn_local_span) {
+                // Statement's `pat` (the place to the left of the equals sign) equals the span we're
+                // looking for.
+                self.found_txn_local_hir_id = Some(let_stmt.pat.hir_id);
             }
-        } else if let_stmt.pat.span.source_equal(self.txn_local_span) {
-            // Statement's `pat` (the place to the left of the equals sign) equals the span we're
-            // looking for.
-            self.txn_local_hir_id = Some(let_stmt.pat.hir_id);
-        }
+        };
 
         intravisit::walk_local(self, let_stmt);
     }
@@ -544,34 +663,39 @@ impl<'a, 'tcx> Visitor<'tcx> for DbAwaitFinder<'a, 'tcx> {
         ) = expr.kind
         {
             // ... particularly the one that equals `await_span`
-            if expr.span.source_equal(self.await_span)
-                // ... and for which we've already visited the awaited expression
-                && let Some(awaited_expr) = self.all_exprs.get(&awaited)
-            {
-                self.await_expr = Some(*awaited_expr);
+            if expr.span.source_equal(self.params.await_span) {
+                self.awaited_expr_hir_id = Some(awaited);
             }
         }
-
         intravisit::walk_expr(self, expr);
     }
 }
 
-/// Helper to add explicit parameter names to DbAwaitFinder::await_is_passing_local_as_param (else
-/// two Span arguments can be error-prone.)
-struct DbAwaitSearch<'a, 'tcx> {
+#[derive(Copy, Clone)]
+struct DbAwaitSearchParams {
     // The span containing the `await` statement itself
     await_span: Span,
-    // The span for the original definition of the local variable holding the transaction (typically
+    // The original definition of the local variable holding the transaction (typically
     // named `txn`, etc.) We get this from the data in mir_coroutine_witnesses
-    txn_local_span: Span,
-    /// The lint, for calling `.is_passing_txn()`
-    lint: &'a TxnHeldAcrossAwait,
-    tcx: TyCtxt<'tcx>,
-    body: &'a Body<'tcx>,
-    typeck_results: &'a TypeckResults<'tcx>,
+    txn_local: SpanOrHirId,
 }
 
-impl<'a, 'tcx> DbAwaitFinder<'a, 'tcx> {
+#[derive(Copy, Clone)]
+enum SpanOrHirId {
+    Span(Span),
+    HirId(HirId),
+}
+
+impl SpanOrHirId {
+    fn hir_id(&self) -> Option<HirId> {
+        match self {
+            SpanOrHirId::HirId(hir_id) => Some(*hir_id),
+            SpanOrHirId::Span(_) => None,
+        }
+    }
+}
+
+impl<'tcx> DbAwaitFinder<'tcx> {
     /// Checks if `await_span` is passing the local originally defined in `local_span` as a parameter.
     ///
     /// For example, in:
@@ -593,38 +717,55 @@ impl<'a, 'tcx> DbAwaitFinder<'a, 'tcx> {
     /// - Once both are found, calls `lint.is_passing_txn()` with the awaitee expression and the txn
     ///   hir_id, and so returns true if any of the args to the expression are locals with the same
     ///   hir_id as the txn local.
-    fn await_is_passing_local_as_param(search: DbAwaitSearch<'a, 'tcx>) -> bool {
-        let DbAwaitSearch {
-            await_span,
-            txn_local_span,
-            lint,
-            tcx,
-            body,
-            typeck_results,
-        } = search;
-
+    fn await_is_passing_local_as_param(
+        lint: &TxnHeldAcrossAwait,
+        params: DbAwaitSearchParams,
+        body: &'tcx Body,
+        typeck_results: &'tcx TypeckResults,
+        tcx: TyCtxt<'tcx>,
+    ) -> bool {
         let mut finder = Self {
             tcx,
-            await_span,
-            txn_local_span,
+            params,
             all_exprs: Default::default(),
-            await_expr: None,
-            txn_local_hir_id: None,
+            awaited_expr_hir_id: None,
+            found_txn_local_hir_id: None,
         };
         finder.visit_body(body);
 
-        // If we've found both the await expr and the txn local, check if it's being passed.
-        if let Some(txn_local_hir_id) = finder.txn_local_hir_id
-            && let Some(await_expr) = finder.await_expr
-        {
-            lint.is_passing_txn(txn_local_hir_id, await_expr, tcx, typeck_results)
-        } else {
+        let Some(txn_local_hir_id) = finder
+            .params
+            .txn_local
+            .hir_id()
+            .or(finder.found_txn_local_hir_id)
+        else {
             // Here is a good place to put a debugging eprintln if we need to expand the detection
             // of txn locals: Right now we only find simple `let txn =` or `let (txn, ..) =`
             // statements, and nothing complex like `if let Some(txn) =` or `let SomeStruct { txn,
             // ..} =` yet.
-            false
-        }
+            return false;
+        };
+
+        let Some(await_expr) = finder.awaited_expr() else {
+            tcx.node_span_lint(
+                TXN_HELD_ACROSS_AWAIT,
+                body.id().hir_id,
+                params.await_span,
+                |diag| {
+                    diag.primary_message(
+                        "DbAwaitFinder could not find the awaited expression for this await span",
+                    );
+                },
+            );
+            return false;
+        };
+
+        lint.is_passing_txn(txn_local_hir_id, await_expr, tcx, typeck_results)
+    }
+
+    fn awaited_expr(&self) -> Option<&'tcx Expr<'tcx>> {
+        self.awaited_expr_hir_id
+            .and_then(|hir_id| self.all_exprs.get(&hir_id).map(|e| *e))
     }
 }
 
@@ -686,5 +827,84 @@ pub fn qpath_res(qpath: &hir::QPath<'_>) -> Option<Res> {
     match *qpath {
         QPath::Resolved(_, path) => Some(path.res),
         _ => None,
+    }
+}
+
+/// Check if the given mir::Place is "dead" at the point of a given span, meaning it was moved out
+/// of scope, for instance via a call to txn.commit() or txn.rollback().
+fn is_local_dead_at_place<'a, 'tcx>(
+    mir_place: &mir::Place<'tcx>,
+    span: Span,
+    move_data: &'a MoveData<'tcx>,
+    body: &'a mir::Body<'tcx>,
+    tcx: TyCtxt<'tcx>,
+) -> bool {
+    let lookup_result = move_data.rev_lookup.find(mir_place.as_ref());
+    let move_path_index = match lookup_result {
+        LookupResult::Exact(mpi) => mpi,
+        _ => {
+            return false;
+        }
+    };
+    // Maybe{Un,}InitializedPlaces are analyses performed by the borrow checker which can tell you
+    // what "places" (storage holding locals) are maybe-initialized and maybe-initialized at a given
+    // source code location. If a local is in maybe-uninitialized and not in maybe-initialized, it's
+    // "dead" at that point (ie. it's been moved, usually via a call to txn.rollback() or txn.commit().)
+    let mut maybe_initialized_places = MaybeInitializedPlaces::new(tcx, body, move_data)
+        .iterate_to_fixpoint(tcx, body, None)
+        .into_results_cursor(body);
+    let mut maybe_uninitialized_places = MaybeUninitializedPlaces::new(tcx, body, move_data)
+        .iterate_to_fixpoint(tcx, body, None)
+        .into_results_cursor(body);
+
+    // Iterate through each BasicBlock (chunk of code) and each Statement within, until we get to
+    // the span we're looking for (ie. the `.await` call), and return whether the local (txn) we're
+    // looking for is alive or dead when we get there.
+    let mut is_dead = false;
+    'outer: for (block, block_data) in body.basic_blocks.iter_enumerated() {
+        for (statement_index, statement) in block_data.statements.iter().enumerate() {
+            let loc = Location {
+                block,
+                statement_index,
+            };
+
+            // We got to the span we're looking for, we're done, and we can return `is_dead`.
+            if statement.source_info.span.source_equal(span) {
+                break 'outer;
+            }
+
+            // Check if the local is alive or dead after this statement, and store it as is_dead.
+            maybe_uninitialized_places.seek_after_primary_effect(loc);
+            maybe_initialized_places.seek_after_primary_effect(loc);
+            let uninits = maybe_uninitialized_places.get();
+            let inits = maybe_initialized_places.get();
+            if uninits.contains(move_path_index) && !inits.contains(move_path_index) {
+                is_dead = true;
+            } else if inits.contains(move_path_index) && !uninits.contains(move_path_index) {
+                is_dead = false;
+            }
+        }
+    }
+
+    is_dead
+}
+
+trait PlaceHelper {
+    fn hir_id(&self) -> Option<HirId>;
+}
+
+impl PlaceHelper for HirPlace<'_> {
+    fn hir_id(&self) -> Option<HirId> {
+        if let PlaceBase::Local(local_hir_id) = &self.base {
+            Some(*local_hir_id)
+        } else if let PlaceBase::Upvar(UpvarId {
+            var_path: UpvarPath { hir_id },
+            ..
+        }) = &self.base
+        {
+            Some(*hir_id)
+        } else {
+            None
+        }
     }
 }

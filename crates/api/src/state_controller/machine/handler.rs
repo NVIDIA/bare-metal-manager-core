@@ -1934,6 +1934,7 @@ impl StateHandler for MachineStateHandler {
     type ObjectId = MachineId;
     type ContextObjects = MachineStateHandlerContextObjects;
 
+    #[allow(txn_held_across_await)]
     #[instrument(skip_all, fields(object_id=%host_machine_id, state=%_mh_state))]
     async fn handle_object_state(
         &self,
@@ -4433,6 +4434,7 @@ impl StateHandler for HostMachineStateHandler {
     type ObjectId = MachineId;
     type ContextObjects = MachineStateHandlerContextObjects;
 
+    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         host_machine_id: &MachineId,
@@ -4963,6 +4965,7 @@ impl StateHandler for InstanceStateHandler {
     type ObjectId = MachineId;
     type ContextObjects = MachineStateHandlerContextObjects;
 
+    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         host_machine_id: &MachineId,

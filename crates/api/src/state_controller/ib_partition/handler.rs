@@ -33,6 +33,7 @@ impl StateHandler for IBPartitionStateHandler {
     type ControllerState = IBPartitionControllerState;
     type ContextObjects = IBPartitionStateHandlerContextObjects;
 
+    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         partition_id: &IBPartitionId,

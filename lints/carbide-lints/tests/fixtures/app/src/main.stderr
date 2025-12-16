@@ -120,4 +120,28 @@ note: Transaction declared here
 224 | async fn bad_pgpoolconn_fn(_conn: &mut PoolConnection<Postgres>) {
     |                            ^^^^^
 
-error: could not compile `sqlx_app` (bin "sqlx_app") due to 10 previous errors
+error: A sqlx::Transaction is being held across this 'await' point
+   --> src/main.rs:236:37
+    |
+236 |         unrelated_async_work("bad").await;
+    |                                     ^^^^^
+    |
+note: Transaction declared here
+   --> src/main.rs:234:9
+    |
+234 |     let txn = make_transaction();
+    |         ^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+   --> src/main.rs:256:37
+    |
+256 |         unrelated_async_work("bad").await;
+    |                                     ^^^^^
+    |
+note: Transaction declared here
+   --> src/main.rs:255:13
+    |
+255 |         let txn = make_transaction();
+    |             ^^^
+
+error: could not compile `sqlx_app` (bin "sqlx_app") due to 12 previous errors
