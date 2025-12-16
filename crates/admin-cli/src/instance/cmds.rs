@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::VecDeque;
 use std::fmt::Write;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -19,11 +20,13 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
-use super::cfg::cli_options::ShowInstance;
-use super::invalid_machine_id;
-use crate::cfg::cli_options::{RebootInstance, SortField};
+use super::args::{
+    AllocateInstance, GlobalOptions, RebootInstance, ReleaseInstance, ShowInstance, UpdateIbConfig,
+    UpdateInstanceOS,
+};
+use crate::cfg::cli_options::SortField;
 use crate::rpc::ApiClient;
-use crate::{async_write, async_writeln};
+use crate::{async_write, async_writeln, invalid_machine_id, machine};
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,
@@ -509,5 +512,244 @@ pub async fn handle_reboot(args: RebootInstance, api_client: &ApiClient) -> Carb
         args.instance, machine_id
     );
 
+    Ok(())
+}
+
+pub async fn release(
+    api_client: &ApiClient,
+    release_request: ReleaseInstance,
+    opts: &GlobalOptions<'_>,
+) -> CarbideCliResult<()> {
+    if opts.cloud_unsafe_op.is_none() {
+        return Err(CarbideCliError::GenericError(
+            "Operation not allowed due to potential inconsistencies with cloud database."
+                .to_owned(),
+        ));
+    }
+
+    let mut instance_ids: Vec<InstanceId> = Vec::new();
+
+    match (
+        release_request.instance,
+        release_request.machine,
+        release_request.label_key,
+    ) {
+        (Some(instance_id), _, _) => instance_ids.push(
+            uuid::Uuid::parse_str(&instance_id)
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
+                .into(),
+        ),
+        (_, Some(machine_id), _) => {
+            let instances = api_client.0.find_instance_by_machine_id(machine_id).await?;
+            if instances.instances.is_empty() {
+                return Err(CarbideCliError::GenericError(
+                    "No instances assigned to that machine".to_string(),
+                ));
+            }
+            instance_ids.push(instances.instances[0].id.unwrap());
+        }
+        (_, _, Some(key)) => {
+            let instances = api_client
+                .get_all_instances(
+                    None,
+                    None,
+                    Some(key),
+                    release_request.label_value,
+                    None,
+                    opts.page_size,
+                )
+                .await?;
+            if instances.instances.is_empty() {
+                return Err(CarbideCliError::GenericError(
+                    "No instances with the passed label.key exist".to_string(),
+                ));
+            }
+            instance_ids = instances
+                .instances
+                .iter()
+                .filter_map(|instance| instance.id)
+                .collect();
+        }
+        _ => {}
+    };
+    api_client.release_instances(instance_ids).await?;
+    Ok(())
+}
+
+pub async fn allocate(
+    api_client: &ApiClient,
+    allocate_request: AllocateInstance,
+    opts: &GlobalOptions<'_>,
+) -> CarbideCliResult<()> {
+    if opts.cloud_unsafe_op.is_none() {
+        return Err(CarbideCliError::GenericError(
+            "Operation not allowed due to potential inconsistencies with cloud database."
+                .to_owned(),
+        ));
+    }
+
+    let number = allocate_request.number.unwrap_or(1);
+
+    // Validate: --transactional requires --number > 1
+    if allocate_request.transactional && number <= 1 {
+        return Err(CarbideCliError::GenericError(
+            "--transactional requires --number > 1".to_owned(),
+        ));
+    }
+
+    let mut machine_ids: VecDeque<_> = if !allocate_request.machine_id.is_empty() {
+        allocate_request.machine_id.clone().into()
+    } else {
+        api_client
+            .0
+            .find_machine_ids(::rpc::forge::MachineSearchConfig {
+                include_predicted_host: true,
+                ..Default::default()
+            })
+            .await?
+            .machine_ids
+            .into()
+    };
+
+    let min_interface_count = if !allocate_request.vpc_prefix_id.is_empty() {
+        allocate_request.vpc_prefix_id.len()
+    } else {
+        allocate_request.subnet.len()
+    };
+
+    if allocate_request.transactional {
+        // Batch mode: all-or-nothing
+        let mut requests = Vec::new();
+        for i in 0..number {
+            let Some(machine) =
+                machine::get_next_free_machine(api_client, &mut machine_ids, min_interface_count)
+                    .await
+            else {
+                return Err(CarbideCliError::GenericError(format!(
+                    "Need {} machines but only {} available.",
+                    number, i
+                )));
+            };
+
+            let request = api_client
+                .build_instance_request(
+                    machine,
+                    &allocate_request,
+                    &format!("{}_{}", allocate_request.prefix_name, i),
+                    opts.cloud_unsafe_op.clone(),
+                )
+                .await?;
+            requests.push(request);
+        }
+
+        match api_client.allocate_instances(requests).await {
+            Ok(instances) => {
+                tracing::info!(
+                    "Batch allocate was successful. Created {} instances.",
+                    instances.len()
+                );
+                for instance in instances {
+                    tracing::info!("  Created: {:?}", instance);
+                }
+            }
+            Err(e) => {
+                tracing::error!("Batch allocate failed: {}", e);
+            }
+        }
+    } else {
+        // Sequential mode: partial success allowed
+        for i in 0..number {
+            let Some(machine) =
+                machine::get_next_free_machine(api_client, &mut machine_ids, min_interface_count)
+                    .await
+            else {
+                tracing::error!("No available machines.");
+                break;
+            };
+
+            match api_client
+                .allocate_instance(
+                    machine,
+                    &allocate_request,
+                    &format!("{}_{}", allocate_request.prefix_name, i),
+                    opts.cloud_unsafe_op.clone(),
+                )
+                .await
+            {
+                Ok(i) => {
+                    tracing::info!("allocate was successful. Created instance: {:?} ", i);
+                }
+                Err(e) => {
+                    tracing::info!("allocate failed with {} ", e);
+                }
+            };
+        }
+    }
+    Ok(())
+}
+
+pub async fn update_os(
+    api_client: &ApiClient,
+    update_request: UpdateInstanceOS,
+    opts: &GlobalOptions<'_>,
+) -> CarbideCliResult<()> {
+    if opts.cloud_unsafe_op.is_none() {
+        return Err(CarbideCliError::GenericError(
+            "Operation not allowed due to potential inconsistencies with cloud database."
+                .to_owned(),
+        ));
+    }
+
+    match api_client
+        .update_instance_config_with(
+            update_request.instance,
+            |config| {
+                config.os = Some(update_request.os.clone());
+            },
+            |_metadata| {},
+            opts.cloud_unsafe_op.clone(),
+        )
+        .await
+    {
+        Ok(i) => {
+            tracing::info!("update-os was successful. Updated instance: {:?}", i);
+        }
+        Err(e) => {
+            tracing::info!("update-os failed with {} ", e);
+        }
+    };
+    Ok(())
+}
+
+pub async fn update_ib_config(
+    api_client: &ApiClient,
+    update_request: UpdateIbConfig,
+    opts: &GlobalOptions<'_>,
+) -> CarbideCliResult<()> {
+    if opts.cloud_unsafe_op.is_none() {
+        return Err(CarbideCliError::GenericError(
+            "Operation not allowed due to potential inconsistencies with cloud database."
+                .to_owned(),
+        ));
+    }
+
+    match api_client
+        .update_instance_config_with(
+            update_request.instance,
+            |config| {
+                config.infiniband = Some(update_request.config.clone());
+            },
+            |_metadata| {},
+            opts.cloud_unsafe_op.clone(),
+        )
+        .await
+    {
+        Ok(i) => {
+            tracing::info!("update-ib-config was successful. Updated instance: {:?}", i);
+        }
+        Err(e) => {
+            tracing::info!("update-ib-config failed with {} ", e);
+        }
+    };
     Ok(())
 }

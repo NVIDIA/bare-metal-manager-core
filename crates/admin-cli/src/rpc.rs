@@ -44,7 +44,9 @@ use carbide_uuid::vpc::VpcId;
 use carbide_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
-use crate::cfg::cli_options::{self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate};
+use crate::cfg::cli_options;
+use crate::instance::args::AllocateInstance;
+use crate::machine::{ForceDeleteMachineQuery, MachineAutoupdate};
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
 /// methods.

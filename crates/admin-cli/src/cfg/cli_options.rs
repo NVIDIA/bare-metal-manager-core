@@ -10,31 +10,29 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
-use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcPrefixId;
 use clap::builder::BoolishValueParser;
 use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
 use libredfish::model::update_service::ComponentType;
 use mac_address::MacAddress;
-use rpc::InstanceInfinibandConfig;
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::{OperatingSystem, RouteServerSourceType};
+use rpc::forge::RouteServerSourceType;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
 use crate::cfg::storage::OsImageActions;
 use crate::cfg::{instance_type, measurement, network_security_group, tenant};
+use crate::machine::MachineQuery;
 use crate::{
-    domain, dpa, expected_power_shelf, expected_switch, firmware, ib_partition, machine_validation,
-    managed_host, mlx, ping, power_shelf, rack, resource_pool, scout_stream, site_explorer, switch,
-    tenant_keyset, tpm_ca, version, vpc, vpc_peering, vpc_prefix,
+    domain, dpa, dpu, expected_power_shelf, expected_switch, firmware, ib_partition, instance,
+    machine, machine_validation, managed_host, mlx, ping, power_shelf, rack, resource_pool,
+    scout_stream, site_explorer, switch, tenant_keyset, tpm_ca, version, vpc, vpc_peering,
+    vpc_prefix,
 };
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
@@ -129,9 +127,9 @@ pub enum CliCommand {
     #[clap(about = "Print API server version", visible_alias = "v")]
     Version(version::Opts),
     #[clap(about = "Machine related handling", subcommand, visible_alias = "m")]
-    Machine(Machine),
+    Machine(machine::Cmd),
     #[clap(about = "Instance related handling", subcommand, visible_alias = "i")]
-    Instance(Instance),
+    Instance(instance::Cmd),
     #[clap(
         about = "Network Segment related handling",
         subcommand,
@@ -161,7 +159,7 @@ pub enum CliCommand {
     #[clap(about = "IP address handling", subcommand)]
     Ip(IpAction),
     #[clap(about = "DPU specific handling", subcommand)]
-    Dpu(DpuAction),
+    Dpu(dpu::Cmd),
     #[clap(about = "Host specific handling", subcommand)]
     Host(HostAction),
     #[clap(about = "Generate Ansible Inventory")]
@@ -329,84 +327,6 @@ pub enum SetAction {
 pub struct InventoryAction {
     #[clap(short, long, help = "Write to file")]
     pub filename: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub enum DpuAction {
-    #[clap(subcommand, about = "DPU Reprovisioning handling")]
-    Reprovision(DpuReprovision),
-    #[clap(about = "Get or set forge-dpu-agent upgrade policy")]
-    AgentUpgradePolicy(AgentUpgrade),
-    #[clap(about = "View DPU firmware status")]
-    Versions(DpuVersionOptions),
-    #[clap(about = "View DPU Status")]
-    Status,
-    #[clap(subcommand, about = "Networking information")]
-    Network(NetworkCommand),
-}
-
-#[derive(Parser, Debug)]
-pub enum DpuReprovision {
-    #[clap(about = "Set the DPU in reprovisioning mode.")]
-    Set(DpuReprovisionSet),
-    #[clap(about = "Clear the reprovisioning mode.")]
-    Clear(DpuReprovisionClear),
-    #[clap(about = "List all DPUs pending reprovisioning.")]
-    List,
-    #[clap(about = "Restart the DPU reprovision.")]
-    Restart(DpuReprovisionRestart),
-}
-
-#[derive(Parser, Debug)]
-pub struct DpuReprovisionSet {
-    #[clap(
-        short,
-        long,
-        help = "DPU Machine ID for which reprovisioning is needed, or host machine id if all DPUs should be reprovisioned."
-    )]
-    pub id: MachineId,
-
-    #[clap(short, long, action)]
-    pub update_firmware: bool,
-
-    #[clap(
-        long,
-        alias = "maintenance_reference",
-        help = "If set, a HostUpdateInProgress health alert will be applied to the host"
-    )]
-    pub update_message: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct DpuReprovisionClear {
-    #[clap(
-        short,
-        long,
-        help = "DPU Machine ID for which reprovisioning should be cleared, or host machine id if all DPUs should be cleared."
-    )]
-    pub id: MachineId,
-
-    #[clap(short, long, action)]
-    pub update_firmware: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct DpuReprovisionRestart {
-    #[clap(
-        short,
-        long,
-        help = "Host Machine ID for which reprovisioning should be restarted."
-    )]
-    pub id: MachineId,
-
-    #[clap(short, long, action)]
-    pub update_firmware: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct DpuVersionOptions {
-    #[clap(short, long, help = "Only show DPUs that need upgrades")]
-    pub updates_only: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -811,42 +731,6 @@ pub struct ShowExpectedMachineQuery {
 pub struct ExpectedMachineReplaceAllRequest {
     #[clap(short, long)]
     pub filename: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct AgentUpgrade {
-    #[clap(long)]
-    pub set: Option<AgentUpgradePolicyChoice>,
-}
-
-// Should match api/src/model/machine/upgrade_policy.rs AgentUpgradePolicy
-#[derive(ValueEnum, Debug, Clone)]
-pub enum AgentUpgradePolicyChoice {
-    Off,
-    UpOnly,
-    UpDown,
-}
-
-impl fmt::Display for AgentUpgradePolicyChoice {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // enums are a special case where their debug impl is their name ("Off")
-        fmt::Debug::fmt(self, f)
-    }
-}
-
-// From the RPC
-impl From<i32> for AgentUpgradePolicyChoice {
-    fn from(rpc_policy: i32) -> Self {
-        use rpc::forge::AgentUpgradePolicy::*;
-        match rpc_policy {
-            n if n == Off as i32 => AgentUpgradePolicyChoice::Off,
-            n if n == UpOnly as i32 => AgentUpgradePolicyChoice::UpOnly,
-            n if n == UpDown as i32 => AgentUpgradePolicyChoice::UpDown,
-            _ => {
-                unreachable!();
-            }
-        }
-    }
 }
 
 #[derive(Parser, Debug)]
@@ -1267,94 +1151,6 @@ pub struct ShowPort {
 }
 
 #[derive(Parser, Debug)]
-pub enum Machine {
-    #[clap(about = "Display Machine information")]
-    Show(ShowMachine),
-    #[clap(about = "Print DPU admin SSH username:password")]
-    DpuSshCredentials(MachineQuery),
-    #[clap(subcommand, about = "Networking information")]
-    Network(NetworkCommand),
-    #[clap(
-        about = "Health override related handling",
-        subcommand,
-        visible_alias = "ho"
-    )]
-    HealthOverride(OverrideCommand),
-    #[clap(about = "Reboot a machine")]
-    Reboot(BMCConfigForReboot),
-    #[clap(about = "Force delete a machine")]
-    ForceDelete(ForceDeleteMachineQuery),
-    #[clap(about = "Set individual machine firmware autoupdate (host only)")]
-    AutoUpdate(MachineAutoupdate),
-    #[clap(subcommand, about = "Edit Metadata associated with a Machine")]
-    Metadata(MachineMetadataCommand),
-    #[clap(subcommand, about = "Update/show machine hardware info")]
-    HardwareInfo(MachineHardwareInfoCommand),
-}
-
-#[derive(Parser, Debug)]
-pub enum NetworkCommand {
-    #[clap(about = "Print network status of all machines")]
-    Status,
-    #[clap(about = "Machine network configuration, used by VPC.")]
-    Config(NetworkConfigQuery),
-}
-
-#[derive(Parser, Debug)]
-pub enum OverrideCommand {
-    #[clap(about = "List the health reports overrides")]
-    Show { machine_id: MachineId },
-    #[clap(about = "Insert a health report override")]
-    Add(HealthAddOptions),
-    #[clap(about = "Print a empty health override template, which user can modify and use")]
-    PrintEmptyTemplate,
-    #[clap(about = "Remove a health report override")]
-    Remove {
-        machine_id: MachineId,
-        report_source: String,
-    },
-}
-
-#[derive(Parser, Debug)]
-#[clap(group(ArgGroup::new("override_health").required(true).args(&["health_report", "template"])))]
-pub struct HealthAddOptions {
-    pub machine_id: MachineId,
-    #[clap(long, help = "New health report as json")]
-    pub health_report: Option<String>,
-    #[clap(
-        long,
-        help = "Predefined Template name. Use host-update for DPU Reprovision"
-    )]
-    pub template: Option<HealthOverrideTemplates>,
-    #[clap(long, help = "Message to be filled in template.")]
-    pub message: Option<String>,
-    #[clap(long, help = "Replace all other health reports with this override")]
-    pub replace: bool,
-    #[clap(long, help = "Print the template that is going to be send to carbide")]
-    pub print_only: bool,
-}
-
-#[derive(ValueEnum, Parser, Debug, Clone)]
-pub enum HealthOverrideTemplates {
-    HostUpdate,
-    InternalMaintenance,
-    OutForRepair,
-    Degraded,
-    Validation,
-    SuppressExternalAlerting,
-    MarkHealthy,
-    StopRebootForAutomaticRecoveryFromStateMachine,
-    TenantReportedIssue,
-    RequestRepair,
-}
-
-#[derive(Parser, Debug)]
-pub struct BMCConfigForReboot {
-    #[clap(long, help = "ID of the machine to reboot")]
-    pub machine: String,
-}
-
-#[derive(Parser, Debug)]
 pub struct BMCIdentify {
     #[clap(long, help = "Hostname or IP of machine BMC")]
     pub address: String,
@@ -1445,431 +1241,6 @@ impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::
             }
         }
     }
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct MachineQuery {
-    #[clap(
-        short,
-        long,
-        help = "ID, IPv4, MAC or hostnmame of the machine to query"
-    )]
-    pub query: String,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub enum MachineMetadataCommand {
-    #[clap(about = "Set the Name or Description of the Machine")]
-    Set(MachineMetadataCommandSet),
-    #[clap(about = "Show the Metadata of the Machine")]
-    Show(MachineMetadataCommandShow),
-    #[clap(about = "Adds a label to the Metadata of a Machine")]
-    AddLabel(MachineMetadataCommandAddLabel),
-    #[clap(about = "Removes labels from the Metadata of a Machine")]
-    RemoveLabels(MachineMetadataCommandRemoveLabels),
-    #[clap(about = "Copy Machine Metadata from Expected-Machine to Machine")]
-    FromExpectedMachine(MachineMetadataCommandFromExpectedMachine),
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct MachineMetadataCommandShow {
-    #[clap(help = "The machine which should get updated metadata")]
-    pub machine: MachineId,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct MachineMetadataCommandSet {
-    #[clap(help = "The machine which should get updated metadata")]
-    pub machine: MachineId,
-    #[clap(long, help = "The updated name of the Machine")]
-    pub name: Option<String>,
-    #[clap(long, help = "The updated description of the Machine")]
-    pub description: Option<String>,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct MachineMetadataCommandAddLabel {
-    #[clap(help = "The machine which should get updated metadata")]
-    pub machine: MachineId,
-    #[clap(long, help = "The key to add")]
-    pub key: String,
-    #[clap(long, help = "The optional value to add")]
-    pub value: Option<String>,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct MachineMetadataCommandRemoveLabels {
-    #[clap(help = "The machine which should get updated metadata")]
-    pub machine: MachineId,
-    #[clap(long, help = "The keys to remove")]
-    pub keys: Vec<String>,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct MachineMetadataCommandFromExpectedMachine {
-    #[clap(help = "The machine which should get updated metadata")]
-    pub machine: MachineId,
-    /// Whether to fully replace the Metadata that is currently stored on the Machine.
-    /// - If not set, existing Metadata on the Machine will not be touched by executing
-    ///   the command:
-    ///   - The existing Name will not be changed if the Name is not equivalent
-    ///     to the Machine ID or Empty.
-    ///   - The existing Description will not be changed if it is not empty.
-    ///   - Existing Labels and their values will not be changed. Only labels which
-    ///     do not exist on the Machine will be added.
-    /// - If set, the Machines Metadata will be set to the same values as
-    ///   they would if the Machine would get freshly ingested.
-    ///   Metadata that is currently set on the Machine will be overridden.
-    #[clap(long, verbatim_doc_comment)]
-    pub replace_all: bool,
-}
-
-#[derive(Parser, Debug)]
-pub enum MachineHardwareInfoCommand {
-    #[clap(about = "Show the hardware info of the machine")]
-    Show(ShowMachineHardwareInfo),
-    #[clap(subcommand, about = "Update the hardware info of the machine")]
-    Update(MachineHardwareInfo),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowMachineHardwareInfo {
-    #[clap(long, help = "Show the hardware info of this Machine ID")]
-    pub machine: MachineId,
-}
-
-#[derive(Parser, Debug)]
-pub enum MachineHardwareInfo {
-    //Cpu(MachineTopologyCommandCpu),
-    #[clap(about = "Update the GPUs of this machine")]
-    Gpus(MachineHardwareInfoGpus),
-    //Memory(MachineTopologyCommandMemory),
-    //Storage(MachineTopologyCommandStorage),
-    //Network(MachineTopologyCommandNetwork),
-    //Infiniband(MachineTopologyCommandInfiniband),
-    //Dpu(MachineTopologyCommandDpu),
-}
-
-#[derive(Parser, Debug)]
-pub struct MachineHardwareInfoGpus {
-    #[clap(long, help = "Machine ID of the server containing the GPUs")]
-    pub machine: MachineId,
-    #[clap(
-        long,
-        help = "JSON file containing GPU info. It should contain an array of JSON objects like this:
-        {
-            \"name\": \"string\",
-            \"serial\": \"string\",
-            \"driver_version\": \"string\",
-            \"vbios_version\": \"string\",
-            \"inforom_version\": \"string\",
-            \"total_memory\": \"string\",
-            \"frequency\": \"string\",
-            \"pci_bus_id\": \"string\"
-        }
-        Pass an empty array if you want to remove GPUs."
-    )]
-    pub gpu_json_file: std::path::PathBuf,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct ForceDeleteMachineQuery {
-    #[clap(
-        long,
-        help = "UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete"
-    )]
-    pub machine: String,
-
-    #[clap(
-        short = 'd',
-        long,
-        action,
-        help = "Delete interfaces. Redeploy kea after deleting machine interfaces."
-    )]
-    pub delete_interfaces: bool,
-
-    #[clap(
-        short = 'b',
-        long,
-        action,
-        help = "Delete BMC interfaces. Redeploy kea after deleting machine interfaces."
-    )]
-    pub delete_bmc_interfaces: bool,
-
-    #[clap(
-        short = 'c',
-        long,
-        action,
-        help = "Delete BMC credentials. Only applicable if site explorer has configured credentials for the BMCs associated with this managed host."
-    )]
-    pub delete_bmc_credentials: bool,
-
-    #[clap(
-        long,
-        action,
-        help = "Delete machine with allocated instance. This flag acknowledges destroying the user instance as well."
-    )]
-    pub allow_delete_with_instance: bool,
-}
-
-#[derive(Parser, Debug, Clone)]
-#[clap(group(ArgGroup::new("autoupdate_action").required(true).args(&["enable", "disable", "clear"])))]
-pub struct MachineAutoupdate {
-    #[clap(long, help = "Machine ID of the host to change")]
-    pub machine: MachineId,
-    #[clap(
-        short = 'e',
-        long,
-        action,
-        help = "Enable auto updates even if globally disabled or individually disabled by config files"
-    )]
-    pub enable: bool,
-    #[clap(
-        short = 'd',
-        long,
-        action,
-        help = "Disable auto updates even if globally enabled or individually enabled by config files"
-    )]
-    pub disable: bool,
-    #[clap(
-        short = 'c',
-        long,
-        action,
-        help = "Perform auto updates according to config files"
-    )]
-    pub clear: bool,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct NetworkConfigQuery {
-    #[clap(long, required(true), help = "DPU machine id")]
-    pub machine_id: MachineId,
-}
-
-#[derive(Parser, Debug)]
-#[clap(disable_help_flag = true)]
-pub struct ShowMachine {
-    #[clap(long, action = clap::ArgAction::HelpLong)]
-    pub help: Option<bool>,
-
-    #[clap(
-        short,
-        long,
-        action,
-        conflicts_with = "machine",
-        help = "Show all machines (DEPRECATED)"
-    )]
-    pub all: bool,
-
-    #[clap(
-        short,
-        long,
-        action,
-        conflicts_with = "machine",
-        help = "Show only DPUs"
-    )]
-    pub dpus: bool,
-
-    #[clap(
-        short,
-        long,
-        action,
-        conflicts_with = "machine",
-        help = "Show only hosts"
-    )]
-    pub hosts: bool,
-
-    #[clap(
-        short = 't',
-        long,
-        action,
-        // DPUs don't get associated with instance types.
-        // Wouldn't hurt to allow the query, but might as well
-        // be helpful here.
-        conflicts_with = "dpus",
-        help = "Show only machines for this instance type"
-    )]
-    pub instance_type_id: Option<String>,
-
-    #[clap(
-        default_value(None),
-        help = "The machine to query, leave empty for all (default)"
-    )]
-    pub machine: Option<MachineId>,
-
-    #[clap(
-        short = 'c',
-        long,
-        default_value("5"),
-        help = "History count. Valid if `machine` argument is passed."
-    )]
-    pub history_count: u32,
-}
-
-#[derive(Parser, Debug)]
-pub enum Instance {
-    #[clap(about = "Display instance information")]
-    Show(ShowInstance),
-    #[clap(about = "Reboot instance, potentially applying firmware updates")]
-    Reboot(RebootInstance),
-    #[clap(about = "De-allocate instance")]
-    Release(ReleaseInstance),
-    #[clap(about = "Allocate instance")]
-    Allocate(AllocateInstance),
-    #[clap(about = "Update instance OS")]
-    UpdateOS(UpdateInstanceOS),
-    #[clap(about = "Update instance IB configuration")]
-    UpdateIbConfig(UpdateIbConfig),
-}
-
-/// ShowInstance is used for `cli instance show` configuration,
-/// with the ability to filter by a combination of labels, tenant
-/// org ID, and VPC ID.
-//
-// TODO: Possibly add the ability to filter by a list of tenant
-// org IDs and/or VPC IDs.
-#[derive(Parser, Debug)]
-pub struct ShowInstance {
-    #[clap(
-        default_value(""),
-        help = "The instance ID to query, leave empty for all (default)"
-    )]
-    pub id: String,
-
-    #[clap(short, long, action)]
-    pub extrainfo: bool,
-
-    #[clap(short, long, help = "The Tenant Org ID to query")]
-    pub tenant_org_id: Option<String>,
-
-    #[clap(short, long, help = "The VPC ID to query.")]
-    pub vpc_id: Option<String>,
-
-    #[clap(long, help = "The key of label instance to query")]
-    pub label_key: Option<String>,
-
-    #[clap(long, help = "The value of label instance to query")]
-    pub label_value: Option<String>,
-
-    #[clap(long, help = "The instance type ID to query.")]
-    pub instance_type_id: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct RebootInstance {
-    #[clap(short, long)]
-    pub instance: InstanceId,
-
-    #[clap(short, long, action)]
-    pub custom_pxe: bool,
-
-    #[clap(short, long, action)]
-    pub apply_updates_on_reboot: bool,
-}
-
-#[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("release_instance")
-        .required(true)
-        .args(&["instance", "machine", "label_key"])))]
-pub struct ReleaseInstance {
-    #[clap(short, long)]
-    pub instance: Option<String>,
-
-    #[clap(short, long)]
-    pub machine: Option<MachineId>,
-
-    #[clap(long, help = "The key of label instance to query")]
-    pub label_key: Option<String>,
-
-    #[clap(long, help = "The value of label instance to query")]
-    pub label_value: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-#[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]
-pub struct AllocateInstance {
-    #[clap(short, long)]
-    pub number: Option<u16>,
-
-    #[clap(short, long, help = "The subnet to assign to a PF")]
-    pub subnet: Vec<String>,
-
-    #[clap(short, long, help = "The VPC prefix to assign to a PF")]
-    pub vpc_prefix_id: Vec<VpcPrefixId>,
-
-    #[clap(short, long)]
-    // This will not be needed after vpc_prefix implementation.
-    // Code can query to carbide and fetch it from db using vpc_prefix_id.
-    pub tenant_org: Option<String>,
-
-    #[clap(short, long, required = true)]
-    pub prefix_name: String,
-
-    #[clap(long, help = "The key of label instance to query")]
-    pub label_key: Option<String>,
-
-    #[clap(long, help = "The value of label instance to query")]
-    pub label_value: Option<String>,
-
-    #[clap(
-        long,
-        help = "The ID of a network security group to apply to the new instance upon creation"
-    )]
-    pub network_security_group_id: Option<String>,
-
-    #[clap(
-        long,
-        help = "The expected instance type id for the instance, which will be compared to type ID set for the machine of the request"
-    )]
-    pub instance_type_id: Option<String>,
-
-    #[clap(long, help = "OS definition in JSON format", value_name = "OS_JSON")]
-    pub os: Option<OperatingSystem>,
-
-    #[clap(long, help = "The subnet to assign to a VF")]
-    pub vf_subnet: Vec<String>,
-
-    #[clap(long, help = "The VPC prefix to assign to a VF")]
-    pub vf_vpc_prefix_id: Vec<VpcPrefixId>,
-
-    #[clap(
-        long,
-        help = "The machine ids for the machines to use (instead of searching)"
-    )]
-    pub machine_id: Vec<MachineId>,
-
-    #[clap(
-        long,
-        help = "Use batch API for all-or-nothing allocation (requires --number > 1)"
-    )]
-    pub transactional: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct UpdateInstanceOS {
-    #[clap(short, long, required(true))]
-    pub instance: InstanceId,
-    #[clap(
-        long,
-        required(true),
-        help = "OS definition in JSON format",
-        value_name = "OS_JSON"
-    )]
-    pub os: OperatingSystem,
-}
-
-#[derive(Parser, Debug)]
-pub struct UpdateIbConfig {
-    #[clap(short, long, required(true))]
-    pub instance: InstanceId,
-    #[clap(
-        long,
-        required(true),
-        help = "IB configuration in JSON format",
-        value_name = "IB_JSON"
-    )]
-    pub config: InstanceInfinibandConfig,
 }
 
 #[derive(Parser, Debug)]
