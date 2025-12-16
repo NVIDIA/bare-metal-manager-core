@@ -28,7 +28,7 @@ use serde_json::json;
 use zip::CompressionMethod;
 use zip::write::{FileOptions, ZipWriter};
 
-use crate::cfg::cli_options::DebugBundle;
+use crate::managed_host::args::DebugBundle;
 use crate::rpc::ApiClient;
 
 const MAX_BATCH_SIZE: u32 = 5000;
@@ -791,7 +791,7 @@ async fn get_machine_analysis(
 /// # Example
 ///
 /// ```no_run
-/// use crate::cfg::cli_options::DebugBundle;
+/// use crate::managed_host::args::DebugBundle;
 /// use crate::rpc::ApiClient;
 ///
 /// let bundle_config = DebugBundle {

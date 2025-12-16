@@ -13,11 +13,9 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
-use crate::cfg::cli_options::{
-    MachineValidationAddTestOptions, MachineValidationEnableDisableTestOptions,
-    MachineValidationOnDemandOptions, MachineValidationUpdateTestOptions,
-    MachineValidationVerifyTestOptions, ShowMachineValidationResultsOptions,
-    ShowMachineValidationRunsOptions, ShowMachineValidationTestOptions,
+use super::args::{
+    AddTestOptions, EnableDisableTestOptions, OnDemandOptions, ShowResultsOptions, ShowRunsOptions,
+    ShowTestOptions, UpdateTestOptions, VerifyTestOptions,
 };
 use crate::rpc::ApiClient;
 
@@ -142,7 +140,7 @@ pub async fn external_config_add_update(
 }
 
 pub async fn handle_runs_show(
-    args: ShowMachineValidationRunsOptions,
+    args: ShowRunsOptions,
     output_format: OutputFormat,
     api_client: &ApiClient,
     _page_size: usize,
@@ -155,7 +153,7 @@ pub async fn handle_runs_show(
 async fn show_runs(
     json: bool,
     api_client: &ApiClient,
-    args: ShowMachineValidationRunsOptions,
+    args: ShowRunsOptions,
 ) -> CarbideCliResult<()> {
     let runs = match api_client
         .get_machine_validation_runs(args.machine, args.history)
@@ -213,7 +211,7 @@ fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<T
 }
 
 pub async fn handle_results_show(
-    args: ShowMachineValidationResultsOptions,
+    args: ShowResultsOptions,
     output_format: OutputFormat,
     api_client: &ApiClient,
     _page_size: usize,
@@ -232,7 +230,7 @@ pub async fn handle_results_show(
 async fn show_results(
     json: bool,
     api_client: &ApiClient,
-    args: ShowMachineValidationResultsOptions,
+    args: ShowResultsOptions,
 ) -> CarbideCliResult<()> {
     let mut results = match api_client
         .get_machine_validation_results(args.machine, args.history, args.validation_id)
@@ -258,7 +256,7 @@ async fn show_results(
 async fn show_results_details(
     json: bool,
     api_client: &ApiClient,
-    args: ShowMachineValidationResultsOptions,
+    args: ShowResultsOptions,
 ) -> CarbideCliResult<()> {
     let mut results = match api_client
         .get_machine_validation_results(args.machine, args.history, args.validation_id)
@@ -363,7 +361,7 @@ fn convert_to_nice_format(
 
 pub async fn on_demand_machine_validation(
     api_client: &ApiClient,
-    args: MachineValidationOnDemandOptions,
+    args: OnDemandOptions,
 ) -> CarbideCliResult<()> {
     api_client
         .on_demand_machine_validation(
@@ -376,6 +374,7 @@ pub async fn on_demand_machine_validation(
         .await?;
     Ok(())
 }
+
 pub async fn remove_external_config(api_client: &ApiClient, name: String) -> CarbideCliResult<()> {
     api_client
         .0
@@ -386,7 +385,7 @@ pub async fn remove_external_config(api_client: &ApiClient, name: String) -> Car
 
 pub async fn show_tests(
     api_client: &ApiClient,
-    args: ShowMachineValidationTestOptions,
+    args: ShowTestOptions,
     output_format: OutputFormat,
     extended: bool,
 ) -> CarbideCliResult<()> {
@@ -423,6 +422,7 @@ fn show_tests_details(
     }
     Ok(())
 }
+
 fn convert_tests_to_nice_table(tests: Vec<forgerpc::MachineValidationTest>) -> Box<Table> {
     let mut table = Table::new();
 
@@ -530,7 +530,7 @@ fn convert_tests_to_nice_format(
 
 pub async fn machine_validation_test_verfied(
     api_client: &ApiClient,
-    options: MachineValidationVerifyTestOptions,
+    options: VerifyTestOptions,
 ) -> CarbideCliResult<()> {
     api_client
         .machine_validation_test_verfied(options.test_id, options.version)
@@ -540,7 +540,7 @@ pub async fn machine_validation_test_verfied(
 
 pub async fn machine_validation_test_enable(
     api_client: &ApiClient,
-    options: MachineValidationEnableDisableTestOptions,
+    options: EnableDisableTestOptions,
 ) -> CarbideCliResult<()> {
     api_client
         .machine_validation_test_enable_disable(options.test_id, options.version, true)
@@ -550,7 +550,7 @@ pub async fn machine_validation_test_enable(
 
 pub async fn machine_validation_test_disable(
     api_client: &ApiClient,
-    options: MachineValidationEnableDisableTestOptions,
+    options: EnableDisableTestOptions,
 ) -> CarbideCliResult<()> {
     api_client
         .machine_validation_test_enable_disable(options.test_id, options.version, false)
@@ -560,7 +560,7 @@ pub async fn machine_validation_test_disable(
 
 pub async fn machine_validation_test_update(
     api_client: &ApiClient,
-    options: MachineValidationUpdateTestOptions,
+    options: UpdateTestOptions,
 ) -> CarbideCliResult<()> {
     let payload = forgerpc::machine_validation_test_update_request::Payload {
         contexts: options.contexts,
@@ -590,7 +590,7 @@ pub async fn machine_validation_test_update(
 
 pub async fn machine_validation_test_add(
     api_client: &ApiClient,
-    options: MachineValidationAddTestOptions,
+    options: AddTestOptions,
 ) -> CarbideCliResult<()> {
     let mut contexts = vec!["OnDemand".to_string()];
     if !options.contexts.is_empty() {

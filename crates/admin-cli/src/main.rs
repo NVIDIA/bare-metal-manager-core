@@ -34,9 +34,8 @@ use cfg::cli_options::{
     AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
     CredentialAction, DpuAction, DpuReprovision, ExpectedMachineJson, HostAction, HostReprovision,
     Instance, IpAction, LogicalPartitionOptions, Machine, MachineHardwareInfo,
-    MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
-    ManagedHost, NetworkCommand, NetworkSegment, NvlPartitionOptions, RedfishCommand, SetAction,
-    Shell, SiteExplorer, UriInfo,
+    MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, NetworkCommand,
+    NetworkSegment, NvlPartitionOptions, RedfishCommand, SetAction, Shell, UriInfo,
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
@@ -54,12 +53,11 @@ use forge_tls::client_config::{
 use mac_address::MacAddress;
 use machine::{handle_show_machine_hardware_info, handle_update_machine_hardware_info_gpus};
 use serde::{Deserialize, Serialize};
-use site_explorer::show_site_explorer_discovered_managed_host;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
-use crate::cfg::cli_options::{AdminPowerControlAction, QuarantineAction};
+use crate::cfg::cli_options::AdminPowerControlAction;
 use crate::cfg::storage::OsImageActions;
 use crate::rpc::ApiClient;
 
@@ -717,103 +715,17 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CliCommand::Domain(cmd) => domain::dispatch(&cmd, &api_client, config.format).await?,
-        CliCommand::ManagedHost(managed_host) => match managed_host {
-            ManagedHost::Show(managed_host) => {
-                managed_host::handle_show(
-                    &mut output_file,
-                    managed_host,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                    config.sort_by,
-                )
-                .await?
-            }
-            ManagedHost::Maintenance(maint) => match maint {
-                MaintenanceAction::On(maint_on) => {
-                    let req = forgerpc::MaintenanceRequest {
-                        operation: forgerpc::MaintenanceOperation::Enable.into(),
-                        host_id: Some(maint_on.host),
-                        reference: Some(maint_on.reference),
-                    };
-                    api_client.0.set_maintenance(req).await?;
-                }
-                MaintenanceAction::Off(maint_off) => {
-                    let req = forgerpc::MaintenanceRequest {
-                        operation: forgerpc::MaintenanceOperation::Disable.into(),
-                        host_id: Some(maint_off.host),
-                        reference: None,
-                    };
-                    api_client.0.set_maintenance(req).await?;
-                }
-            },
-            ManagedHost::Quarantine(quarantine_action) => match quarantine_action {
-                QuarantineAction::On(quarantine_on) => {
-                    let host = quarantine_on.host;
-                    let req = forgerpc::SetManagedHostQuarantineStateRequest {
-                        machine_id: Some(quarantine_on.host),
-                        quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
-                            mode: forgerpc::ManagedHostQuarantineMode::BlockAllTraffic as i32,
-                            reason: Some(quarantine_on.reason),
-                        }),
-                    };
-                    let prior_state = api_client.0.set_managed_host_quarantine_state(req).await?;
-                    println!(
-                        "quarantine set for host {}, prior state: {:?}",
-                        host, prior_state.prior_quarantine_state
-                    );
-                }
-                QuarantineAction::Off(quarantine_off) => {
-                    let host = quarantine_off.host;
-                    let req = forgerpc::ClearManagedHostQuarantineStateRequest {
-                        machine_id: Some(host),
-                    };
-                    let prior_state = api_client
-                        .0
-                        .clear_managed_host_quarantine_state(req)
-                        .await?;
-                    println!(
-                        "quarantine set for host {}, prior state: {:?}",
-                        host, prior_state.prior_quarantine_state
-                    );
-                }
-            },
-            ManagedHost::ResetHostReprovisioning(machine_id) => {
-                api_client
-                    .0
-                    .reset_host_reprovisioning(machine_id.machine)
-                    .await?;
-            }
-            ManagedHost::PowerOptions(options) => match options {
-                cfg::cli_options::PowerOptions::Show(show_power_options) => {
-                    managed_host::handle_power_options_show(
-                        show_power_options,
-                        config.format,
-                        &api_client,
-                    )
-                    .await?;
-                }
-                cfg::cli_options::PowerOptions::Update(update_power_options) => {
-                    managed_host::update_power_option(update_power_options, &api_client).await?;
-                }
-            },
-            ManagedHost::StartUpdates(options) => {
-                firmware::cmds::start_updates(&api_client, options).await?
-            }
-            ManagedHost::DebugBundle(debug_bundle) => {
-                debug_bundle::handle_debug_bundle(debug_bundle, &api_client).await?;
-            }
-            ManagedHost::SetPrimaryDpu(set_primary_args) => {
-                api_client
-                    .0
-                    .set_primary_dpu(forgerpc::SetPrimaryDpuRequest {
-                        host_machine_id: Some(set_primary_args.host_machine_id),
-                        dpu_machine_id: Some(set_primary_args.dpu_machine_id),
-                        reboot: set_primary_args.reboot,
-                    })
-                    .await?;
-            }
-        },
+        CliCommand::ManagedHost(cmd) => {
+            managed_host::dispatch(
+                cmd,
+                &mut output_file,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                config.sort_by,
+            )
+            .await?
+        }
         CliCommand::Measurement(cmd) => {
             let args = cfg::measurement::GlobalOptions {
                 format: config.format,
@@ -1224,128 +1136,15 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::RouteServer(cmd) => {
             route_server::dispatch(&cmd, &api_client, config.format).await?
         }
-        CliCommand::SiteExplorer(action) => {
-            match action {
-                SiteExplorer::GetReport(mode) => {
-                    show_site_explorer_discovered_managed_host(
-                        &api_client,
-                        &mut output_file,
-                        config.format,
-                        config.internal_page_size,
-                        mode,
-                    )
-                    .await?;
-                }
-                SiteExplorer::Explore(opts) => {
-                    let report = api_client.explore(&opts.address, opts.mac).await?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                }
-                SiteExplorer::ReExplore(opts) => {
-                    api_client.re_explore_endpoint(&opts.address).await?;
-                }
-                SiteExplorer::ClearError(opts) => {
-                    api_client
-                        .0
-                        .clear_site_exploration_error(opts.address)
-                        .await?;
-                }
-                SiteExplorer::Delete(opts) => {
-                    let response = api_client.0.delete_explored_endpoint(opts.address).await?;
-
-                    if response.deleted {
-                        println!(
-                            "{}",
-                            response
-                                .message
-                                .unwrap_or_else(|| "Endpoint deleted successfully.".to_string())
-                        );
-                    } else {
-                        eprintln!(
-                            "{}",
-                            response
-                                .message
-                                .unwrap_or_else(|| "Failed to delete endpoint.".to_string())
-                        );
-                    }
-                }
-                SiteExplorer::Remediation(opts) => {
-                    if opts.pause {
-                        api_client
-                            .pause_explored_endpoint_remediation(&opts.address, true)
-                            .await?;
-                        println!("Remediation paused for endpoint {}", opts.address);
-                    } else if opts.resume {
-                        api_client
-                            .pause_explored_endpoint_remediation(&opts.address, false)
-                            .await?;
-                        println!("Remediation resumed for endpoint {}", opts.address);
-                    } else {
-                        return Err(CarbideCliError::GenericError(
-                            "Must specify either --pause or --resume".to_owned(),
-                        )
-                        .into());
-                    }
-                }
-                SiteExplorer::IsBmcInManagedHost(opts) => {
-                    let is_bmc_in_managed_host = api_client
-                        .is_bmc_in_managed_host(&opts.address, opts.mac)
-                        .await?;
-                    println!(
-                        "Is {} in a managed host?: {}",
-                        opts.address, is_bmc_in_managed_host.in_managed_host
-                    );
-                }
-                SiteExplorer::HaveCredentials(opts) => {
-                    let have_credentials = api_client
-                        .bmc_credential_status(&opts.address, opts.mac)
-                        .await?;
-                    println!("{}", have_credentials.have_credentials);
-                }
-                SiteExplorer::CopyBfbToDpuRshim(args) => {
-                    // Power cycle host if requested
-                    if let Some(host_ip) = &args.host_bmc_ip {
-                        tracing::info!(
-                            "Power cycling host at {} to ensure the DPU has rshim control",
-                            host_ip
-                        );
-
-                        // Power off
-                        tracing::info!("Powering off host...");
-                        api_client
-                            .admin_power_control(
-                                Some(::rpc::forge::BmcEndpointRequest {
-                                    ip_address: host_ip.clone(),
-                                    mac_address: None,
-                                }),
-                                None,
-                                ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff,
-                            )
-                            .await?;
-
-                        // Wait for power off
-                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-                        // Power on
-                        tracing::info!("Powering on host");
-                        api_client
-                            .admin_power_control(
-                                Some(::rpc::forge::BmcEndpointRequest {
-                                    ip_address: host_ip.clone(),
-                                    mac_address: None,
-                                }),
-                                None,
-                                ::rpc::forge::admin_power_control_request::SystemPowerControl::On,
-                            )
-                            .await?;
-                    }
-
-                    tracing::info!("Follow SCP progress in the carbide-api logs...");
-
-                    api_client
-                        .copy_bfb_to_dpu_rshim(args.address, args.mac)
-                        .await?;
-                }
-            }
+        CliCommand::SiteExplorer(cmd) => {
+            site_explorer::dispatch(
+                cmd,
+                &mut output_file,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+            )
+            .await?
         }
         CliCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {
@@ -1689,7 +1488,7 @@ async fn main() -> color_eyre::Result<()> {
                                 &mut output_file,
                                 config_format,
                                 config.internal_page_size,
-                                cfg::cli_options::GetReportMode::Endpoint(cfg::cli_options::EndpointInfo{
+                                site_explorer::args::GetReportMode::Endpoint(site_explorer::args::EndpointInfo{
                                     address: if m.owner_id.is_some() { m.owner_id } else {
                                         color_eyre::eyre::bail!(CarbideCliError::GenericError("IP type is explored-endpoint but returned owner_id is empty".to_string()))
                                     },
@@ -1885,97 +1684,16 @@ async fn main() -> color_eyre::Result<()> {
             color_eyre::eyre::bail!("Unable to determine ID type");
         }
 
-        CliCommand::MachineValidation(command) => match command {
-            cfg::cli_options::MachineValidationCommand::ExternalConfig(config_command) => {
-                match config_command {
-                    cfg::cli_options::MachineValidationExternalConfigCommand::Show(opts) => {
-                        machine_validation::external_config_show(
-                            &api_client,
-                            opts.name,
-                            config.extended,
-                            config.format,
-                        )
-                        .await?;
-                    }
-                    cfg::cli_options::MachineValidationExternalConfigCommand::AddUpdate(opts) => {
-                        machine_validation::external_config_add_update(
-                            &api_client,
-                            opts.name,
-                            opts.file_name,
-                            opts.description,
-                        )
-                        .await?;
-                    }
-                    cfg::cli_options::MachineValidationExternalConfigCommand::Remove(opts) => {
-                        machine_validation::remove_external_config(&api_client, opts.name).await?;
-                    }
-                }
-            }
-            cfg::cli_options::MachineValidationCommand::Results(cmd) => match cmd {
-                cfg::cli_options::MachineValidationResultsCommand::Show(options) => {
-                    machine_validation::handle_results_show(
-                        options,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                        config.extended,
-                    )
-                    .await?;
-                }
-            },
-            cfg::cli_options::MachineValidationCommand::Runs(cmd) => match cmd {
-                cfg::cli_options::MachineValidationRunsCommand::Show(options) => {
-                    machine_validation::handle_runs_show(
-                        options,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                    )
-                    .await?;
-                }
-            },
-            cfg::cli_options::MachineValidationCommand::OnDemand(on_demand_command) => {
-                match on_demand_command {
-                    cfg::cli_options::MachineValidationOnDemandCommand::Start(options) => {
-                        machine_validation::on_demand_machine_validation(&api_client, options)
-                            .await?;
-                    }
-                }
-            }
-            cfg::cli_options::MachineValidationCommand::Tests(machine_validation_tests_command) => {
-                match *machine_validation_tests_command {
-                    cfg::cli_options::MachineValidationTestsCommand::Show(options) => {
-                        machine_validation::show_tests(
-                            &api_client,
-                            options,
-                            config.format,
-                            config.extended,
-                        )
-                        .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Verify(options) => {
-                        machine_validation::machine_validation_test_verfied(&api_client, options)
-                            .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Enable(options) => {
-                        machine_validation::machine_validation_test_enable(&api_client, options)
-                            .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Disable(options) => {
-                        machine_validation::machine_validation_test_disable(&api_client, options)
-                            .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Add(options) => {
-                        machine_validation::machine_validation_test_add(&api_client, options)
-                            .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Update(options) => {
-                        machine_validation::machine_validation_test_update(&api_client, options)
-                            .await?;
-                    }
-                }
-            }
-        },
+        CliCommand::MachineValidation(cmd) => {
+            machine_validation::dispatch(
+                cmd,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                config.extended,
+            )
+            .await?
+        }
         CliCommand::OsImage(os_image) => match os_image {
             OsImageActions::Show(os_image) => {
                 storage::os_image_show(
