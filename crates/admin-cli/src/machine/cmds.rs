@@ -9,7 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::VecDeque;
+
+use std::collections::{HashSet, VecDeque};
 use std::fmt::Write;
 use std::fs;
 use std::pin::Pin;
@@ -26,12 +27,16 @@ use health_report::{
 use prettytable::{Row, Table, row};
 use rpc::Machine;
 
-use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
-use crate::cfg::cli_options::{
-    ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField,
+use super::args::{
+    BMCConfigForReboot, ForceDeleteMachineQuery, HealthOverrideTemplates, MachineAutoupdate,
+    MachineHardwareInfoGpus, MachineMetadataCommand, MachineMetadataCommandAddLabel,
+    MachineMetadataCommandFromExpectedMachine, MachineMetadataCommandRemoveLabels,
+    MachineMetadataCommandSet, MachineMetadataCommandShow, MachineQuery, NetworkCommand,
+    OverrideCommand, ShowMachine,
 };
+use crate::cfg::cli_options::SortField;
 use crate::rpc::ApiClient;
-use crate::{async_write, async_write_table_as_csv, async_writeln};
+use crate::{async_write, async_write_table_as_csv, async_writeln, dpu};
 
 fn convert_machine_to_nice_format(
     machine: forgerpc::Machine,
@@ -428,7 +433,7 @@ fn get_empty_template() -> HealthReport {
     }
 }
 
-pub(crate) fn get_health_report(
+pub fn get_health_report(
     template: HealthOverrideTemplates,
     message: Option<String>,
 ) -> HealthReport {
@@ -661,7 +666,7 @@ pub async fn force_delete(
         }
 
         if start.elapsed() > MAX_WAIT_TIME {
-            return Err(crate::CarbideCliError::GenericError(format!(
+            return Err(CarbideCliError::GenericError(format!(
                 "Unable to force delete machine after {}s. Exiting",
                 MAX_WAIT_TIME.as_secs()
             )));
@@ -778,6 +783,289 @@ pub async fn handle_metadata_show(
         }
     }
 
+    Ok(())
+}
+
+pub async fn dpu_ssh_credentials(
+    api_client: &ApiClient,
+    query: MachineQuery,
+    format: OutputFormat,
+) -> CarbideCliResult<()> {
+    let cred = api_client
+        .0
+        .get_dpu_ssh_credential(query.query.to_string())
+        .await?;
+    if format == OutputFormat::Json {
+        println!("{}", serde_json::to_string_pretty(&cred)?);
+    } else {
+        println!("{}:{}", cred.username, cred.password);
+    }
+    Ok(())
+}
+
+pub async fn network(
+    api_client: &ApiClient,
+    cmd: NetworkCommand,
+    format: OutputFormat,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+) -> CarbideCliResult<()> {
+    match cmd {
+        NetworkCommand::Status => {
+            println!(
+                "Deprecated: Use dpu network, instead machine network. machine network will be removed in future."
+            );
+            dpu::cmds::show_dpu_status(api_client, output_file).await?;
+        }
+        NetworkCommand::Config(query) => {
+            println!(
+                "Deprecated: Use dpu network, instead of machine network. machine network will be removed in future."
+            );
+            let network_config = api_client
+                .0
+                .get_managed_host_network_config(query.machine_id)
+                .await?;
+            if format == OutputFormat::Json {
+                println!("{}", serde_json::ser::to_string_pretty(&network_config)?);
+            } else {
+                // someone might be parsing this output
+                println!("{network_config:?}");
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn reboot(api_client: &ApiClient, args: BMCConfigForReboot) -> CarbideCliResult<()> {
+    let res = api_client
+        .admin_power_control(
+            None,
+            Some(args.machine),
+            ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart,
+        )
+        .await?;
+
+    if let Some(msg) = res.msg {
+        println!("{msg}");
+    }
+    Ok(())
+}
+
+pub async fn metadata(
+    api_client: &ApiClient,
+    cmd: MachineMetadataCommand,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    format: OutputFormat,
+    extended: bool,
+) -> CarbideCliResult<()> {
+    match cmd {
+        MachineMetadataCommand::Show(cmd) => {
+            metadata_show(api_client, cmd, output_file, format, extended).await
+        }
+        MachineMetadataCommand::Set(cmd) => metadata_set(api_client, cmd).await,
+        MachineMetadataCommand::AddLabel(cmd) => metadata_add_label(api_client, cmd).await,
+        MachineMetadataCommand::RemoveLabels(cmd) => metadata_remove_labels(api_client, cmd).await,
+        MachineMetadataCommand::FromExpectedMachine(cmd) => {
+            metadata_from_expected_machine(api_client, cmd).await
+        }
+    }
+}
+
+pub async fn metadata_show(
+    api_client: &ApiClient,
+    cmd: MachineMetadataCommandShow,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    format: OutputFormat,
+    extended: bool,
+) -> CarbideCliResult<()> {
+    let mut machines = api_client
+        .get_machines_by_ids(&[cmd.machine])
+        .await?
+        .machines;
+    let Some(machine) = machines.pop() else {
+        return Err(CarbideCliError::GenericError(format!(
+            "Machine with ID {} was not found",
+            cmd.machine
+        )));
+    };
+    handle_metadata_show(output_file, &format, extended, machine).await
+}
+
+pub async fn metadata_set(
+    api_client: &ApiClient,
+    cmd: MachineMetadataCommandSet,
+) -> CarbideCliResult<()> {
+    let mut machines = api_client
+        .get_machines_by_ids(&[cmd.machine])
+        .await?
+        .machines;
+    if machines.len() != 1 {
+        return Err(CarbideCliError::GenericError(format!(
+            "Machine with ID {} was not found",
+            cmd.machine
+        )));
+    }
+    let machine = machines.remove(0);
+
+    let mut metadata = machine.metadata.ok_or_else(|| {
+        CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
+    })?;
+    if let Some(name) = cmd.name {
+        metadata.name = name;
+    }
+    if let Some(description) = cmd.description {
+        metadata.description = description;
+    }
+
+    api_client
+        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+        .await?;
+    Ok(())
+}
+
+pub async fn metadata_add_label(
+    api_client: &ApiClient,
+    cmd: MachineMetadataCommandAddLabel,
+) -> CarbideCliResult<()> {
+    let mut machines = api_client
+        .get_machines_by_ids(&[cmd.machine])
+        .await?
+        .machines;
+    if machines.len() != 1 {
+        return Err(CarbideCliError::GenericError(format!(
+            "Machine with ID {} was not found",
+            cmd.machine
+        )));
+    }
+    let machine = machines.remove(0);
+
+    let mut metadata = machine.metadata.ok_or_else(|| {
+        CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
+    })?;
+    metadata.labels.retain_mut(|l| l.key != cmd.key);
+    metadata.labels.push(::rpc::forge::Label {
+        key: cmd.key,
+        value: cmd.value,
+    });
+
+    api_client
+        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+        .await?;
+    Ok(())
+}
+
+pub async fn metadata_remove_labels(
+    api_client: &ApiClient,
+    cmd: MachineMetadataCommandRemoveLabels,
+) -> CarbideCliResult<()> {
+    let mut machines = api_client
+        .get_machines_by_ids(&[cmd.machine])
+        .await?
+        .machines;
+    if machines.len() != 1 {
+        return Err(CarbideCliError::GenericError(format!(
+            "Machine with ID {} was not found",
+            cmd.machine
+        )));
+    }
+    let machine = machines.remove(0);
+
+    let mut metadata = machine.metadata.ok_or_else(|| {
+        CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
+    })?;
+
+    // Retain everything that isn't specified as removed
+    let removed_labels: HashSet<String> = cmd.keys.into_iter().collect();
+    metadata.labels.retain(|l| !removed_labels.contains(&l.key));
+
+    api_client
+        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+        .await?;
+    Ok(())
+}
+
+pub async fn metadata_from_expected_machine(
+    api_client: &ApiClient,
+    cmd: MachineMetadataCommandFromExpectedMachine,
+) -> CarbideCliResult<()> {
+    let mut machines = api_client
+        .get_machines_by_ids(&[cmd.machine])
+        .await?
+        .machines;
+    if machines.len() != 1 {
+        return Err(CarbideCliError::GenericError(format!(
+            "Machine with ID {} was not found",
+            cmd.machine
+        )));
+    }
+    let machine = machines.remove(0);
+    let bmc_mac = machine
+        .bmc_info
+        .as_ref()
+        .and_then(|bmc_info| bmc_info.mac.clone())
+        .ok_or_else(|| {
+            CarbideCliError::GenericError(format!(
+                "No BMC MAC address found for Machine with ID {}",
+                cmd.machine
+            ))
+        })?
+        .to_ascii_lowercase();
+
+    let mut metadata = machine.metadata.ok_or_else(|| {
+        CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
+    })?;
+
+    let expected_machines = api_client
+        .0
+        .get_all_expected_machines()
+        .await?
+        .expected_machines;
+    let expected_machine = expected_machines
+        .iter()
+        .find(|em| em.bmc_mac_address.to_ascii_lowercase() == bmc_mac)
+        .ok_or_else(|| {
+            CarbideCliError::GenericError(format!(
+                "No expected Machine found for Machine with ID {} and BMC Mac address {}",
+                cmd.machine, bmc_mac
+            ))
+        })?;
+    let expected_machine_metadata = expected_machine.metadata.clone().ok_or_else(|| {
+        CarbideCliError::GenericError(format!(
+            "No expected Machine Metadata found for Machine with ID {} and BMC Mac address {}",
+            cmd.machine, bmc_mac
+        ))
+    })?;
+
+    if cmd.replace_all {
+        // Configure the Machines metadata in the same way as if the Machine was freshly ingested
+        metadata.name = if expected_machine_metadata.name.is_empty() {
+            machine.id.unwrap().to_string()
+        } else {
+            expected_machine_metadata.name
+        };
+        metadata.description = expected_machine_metadata.description;
+        metadata.labels = expected_machine_metadata.labels;
+    } else {
+        // Add new data from expected-machines, but current values that might have been the
+        // result of previous changed to the Machine.
+        // This operation is lossless for existing Metadata.
+        if !expected_machine_metadata.name.is_empty()
+            && (metadata.name.is_empty() || metadata.name == cmd.machine.to_string())
+        {
+            metadata.name = expected_machine_metadata.name;
+        };
+        if !expected_machine_metadata.description.is_empty() && metadata.description.is_empty() {
+            metadata.description = expected_machine_metadata.description;
+        };
+        for label in expected_machine_metadata.labels {
+            if !metadata.labels.iter().any(|l| l.key == label.key) {
+                metadata.labels.push(label);
+            }
+        }
+    }
+
+    api_client
+        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+        .await?;
     Ok(())
 }
 

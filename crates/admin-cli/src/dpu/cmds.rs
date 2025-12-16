@@ -20,10 +20,92 @@ use carbide_uuid::machine::{MachineId, MachineType};
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 
-use crate::cfg::cli_options::{AgentUpgradePolicyChoice, HealthOverrideTemplates};
-use crate::machine::get_health_report;
+use super::args::{AgentUpgradePolicyChoice, DpuReprovision, DpuVersionOptions};
+use crate::machine::{HealthOverrideTemplates, NetworkCommand, get_health_report};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
+
+pub async fn reprovision(api_client: &ApiClient, reprov: DpuReprovision) -> CarbideCliResult<()> {
+    match reprov {
+        DpuReprovision::Set(data) => {
+            trigger_reprovisioning(
+                data.id,
+                Mode::Set,
+                data.update_firmware,
+                api_client,
+                data.update_message,
+            )
+            .await
+        }
+        DpuReprovision::Clear(data) => {
+            trigger_reprovisioning(data.id, Mode::Clear, data.update_firmware, api_client, None)
+                .await
+        }
+        DpuReprovision::List => list_dpus_pending(api_client).await,
+        DpuReprovision::Restart(data) => {
+            trigger_reprovisioning(
+                data.id,
+                Mode::Restart,
+                data.update_firmware,
+                api_client,
+                None,
+            )
+            .await
+        }
+    }
+}
+
+pub async fn agent_upgrade_policy(
+    api_client: &ApiClient,
+    set: Option<AgentUpgradePolicyChoice>,
+) -> CarbideCliResult<()> {
+    let rpc_choice = set.map(|cmd_line_policy| match cmd_line_policy {
+        AgentUpgradePolicyChoice::Off => rpc::forge::AgentUpgradePolicy::Off,
+        AgentUpgradePolicyChoice::UpOnly => rpc::forge::AgentUpgradePolicy::UpOnly,
+        AgentUpgradePolicyChoice::UpDown => rpc::forge::AgentUpgradePolicy::UpDown,
+    });
+    handle_agent_upgrade_policy(api_client, rpc_choice).await
+}
+
+pub async fn versions(
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+    options: DpuVersionOptions,
+    page_size: usize,
+) -> CarbideCliResult<()> {
+    handle_dpu_versions(
+        output_file,
+        output_format,
+        api_client,
+        options.updates_only,
+        page_size,
+    )
+    .await
+}
+
+pub async fn status(
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+    page_size: usize,
+) -> CarbideCliResult<()> {
+    handle_dpu_status(output_file, output_format, api_client, page_size).await
+}
+
+pub async fn network(
+    api_client: &ApiClient,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    cmd: NetworkCommand,
+    output_format: OutputFormat,
+) -> CarbideCliResult<()> {
+    match cmd {
+        NetworkCommand::Config(query) => {
+            show_dpu_network_config(api_client, output_file, query.machine_id, output_format).await
+        }
+        NetworkCommand::Status => show_dpu_status(api_client, output_file).await,
+    }
+}
 
 pub async fn trigger_reprovisioning(
     id: MachineId,

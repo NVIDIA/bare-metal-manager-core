@@ -15,8 +15,7 @@ use ::rpc::forge::host_reprovisioning_request::Mode;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
-use crate::cfg::cli_options::HealthOverrideTemplates;
-use crate::machine::get_health_report;
+use crate::machine::{HealthOverrideTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
 pub async fn trigger_reprovisioning(

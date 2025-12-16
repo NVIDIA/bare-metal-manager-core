@@ -13,7 +13,7 @@
 use ::rpc::admin_cli::CarbideCliResult;
 use carbide_uuid::machine::MachineId;
 
-use crate::cfg::cli_options::MachineQuery;
+use crate::machine::MachineQuery;
 use crate::rpc::ApiClient;
 
 pub async fn set_password(query: &MachineQuery, api_client: &ApiClient) -> CarbideCliResult<()> {
