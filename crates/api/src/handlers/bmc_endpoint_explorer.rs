@@ -797,7 +797,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<MachineId>,
-) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), Status> {
+) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), CarbideError> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
             let interface = db::machine_interface::find_by_ip(
@@ -825,8 +825,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                             requested_ip: bmc_endpoint_request.ip_address.clone(),
                             requested_mac: request_mac,
                             found_mac: interface.mac_address.to_string(),
-                        }
-                        .into());
+                        });
                     }
 
                     request_mac
@@ -875,8 +874,8 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             ))
         }
 
-        _ => Err(Status::invalid_argument(
-            "Provide either machine_id or BmcEndpointRequest with at least ip_address",
+        _ => Err(CarbideError::InvalidArgument(
+            "Provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
         )),
     }
 }

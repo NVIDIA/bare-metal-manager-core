@@ -25,6 +25,7 @@ use forge_secrets::credentials::CredentialProvider;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::resource_pool::common::CommonPools;
+use sqlx::PgPool;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -2881,6 +2882,19 @@ fn truncate(mut s: String, len: usize) -> String {
         s.replace_range(len - 2..len, "..");
     }
     s
+}
+
+pub trait TransactionVending {
+    fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>>;
+}
+
+impl TransactionVending for PgPool {
+    #[track_caller]
+    // This returns an `impl Future` instead of being async, so that we can use #[track_caller],
+    // which is unsupported with async fn's.
+    fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
+        db::Transaction::begin(self)
+    }
 }
 
 impl Api {

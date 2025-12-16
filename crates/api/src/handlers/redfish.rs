@@ -10,19 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::str::FromStr;
 
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Local};
 use db::Transaction;
 use db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
 };
+use forge_secrets::credentials::CredentialProvider;
 use http::header::CONTENT_TYPE;
-use http::uri::Authority;
 use http::{HeaderMap, HeaderValue, Uri};
 use model::redfish::BMCResponse;
+use serde::Serialize;
 use sqlx::PgPool;
 use utils::HostPortPair;
+use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::log_request_data;
@@ -45,7 +49,13 @@ pub async fn redfish_browse(
         }
     };
 
-    let (metadata, new_uri, headers, http_client) = create_client(api, uri).await?;
+    let (metadata, new_uri, headers, http_client) = create_client(
+        uri,
+        &api.database_connection,
+        api.credential_provider.as_ref(),
+        &api.dynamic_settings.bmc_proxy,
+    )
+    .await?;
 
     let response = match http_client
         .request(http::Method::GET, new_uri.to_string())
@@ -167,7 +177,6 @@ pub async fn redfish_approve_action(
     ))
 }
 
-#[allow(txn_held_across_await)]
 pub async fn redfish_apply_action(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishActionId>,
@@ -198,44 +207,67 @@ pub async fn redfish_apply_action(
         return Err(CarbideError::InvalidArgument("Request was already applied".to_owned()).into());
     }
 
+    let mut uris: Vec<(Uri, usize)> = Vec::with_capacity(action_request.machine_ips.len());
+
+    // Do preflight checks in the foreground while the transaction is open, so it can be rolled back
+    // on any error
     for (index, (machine_ip, original_serial)) in action_request
         .machine_ips
-        .iter()
+        .into_iter()
         .zip(action_request.board_serials)
         .enumerate()
     {
         // check that serial is the same.
-        if ip_to_serial.get(machine_ip) != Some(&original_serial) {
-            update_response_in_tx(&api.database_connection, request, index, BMCResponse {
+        if ip_to_serial.get(&machine_ip) != Some(&original_serial) {
+            update_response(request, &mut txn, BMCResponse {
                 headers: HashMap::new(),
                 status: "not executed".to_owned(),
                 body: "machine serial did not match original serial at time of request creation. IP address was reused".to_owned(),
                 completed_at: DateTime::from(Local::now()),
-            }).await?;
-            continue;
+            }, index).await?;
+        } else {
+            uris.push((
+                Uri::builder()
+                    .scheme("https")
+                    .authority(machine_ip)
+                    .path_and_query(&action_request.target)
+                    .build()
+                    .map_err(|e| {
+                        CarbideError::internal(format!("invalid uri from machine_ip: {e}"))
+                    })?,
+                index,
+            ));
         }
+    }
 
-        let uri = Uri::builder()
-            .scheme("https")
-            .authority(
-                TryInto::<Authority>::try_into(machine_ip.to_string())
-                    .map_err(|e| CarbideError::internal(format!("invalid machine ip {e}")))?,
-            )
-            .path_and_query(&action_request.target)
-            .build()
-            .map_err(|e| CarbideError::internal(format!("invalid uri {e}")))?;
-        let (metadata, proxied_uri, mut headers, http_client) = create_client(api, uri).await?;
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-
-        let parameters = action_request.parameters.clone();
-        // Reference counted pool.
-        let pool = api.database_connection.clone();
+    for (uri, index) in uris {
         // Spawn off the task to send the request, open a transaction, and store the result.
-        tokio::spawn(async move {
-            let response =
-                handle_request(parameters, metadata, proxied_uri, headers, http_client).await;
-            // Enclosing function may have returned. Nowhere to return error to.
-            _ = update_response_in_tx(&pool, request, index, response).await;
+        tokio::spawn({
+            let pool = api.database_connection.clone();
+            let credential_provider = api.credential_provider.clone();
+            let bmc_proxy = api.dynamic_settings.bmc_proxy.clone();
+            let mut parameters = action_request.parameters.clone();
+            async move {
+                // Allow tests to trigger mock behavior by inserting a `"__TEST_BEHAVIOR__": "..."`
+                // into the parameters list. Only supported in cfg(test), and not done in production.
+                let test_behavior = TestBehavior::from_parameters_if_testing(&mut parameters);
+
+                let response = handle_request(
+                    parameters,
+                    uri,
+                    &pool,
+                    credential_provider.as_ref(),
+                    bmc_proxy.as_ref(),
+                    test_behavior,
+                )
+                .await;
+
+                // Enclosing function may have returned. Nowhere to return error to.
+                update_response_in_tx(&pool, request, index, response)
+                    .await
+                    .inspect_err(|e| tracing::error!("Error applying redfish action: {e}"))
+                    .ok();
+            }
         });
     }
 
@@ -260,60 +292,96 @@ async fn update_response_in_tx(
 
 async fn handle_request(
     parameters: String,
-    metadata: rpc::forge::BmcMetaDataGetResponse,
-    new_uri: Uri,
-    headers: HeaderMap,
-    http_client: reqwest::Client,
+    uri: Uri,
+    pool: &PgPool,
+    credential_provider: &dyn CredentialProvider,
+    bmc_proxy: &ArcSwap<Option<HostPortPair>>,
+    test_behavior: Option<TestBehavior>,
 ) -> BMCResponse {
-    let response = match http_client
-        .request(http::Method::POST, new_uri.to_string())
-        .basic_auth(metadata.user.clone(), Some(metadata.password.clone()))
-        .body(parameters)
-        .headers(headers)
-        .send()
-        .await
-    {
-        Ok(response) => response,
-        Err(e) => {
+    // Allow test mocks for returning errors at defined points
+    let (metadata, new_uri, mut headers, http_client) = match (
+        create_client(uri, pool, credential_provider, bmc_proxy).await,
+        test_behavior.and_then(TestBehavior::into_client_creation_error),
+    ) {
+        (Ok(tuple), None) => tuple,
+        (Err(error), _) | (_, Some(error)) => {
+            // Make a UUID for easy log correlation
+            let failure_uuid = Uuid::new_v4();
+            tracing::error!("Redfish client creation failure {failure_uuid}: {error}");
+
+            // Set the "response" to indicate we couldn't get a redfish client. Don't
+            // leak error string in case of credentials/etc.
             return BMCResponse {
                 headers: HashMap::new(),
-                status: e
-                    .status()
-                    .map(|s| s.to_string())
-                    .unwrap_or("missing status".to_owned()),
-                body: format!("Http request failed: {e}"),
+                status: "not executed".to_string(),
+                body: format!("error creating redfish client, see logs: {failure_uuid}"),
                 completed_at: DateTime::from(Local::now()),
             };
         }
     };
-    let headers = response
-        .headers()
-        .iter()
-        .map(|(x, y)| {
-            (
-                x.to_string(),
-                String::from_utf8_lossy(y.as_bytes()).to_string(),
-            )
-        })
-        .collect::<HashMap<String, String>>();
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| CarbideError::internal(format!("Error reading response body: {e}")))
-        .unwrap_or("could not decode body as text".to_owned());
 
-    BMCResponse {
-        headers,
-        status: status.to_string(),
-        body,
-        completed_at: DateTime::from(Local::now()),
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    // Don't perform the request if we're mocking the response
+    let result = if let Some(e) = test_behavior.and_then(TestBehavior::into_request_error) {
+        Err(e)
+    } else if let Some(mock_response) = test_behavior.and_then(TestBehavior::into_mock_success) {
+        Ok(mock_response)
+    } else {
+        match http_client
+            .request(http::Method::POST, new_uri.to_string())
+            .basic_auth(metadata.user.clone(), Some(metadata.password.clone()))
+            .body(parameters)
+            .headers(headers)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let headers = response
+                    .headers()
+                    .iter()
+                    .map(|(x, y)| {
+                        (
+                            x.to_string(),
+                            String::from_utf8_lossy(y.as_bytes()).to_string(),
+                        )
+                    })
+                    .collect::<HashMap<String, String>>();
+                let status = response.status().to_string();
+                let body = response
+                    .text()
+                    .await
+                    .unwrap_or("could not decode body as text".to_owned());
+                Ok(BMCResponse {
+                    status,
+                    headers,
+                    body,
+                    completed_at: DateTime::from(Local::now()),
+                })
+            }
+            Err(e) => Err(e.into()),
+        }
+    };
+
+    match result {
+        Ok(response) => response,
+        Err(e) => BMCResponse {
+            headers: HashMap::new(),
+            status: e
+                .status_code
+                .map(|s| s.to_string())
+                .unwrap_or("missing status".to_owned()),
+            body: e.description,
+            completed_at: DateTime::from(Local::now()),
+        },
     }
 }
 
 async fn create_client(
-    api: &crate::api::Api,
     uri: http::Uri,
+    pool: &PgPool,
+    credential_provider: &dyn CredentialProvider,
+    bmc_proxy: &ArcSwap<Option<HostPortPair>>,
 ) -> Result<
     (
         rpc::forge::BmcMetaDataGetResponse,
@@ -321,9 +389,9 @@ async fn create_client(
         HeaderMap,
         reqwest::Client,
     ),
-    tonic::Status,
+    CarbideError,
 > {
-    let bmc_metadata_request = tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
+    let bmc_metadata_request = rpc::forge::BmcMetaDataGetRequest {
         machine_id: None,
         bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
             ip_address: uri.host().map(|x| x.to_string()).unwrap_or_default(),
@@ -331,13 +399,13 @@ async fn create_client(
         }),
         role: rpc::forge::UserRoles::Administrator.into(),
         request_type: rpc::forge::BmcRequestType::Ipmi.into(),
-    });
+    };
 
-    let metadata = crate::handlers::bmc_metadata::get(api, bmc_metadata_request)
-        .await?
-        .into_inner();
+    let metadata =
+        crate::handlers::bmc_metadata::get_inner(bmc_metadata_request, pool, credential_provider)
+            .await?;
 
-    let proxy_address = api.dynamic_settings.bmc_proxy.load();
+    let proxy_address = bmc_proxy.load();
     let (host, port, add_custom_header) = match proxy_address.as_ref() {
         // No override
         None => (metadata.ip.clone(), metadata.port, false),
@@ -380,7 +448,9 @@ async fn create_client(
             Ok(client) => client,
             Err(err) => {
                 tracing::error!(%err, "build_http_client");
-                return Err(CarbideError::internal(format!("Http building failed: {err}")).into());
+                return Err(CarbideError::internal(format!(
+                    "Http building failed: {err}"
+                )));
             }
         }
     };
@@ -404,4 +474,96 @@ pub async fn redfish_cancel_action(
     Ok(tonic::Response::new(
         ::rpc::forge::RedfishCancelActionResponse {},
     ))
+}
+
+#[derive(Serialize, Copy, Clone)]
+pub enum TestBehavior {
+    FailureAtClientCreation,
+    FailureAtRequest,
+    Success,
+}
+
+impl FromStr for TestBehavior {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "FailureAtClientCreation" => Ok(TestBehavior::FailureAtClientCreation),
+            "FailureAtRequest" => Ok(TestBehavior::FailureAtRequest),
+            "Success" => Ok(TestBehavior::Success),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TestBehavior {
+    pub fn into_client_creation_error(self) -> Option<CarbideError> {
+        if let TestBehavior::FailureAtClientCreation = self {
+            Some(CarbideError::internal(
+                "mock failure at client creation".to_owned(),
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub fn into_request_error(self) -> Option<RequestErrorInfo> {
+        if let TestBehavior::FailureAtRequest = self {
+            Some(RequestErrorInfo {
+                status_code: Some(http::status::StatusCode::INTERNAL_SERVER_ERROR),
+                description: "Mock request error".to_string(),
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn into_mock_success(self) -> Option<BMCResponse> {
+        if let TestBehavior::Success = self {
+            Some(BMCResponse {
+                headers: Default::default(),
+                status: "OK".to_string(),
+                body: "Mock success".to_string(),
+                completed_at: Default::default(),
+            })
+        } else {
+            None
+        }
+    }
+
+    #[cfg(test)]
+    pub fn from_parameters_if_testing(parameters: &mut String) -> Option<TestBehavior> {
+        let mut param_obj: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(parameters).expect("invalid parameters");
+        if let Some(serde_json::Value::String(test_behavior)) =
+            param_obj.remove("__TEST_BEHAVIOR__")
+        {
+            // Recreate the original params object without __TEST_BEHAVIOR__ (since we removed it.)
+            *parameters = serde_json::to_string(&param_obj).unwrap();
+            Some(test_behavior.parse().unwrap())
+        } else {
+            None
+        }
+    }
+
+    #[cfg(not(test))]
+    pub fn from_parameters_if_testing(_parameters: &mut String) -> Option<TestBehavior> {
+        None
+    }
+}
+
+// Subset of the data we care about from reqwest::Error, so that we can mock it (we can't build our
+// own reqwest::Error as its constructors are all private.)
+pub struct RequestErrorInfo {
+    pub status_code: Option<http::status::StatusCode>,
+    pub description: String,
+}
+
+impl From<reqwest::Error> for RequestErrorInfo {
+    fn from(e: reqwest::Error) -> Self {
+        Self {
+            status_code: e.status(),
+            description: e.to_string(),
+        }
+    }
 }
