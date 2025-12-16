@@ -1,9 +1,38 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 use crate::files::copy_dir_recursive;
+
+/// Merge a source directory into a destination directory
+fn merge_directory(src: &Path, dest: &Path) -> Result<()> {
+    if !src.exists() {
+        tracing::warn!("Source directory not found (skipping): {}", src.display());
+        return Ok(());
+    }
+
+    tracing::info!(
+        "Merging directory: {} into {}",
+        src.display(),
+        dest.display()
+    );
+    std::fs::create_dir_all(dest)?;
+
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+
+        if src_path.is_dir() {
+            std::fs::create_dir_all(&dest_path)?;
+            copy_dir_recursive(&src_path, &dest_path)?;
+        } else {
+            std::fs::copy(&src_path, &dest_path)?;
+        }
+    }
+
+    Ok(())
+}
 
 /// Create staging directory that mirrors final runtime filesystem
 pub fn assemble_staging_directory(
@@ -51,83 +80,34 @@ pub fn assemble_staging_directory(
     }
 
     // Copy distroless directory structure
+    // The distroless directory mirrors the final filesystem layout:
+    //   /distroless/usr/lib     → /usr/lib
+    //   /distroless/usr/bin     → /usr/bin
+    //   /distroless/usr/share   → /usr/share
+    //   /distroless/var         → /var
+    //   /distroless/src         → /app/packages (special case)
     if let Some(distroless) = distroless_dir {
         if distroless.exists() {
-            // Creates a mapping of staging directories to the directories in the distroless container
-            // Debian package depdendencies are installed into the staging directory and then copied to the distroless container
-            let mut staging_directory_to_distroless_directory = HashMap::new();
-            staging_directory_to_distroless_directory
-                .insert(distroless.join("lib"), output.join("usr/lib"));
-            staging_directory_to_distroless_directory
-                .insert(distroless.join("bin"), output.join("usr/bin"));
-            staging_directory_to_distroless_directory
-                .insert(distroless.join("doc"), output.join("usr/share/doc"));
-            staging_directory_to_distroless_directory.insert(
-                distroless.join("dpkg"),
-                output.join("var/lib/dpkg/status.d"),
-            );
-            staging_directory_to_distroless_directory
-                .insert(distroless.join("src"), output.join("app/packages"));
+            // Merge /distroless/usr into output/usr
+            merge_directory(&distroless.join("usr"), &output.join("usr"))?;
 
-            for (staging_directory, distroless_directory) in
-                staging_directory_to_distroless_directory
-            {
-                if staging_directory.exists() {
-                    tracing::info!(
-                        "Copying directory: {} to {}",
-                        staging_directory.display(),
-                        distroless_directory.display()
-                    );
-                    std::fs::create_dir_all(&distroless_directory)?;
-                    copy_dir_recursive(&staging_directory, &distroless_directory)?;
-                } else {
-                    tracing::warn!(
-                        "Staging directory not found (skipping): {}",
-                        staging_directory.display()
-                    );
-                }
-            }
+            // Merge /distroless/var into output/var
+            merge_directory(&distroless.join("var"), &output.join("var"))?;
 
-            // Also copy /distroless/usr if it exists (handles case where copy-files
-            // preserved the full /usr/lib path structure)
-            let distroless_usr = distroless.join("usr");
-            if distroless_usr.exists() {
+            // Special case: /distroless/src → /app/packages
+            let src_dir = distroless.join("src");
+            if src_dir.exists() {
+                let dest = output.join("app/packages");
                 tracing::info!(
                     "Copying directory: {} to {}",
-                    distroless_usr.display(),
-                    output.join("usr").display()
+                    src_dir.display(),
+                    dest.display()
                 );
-                let output_usr = output.join("usr");
-                std::fs::create_dir_all(&output_usr)?;
-                // Merge /distroless/usr into /sbom-staging/usr
-                for entry in std::fs::read_dir(&distroless_usr)? {
-                    let entry = entry?;
-                    let src_path = entry.path();
-                    let dest_path = output_usr.join(entry.file_name());
-
-                    if src_path.is_dir() {
-                        tracing::info!(
-                            "Merging directory: {} into {}",
-                            src_path.display(),
-                            dest_path.display()
-                        );
-                        std::fs::create_dir_all(&dest_path)?;
-                        copy_dir_recursive(&src_path, &dest_path)?;
-                    } else {
-                        tracing::info!(
-                            "Copying file: {} to {}",
-                            src_path.display(),
-                            dest_path.display()
-                        );
-                        std::fs::copy(&src_path, &dest_path)?;
-                    }
-                }
+                std::fs::create_dir_all(&dest)?;
+                copy_dir_recursive(&src_dir, &dest)?;
             }
         } else {
-            eprintln!(
-                "  Warning: distroless directory not found: {}",
-                distroless.display()
-            );
+            tracing::warn!("Distroless directory not found: {}", distroless.display());
         }
     }
 

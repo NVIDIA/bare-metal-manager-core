@@ -100,6 +100,14 @@ pub fn install_packages(deps_file: &Path) -> Result<()> {
     tracing::debug!("Cleaning up downloaded .deb files...");
     std::fs::remove_dir_all(&download_dir).ok();
 
+    // Remove extracted docs - they'll be selectively copied by copy_files with proper filtering
+    // This prevents base package docs from leaking into the final container
+    let extracted_docs = distroless_root.join("usr/share/doc");
+    if extracted_docs.exists() {
+        tracing::debug!("Removing extracted docs (will be handled by copy_files)...");
+        std::fs::remove_dir_all(&extracted_docs).ok();
+    }
+
     tracing::info!(
         "✓ Successfully extracted {} packages to /distroless",
         packages.len()

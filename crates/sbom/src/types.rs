@@ -2,10 +2,12 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// Base packages provided by the 'cc' distroless container
+/// Base packages provided by the 'cc' distroless container or satisfied by busybox
 /// The files from these packages are excluded from `copy_files`
 pub const DISTROLESS_BASE_PACKAGES: &[&str] = &[
+    // Actually in distroless base
     "base-files",
+    "ca-certificates",
     "gcc-12-base",
     "libc6",
     "libgcc-s1",
@@ -15,6 +17,60 @@ pub const DISTROLESS_BASE_PACKAGES: &[&str] = &[
     "netbase",
     "openssl",
     "tzdata",
+    // Busybox provides these utilities
+    "bash",
+    "bzip2",
+    "coreutils",
+    "cpio",
+    "dash",
+    "diffutils",
+    "findutils",
+    "gawk",
+    "grep",
+    "gzip",
+    "hostname",
+    "kmod",
+    "less",
+    "login",
+    "mawk",
+    "mount",
+    "net-tools",
+    "patch",
+    "procps",
+    "sed",
+    "tar",
+    "traceroute",
+    "util-linux",
+    "wget",
+    "xz-utils",
+    // Package management (not needed in distroless)
+    "apt",
+    "debconf",
+    "dpkg",
+    "gpgv",
+    "ucf",
+    // User/auth management (distroless has fixed users)
+    "adduser",
+    "libpam-modules",
+    "libpam-modules-bin",
+    "libpam-runtime",
+    "passwd",
+    // Init/system (not needed in containers)
+    "init-system-helpers",
+    "libsystemd0",
+    "sysvinit-utils",
+    "systemd",
+    "udev",
+    // Other common deps not needed
+    "install-info",
+    "libaudit-common",
+    "libaudit1",
+    "libcap2-bin",
+    "libdebconfclient0",
+    "libdebian-installer4",
+    "libselinux1",
+    "lldpad",
+    "sensible-utils",
 ];
 
 pub fn is_base_package(package_name: &str) -> bool {
