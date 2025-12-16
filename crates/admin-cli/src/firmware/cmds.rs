@@ -19,7 +19,7 @@ use prettytable::{Table, row};
 
 use super::args::ShowFirmware;
 use crate::async_write;
-use crate::cfg::cli_options::StartUpdates;
+use crate::managed_host::args::StartUpdates;
 use crate::rpc::ApiClient;
 
 pub async fn start_updates(

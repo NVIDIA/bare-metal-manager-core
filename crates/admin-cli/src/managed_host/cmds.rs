@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -19,11 +19,17 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use carbide_uuid::machine::MachineId;
 use health_report::HealthProbeAlert;
 use prettytable::{Cell, Row, Table};
+use rpc::forge as forgerpc;
 use rpc::forge::PowerOptions;
 use serde::Serialize;
 use tracing::warn;
 
-use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, SortField, UpdatePowerOptions};
+use super::args::{
+    DesiredPowerState, MaintenanceAction, MaintenanceOff, MaintenanceOn, QuarantineAction,
+    QuarantineOff, QuarantineOn, ResetHostReprovisioning, SetPrimaryDpu, ShowManagedHost,
+    ShowPowerOptions, UpdatePowerOptions,
+};
+use crate::cfg::cli_options::SortField;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
 
@@ -447,7 +453,7 @@ fn format_health_alerts(alerts: &[HealthProbeAlert], width: usize) -> String {
         .join(&format!("\n{:<width$}: ", " "))
 }
 
-pub async fn handle_show(
+pub async fn show(
     output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     args: ShowManagedHost,
     output_format: OutputFormat,
@@ -572,7 +578,7 @@ pub async fn handle_show(
     .await
 }
 
-pub async fn handle_power_options_show(
+pub async fn power_options_show(
     args: ShowPowerOptions,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -586,15 +592,15 @@ pub async fn handle_power_options_show(
         }
 
         let power_options = power_options.remove(0);
-        handle_power_options_show_one(&power_options, output_format).await?;
+        power_options_show_one(&power_options, output_format).await?;
 
         return Ok(());
     }
 
-    handle_power_options_show_all(output_format, api_client).await
+    power_options_show_all(output_format, api_client).await
 }
 
-pub async fn handle_power_options_show_one(
+pub async fn power_options_show_one(
     power_option: &PowerOptions,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
@@ -696,7 +702,7 @@ pub async fn handle_power_options_show_one(
     Ok(())
 }
 
-pub async fn handle_power_options_show_all(
+pub async fn power_options_show_all(
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -761,20 +767,108 @@ pub async fn update_power_option(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let power_state = match args.desired_power_state {
-        crate::cfg::cli_options::DesiredPowerState::On => ::rpc::forge::PowerState::On,
-        crate::cfg::cli_options::DesiredPowerState::Off => ::rpc::forge::PowerState::Off,
-        crate::cfg::cli_options::DesiredPowerState::PowerManagerDisabled => {
-            ::rpc::forge::PowerState::PowerManagerDisabled
-        }
+        DesiredPowerState::On => ::rpc::forge::PowerState::On,
+        DesiredPowerState::Off => ::rpc::forge::PowerState::Off,
+        DesiredPowerState::PowerManagerDisabled => ::rpc::forge::PowerState::PowerManagerDisabled,
     };
     let updated_power_option = api_client
         .update_power_options(args.machine, power_state)
         .await?;
     println!("Power options updated successfully!!");
     println!("Updated power options are");
-    handle_power_options_show_one(
+    power_options_show_one(
         updated_power_option.first().unwrap(),
         OutputFormat::AsciiTable,
     )
     .await
+}
+
+pub async fn maintenance_on(api_client: &ApiClient, args: MaintenanceOn) -> CarbideCliResult<()> {
+    let req = forgerpc::MaintenanceRequest {
+        operation: forgerpc::MaintenanceOperation::Enable.into(),
+        host_id: Some(args.host),
+        reference: Some(args.reference),
+    };
+    api_client.0.set_maintenance(req).await?;
+    Ok(())
+}
+
+pub async fn maintenance_off(api_client: &ApiClient, args: MaintenanceOff) -> CarbideCliResult<()> {
+    let req = forgerpc::MaintenanceRequest {
+        operation: forgerpc::MaintenanceOperation::Disable.into(),
+        host_id: Some(args.host),
+        reference: None,
+    };
+    api_client.0.set_maintenance(req).await?;
+    Ok(())
+}
+
+pub async fn maintenance(
+    api_client: &ApiClient,
+    action: MaintenanceAction,
+) -> CarbideCliResult<()> {
+    match action {
+        MaintenanceAction::On(args) => maintenance_on(api_client, args).await,
+        MaintenanceAction::Off(args) => maintenance_off(api_client, args).await,
+    }
+}
+
+pub async fn quarantine_on(api_client: &ApiClient, args: QuarantineOn) -> CarbideCliResult<()> {
+    let host = args.host;
+    let req = forgerpc::SetManagedHostQuarantineStateRequest {
+        machine_id: Some(args.host),
+        quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
+            mode: forgerpc::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+            reason: Some(args.reason),
+        }),
+    };
+    let prior_state = api_client.0.set_managed_host_quarantine_state(req).await?;
+    println!(
+        "quarantine set for host {}, prior state: {:?}",
+        host, prior_state.prior_quarantine_state
+    );
+    Ok(())
+}
+
+pub async fn quarantine_off(api_client: &ApiClient, args: QuarantineOff) -> CarbideCliResult<()> {
+    let host = args.host;
+    let req = forgerpc::ClearManagedHostQuarantineStateRequest {
+        machine_id: Some(host),
+    };
+    let prior_state = api_client
+        .0
+        .clear_managed_host_quarantine_state(req)
+        .await?;
+    println!(
+        "quarantine set for host {}, prior state: {:?}",
+        host, prior_state.prior_quarantine_state
+    );
+    Ok(())
+}
+
+pub async fn quarantine(api_client: &ApiClient, action: QuarantineAction) -> CarbideCliResult<()> {
+    match action {
+        QuarantineAction::On(args) => quarantine_on(api_client, args).await,
+        QuarantineAction::Off(args) => quarantine_off(api_client, args).await,
+    }
+}
+
+pub async fn reset_host_reprovisioning(
+    api_client: &ApiClient,
+    args: ResetHostReprovisioning,
+) -> CarbideCliResult<()> {
+    api_client.0.reset_host_reprovisioning(args.machine).await?;
+    Ok(())
+}
+
+pub async fn set_primary_dpu(api_client: &ApiClient, args: SetPrimaryDpu) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .set_primary_dpu(forgerpc::SetPrimaryDpuRequest {
+            host_machine_id: Some(args.host_machine_id),
+            dpu_machine_id: Some(args.dpu_machine_id),
+            reboot: args.reboot,
+        })
+        .await?;
+    Ok(())
 }
