@@ -164,7 +164,7 @@ impl HasDbMethods {
     // No warnings: txn is forwarded to db::actually_use_txn
     pub async fn good_fn(&self, txn: &mut PgTransaction<'_>) {
         non_async_work();
-        // db::actually_use_txn(txn.deref_mut()).await;
+        db::actually_use_txn(txn.deref_mut()).await;
         db::use_db_as_trait(&mut **txn).await;
     }
 
@@ -230,6 +230,49 @@ async fn good_pgpoolconn_fn(conn: PoolConnection<Postgres>) {
     unrelated_async_work("good").await
 }
 
+async fn bad_unrelated_work_in_closure_upvars() {
+    let txn = make_transaction();
+    async move {
+        unrelated_async_work("bad").await;
+        txn.commit().await.unwrap();
+    }
+    .await;
+}
+
+async fn good_related_work_in_closure_upvars() {
+    let mut txn = make_transaction();
+    async move {
+        db::actually_use_txn(txn.deref_mut()).await;
+        txn.commit().await.unwrap();
+
+        unrelated_async_work("good").await;
+    }
+    .await;
+}
+
+async fn bad_unrelated_work_in_closure_locals() {
+    async move {
+        let txn = make_transaction();
+        unrelated_async_work("bad").await;
+        txn.commit().await.unwrap();
+        let txn = make_transaction();
+        txn.commit().await.unwrap();
+        unrelated_async_work("good").await; // should not lint here
+    }
+    .await;
+}
+
+async fn good_related_work_in_closure_locals() {
+    async move {
+        let mut txn = make_transaction();
+        db::actually_use_txn(txn.deref_mut()).await;
+        txn.commit().await.unwrap();
+
+        unrelated_async_work("good").await;
+    }
+    .await;
+}
+
 #[tokio::main]
 async fn main() {
     // Actually call the functions to dead code warnings. But we're not actually running this code,
@@ -246,4 +289,8 @@ async fn main() {
     good_txn_as_receiver().await;
     do_txn_by_value().await;
     pgconn_calls().await;
+    bad_unrelated_work_in_closure_upvars().await;
+    good_related_work_in_closure_upvars().await;
+    bad_unrelated_work_in_closure_locals().await;
+    good_related_work_in_closure_locals().await;
 }

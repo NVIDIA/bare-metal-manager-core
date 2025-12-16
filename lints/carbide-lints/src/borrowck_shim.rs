@@ -1,10 +1,12 @@
 use std::sync::{Arc, LazyLock, RwLock};
 
 use rustc_data_structures::fx::FxIndexMap;
+use rustc_hir::intravisit::Visitor;
 use rustc_hir::{
-    Closure, ClosureKind, CoroutineDesugaring, CoroutineKind, Expr, ExprKind, ImplItem,
-    ImplItemKind, Item, ItemKind, Node,
+    BodyId, Closure, ClosureKind, CoroutineDesugaring, CoroutineKind, CoroutineSource, Expr,
+    ExprKind, intravisit,
 };
+use rustc_middle::hir::nested_filter;
 use rustc_middle::ty::{DefinitionSiteHiddenType, TyCtxt};
 use rustc_span::ErrorGuaranteed;
 use rustc_span::def_id::LocalDefId;
@@ -40,60 +42,83 @@ impl BorrowckShim {
         tcx: TyCtxt<'tcx>,
         def_id: LocalDefId,
     ) -> Result<&'tcx FxIndexMap<LocalDefId, DefinitionSiteHiddenType<'tcx>>, ErrorGuaranteed> {
-        let guard = ORIG_BORROWCK_QUERY.read().expect("lock poisoned");
-        let result =
-            guard
-                .as_ref()
-                .expect("no mir_borrowck query set, shim not configured")(tcx, def_id);
+        let orig_borrowck_guard = ORIG_BORROWCK_QUERY.read().expect("lock poisoned");
+        let orig_borrowck = orig_borrowck_guard
+            .as_ref()
+            .expect("no mir_borrowck query set, shim not configured");
+        let result = orig_borrowck(tcx, def_id);
 
-        let parent_hir_node = tcx.hir_node(tcx.local_def_id_to_hir_id(def_id));
-
-        // If this is a function, get the surrounding HIR (high-level representation) node
-        let maybe_body_id = match parent_hir_node {
-            Node::Item(Item {
-                kind: ItemKind::Fn { body, .. },
-                ..
-            }) => Some(body),
-            Node::ImplItem(ImplItem {
-                kind: ImplItemKind::Fn(_, body_id),
-                ..
-            }) => Some(body_id),
-            _ => None,
+        let Some((_owner_def_id, body_id)) = tcx.hir_node_by_def_id(def_id).associated_body()
+        else {
+            // We only check nodes with associated bodies (functions)
+            return result;
         };
 
-        if let Some(body_id) = maybe_body_id {
-            let hir_body = tcx.hir_node(body_id.hir_id);
+        // We care about HIR bodies which are async closure blocks, which is how async functions are
+        // represented (desugared), as well as `async move { ... }` closures.
+        let results = AsyncClosureFinder::find_async_closures(body_id, tcx);
 
-            // We care about HIR bodies which are coroutines, which is how async functions are
-            // represented (desugared)
-            match hir_body {
-                Node::Expr(Expr {
-                    kind:
-                        ExprKind::Closure(Closure {
-                            def_id: closure_def_id,
-                            // body: closure_body,
-                            kind:
-                                ClosureKind::Coroutine(CoroutineKind::Desugared(
-                                    CoroutineDesugaring::Async,
-                                    _,
-                                )),
-                            ..
-                        }),
-                    ..
-                }) => {
-                    // Get the MIR (middle-level representation) body, which holds the borrowck and
-                    // typeck results we need, and pass it to TxnHeldAcrossAwait.
-                    let mir_promoted = tcx.mir_promoted(closure_def_id).0.borrow();
-                    TxnHeldAcrossAwait::default().check_coroutine(
-                        tcx,
-                        *closure_def_id,
-                        &mir_promoted,
-                    )
-                }
+        for (closure, coroutine_source) in results {
+            // Check locals defined in the closure
+            TxnHeldAcrossAwait::default().check_closure_locals(tcx, closure);
 
-                _ => {}
-            };
+            if matches!(coroutine_source, CoroutineSource::Block) {
+                // For `async move { ... }` blocks, check any "upvars" (locals defined in the
+                // parent scope and referenced inside the closure.) This requires distinct logic
+                // and so is a separate function.
+                TxnHeldAcrossAwait::default().check_closure_upvars(tcx, closure);
+            }
         }
+
         result
+    }
+}
+
+struct AsyncClosureFinder<'tcx> {
+    tcx: TyCtxt<'tcx>,
+    async_closures: Vec<(&'tcx Closure<'tcx>, CoroutineSource)>,
+}
+
+impl<'tcx> Visitor<'tcx> for AsyncClosureFinder<'tcx> {
+    type NestedFilter = nested_filter::All;
+
+    fn maybe_tcx(&mut self) -> Self::MaybeTyCtxt {
+        self.tcx
+    }
+
+    fn visit_expr(&mut self, expr: &'tcx Expr<'tcx>) {
+        match expr.kind {
+            ExprKind::Closure(
+                closure @ Closure {
+                    kind:
+                        ClosureKind::Coroutine(CoroutineKind::Desugared(
+                            CoroutineDesugaring::Async,
+                            source,
+                        )),
+                    ..
+                },
+            ) => {
+                self.async_closures.push((closure, *source));
+            }
+            _ => {}
+        }
+
+        intravisit::walk_expr(self, expr);
+    }
+}
+
+impl<'tcx> AsyncClosureFinder<'tcx> {
+    fn find_async_closures(
+        body_id: BodyId,
+        tcx: TyCtxt<'tcx>,
+    ) -> Vec<(&'tcx Closure<'tcx>, CoroutineSource)> {
+        let mut finder = Self {
+            tcx,
+            async_closures: Default::default(),
+        };
+
+        let body = tcx.hir_body(body_id);
+        finder.visit_body(body);
+        finder.async_closures
     }
 }

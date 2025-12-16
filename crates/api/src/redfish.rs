@@ -102,6 +102,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     ///
     /// For testing purposes, if no credentials are found for the IP, and if self.proxy_address is
     /// set, will use anonymous auth.
+    #[allow(txn_held_across_await)]
     async fn create_client_for_ingested_host(
         &self,
         ip: IpAddr,

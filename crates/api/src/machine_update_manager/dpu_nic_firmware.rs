@@ -60,6 +60,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             .collect())
     }
 
+    #[allow(txn_held_across_await)]
     async fn start_updates(
         &self,
         txn: &mut PgConnection,
@@ -159,6 +160,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         Ok(())
     }
 
+    #[allow(txn_held_across_await)]
     async fn update_metrics(
         &self,
         txn: &mut PgConnection,
