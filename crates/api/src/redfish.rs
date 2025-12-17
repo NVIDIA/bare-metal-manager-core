@@ -21,9 +21,7 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
 };
 use libredfish::model::BootProgress;
-use libredfish::{
-    EnabledDisabled, Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl,
-};
+use libredfish::{Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::machine::Machine;
 use sqlx::PgConnection;
 use utils::HostPortPair;
@@ -373,15 +371,6 @@ impl RedfishClientPool for RedfishClientPoolImpl {
     }
 }
 
-pub async fn is_assigned_machine_booting_scout(machine: &Machine) -> CarbideResult<bool> {
-    match machine.current_state() {
-        model::machine::ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage { .. },
-        } => Ok(true),
-        _ => Ok(false),
-    }
-}
-
 /// redfish utility functions
 ///
 /// host_power_control allows control over the power of the host
@@ -421,61 +410,6 @@ pub async fn host_power_control(
                 .await
                 .map_err(CarbideError::RedfishError)?;
         }
-        bmc_vendor::BMCVendor::Supermicro => {
-            // Wait to test out the newly added logic to query the pending bios settings below before we remove this logic
-            match machine.current_state() {
-                /*
-                    These two states will add pending BIOS settings prior to calling host_power_control
-                    On Supermicros, this will result in the following error from calling boot_once:
-                        Failed to advance state: handler_host_power_control failed:
-                        Error in libredfish: HTTP 400 Bad Request at https://10.217.155.10:443/redfish/v1/Systems/1:
-                        {"error":{"code":"Base.v1_10_3.GeneralError","message":"A general error has occurred. See ExtendedInfo for more information.",
-                        "@Message.ExtendedInfo": [{"MessageId":"SMC.v1_0_0.OemBiosSettingFileAlreadyExists","Severity":"Warning","Resolution":"No resolution is required.",
-                        "Message":"Bios setting file already exists.","MessageArgs":[""],"RelatedProperties":[""]}]}}
-                */
-                model::machine::ManagedHostState::HostInit {
-                    machine_state: model::machine::MachineState::WaitingForPlatformConfiguration,
-                }
-                | model::machine::ManagedHostState::HostInit {
-                    machine_state:
-                        model::machine::MachineState::SetBootOrder {
-                            set_boot_order_info: _,
-                        },
-                } => {}
-                _ => {
-                    let pending = redfish_client.pending().await?;
-                    if pending.is_empty() {
-                        // We need to unlock BMC to perform boot modification, and relock it later
-                        let lstatus = redfish_client.lockdown_status().await?;
-                        if !lstatus.is_fully_disabled() {
-                            redfish_client.lockdown(EnabledDisabled::Disabled).await?;
-                        }
-                        // Supermicro will boot the users OS if we don't do this
-                        let boot_result = redfish_client
-                            .boot_once(libredfish::Boot::Pxe)
-                            .await
-                            .map_err(CarbideError::RedfishError);
-                        if lstatus.is_fully_enabled() {
-                            redfish_client.lockdown(EnabledDisabled::Enabled).await?;
-                        }
-
-                        // We error only after lockdown is reinstaited
-                        boot_result?;
-                    } else {
-                        tracing::debug!(
-                            "(host_power_control): skip setting boot order on supermicro {} with pending bios settings:\n {pending:#?}",
-                            machine.id.to_string()
-                        );
-                    }
-                }
-            }
-
-            redfish_client
-                .power(action)
-                .await
-                .map_err(CarbideError::RedfishError)?;
-        }
-
         bmc_vendor::BMCVendor::Nvidia
             if (action == SystemPowerControl::GracefulRestart)
                 || (action == SystemPowerControl::ForceRestart) =>
@@ -500,12 +434,6 @@ pub async fn host_power_control(
                 && manager.id == "BMC";
 
             if is_viking {
-                // Vikings prepend the users OS to the boot order once it is installed and this cleans up the mess
-                redfish_client
-                    .boot_once(libredfish::Boot::UefiHttp)
-                    .await
-                    .map_err(CarbideError::RedfishError)?;
-
                 // vikings reboot their DPU's if redfish reset is used. \
                 // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
                 //
@@ -541,16 +469,6 @@ pub async fn host_power_control(
                         CarbideError::internal(format!("Failed to restart machine: {e}"))
                     })?;
             } else {
-                // Handle GB200s
-                // This handles cases where the server has prepended the users OS to the boot order.
-                // boot_first will add all UEFI HTTP options to the start of the list
-                if is_assigned_machine_booting_scout(machine).await? {
-                    redfish_client
-                        .boot_first(libredfish::Boot::UefiHttp)
-                        .await
-                        .map_err(CarbideError::RedfishError)?;
-                }
-
                 redfish_client
                     .power(action)
                     .await
