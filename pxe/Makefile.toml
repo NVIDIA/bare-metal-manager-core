@@ -468,8 +468,8 @@ script = '''
   else
     PROFILE="scout-x86_64"
   fi
-  export PATH=${PATH}:/sbin
-  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+  export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin
+  sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
 '''
 
 [tasks.mkosi-build-scout-loader-x86_64]
@@ -489,8 +489,8 @@ script = '''
   else
     PROFILE="scout-aarch64"
   fi
-  export PATH=${PATH}:/sbin
-  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+  export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin
+  sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
 '''
 
 [tasks.mkosi-build-scout-loader-aarch64]
