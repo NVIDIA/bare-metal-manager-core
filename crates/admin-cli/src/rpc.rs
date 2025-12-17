@@ -2547,6 +2547,7 @@ impl ApiClient {
         description: Option<String>,
         data: String,
         credential: Option<rpc::DpuExtensionServiceCredential>,
+        observability: Vec<rpc::DpuExtensionServiceObservabilityConfig>,
     ) -> CarbideCliResult<rpc::DpuExtensionService> {
         let request = rpc::CreateDpuExtensionServiceRequest {
             service_id,
@@ -2556,11 +2557,15 @@ impl ApiClient {
             data,
             description,
             credential,
+            observability: Some(rpc::DpuExtensionServiceObservability {
+                configs: observability,
+            }),
         };
 
         Ok(self.0.create_dpu_extension_service(request).await?)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_extension_service(
         &self,
         service_id: String,
@@ -2568,6 +2573,7 @@ impl ApiClient {
         description: Option<String>,
         data: String,
         credential: Option<rpc::DpuExtensionServiceCredential>,
+        observability: Vec<rpc::DpuExtensionServiceObservabilityConfig>,
         if_version_ctr_match: Option<i32>,
     ) -> CarbideCliResult<rpc::DpuExtensionService> {
         let request = rpc::UpdateDpuExtensionServiceRequest {
@@ -2577,6 +2583,9 @@ impl ApiClient {
             data,
             credential,
             if_version_ctr_match,
+            observability: Some(rpc::DpuExtensionServiceObservability {
+                configs: observability,
+            }),
         };
 
         Ok(self.0.update_dpu_extension_service(request).await?)

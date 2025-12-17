@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use config_version::ConfigVersion;
 use eyre::Result;
 
+use crate::extension_services::dpu_extension_service_observability::DpuExtensionServiceObservability;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsernamePassword {
     pub username: String,
@@ -25,11 +27,13 @@ pub struct ServiceCredential {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceConfig {
     pub id: uuid::Uuid,
+    pub name: String,
     pub service_type: rpc::DpuExtensionServiceType,
     pub version: ConfigVersion,
     pub removed: Option<String>,
     pub data: String, // Service specification (e.g., pod spec YAML for pods)
     pub credential: Option<ServiceCredential>,
+    pub observability: Option<DpuExtensionServiceObservability>,
 }
 
 impl TryFrom<rpc::ManagedHostDpuExtensionServiceConfig> for ServiceConfig {
@@ -51,6 +55,7 @@ impl TryFrom<rpc::ManagedHostDpuExtensionServiceConfig> for ServiceConfig {
 
         Ok(Self {
             id: uuid::Uuid::parse_str(&config.service_id).unwrap(),
+            name: config.name,
             service_type: config
                 .service_type
                 .try_into()
@@ -61,6 +66,7 @@ impl TryFrom<rpc::ManagedHostDpuExtensionServiceConfig> for ServiceConfig {
                     e
                 ))
             })?,
+            observability: config.observability.map(|o| o.try_into()).transpose()?,
             removed: config.removed,
             data: config.data,
             credential,

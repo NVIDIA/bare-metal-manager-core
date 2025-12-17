@@ -2028,6 +2028,12 @@ pub struct CreateExtensionService {
 
     #[clap(long, help = "Password for the service credential (optional)")]
     pub password: Option<String>,
+
+    #[clap(
+        long,
+        help = "JSON array containing a defined set of extension observability configs (optional)"
+    )]
+    pub observability: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -2070,6 +2076,12 @@ pub struct UpdateExtensionService {
         help = "Update only if current number of versions matches this number (optional)"
     )]
     pub if_version_ctr_match: Option<i32>,
+
+    #[clap(
+        long,
+        help = "JSON array containing a defined set of extension observability configs (optional)"
+    )]
+    pub observability: Option<String>,
 }
 
 #[derive(Parser, Debug)]

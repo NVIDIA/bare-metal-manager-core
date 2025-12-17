@@ -38,6 +38,12 @@ pub async fn handle_create(
             None
         };
 
+    let observability = if let Some(r) = args.observability {
+        serde_json::from_str(&r)?
+    } else {
+        vec![]
+    };
+
     let extension_service = api_client
         .create_extension_service(
             args.service_id,
@@ -47,6 +53,7 @@ pub async fn handle_create(
             args.description,
             args.data,
             credential,
+            observability,
         )
         .await?;
 
@@ -86,6 +93,12 @@ pub async fn handle_update(
             None
         };
 
+    let observability = if let Some(r) = args.observability {
+        serde_json::from_str(&r)?
+    } else {
+        vec![]
+    };
+
     let extension_service = api_client
         .update_extension_service(
             args.service_id,
@@ -93,6 +106,7 @@ pub async fn handle_update(
             args.description,
             args.data,
             credential,
+            observability,
             args.if_version_ctr_match,
         )
         .await?;

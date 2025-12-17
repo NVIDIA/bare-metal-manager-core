@@ -10,8 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::forge::dpu_extension_service_observability_config::Config;
 use ::rpc::forge::forge_server::Forge;
+use ::rpc::forge::{
+    self as rpc, DpuExtensionServiceObservabilityConfig,
+    DpuExtensionServiceObservabilityConfigLogging,
+};
 use config_version::ConfigVersion;
 use tonic::Request;
 use uuid::Uuid;
@@ -31,6 +35,22 @@ fn create_credential() -> rpc::DpuExtensionServiceCredential {
                 password: "test-password".to_string(),
             }),
         ),
+    }
+}
+
+fn create_observability() -> rpc::DpuExtensionServiceObservability {
+    rpc::DpuExtensionServiceObservability {
+        configs: vec![rpc::DpuExtensionServiceObservabilityConfig {
+            name: Some("prom_config".to_string()),
+            config: Some(
+                rpc::dpu_extension_service_observability_config::Config::Prometheus(
+                    rpc::DpuExtensionServiceObservabilityConfigPrometheus {
+                        scrape_interval_seconds: 1,
+                        endpoint: "localhost:7777".to_string(),
+                    },
+                ),
+            ),
+        }],
     }
 }
 
@@ -78,6 +98,7 @@ async fn create_test_extension_service(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
+        observability: None,
     };
 
     let create_resp = env
@@ -86,7 +107,6 @@ async fn create_test_extension_service(
         .await;
 
     assert!(create_resp.is_ok());
-
     Ok(create_resp.unwrap().into_inner())
 }
 
@@ -102,6 +122,7 @@ async fn create_test_extension_service_with_three_versions(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
+        observability: None,
     };
 
     let create_resp = env
@@ -120,6 +141,8 @@ async fn create_test_extension_service_with_three_versions(
             description: None,
             data: TEST_SERVICE_DATA_VERSION_2.to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(1),
         }))
         .await;
@@ -133,6 +156,8 @@ async fn create_test_extension_service_with_three_versions(
             description: None,
             data: TEST_SERVICE_DATA_VERSION_3.to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(2),
         }))
         .await;
@@ -153,6 +178,7 @@ async fn create_test_extension_service_with_ten_versions(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
+        observability: None,
     };
 
     let create_resp = env
@@ -173,6 +199,8 @@ async fn create_test_extension_service_with_ten_versions(
                 description: None,
                 data: TEST_SERVICE_DATA_VERSION_2.to_string(),
                 credential: None,
+                observability: None,
+
                 if_version_ctr_match: None,
             }))
             .await;
@@ -186,6 +214,8 @@ async fn create_test_extension_service_with_ten_versions(
                 description: None,
                 data: TEST_SERVICE_DATA.to_string(),
                 credential: None,
+                observability: None,
+
                 if_version_ctr_match: None,
             }))
             .await;
@@ -209,6 +239,7 @@ async fn test_extension_service_creation(db_pool: sqlx::PgPool) -> Result<(), ey
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: Some(create_credential()),
+        observability: Some(create_observability()),
     };
 
     let create_resp: Result<tonic::Response<rpc::DpuExtensionService>, tonic::Status> = env
@@ -242,6 +273,7 @@ async fn test_extension_service_create_with_credential(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: Some(create_credential()),
+        observability: Some(create_observability()),
     };
 
     let create_resp = env
@@ -306,6 +338,7 @@ async fn test_extension_service_creation_invalid_arg(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
+        observability: None,
     };
 
     let create_resp = env
@@ -323,6 +356,7 @@ async fn test_extension_service_creation_invalid_arg(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: "".to_string(),
         credential: None,
+        observability: None,
     };
 
     let create_resp = env
@@ -340,6 +374,7 @@ async fn test_extension_service_creation_invalid_arg(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test".to_string(),
         credential: None,
+        observability: None,
     };
 
     let create_resp = env
@@ -356,6 +391,7 @@ async fn test_extension_service_creation_invalid_arg(
         tenant_organization_id: "best_org".to_string(),
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
+        observability: None,
         credential: Some(rpc::DpuExtensionServiceCredential {
             registry_url: "".to_string(),
             r#type: Some(
@@ -366,6 +402,114 @@ async fn test_extension_service_creation_invalid_arg(
                     },
                 ),
             ),
+        }),
+    };
+
+    let create_resp = env
+        .api
+        .create_dpu_extension_service(Request::new(extension_service))
+        .await;
+    assert!(create_resp.is_err());
+
+    // Test invalid observability config
+    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+        service_id: None,
+        service_name: "test-service".to_string(),
+        description: Some("Test service".to_string()),
+        tenant_organization_id: "best_org".to_string(),
+        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        data: TEST_SERVICE_DATA.to_string(),
+        credential: Some(create_credential()),
+        observability: Some(rpc::DpuExtensionServiceObservability {
+            configs: vec![rpc::DpuExtensionServiceObservabilityConfig {
+                name: Some("prom".to_string()),
+                config: None,
+            }],
+        }),
+    };
+
+    let create_resp = env
+        .api
+        .create_dpu_extension_service(Request::new(extension_service))
+        .await;
+    assert!(create_resp.is_err());
+
+    // Test invalid observability config name
+    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+        service_id: None,
+        service_name: "test-service".to_string(),
+        description: Some("Test service".to_string()),
+        tenant_organization_id: "best_org".to_string(),
+        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        data: TEST_SERVICE_DATA.to_string(),
+        credential: Some(create_credential()),
+        observability: Some(rpc::DpuExtensionServiceObservability {
+            configs: vec![rpc::DpuExtensionServiceObservabilityConfig {
+                name: Some("x".to_string().repeat(65)),
+                config: Some(
+                    rpc::dpu_extension_service_observability_config::Config::Logging(
+                        rpc::DpuExtensionServiceObservabilityConfigLogging {
+                            path: "something".to_string(),
+                        },
+                    ),
+                ),
+            }],
+        }),
+    };
+
+    let create_resp = env
+        .api
+        .create_dpu_extension_service(Request::new(extension_service))
+        .await;
+    assert!(create_resp.is_err());
+
+    // Fail to create an an extension with too many observability configs
+    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+        service_id: None,
+        service_name: "test-service".to_string(),
+        description: Some("Test service".to_string()),
+        tenant_organization_id: "best_org".to_string(),
+        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        data: TEST_SERVICE_DATA.to_string(),
+        credential: None,
+        observability: Some(rpc::DpuExtensionServiceObservability {
+            configs: vec![
+                DpuExtensionServiceObservabilityConfig {
+                    name: None,
+                    config: Some(Config::Logging(
+                        DpuExtensionServiceObservabilityConfigLogging {
+                            path: "/dev/null".to_string(),
+                        }
+                    )),
+                };
+                100
+            ],
+        }),
+    };
+
+    let create_resp = env
+        .api
+        .create_dpu_extension_service(Request::new(extension_service))
+        .await;
+    assert!(create_resp.is_err());
+    let status = create_resp.err().unwrap();
+    assert!(status.message().contains("exceeds"));
+
+    // Fail to create an an extension with just a basic bad observability config
+    // that's missing the actual config.
+    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+        service_id: None,
+        service_name: "test-service".to_string(),
+        description: Some("Test service".to_string()),
+        tenant_organization_id: "best_org".to_string(),
+        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        data: TEST_SERVICE_DATA.to_string(),
+        credential: None,
+        observability: Some(rpc::DpuExtensionServiceObservability {
+            configs: vec![DpuExtensionServiceObservabilityConfig {
+                name: None,
+                config: None,
+            }],
         }),
     };
 
@@ -394,6 +538,8 @@ async fn test_extension_service_creation_with_same_name(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
+        observability: None,
+
         tenant_organization_id: "best_org".to_string(),
     };
 
@@ -417,6 +563,8 @@ async fn test_extension_service_creation_with_same_name(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
+        observability: None,
+
         tenant_organization_id: "best_org".to_string(),
     };
 
@@ -437,6 +585,8 @@ async fn test_extension_service_creation_with_same_name(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
+        observability: None,
+
         tenant_organization_id: "another_org".to_string(),
     };
 
@@ -463,6 +613,7 @@ async fn test_extension_service_update(db_pool: sqlx::PgPool) -> Result<(), eyre
             description: Some("Updated service".to_string()),
             data: TEST_SERVICE_DATA_VERSION_2.to_string(),
             credential: Some(create_credential()),
+            observability: Some(create_observability()),
             if_version_ctr_match: Some(1),
         }))
         .await;
@@ -507,6 +658,8 @@ async fn test_extension_service_update(db_pool: sqlx::PgPool) -> Result<(), eyre
             description: None,
             data: TEST_SERVICE_DATA_VERSION_3.to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(2),
         }))
         .await;
@@ -575,6 +728,7 @@ async fn test_extension_service_update_invalid_arg(
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
+        observability: None,
     };
     let create_resp = env
         .api
@@ -591,6 +745,8 @@ async fn test_extension_service_update_invalid_arg(
             description: None,
             data: TEST_SERVICE_DATA_VERSION_3.to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(2),
         }))
         .await;
@@ -605,6 +761,7 @@ async fn test_extension_service_update_invalid_arg(
             description: None,
             data: TEST_SERVICE_DATA.to_string(),
             credential: Some(create_credential()),
+            observability: Some(create_observability()),
             if_version_ctr_match: Some(2),
         }))
         .await;
@@ -619,6 +776,8 @@ async fn test_extension_service_update_invalid_arg(
             description: None,
             data: "".to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(2),
         }))
         .await;
@@ -633,6 +792,8 @@ async fn test_extension_service_update_invalid_arg(
             description: None,
             data: "invalid data".to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(2),
         }))
         .await;
@@ -647,6 +808,8 @@ async fn test_extension_service_update_invalid_arg(
             description: None,
             data: TEST_SERVICE_DATA.to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(2),
         }))
         .await;
@@ -661,12 +824,44 @@ async fn test_extension_service_update_invalid_arg(
             description: None,
             data: TEST_SERVICE_DATA_VERSION_2.to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(1),
         }))
         .await;
     assert!(update_resp.is_err());
     let status = update_resp.err().unwrap();
     assert!(status.message().contains("already exists"));
+
+    // Update to set too many observability configs
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: Some("other-test-service".to_string()),
+            description: None,
+            data: TEST_SERVICE_DATA_VERSION_2.to_string(),
+            credential: None,
+            observability: Some(rpc::DpuExtensionServiceObservability {
+                configs: vec![
+                    DpuExtensionServiceObservabilityConfig {
+                        name: None,
+                        config: Some(Config::Logging(
+                            DpuExtensionServiceObservabilityConfigLogging {
+                                path: "/dev/null".to_string(),
+                            }
+                        )),
+                    };
+                    100
+                ],
+            }),
+
+            if_version_ctr_match: Some(1),
+        }))
+        .await;
+    assert!(update_resp.is_err());
+    let status = update_resp.err().unwrap();
+    assert!(status.message().contains("exceeds"));
 
     Ok(())
 }
@@ -1041,6 +1236,7 @@ async fn test_extension_service_create_update_delete_credential(
         .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             credential: Some(create_credential()),
+            observability: Some(create_observability()),
             if_version_ctr_match: None,
             service_name: None,
             description: None,
@@ -1337,6 +1533,8 @@ async fn test_find_instances_by_extension_service(
             description: None,
             data: TEST_SERVICE_DATA_VERSION_2.to_string(),
             credential: None,
+            observability: None,
+
             if_version_ctr_match: Some(1),
         }))
         .await?
@@ -1502,6 +1700,7 @@ async fn test_find_instances_by_extension_service_multiple_services_per_instance
             service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
             data: TEST_SERVICE_DATA_VERSION_2.to_string(),
             credential: None,
+            observability: None,
         }))
         .await?
         .into_inner();
