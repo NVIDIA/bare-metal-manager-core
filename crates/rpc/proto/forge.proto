@@ -3101,6 +3101,7 @@ message ManagedHostDpuExtensionServiceConfig {
   DpuExtensionServiceType service_type = 5;
   string data = 6;
   optional DpuExtensionServiceCredential credential = 7;
+  optional DpuExtensionServiceObservability observability = 8;
 }
 
 message ManagedHostQuarantineState {
@@ -5808,6 +5809,7 @@ message DpuExtensionServiceVersionInfo {
   string data = 2;
   bool has_credential = 3;
   string created = 4;
+  optional DpuExtensionServiceObservability observability = 5;
 }
 
 message DpuExtensionService {
@@ -5847,6 +5849,10 @@ message CreateDpuExtensionServiceRequest {
   // Versioned extension service spec
   string data = 6;
   optional DpuExtensionServiceCredential credential = 7;
+
+  // Metrics configuration to be added to the existing
+  // metrics collection service that runs on the DPU.
+  optional DpuExtensionServiceObservability observability = 8;
 }
 
 message UpdateDpuExtensionServiceRequest {
@@ -5862,9 +5868,13 @@ message UpdateDpuExtensionServiceRequest {
   // If the field here is set, the update will only be applied if the version
   // is equivalent to the current version on the Forge Site.
   // If a concurrent update changed the site configuration, the API will return
-  // a `ConcurrentModificationError`.
+  // a `ConcurrentModificationError`.  
   optional int32 if_version_ctr_match = 6;
-}
+
+  // Metrics configuration to be added to the existing
+  // metrics collection service that runs on the DPU.
+  optional DpuExtensionServiceObservability observability = 7;
+} 
 
 // If versions is empty, request to delete the whole service;
 // otherwise, request to delete the specified versions **but**
@@ -5929,6 +5939,32 @@ message InstanceDpuExtensionServiceInfo {
   string service_id = 2;
   string version = 3;
   optional string removed = 4; // Signals that this service is being removed from instance config and is terminating
+}
+
+message DpuExtensionServiceObservabilityConfigPrometheus {
+  uint32 scrape_interval_seconds = 1;
+  string endpoint                = 2;  
+}
+
+message DpuExtensionServiceObservabilityConfigLogging {
+  string path = 1;
+}
+
+message DpuExtensionServiceObservabilityConfig {
+  // The name of service being monitored OR the name of
+  // the portion of the service being monitored.
+  // This will default to the name of the service.
+  optional string name = 1;
+
+  oneof config {
+    DpuExtensionServiceObservabilityConfigPrometheus prometheus = 2;
+    DpuExtensionServiceObservabilityConfigLogging    logging    = 3;
+  }
+}
+
+
+message DpuExtensionServiceObservability {
+  repeated DpuExtensionServiceObservabilityConfig configs = 1;
 }
 
 // ScoutStreamApiBoundMessage is sent as part of scout initiating a new

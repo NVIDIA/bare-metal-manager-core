@@ -5183,6 +5183,7 @@ async fn test_allocate_instance_with_extension_services(
                 service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
                 data: create_dpu_extension_service_data("test-service"),
                 credential: None,
+                observability: None,
             },
         ))
         .await?
@@ -5270,6 +5271,7 @@ async fn create_dpu_extension_services(
                 service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
                 data: create_dpu_extension_service_data("test-service1-v1"),
                 credential: None,
+                observability: None,
             },
         ))
         .await?
@@ -5286,6 +5288,7 @@ async fn create_dpu_extension_services(
                 data: create_dpu_extension_service_data("test-service1-v2"),
                 credential: None,
                 if_version_ctr_match: None,
+                observability: None,
             },
         ))
         .await?
@@ -5302,6 +5305,7 @@ async fn create_dpu_extension_services(
                 service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
                 data: create_dpu_extension_service_data("test-service2-v1"),
                 credential: None,
+                observability: None,
             },
         ))
         .await?
@@ -5318,6 +5322,7 @@ async fn create_dpu_extension_services(
                 service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
                 data: create_dpu_extension_service_data("test-service3-v1"),
                 credential: None,
+                observability: None,
             },
         ))
         .await?

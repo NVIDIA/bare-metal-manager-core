@@ -543,6 +543,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     .into(),
                 data: service_version.data,
                 credential,
+                observability: service_version.observability.map(|o| o.into()),
             });
         }
         services_config

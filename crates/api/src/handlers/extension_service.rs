@@ -16,7 +16,7 @@ use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
 use db::{extension_service, instance};
 use forge_secrets::credentials::{CredentialKey, Credentials};
-use model::extension_service::ExtensionServiceType;
+use model::extension_service::{ExtensionServiceObservability, ExtensionServiceType};
 use model::tenant::TenantOrganizationId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -25,6 +25,7 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
 const MAX_POD_SPEC_SIZE: usize = 2 << 15; // 64 KB
+const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
 
 /// Creates a new extension service with an initial version.
 #[allow(txn_held_across_await)]
@@ -71,6 +72,20 @@ pub(crate) async fn create(
 
     let mut txn = api.txn_begin().await?;
 
+    let obvs_len = req
+        .observability
+        .as_ref()
+        .map(|o| o.configs.len())
+        .unwrap_or(0);
+    if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
+        return Err(CarbideError::InvalidConfiguration(
+            model::ConfigValidationError::InvalidValue(format!(
+                "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
+                obvs_len
+            )),
+        ).into());
+    }
+
     let (service, version) = extension_service::create(
         &mut txn,
         &service_id,
@@ -79,6 +94,10 @@ pub(crate) async fn create(
         &tenant_organization_id,
         req.description.as_deref(),
         &req.data,
+        req.observability
+            .as_ref()
+            .map(|o| ExtensionServiceObservability::try_from(o.to_owned()))
+            .transpose()?,
         req.credential.is_some(),
     )
     .await?;
@@ -238,6 +257,20 @@ pub(crate) async fn update(
         .into());
     }
 
+    let obvs_len = req
+        .observability
+        .as_ref()
+        .map(|o| o.configs.len())
+        .unwrap_or(0);
+    if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
+        return Err(CarbideError::InvalidConfiguration(
+            model::ConfigValidationError::InvalidValue(format!(
+                "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
+                obvs_len
+            )),
+        ).into());
+    }
+
     // Update the extension service with the new version in the database
     let (updated_service, new_version_row) = extension_service::update(
         &mut txn,
@@ -245,6 +278,10 @@ pub(crate) async fn update(
         req.service_name.as_deref(),
         req.description.as_deref(),
         &req.data,
+        req.observability
+            .as_ref()
+            .map(|o| ExtensionServiceObservability::try_from(o.to_owned()))
+            .transpose()?,
         req.credential.is_some(),
     )
     .await?;

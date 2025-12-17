@@ -1,0 +1,5 @@
+#!/bin/bash -p
+
+source /etc/otelcol-contrib/otelcol-wrapper-imports
+
+/usr/bin/otelcol-contrib validate --config=/etc/otelcol-contrib/config.yaml ${ADDITIONAL_CONFIGS}

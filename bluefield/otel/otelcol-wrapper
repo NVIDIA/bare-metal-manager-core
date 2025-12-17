@@ -1,39 +1,12 @@
 #!/bin/bash -p
 
-$HOSTNAME=$(hostname)
+source /etc/otelcol-contrib/otelcol-wrapper-imports
 
-if [[ "$HOSTNAME" == "localhost" ]]; then
-    echo "hostname cannot be 'localhost'"
-    exit 1
+# This should protect us on start-up in the event that bad extension config was left behind.
+# We'll at least get the minimum expected metrics.
+if /usr/bin/otelcol-contrib validate --config=/etc/otelcol-contrib/config.yaml ${ADDITIONAL_CONFIGS}; then
+    exec /usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml ${ADDITIONAL_CONFIGS}
+else
+    echo "WARN: DPU service extension config found but does not pass validation so continuing without it."
+    exec /usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml
 fi
-
-CERT_PATH=/etc/ssl/certs/forge-dpu-otel-agent.pem
-KEY_PATH=/etc/ssl/private/forge-dpu-otel-agent.key
-MAX_INTERVAL=30
-MAX_INTERVAL_REPEATED_COUNT=5
-
-interval=1
-interval_repeated_count=0
-max_interval_reached=false
-
-while [[ ! -f "$CERT_PATH" || ! -f "$KEY_PATH" ]]; do
-    echo "Certs not found. Try again in ${interval}s."
-
-    sleep $interval
-
-    if [[ $max_interval_reached == "true" ]]; then
-        : # leave max interval unchanged
-    elif [[ $interval -ge $MAX_INTERVAL ]]; then
-        echo "Maximum interval reached. Continue to try every ${MAX_INTERVAL}s."
-        max_interval_reached=true
-    elif [[ $interval_repeated_count -ge $MAX_INTERVAL_REPEATED_COUNT ]]; then
-        interval=$(( (interval * 3 + 1) / 2 )) # backoff factor 1.5 rounded up
-        interval=$(( interval < MAX_INTERVAL ? interval : MAX_INTERVAL ))
-        interval_repeated_count=0
-    else
-        interval_repeated_count=$(( $interval_repeated_count + 1 ))
-    fi
-done
-
-echo "Found $CERT_PATH and $KEY_PATH"
-exec /usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml
