@@ -438,8 +438,13 @@ args = [
 [tasks.mkosi-remove-zypper-from-debian-tools]
 category = "Ephemeral Image"
 description = "Remove zypper from the debian-tools image, as it's been removed from the repo"
-command = "sed"
-args = ["-i", "/zypper/d", "${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-ubuntu/mkosi.conf"]
+script = '''
+if [ -f ${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-kali-ubuntu/mkosi.conf ]; then
+  sed -i '/zypper/d' ${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-kali-ubuntu/mkosi.conf
+elif [ -f ${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-ubuntu/mkosi.conf ]; then
+  sed -i '/zypper/d' ${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-ubuntu/mkosi.conf
+fi
+'''
 
 [tasks.mkosi-generate-build-tmpdir]
 category = "Ephemeral Image"
