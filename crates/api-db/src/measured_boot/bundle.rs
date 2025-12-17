@@ -26,7 +26,7 @@ use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgTransaction};
 
 use crate::measured_boot::interface::bundle::{
     delete_bundle_for_id, delete_bundle_values_for_id, get_machines_for_bundle_id,
@@ -45,7 +45,7 @@ use crate::measured_boot::machine::bundle_state_to_machine_state;
 use crate::{DatabaseError, DatabaseResult};
 
 pub async fn new_with_txn(
-    txn: &mut PgConnection,
+    txn: &mut PgTransaction<'_>,
     profile_id: MeasurementSystemProfileId,
     name: Option<String>,
     values: &[PcrRegisterValue],
@@ -152,7 +152,9 @@ pub async fn from_name_with_txn(
 /// set_state_for_id sets the bundle state for
 /// the given bundle ID.
 pub async fn set_state_for_id(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     bundle_id: MeasurementBundleId,
     state: MeasurementBundleState,
 ) -> DatabaseResult<MeasurementBundle> {
@@ -338,7 +340,9 @@ pub async fn delete_for_name(
 
 async fn update_journal(
     measurement_bundle: &MeasurementBundle,
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
 ) -> DatabaseResult<Vec<MeasurementJournal>> {
     let machine_state = bundle_state_to_machine_state(&measurement_bundle.state);
 

@@ -27,7 +27,7 @@ use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
     NewNetworkSegment,
 };
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgTransaction};
 
 use crate::instance_address::UsedOverlayNetworkIpResolver;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
@@ -628,7 +628,9 @@ pub async fn mark_as_deleted_no_validation(
 /// carbide will pick any available free IP and store it in DB for further use.
 pub async fn allocate_svi_ip(
     value: &NetworkSegment,
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
 ) -> Result<IpAddr, DatabaseError> {
     let Some(ipv4_prefix) = value.prefixes.iter().find(|x| x.prefix.is_ipv4()) else {
         return Err(DatabaseError::NotFoundError {

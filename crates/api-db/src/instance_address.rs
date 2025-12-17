@@ -11,6 +11,7 @@
  */
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::ops::DerefMut;
 
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
@@ -28,7 +29,7 @@ use model::network_prefix::NetworkPrefix;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
 };
-use sqlx::{FromRow, PgConnection, query_as};
+use sqlx::{FromRow, PgConnection, PgTransaction, query_as};
 
 use super::{ObjectColumnFilter, network_segment};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
@@ -535,7 +536,9 @@ impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
 }
 
 pub async fn allocate_svi_ip(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
 ) -> DatabaseResult<(NetworkPrefixId, IpAddr)> {
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedOverlayNetworkIpResolver {
@@ -546,7 +549,7 @@ pub async fn allocate_svi_ip(
     // If either requested addresses are auto-generated, we lock the entire table
     let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(&mut *txn)
+        .execute(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 

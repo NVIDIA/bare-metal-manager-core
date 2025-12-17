@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
 
 use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
@@ -16,7 +17,7 @@ use model::hardware_info::LldpSwitchData;
 use model::network_devices::{
     DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
 };
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgTransaction};
 
 use super::{DatabaseError, ObjectFilter};
 
@@ -121,10 +122,10 @@ pub async fn get_or_create_network_device(
     create(txn, data).await
 }
 
-pub async fn lock_network_device_table(txn: &mut PgConnection) -> Result<(), DatabaseError> {
+pub async fn lock_network_device_table(txn: &mut PgTransaction<'_>) -> Result<(), DatabaseError> {
     let query = "LOCK TABLE network_device_lock IN EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(txn)
+        .execute(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
@@ -134,12 +135,12 @@ pub async fn lock_network_device_table(txn: &mut PgConnection) -> Result<(), Dat
 /// port_to_network_device_map table. Problem with update is that it can create extra load on
 /// db as there are very few chances of port update. So this function is called only from
 /// delete port_to_network_device_map call.
-pub async fn cleanup_unused_switches(txn: &mut PgConnection) -> Result<(), DatabaseError> {
+pub async fn cleanup_unused_switches(txn: &mut PgTransaction<'_>) -> Result<(), DatabaseError> {
     lock_network_device_table(txn).await?;
     let query = "DELETE FROM network_devices WHERE id NOT IN (SELECT network_device_id FROM port_to_network_device_map) RETURNING *";
 
     let result = sqlx::query_as::<_, NetworkDevice>(query)
-        .fetch_all(txn)
+        .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -190,13 +191,18 @@ pub mod dpu_to_network_device_map {
             .map_err(|e| DatabaseError::query(query, e))
     }
 
-    pub async fn delete(txn: &mut PgConnection, dpu_id: &MachineId) -> Result<(), DatabaseError> {
+    pub async fn delete(
+        // Note: This is a PgTransaction, not a PgConnection, cleaning up switches locks a table,
+        // which must happen inside a transaction.
+        txn: &mut PgTransaction<'_>,
+        dpu_id: &MachineId,
+    ) -> Result<(), DatabaseError> {
         // delete the association.
         let query = r#"DELETE from port_to_network_device_map WHERE dpu_id=$1 RETURNING dpu_id"#;
 
         let _ids = sqlx::query_as::<_, MachineId>(query)
             .bind(dpu_id.to_string())
-            .fetch_all(&mut *txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -204,7 +210,9 @@ pub mod dpu_to_network_device_map {
     }
 
     pub async fn create_dpu_network_device_association(
-        txn: &mut PgConnection,
+        // Note: This is a PgTransaction, not a PgConnection, because we lock the table, which must
+        // happen inside a transaction.
+        txn: &mut PgTransaction<'_>,
         device_data: &[LldpSwitchData],
         dpu_id: &MachineId,
     ) -> Result<(), DatabaseError> {
