@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::process;
 
@@ -29,6 +30,53 @@ pub fn metrics(metrics_endpoint: &SocketAddr) -> eyre::Result<String> {
         eyre::bail!("curl {endpoint} exit status code {}", out.status);
     }
     Ok(response.to_string())
+}
+
+pub struct MetricInfo {
+    pub name: String,
+    pub help: String,
+    pub ty: String,
+}
+
+/// Collect metric type information exposed by prometheus endpoints
+pub fn collect_metric_infos(metrics_endpoints: &[SocketAddr]) -> eyre::Result<Vec<MetricInfo>> {
+    let mut metric_infos: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
+
+    for ep in metrics_endpoints.iter() {
+        let metrics = metrics(ep)?;
+        let lines: Vec<&str> = metrics
+            .lines()
+            .filter(|line| line.starts_with("# HELP") || line.starts_with("# TYPE"))
+            .collect();
+
+        for line in lines {
+            let mut parts = line.splitn(4, " ");
+            let _pound = parts.next().unwrap();
+            let line_type = parts.next().unwrap();
+            let name = parts.next().unwrap().to_string();
+            let value = parts.next().unwrap().to_string();
+            if line_type == "TYPE" {
+                metric_infos.entry(name).or_default().0 = Some(value);
+            } else if line_type == "HELP" {
+                metric_infos.entry(name).or_default().1 = Some(value);
+            } else {
+                panic!("Unhandled line type {line_type}");
+            }
+        }
+    }
+
+    let mut infos: Vec<MetricInfo> = metric_infos
+        .into_iter()
+        .map(|(name, (ty, help))| MetricInfo {
+            name,
+            help: help.unwrap_or_default(),
+            ty: ty.unwrap_or_default(),
+        })
+        .collect();
+
+    infos.sort_by(|e1, e2| e1.name.cmp(&e2.name));
+
+    Ok(infos)
 }
 
 /// Waits for a specific metric line to show up. Returns the metrics

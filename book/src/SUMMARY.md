@@ -26,6 +26,8 @@
 - [SKU Validation](manuals/sku_validation.md)
 - [Release Instance API Enhancements](manuals/breakfix_integration.md)
 - [Managing VPC Peering](manuals/vpc_peering_management.md)
+- Metrics
+    - [Carbide-core metrics](manuals/metrics/carbide_core_metrics.md)
 
 # Sites and site access
 

@@ -11,7 +11,7 @@
  */
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::net::{Ipv4Addr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{self, Duration};
@@ -131,12 +131,64 @@ async fn test_integration() -> eyre::Result<()> {
         }
     }
 
+    generate_core_metric_docs(&test_env.carbide_metrics_addrs);
+
     server_handle_1.stop().await?;
     server_handle_2.stop().await?;
     test_env.db_pool.close().await;
     bmc_mock_handle.stop().await?;
     Ok(())
 }
+
+fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
+    let infos = metrics::collect_metric_infos(metrics_endpoints).unwrap();
+    let mut docs = "# Carbide core metrics\n\n".to_string();
+    use std::fmt::Write;
+
+    use askama_escape::Escaper;
+
+    writeln!(
+        &mut docs,
+        "This file contains a list of metrics exported by Carbide. \
+        The list is auto-generated from an integration test (`test_integration`). \
+        Metrics for workflows which are not exercised by the test are missing."
+    )
+    .unwrap();
+    writeln!(&mut docs).unwrap();
+    writeln!(&mut docs, "<table>").unwrap();
+    writeln!(
+        &mut docs,
+        "<tr><td>Name</td><td>Type</td><td>Description</td></tr>"
+    )
+    .unwrap();
+
+    for info in &infos {
+        write!(&mut docs, "<tr>").unwrap();
+        write!(&mut docs, "<td>{}</td>", info.name).unwrap();
+        write!(&mut docs, "<td>{}</td>", info.ty).unwrap();
+        write!(&mut docs, "<td>").unwrap();
+        askama_escape::Html
+            .write_escaped(&mut docs, &info.help)
+            .unwrap();
+        write!(&mut docs, "</td>").unwrap();
+        writeln!(&mut docs, "</tr>").unwrap();
+    }
+    writeln!(&mut docs, "<table>").unwrap();
+
+    let path = std::path::Path::new(METRIC_DOC_PATH);
+    assert!(
+        path.exists(),
+        "Metric path at {} does not exist. Did the directory structure change?",
+        path.to_str().unwrap()
+    );
+
+    std::fs::write(path, docs).unwrap();
+}
+
+pub(crate) const METRIC_DOC_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../book/src/manuals/metrics/carbide_core_metrics.md"
+);
 
 /// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own
 /// test, to make the values in the metrics buckets predictable.

@@ -16,6 +16,7 @@ bmc-mock = { path = "../bmc-mock" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
+askama_escape = { workspace = true }
 ctor = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }

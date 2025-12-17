@@ -1423,6 +1423,7 @@ dependencies = [
 name = "carbide-api-integration-tests"
 version = "0.0.0"
 dependencies = [
+ "askama_escape",
  "bmc-mock",
  "carbide-api-test-helper",
  "carbide-machine-a-tron",
