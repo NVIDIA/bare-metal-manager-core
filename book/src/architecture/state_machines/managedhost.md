@@ -580,6 +580,20 @@ state "NetworkConfigUpdate" as A_NetworkConfigUpdate {
   state "WaitingForConfigSynced" as A_NCU_WaitingForConfigSynced
   state "ReleaseOldResources" as A_NCU_ReleaseOldResources
 }
+state "HostPlatformConfiguration" as A_HostPlatformConfiguration {
+    state "PowerCycle" as A_HPC_PowerCycle
+    state "CheckHostConfig" as A_HPC_CheckHostConfig
+    state "UnlockHost" as A_HPC_UnlockHost
+    state "ConfigureBios" as A_HPC_ConfigureBios
+    state "PollingBiosSetup" as A_HPC_PollingBiosSetup
+    state "SetBootOrder" as A_HPC_SetBootOrder {
+        state "SetBootOrder" as A_HPC_SBO_SetBootOrder
+        state "WaitForSetBootOrderJobScheduled" as A_HPC_SBO_WaitForSetBootOrderJobScheduled
+        state "RebootHost" as A_HPC_SBO_RebootHost
+        state "WaitForSetBootOrderJobCompletion" as A_HPC_SBO_WaitForSetBootOrderJobCompletion
+    }
+    state "LockHost" as A_HPC_LockHost
+}
 
 '' Outgoing states
 state "PostAssignedMeasuring/WaitingForMeasurements" as PostAssignedMeasuring_M_WaitingForMeasurements
@@ -601,8 +615,9 @@ A_WaitingForStorageConfig --> A_WaitingForRebootToReady : Attach storage volumes
 A_WaitingForRebootToReady --> A_Ready : Reboot machine
 
 A_Ready --> A_NCU_WaitingForNetworkSegmentToBeReady : Update network request
-A_Ready --> A_WaitingForDpusToUp : (Instance deleted OR Host/DPU reporvisioning requested)\nAND Power is Off
-A_Ready --> A_BootingWithDiscoveryImage : (Instance deleted OR Host/DPU reporvisioning requested) AND Power is On
+A_Ready --> A_HPC_PowerCycle : (Instance deleted OR Host/DPU reporvisioning requested)\nAND need config bootorder
+A_Ready --> A_WaitingForDpusToUp : (Instance deleted OR Host/DPU reporvisioning requested)\nAND not need config bootorder\nAND Power is Off
+A_Ready --> A_BootingWithDiscoveryImage : (Instance deleted OR Host/DPU reporvisioning requested)\nAND not need config bootorder\nAND Power is On
 
 A_WaitingForDpusToUp --> A_BootingWithDiscoveryImage : DPUs UP-triggered
 A_WaitingForDpusToUp --> A_WaitingForDpusToUp : Not DPUs UP-triggered
@@ -630,6 +645,21 @@ A_NCU_WaitingForNetworkSegmentToBeReady --> A_NCU_WaitingForNetworkSegmentToBeRe
 A_NCU_WaitingForConfigSynced --> A_NCU_ReleaseOldResources : No DPU\nOR DPU synced
 A_NCU_WaitingForConfigSynced --> A_NCU_WaitingForConfigSynced : Wait for DPU synced
 A_NCU_ReleaseOldResources --> A_Ready
+
+A_HPC_PowerCycle --> A_HPC_PowerCycle : Wait Power Off
+A_HPC_PowerCycle --> A_HPC_CheckHostConfig : Power On
+A_HPC_CheckHostConfig --> A_HPC_CheckHostConfig : Wait DPU Up
+A_HPC_CheckHostConfig --> A_HPC_UnlockHost : Need config host boot order
+A_HPC_CheckHostConfig --> A_WaitingForDpusToUp : No need config host boot order
+A_HPC_UnlockHost --> A_HPC_ConfigureBios : BMC lockdown disabled
+A_HPC_ConfigureBios --> A_HPC_PollingBiosSetup : Config BIOS
+A_HPC_PollingBiosSetup --> A_HPC_PollingBiosSetup : Wait for BIOS setup
+A_HPC_PollingBiosSetup --> A_HPC_SBO_SetBootOrder : BIOS is setup
+A_HPC_SBO_SetBootOrder --> A_HPC_SBO_WaitForSetBootOrderJobScheduled : Set boot order job scheduled
+A_HPC_SBO_WaitForSetBootOrderJobScheduled --> A_HPC_SBO_RebootHost : Job scheduled
+A_HPC_SBO_RebootHost --> A_HPC_SBO_WaitForSetBootOrderJobCompletion : Reboot
+A_HPC_SBO_WaitForSetBootOrderJobCompletion --> A_HPC_LockHost : Job completed
+A_HPC_LockHost --> A_WaitingForDpusToUp : BMC lockdown enabled
 
 state AnyState
 AnyState --> A_Failed : Any failure condition
