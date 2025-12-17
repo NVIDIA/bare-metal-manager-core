@@ -18,12 +18,13 @@
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::ops::DerefMut;
 use std::vec::Vec;
 
 use carbide_uuid::{DbPrimaryUuid, DbTable};
 use measured_boot::pcr::PcrRegisterValue;
 use sqlx::postgres::PgRow;
-use sqlx::{Encode, PgConnection, Postgres};
+use sqlx::{Encode, PgConnection, PgTransaction, Postgres};
 
 use crate::{DatabaseError, DatabaseResult};
 
@@ -265,13 +266,15 @@ where
 /// you're done. If you want more control, you can
 /// use acquire_advisory_lock + release_advisory_lock.
 pub async fn acquire_advisory_txn_lock(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     key: &str,
 ) -> Result<(), DatabaseError> {
     let hash_key = advisory_lock_key_to_hash(key);
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(hash_key)
-        .execute(txn)
+        .execute(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new("acquire_advisory_txn_lock", e))?;
     Ok(())

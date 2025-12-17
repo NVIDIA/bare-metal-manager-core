@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::network::NetworkSegmentId;
@@ -17,7 +18,7 @@ use config_version::ConfigVersion;
 use model::resource_pool;
 use model::resource_pool::ResourcePool;
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc};
 use crate::resource_pool::ResourcePoolDatabaseError;
@@ -314,7 +315,9 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult
 
 pub async fn update_virtualization(
     value: &UpdateVpcVirtualization,
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
 ) -> DatabaseResult<Vpc> {
     let query = "UPDATE vpcs
             SET version=$1, network_virtualization_type=$2, updated=NOW()
@@ -340,7 +343,7 @@ pub async fn update_virtualization(
         .bind(value.network_virtualization_type)
         .bind(value.id)
         .bind(current_version)
-        .fetch_one(&mut *txn)
+        .fetch_one(txn.deref_mut())
         .await;
 
     let vpc: Vpc = match query_result {

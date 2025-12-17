@@ -21,7 +21,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementSystemProfileId;
 use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgTransaction};
 
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::acquire_advisory_txn_lock;
@@ -36,7 +36,9 @@ use crate::measured_boot::interface::profile::{
 use crate::{DatabaseError, DatabaseResult, Transaction};
 
 pub async fn new_with_txn(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     name: Option<String>,
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<MeasurementSystemProfile> {
@@ -62,7 +64,9 @@ pub fn from_info_and_attrs(
 }
 
 pub async fn match_from_attrs_or_new_with_txn(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<MeasurementSystemProfile> {
     match match_profile(txn, attrs).await? {
@@ -246,7 +250,9 @@ async fn match_profile(
 /// into both the measurement_system_profiles and measurement_system_profiles_attrs
 /// tables.
 pub async fn create_measurement_profile(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     profile_name: String,
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<MeasurementSystemProfile> {

@@ -11,6 +11,7 @@
  */
 
 use std::net::IpAddr;
+use std::ops::DerefMut;
 use std::str::FromStr;
 
 use carbide_uuid::domain::DomainId;
@@ -26,7 +27,7 @@ use model::hardware_info::HardwareInfo;
 use model::machine::MachineInterfaceSnapshot;
 use model::network_segment::{NetworkSegment, NetworkSegmentType};
 use model::predicted_machine_interface::PredictedMachineInterface;
-use sqlx::{FromRow, PgConnection};
+use sqlx::{FromRow, PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver, next_machine_interface_v4_ip};
@@ -417,7 +418,7 @@ pub async fn create(
 }
 
 pub async fn allocate_svi_ip(
-    txn: &mut PgConnection,
+    txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
 ) -> DatabaseResult<(NetworkPrefixId, IpAddr)> {
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
@@ -428,7 +429,7 @@ pub async fn allocate_svi_ip(
     // If either requested addresses are auto-generated, we lock the entire table
     let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(&mut *txn)
+        .execute(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
