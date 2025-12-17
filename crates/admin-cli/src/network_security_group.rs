@@ -47,6 +47,7 @@ fn convert_nsgs_to_table(
             "Created By",
             "Updated By",
             "Labels",
+            "Stateful Egress",
             "Rules"
         ]);
     } else {
@@ -76,7 +77,10 @@ fn convert_nsgs_to_table(
             })
             .collect::<Vec<_>>();
 
-        let default_attributes = forgerpc::NetworkSecurityGroupAttributes { rules: vec![] };
+        let default_attributes = forgerpc::NetworkSecurityGroupAttributes {
+            stateful_egress: false,
+            rules: vec![],
+        };
 
         if verbose {
             table.add_row(row![
@@ -89,6 +93,10 @@ fn convert_nsgs_to_table(
                 nsg.created_by(),
                 nsg.updated_by(),
                 labels.join(", "),
+                nsg.attributes
+                    .as_ref()
+                    .unwrap_or(&default_attributes)
+                    .stateful_egress,
                 serde_json::to_string_pretty(
                     &nsg.attributes.as_ref().unwrap_or(&default_attributes).rules
                 )
@@ -177,7 +185,10 @@ pub async fn nsg_update(
         .await?;
 
     let mut metadata = nsg.metadata.unwrap_or_default();
-    let mut rules = nsg.attributes.unwrap_or_default().rules;
+    let (mut rules, mut stateful_egress) = {
+        let nsg = nsg.attributes.unwrap_or_default();
+        (nsg.rules, nsg.stateful_egress)
+    };
 
     if let Some(d) = args.description {
         metadata.description = d;
@@ -195,12 +206,17 @@ pub async fn nsg_update(
         rules = serde_json::from_str(&r)?;
     }
 
+    if let Some(s) = args.stateful_egress {
+        stateful_egress = s;
+    }
+
     let nsg = api_client
         .update_network_security_group(
             id,
             args.tenant_organization_id,
             metadata,
             args.version,
+            stateful_egress,
             rules,
         )
         .await?;
@@ -248,7 +264,13 @@ pub async fn nsg_create(
     };
 
     let nsg = api_client
-        .create_network_security_group(id, args.tenant_organization_id, metadata, rules)
+        .create_network_security_group(
+            id,
+            args.tenant_organization_id,
+            metadata,
+            args.stateful_egress,
+            rules,
+        )
         .await?;
 
     if is_json {

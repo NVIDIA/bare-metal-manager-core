@@ -1938,13 +1938,17 @@ impl ApiClient {
         id: Option<String>,
         tenant_organization_id: String,
         metadata: rpc::Metadata,
+        stateful_egress: bool,
         rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
     ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
         let request = CreateNetworkSecurityGroupRequest {
             id,
             tenant_organization_id,
             metadata: Some(metadata),
-            network_security_group_attributes: Some(NetworkSecurityGroupAttributes { rules }),
+            network_security_group_attributes: Some(NetworkSecurityGroupAttributes {
+                stateful_egress,
+                rules,
+            }),
         };
 
         let response = self.0.create_network_security_group(request).await?;
@@ -2044,6 +2048,7 @@ impl ApiClient {
         tenant_organization_id: String,
         metadata: rpc::Metadata,
         if_version_match: Option<String>,
+        stateful_egress: bool,
         rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
     ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
         let request = UpdateNetworkSecurityGroupRequest {
@@ -2051,7 +2056,10 @@ impl ApiClient {
             tenant_organization_id,
             metadata: Some(metadata),
             if_version_match,
-            network_security_group_attributes: Some(NetworkSecurityGroupAttributes { rules }),
+            network_security_group_attributes: Some(NetworkSecurityGroupAttributes {
+                stateful_egress,
+                rules,
+            }),
         };
 
         let response = self.0.update_network_security_group(request).await?;

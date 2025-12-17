@@ -35,6 +35,7 @@ use crate::DatabaseError;
 ///   created the NetworkSecurityGroup
 /// * `metadata`               - A reference to a Metadata struct containing extra
 ///   details about the NetworkSecurityGroup
+/// * `stateful_egress`        - Whether egress rules are stateful.
 /// * `rules`                  - A slice of NetworkSecurityGroupRule containing the ACLs
 ///   of the NetworkSecurityGroup
 ///
@@ -44,11 +45,12 @@ pub async fn create(
     tenant_organization_id: &TenantOrganizationId,
     created_by: Option<&str>,
     metadata: &Metadata,
+    stateful_egress: bool,
     rules: &[NetworkSecurityGroupRule],
 ) -> Result<NetworkSecurityGroup, DatabaseError> {
     let query = "INSERT INTO network_security_groups
-                (id, tenant_organization_id, name, labels, description, rules, version, created_by)
-            SELECT $1::varchar, $2::varchar, $3::varchar, $4::jsonb, $5::varchar, $6::jsonb, $7::varchar, $8::varchar
+                (id, tenant_organization_id, name, labels, description, rules, version, created_by, stateful_egress)
+            SELECT $1::varchar, $2::varchar, $3::varchar, $4::jsonb, $5::varchar, $6::jsonb, $7::varchar, $8::varchar, $9
             WHERE NOT EXISTS
                 /* There should be a unique constraint on id.  The condition here is just defensive. */
                 (SELECT id FROM network_security_groups WHERE (id=$1::varchar OR (name=$3::varchar AND tenant_organization_id=$2::varchar)) AND deleted IS NULL)
@@ -63,6 +65,7 @@ pub async fn create(
         .bind(sqlx::types::Json(rules))
         .bind(ConfigVersion::initial())
         .bind(created_by)
+        .bind(stateful_egress)
         .fetch_one(txn)
         .await
     {
@@ -388,6 +391,7 @@ pub async fn get_propagation_status(
 ///   calling this function.***
 /// * `metadata`               - A reference to a Metadata struct containing extra details about
 ///   the NetworkSecurityGroup
+/// * `stateful_egress`        - Whether egress rules are stateful.
 /// * `rules`                  - A slice of NetworkSecurityGroupRule containing the ACLs of the
 ///   NetworkSecurityGroup
 /// * `expected_version`       - The version the record is expected to have prior to the update.
@@ -398,11 +402,13 @@ pub async fn get_propagation_status(
 /// * `updated_by`             - Optional String containing an ID to track the user who updated the
 ///   NetworkSecurityGroup
 ///
+#[allow(clippy::too_many_arguments)]
 pub async fn update(
     txn: &mut PgConnection,
     id: &NetworkSecurityGroupId,
     tenant_organization_id: &TenantOrganizationId,
     metadata: &Metadata,
+    stateful_egress: bool,
     rules: &[NetworkSecurityGroupRule],
     expected_version: ConfigVersion,
     updated_by: Option<&str>,
@@ -414,7 +420,8 @@ pub async fn update(
                 description=$3::varchar,
                 rules=$4::jsonb,
                 version=$5::varchar,
-                updated_by=$6::varchar
+                updated_by=$6::varchar,
+                stateful_egress=$10
             WHERE
                 /*
                     All but the final `AND NOT EXISTS` are here to be defensive.
@@ -438,6 +445,7 @@ pub async fn update(
         .bind(id)
         .bind(expected_version)
         .bind(tenant_organization_id.to_string())
+        .bind(stateful_egress)
         .fetch_one(txn)
         .await
     {

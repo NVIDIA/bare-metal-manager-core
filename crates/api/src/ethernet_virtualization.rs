@@ -418,6 +418,7 @@ pub async fn tenant_network(
                             id: nsg.id.to_string(),
                             version: nsg.version.to_string(),
                             source,
+                            stateful_egress: nsg.stateful_egress,
                             rules:
                                 nsg.rules
                                     .into_iter()

@@ -3250,8 +3250,9 @@ message FlatInterfaceConfig {
 message FlatInterfaceNetworkSecurityGroupConfig {
   string id                                       = 1;
   string version                                  = 2;
-  NetworkSecurityGroupSource source               = 3;
+  NetworkSecurityGroupSource source               = 3;  
   repeated ResolvedNetworkSecurityGroupRule rules = 4;
+  bool stateful_egress                            = 5;
 }
 
 message ManagedHostNetworkStatusRequest {
@@ -5015,8 +5016,11 @@ message UfmBrowseResponse {
   map<string, string> headers = 3;
 }
 
-message NetworkSecurityGroupAttributes {
+message NetworkSecurityGroupAttributes {  
   repeated NetworkSecurityGroupRuleAttributes rules = 1;
+
+  // Whether egress rules should be stateful.
+  bool stateful_egress                              = 2;
 }
 
 message NetworkSecurityGroup {

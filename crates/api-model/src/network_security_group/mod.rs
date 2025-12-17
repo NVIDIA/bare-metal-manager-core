@@ -646,6 +646,7 @@ impl TryFrom<NetworkSecurityGroupRule> for rpc::NetworkSecurityGroupRuleAttribut
 pub struct NetworkSecurityGroup {
     pub id: NetworkSecurityGroupId,
     pub tenant_organization_id: TenantOrganizationId,
+    pub stateful_egress: bool,
     pub rules: Vec<NetworkSecurityGroupRule>,
     pub version: ConfigVersion,
     pub created: DateTime<Utc>,
@@ -665,7 +666,10 @@ impl TryFrom<NetworkSecurityGroup> for rpc::NetworkSecurityGroup {
             rules.push(rule_attrs.try_into()?);
         }
 
-        let attributes = rpc::NetworkSecurityGroupAttributes { rules };
+        let attributes = rpc::NetworkSecurityGroupAttributes {
+            stateful_egress: nsg.stateful_egress,
+            rules,
+        };
 
         Ok(rpc::NetworkSecurityGroup {
             id: nsg.id.to_string(),
@@ -882,6 +886,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroup {
         Ok(NetworkSecurityGroup {
             id: row.try_get("id")?,
             version: row.try_get("version")?,
+            stateful_egress: row.try_get("stateful_egress")?,
             tenant_organization_id: tenant_organization_id
                 .parse::<TenantOrganizationId>()
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
@@ -1060,6 +1065,7 @@ mod tests {
                 labels: vec![],
             }),
             attributes: Some(rpc::NetworkSecurityGroupAttributes {
+                stateful_egress: true,
                 rules: vec![rpc::NetworkSecurityGroupRuleAttributes {
                     id: Some("anything".to_string()),
                     direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -1096,6 +1102,7 @@ mod tests {
             created: "2025-01-01 01:01:01 UTC".parse().unwrap(),
             created_by: Some("this_guy".to_string()),
             updated_by: Some("that_guy".to_string()),
+            stateful_egress: true,
             version,
             metadata: Metadata {
                 name: "fancy name".to_string(),

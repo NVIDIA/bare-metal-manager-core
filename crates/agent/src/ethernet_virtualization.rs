@@ -283,14 +283,17 @@ pub async fn update_nvue(
         .as_ref()
         .is_some_and(|c| c.quarantine_state.is_some());
 
-    let (has_network_security_group, network_security_group_rules) = if is_quarantined {
-        tracing::info!("managed host is quarantined! Disabling network access via nvue");
-        (true, build_quarantined_network_security_group_rules())
-    } else if let Some(rules) = build_network_security_group_rules(&nc.tenant_interfaces)? {
-        (true, rules)
-    } else {
-        (false, vec![])
-    };
+    let (has_network_security_group, has_stateful_nsg, network_security_group_rules) =
+        if is_quarantined {
+            tracing::info!("managed host is quarantined! Disabling network access via nvue");
+            (
+                true,
+                false,
+                build_quarantined_network_security_group_rules(),
+            )
+        } else {
+            build_network_security_group_rules(&nc.tenant_interfaces)?
+        };
 
     let network_security_policy_override_rules =
         if is_quarantined || nc.network_security_policy_overrides.is_empty() {
@@ -368,7 +371,7 @@ pub async fn update_nvue(
         ct_access_vlans: access_vlans,
         deny_prefixes: nc.deny_prefixes.clone(),
         site_fabric_prefixes: nc.site_fabric_prefixes.clone(),
-        stateful_acls_enabled: nc.stateful_acls_enabled,
+        stateful_acls_enabled: nc.stateful_acls_enabled && has_stateful_nsg,
 
         // For now, the isolation options boil down to a boolean,
         // but the match will make sure we catch and adjust accordingly
@@ -562,7 +565,7 @@ pub async fn update_traffic_intercept_bridging(
 
 fn build_network_security_group_rules(
     interfaces: &[FlatInterfaceConfig],
-) -> eyre::Result<Option<Vec<nvue::NetworkSecurityGroupRule>>> {
+) -> eyre::Result<(bool, bool, Vec<nvue::NetworkSecurityGroupRule>)> {
     // This chunk of code is combining all rules it finds.
     // There are two assumptions here...
     // 1 - ManagedHostNetworkConfigResponse only has rules on physical interfaces.
@@ -572,6 +575,7 @@ fn build_network_security_group_rules(
     // if we notice that either of those assumptions is no longer valid.
     let mut has_network_security_group = false;
     let mut network_security_group_rules = vec![];
+    let mut has_stateful = false;
     for iface in interfaces {
         if let Some(ref nsg) = iface.network_security_group {
             if has_network_security_group {
@@ -580,6 +584,8 @@ fn build_network_security_group_rules(
                 );
             }
 
+            has_stateful |= nsg.stateful_egress;
+
             has_network_security_group = true;
 
             for resolved_rule in &nsg.rules {
@@ -587,11 +593,11 @@ fn build_network_security_group_rules(
             }
         }
     }
-    if has_network_security_group {
-        Ok(Some(network_security_group_rules))
-    } else {
-        Ok(None)
-    }
+    Ok((
+        has_network_security_group,
+        has_stateful,
+        network_security_group_rules,
+    ))
 }
 
 /// Build a set of security group rules that deny all traffic.
@@ -2232,6 +2238,7 @@ mod tests {
                     id: "5b931164-d9c6-11ef-8292-232e57575621".to_string(),
                     version: "V1-1".to_string(),
                     source: rpc::NetworkSecurityGroupSource::NsgSourceVpc.into(),
+                    stateful_egress: true,
                     rules: vec![rpc::ResolvedNetworkSecurityGroupRule {
                         src_prefixes: vec!["0.0.0.0/0".to_string()],
                         dst_prefixes: vec!["1.0.0.0/0".to_string()],

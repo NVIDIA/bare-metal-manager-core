@@ -59,16 +59,18 @@ pub(crate) async fn create(
     metadata.validate(true).map_err(CarbideError::from)?;
 
     // Prepare the rules list
-    let rules = req
-        .network_security_group_attributes
-        .unwrap_or(rpc::NetworkSecurityGroupAttributes {
-            ..Default::default()
-        })
-        .rules
-        .into_iter()
-        .map(|r| r.try_into())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(CarbideError::from)?;
+    let (stateful_egress, rules) = {
+        let attr = req.network_security_group_attributes.unwrap_or_default();
+
+        (
+            attr.stateful_egress,
+            attr.rules
+                .into_iter()
+                .map(|r| r.try_into())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(CarbideError::from)?,
+        )
+    };
 
     let max_nsg_size = api
         .runtime_config
@@ -94,6 +96,7 @@ pub(crate) async fn create(
             })?,
         None,
         &metadata,
+        stateful_egress,
         &rules,
     )
     .await?;
@@ -252,16 +255,18 @@ pub(crate) async fn update(
     metadata.validate(true).map_err(CarbideError::from)?;
 
     // Prepare the desired rules list
-    let rules = req
-        .network_security_group_attributes
-        .unwrap_or(rpc::NetworkSecurityGroupAttributes {
-            ..Default::default()
-        })
-        .rules
-        .into_iter()
-        .map(|r| r.try_into())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(CarbideError::from)?;
+    let (stateful_egress, rules) = {
+        let attr = req.network_security_group_attributes.unwrap_or_default();
+
+        (
+            attr.stateful_egress,
+            attr.rules
+                .into_iter()
+                .map(|r| r.try_into())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(CarbideError::from)?,
+        )
+    };
 
     let max_nsg_size = api
         .runtime_config
@@ -347,6 +352,7 @@ pub(crate) async fn update(
         &id,
         &tenant_organization_id,
         &metadata,
+        stateful_egress,
         &rules,
         current_network_security_group.version,
         None,
