@@ -203,12 +203,6 @@ dependencies = [
   # "setup-apt-repo-arm64", # FIXME: FORGE-7502 - Disabled until URM migration completed, due to bfb-aarch64-ci
 ]
 
-# FIXME: needs gitlab sync this zypper removal task
-[tasks.mkosi-remove-zypper-from-debian-tools]
-description = "Remove zypper from the debian-tools image, as it's been removed from the repo"
-command = "sed"
-args = ["-i", "/zypper/d", "${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-kali-ubuntu/mkosi.conf"]
-
 [tasks.create-ephemeral-image-x86-host-ci]
 category = "Ephemeral Image"
 dependencies = [
