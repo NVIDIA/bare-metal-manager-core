@@ -237,9 +237,6 @@
               '10':
                 action:
                   deny: {}
-    system:
-      reflexive-acl:
-        enable: on
     vrf:
       default:
         router:

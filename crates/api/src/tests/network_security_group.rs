@@ -127,6 +127,7 @@ async fn test_network_security_group_create(
 
     // Prepare some bad attributes for testing NSG size limits
     let too_many_src_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
+        stateful_egress: false,
         rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
             direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -153,6 +154,7 @@ async fn test_network_security_group_create(
     });
 
     let too_many_dst_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
+        stateful_egress: false,
         rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
             direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -180,6 +182,7 @@ async fn test_network_security_group_create(
 
     let too_many_rules =
         Some(rpc::forge::NetworkSecurityGroupAttributes {
+            stateful_egress: false,
             rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
             direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -207,6 +210,7 @@ async fn test_network_security_group_create(
 
     let duplicate_rule_ids =
         Some(rpc::forge::NetworkSecurityGroupAttributes {
+            stateful_egress: false,
             rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
                 direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -256,6 +260,7 @@ async fn test_network_security_group_create(
 
     // Prepare some attributes for creation and comparison later
     let network_security_group_attributes = Some(rpc::forge::NetworkSecurityGroupAttributes {
+        stateful_egress: true,
         rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
             direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -510,6 +515,7 @@ async fn test_network_security_group_update(
 
     // Prepare some bad attributes for testing NSG size limits
     let too_many_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
+        stateful_egress: false,
         rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
             direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -537,6 +543,7 @@ async fn test_network_security_group_update(
 
     let too_many_rules =
         Some(rpc::forge::NetworkSecurityGroupAttributes {
+            stateful_egress: false,
             rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
                 direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -564,6 +571,7 @@ async fn test_network_security_group_update(
 
     let duplicate_rule_ids =
         Some(rpc::forge::NetworkSecurityGroupAttributes {
+            stateful_egress: false,
             rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
                 direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -613,6 +621,7 @@ async fn test_network_security_group_update(
 
     let update_network_security_group_attributes =
         Some(rpc::forge::NetworkSecurityGroupAttributes {
+            stateful_egress: false,
             rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
                 direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -1564,6 +1573,7 @@ async fn test_network_security_group_propagation_impl(
                 }),
                 network_security_group_attributes: Some(
                     rpc::forge::NetworkSecurityGroupAttributes {
+                        stateful_egress: false,
                         rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
                 direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress

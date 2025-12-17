@@ -508,6 +508,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             id: "5b931164-d9c6-11ef-8292-232e57575621".to_string(),
             version: "V1-1".to_string(),
             source: rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc.into(),
+            stateful_egress: true,
             rules: vec![rpc::forge::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["0.0.0.0/0".to_string()],
                 dst_prefixes: vec!["0.0.0.0/0".to_string()],

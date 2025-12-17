@@ -1536,9 +1536,10 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
 
     let tenant_org = default_tenant_org.parse::<TenantOrganizationId>().unwrap();
 
-    let _it = create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, &rules)
-        .await
-        .unwrap();
+    let _it =
+        create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, false, &rules)
+            .await
+            .unwrap();
 
     // Create one more NSG with a different name.
     // The rules can be the same.
@@ -1551,9 +1552,10 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
     };
     let id = uid.parse().unwrap();
 
-    let _it = create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, &rules)
-        .await
-        .unwrap();
+    let _it =
+        create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, false, &rules)
+            .await
+            .unwrap();
 
     // One more for the second tenant
     let uid = "ddfcabc4-92dc-41e2-874e-2c7eeb9fa156";
@@ -1570,6 +1572,7 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
         &tenant_org2.parse::<TenantOrganizationId>().unwrap(),
         None,
         &metadata,
+        false,
         &rules,
     )
     .await

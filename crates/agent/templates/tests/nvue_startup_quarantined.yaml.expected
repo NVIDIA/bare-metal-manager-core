@@ -143,9 +143,6 @@
               '10':
                 action:
                   deny: {}
-    system:
-      reflexive-acl:
-        enable: on
     vrf:
       default:
         router:
@@ -304,30 +301,6 @@
               ip:
                 dest-ip: 0.0.0.0/0
                 source-ip: 0.0.0.0/0
-          '65532':
-            action:
-              permit: {}
-            match:
-              ip:
-                protocol: tcp
-              conntrack:
-                established: {}
-          '65533':
-            action:
-              permit: {}
-            match:
-              ip:
-                protocol: udp
-              conntrack:
-                established: {}
-          '65534':
-            action:
-              permit: {}
-            match:
-              ip:
-                protocol: icmp
-              conntrack:
-                established: {}
           '65535':
             action:
               deny: {}
