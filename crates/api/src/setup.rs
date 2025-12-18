@@ -532,7 +532,7 @@ pub async fn initialize_and_start_controllers(
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
     let _machine_state_controller_handle = StateController::<MachineStateControllerIO>::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", meter.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
@@ -602,7 +602,7 @@ pub async fn initialize_and_start_controllers(
     let sc_pool_vni = common_pools.ethernet.pool_vni.clone();
 
     let ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_network_segments", meter.clone())
         .services(handler_services.clone());
     let _network_segment_controller_handle = ns_builder
@@ -627,7 +627,7 @@ pub async fn initialize_and_start_controllers(
         tracing::info!("Starting DpaInterfaceStateController as dpa is enabled");
         _dpa_interface_state_controller_handle = Some(
             StateController::<DpaInterfaceStateControllerIO>::builder()
-                .database(db_pool.clone())
+                .database(db_pool.clone(), work_lock_manager_handle.clone())
                 .meter("forge_dpa_interfaces", meter.clone())
                 .services(handler_services.clone())
                 .iteration_config(
@@ -641,7 +641,7 @@ pub async fn initialize_and_start_controllers(
 
     let _ib_partition_controller_handle =
         StateController::<IBPartitionStateControllerIO>::builder()
-            .database(db_pool.clone())
+            .database(db_pool.clone(), work_lock_manager_handle.clone())
             .meter("forge_ib_partitions", meter.clone())
             .services(handler_services.clone())
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
@@ -650,7 +650,7 @@ pub async fn initialize_and_start_controllers(
             .expect("Unable to build IBPartitionStateController");
 
     let _power_shelf_controller_handle = StateController::<PowerShelfStateControllerIO>::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", meter.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.power_shelf_state_controller.controller).into())
@@ -659,7 +659,7 @@ pub async fn initialize_and_start_controllers(
         .expect("Unable to build PowerShelfStateController");
 
     let _rack_controller_handle = StateController::<RackStateControllerIO>::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_racks", meter.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(RackStateHandler::default()))
@@ -667,7 +667,7 @@ pub async fn initialize_and_start_controllers(
         .expect("Unable to build RackStateController");
 
     let _switch_controller_handle = StateController::<SwitchStateControllerIO>::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_switches", meter.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.switch_state_controller.controller).into())
@@ -685,6 +685,7 @@ pub async fn initialize_and_start_controllers(
         meter.clone(),
         ib_fabric_manager.clone(),
         carbide_config.clone(),
+        work_lock_manager_handle.clone(),
     );
     let _ib_fabric_monitor_handle = ib_fabric_monitor.start()?;
 
@@ -694,6 +695,7 @@ pub async fn initialize_and_start_controllers(
         // meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
         carbide_config.host_health,
+        work_lock_manager_handle.clone(),
     );
     let _nv_link_partition_monitor_handle = nvlink_partition_monitor.start()?;
 
@@ -704,11 +706,16 @@ pub async fn initialize_and_start_controllers(
         bmc_explorer.clone(),
         Arc::new(carbide_config.get_firmware_config()),
         common_pools.clone(),
+        work_lock_manager_handle.clone(),
     );
     let _site_explorer_stop_handle = site_explorer.start()?;
 
-    let machine_update_manager =
-        MachineUpdateManager::new(db_pool.clone(), carbide_config.clone(), meter.clone());
+    let machine_update_manager = MachineUpdateManager::new(
+        db_pool.clone(),
+        carbide_config.clone(),
+        meter.clone(),
+        work_lock_manager_handle.clone(),
+    );
     let _machine_update_manager_stop_handle = machine_update_manager.start()?;
 
     let preingestion_manager = PreingestionManager::new(

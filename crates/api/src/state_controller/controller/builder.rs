@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use db::work_lock_manager::WorkLockManagerHandle;
 use opentelemetry::metrics::Meter;
 use tokio::sync::oneshot;
 
@@ -44,6 +45,7 @@ pub enum StateControllerBuildError {
 /// A builder for `StateController`
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
+    work_lock_manager_handle: Option<WorkLockManagerHandle>,
     iteration_config: IterationConfig,
     object_type_for_metrics: Option<String>,
     meter: Option<Meter>,
@@ -64,6 +66,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
     fn default() -> Self {
         Self {
             database: None,
+            work_lock_manager_handle: None,
             iteration_config: IterationConfig::default(),
             io: None,
             state_handler: Arc::new(NoopStateHandler::<
@@ -138,11 +141,16 @@ impl<IO: StateControllerIO> Builder<IO> {
         // and the OTEL framework
         let metric_holder = Arc::new(MetricHolder::new(meter, &controller_name));
 
+        let work_lock_manager_handle = self.work_lock_manager_handle.take().ok_or(
+            StateControllerBuildError::MissingArgument("work_lock_manager_handle"),
+        )?;
+
         let controller = StateController::<IO> {
             pool: database,
+            work_lock_manager_handle,
             stop_receiver,
             iteration_config: self.iteration_config,
-            lock_query: create_lock_query(IO::DB_LOCK_NAME),
+            work_key: IO::DB_WORK_KEY,
             handler_services: services,
             io: self.io.unwrap_or_default(),
             state_handler: self.state_handler.clone(),
@@ -156,9 +164,14 @@ impl<IO: StateControllerIO> Builder<IO> {
         })
     }
 
-    /// Configures the utilized database
-    pub fn database(mut self, db: sqlx::PgPool) -> Self {
+    /// Configures the utilized database, and the singleton work_lock_manager that corresponds to it
+    pub fn database(
+        mut self,
+        db: sqlx::PgPool,
+        work_lock_manager_handle: WorkLockManagerHandle,
+    ) -> Self {
         self.database = Some(db);
+        self.work_lock_manager_handle = Some(work_lock_manager_handle);
         self
     }
 
@@ -205,21 +218,4 @@ impl<IO: StateControllerIO> Builder<IO> {
         self.state_handler = handler;
         self
     }
-}
-
-/// Creates the query that will be used for advisory locking of a postgres table
-/// with the given name.
-///
-/// Note that there is no real relation between the table and the query
-/// We just use it to get an object identifier
-///
-/// For each of the lock names (e.g. network_segments_controller_lock, machine_state_controller_lock),
-/// the inner select statement will return its OID.
-/// For example, SELECT 'network_segments_controller_lock'::regclass::oid will return the same int
-/// everytime (for example 17308). Each advisory lock is identified by a single bigint
-/// And SELECT pg_try_advisory_xact_lock(17308) will acquire the lock and return TRUE if no one else
-/// has locked that table. Otherwise it will return FALSE immediately. The acquired lock is held
-/// for the duration of the current transaction.
-fn create_lock_query(db_lock_name: &str) -> String {
-    format!("SELECT pg_try_advisory_xact_lock((SELECT '{db_lock_name}'::regclass::oid)::integer);")
 }

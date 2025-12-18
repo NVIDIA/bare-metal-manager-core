@@ -426,8 +426,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let mh = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
-    let update_manager =
-        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+    );
     // Update manager should notice that the host is underversioned, setting the request to update it
     update_manager.run_single_iteration().await.unwrap();
 
@@ -731,8 +735,12 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
     txn.commit().await.unwrap();
 
     // Create and start an update manager
-    let update_manager =
-        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+    );
     update_manager.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -759,8 +767,12 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
     let (env, mh) = test_host_fw_upgrade_enabledisable_generic(pool, false).await?;
     let host_machine_id = mh.host().id;
     // Create and start an update manager
-    let update_manager =
-        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+    );
     update_manager.run_single_iteration().await?;
 
     // Globally disabled, so it should not have requested an update
@@ -1138,8 +1150,12 @@ async fn test_instance_upgrading_actual(
         .await;
 
     // Create and start an update manager
-    let update_manager =
-        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+    );
 
     // Single iteration now starts it
     update_manager.run_single_iteration().await.unwrap();
@@ -1716,8 +1732,12 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     let mh = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
-    let update_manager =
-        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+    );
     // Update manager should notice that the host is underversioned, setting the request to update it
     update_manager.run_single_iteration().await.unwrap();
 
@@ -1809,8 +1829,12 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
     let mh = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
-    let update_manager =
-        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+    );
     // Update manager should notice that the host is underversioned, setting the request to update it
     update_manager.run_single_iteration().await.unwrap();
 
@@ -1966,8 +1990,12 @@ async fn test_explicit_update(pool: sqlx::PgPool) -> CarbideResult<()> {
     let mh = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
-    let update_manager =
-        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+    );
 
     // A tick of the state machine, but we don't start anything yet and it's still in ready
     update_manager.run_single_iteration().await.unwrap();

@@ -36,61 +36,65 @@ use crate::state_controller::state_handler::{
 };
 
 #[crate::sqlx_test]
-async fn test_start_iteration(pool: sqlx::PgPool) -> sqlx::Result<()> {
+async fn test_start_iteration(pool: sqlx::PgPool) -> eyre::Result<()> {
     create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
 
-    // First txn can acquire the lock
-    let mut txn = pool.begin().await?;
-    let result = controller::db::lock_iteration_table_and_start_iteration(
-        &mut txn,
+    // First iteration can acquire the lock
+    let result = controller::db::lock_and_start_iteration(
+        &pool,
+        &work_lock_manager_handle,
         TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
     )
     .await
     .unwrap();
-    assert_eq!(result.id.0, 1);
+    assert_eq!(result.iteration_data.id.0, 1);
 
-    // Second txn will fail
-    let mut txn2 = pool.begin().await?;
+    // Second lock will fail
     assert!(
-        controller::db::lock_iteration_table_and_start_iteration(
-            &mut txn2,
+        controller::db::lock_and_start_iteration(
+            &pool,
+            &work_lock_manager_handle,
             TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME
         )
         .await
         .is_err()
     );
 
-    // Rollback first txn
-    txn.rollback().await.unwrap();
-    txn2.rollback().await.unwrap();
+    // Release the lock
+    std::mem::drop(result);
 
-    let mut txn3 = pool.begin().await?;
-    let result = controller::db::lock_iteration_table_and_start_iteration(
-        &mut txn3,
+    let result = controller::db::lock_and_start_iteration(
+        &pool,
+        &work_lock_manager_handle,
         TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
     )
     .await
     .unwrap();
-    assert_eq!(result.id.0, 2);
+    assert_eq!(result.iteration_data.id.0, 2);
 
     Ok(())
 }
 
 #[crate::sqlx_test]
-async fn test_delete_outdated_iterations(pool: sqlx::PgPool) -> sqlx::Result<()> {
+async fn test_delete_outdated_iterations(pool: sqlx::PgPool) -> eyre::Result<()> {
     create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
 
     // If we insert up to 10 iterations, all of them shoudl be visible
     for i in 1..=10 {
-        let mut txn = pool.begin().await?;
-        let result = controller::db::lock_iteration_table_and_start_iteration(
-            &mut txn,
+        let result = controller::db::lock_and_start_iteration(
+            &pool,
+            &work_lock_manager_handle,
             TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
         )
         .await
         .unwrap();
-        assert_eq!(result.id.0, i);
+        assert_eq!(result.iteration_data.id.0, i);
 
+        let mut txn = pool.begin().await?;
         let results = controller::db::fetch_iterations(
             &mut txn,
             TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
@@ -107,15 +111,16 @@ async fn test_delete_outdated_iterations(pool: sqlx::PgPool) -> sqlx::Result<()>
 
     // Once we are above 10, we retain the latest 10 iterations
     for i in 11..=20 {
-        let mut txn = pool.begin().await?;
-        let result = controller::db::lock_iteration_table_and_start_iteration(
-            &mut txn,
+        let result = controller::db::lock_and_start_iteration(
+            &pool,
+            &work_lock_manager_handle,
             TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
         )
         .await
         .unwrap();
-        assert_eq!(result.id.0, i);
+        assert_eq!(result.iteration_data.id.0, i);
 
+        let mut txn = pool.begin().await?;
         let results = controller::db::fetch_iterations(
             &mut txn,
             TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
@@ -411,7 +416,7 @@ impl StateControllerIO for TestStateControllerIO {
     type MetricsEmitter = NoopMetricsEmitter;
     type ContextObjects = TestStateControllerContextObjects;
 
-    const DB_LOCK_NAME: &'static str = "test_state_controller_lock";
+    const DB_WORK_KEY: &'static str = "test_state_controller_lock";
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "test_state_controller_iteration_ids";
     const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "test_state_controller_queued_objects";
 
@@ -550,8 +555,10 @@ impl StateHandler for TestConcurrencyStateHandler {
 #[crate::sqlx_test]
 async fn test_multiple_state_controllers_schedule_object_only_once(
     pool: sqlx::PgPool,
-) -> sqlx::Result<()> {
+) -> eyre::Result<()> {
     create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
 
     let num_objects = 4;
     let mut object_ids = Vec::new();
@@ -578,7 +585,7 @@ async fn test_multiple_state_controllers_schedule_object_only_once(
                     iteration_time: ITERATION_TIME,
                     ..Default::default()
                 })
-                .database(pool.clone())
+                .database(pool.clone(), work_lock_manager_handle.clone())
                 .services(Arc::new(()))
                 .state_handler(state_handler.clone())
                 .build_and_spawn()
