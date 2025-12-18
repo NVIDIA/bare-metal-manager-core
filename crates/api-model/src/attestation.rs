@@ -43,23 +43,44 @@ pub struct TpmCaCert {
 /// Model for SPDM attestation via Redfish
 pub mod spdm {
     use std::collections::HashMap;
+    use std::fmt::Display;
+    use std::str::FromStr;
 
     use config_version::ConfigVersion;
     use itertools::Itertools;
-    use libredfish::model::component_integrity::{CaCertificate, Evidence};
-    use rpc::forge::attestation_response::AttestationMachineData;
+    use libredfish::model::component_integrity::{CaCertificate, ComponentIntegrity, Evidence};
+    use nras::{NrasError, NrasVerifierClient, ProcessedAttestationOutcome, RawAttestationOutcome};
     use serde::{Deserialize, Serialize};
     use sqlx::Row;
     use sqlx::postgres::PgRow;
 
     use super::*;
+    use crate::bmc_info::BmcInfo;
     use crate::controller_outcome::PersistentStateHandlerOutcome;
 
-    const _DB_LOCK_NAME: &str = "attestation_state_controller_lock";
-
     /// A SPDM machine and components snapshot.
+    /// The `Snapshot` struct is designed to store a snapshot of the machine and its associated devices.
+    /// If the devices are unknown or if attestation is not yet triggered, the `device` field will be `None`.
+    /// This additional complexity is necessary due to preprocessing requirements.
+    /// In managed-host or other state machine models, data rows (such as machines and network segments) are pre-populated.
+    /// In contrast, the attestation state machine must dynamically fetch and update devices/components within the database.
+    /// This introduces an extra layer of preprocessing.
+    /// The goal is to treat each device as an independent entity for parallel processing while maintaining connections
+    /// to advance the machine to its next major state. The managed-host model (comprising the host and connected DPUs)
+    /// is not suitable here because it typically handles only 2 DPUs in sequence and halts if any DPU modifies its state.
+    /// Conversely, each machine in the attestation state machine may have multiple components like GPUs, CPUs, BMCs, FPGAs,
+    /// etc., potentially numbering up to 8-10 components once Carbide supports attestation for all components.
+    /// Therefore, the managed-host model is not scalable for this use case.
     #[derive(Clone, Debug, Serialize, Deserialize)]
     pub struct SpdmMachineSnapshot {
+        pub machine: SpdmMachineAttestation,
+        pub device: Option<SpdmMachineDeviceAttestation>,
+        pub devices_state: HashMap<String, AttestationDeviceState>,
+        pub bmc_info: BmcInfo,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct SpdmMachineDetails {
         pub machine: SpdmMachineAttestation,
         pub devices: Vec<SpdmMachineDeviceAttestation>,
     }
@@ -114,10 +135,12 @@ pub mod spdm {
         pub nonce: uuid::Uuid,
         // Device State.
         pub state: AttestationDeviceState,
-        // when attestation is completed, this field will be updated with current value.
-        pub last_known_metadata: Option<SpdmMachineDeviceMetadata>,
+        // State version will increase
+        pub state_version: ConfigVersion,
+        /// The result of the last attempt to change state
+        pub state_outcome: Option<PersistentStateHandlerOutcome>,
         // Fetched latest value during attestation.
-        pub current_metadata: Option<SpdmMachineDeviceMetadata>,
+        pub metadata: Option<SpdmMachineDeviceMetadata>,
         // CA certificate link to fetch the certificate.
         pub ca_certificate_link: Option<String>,
         // CA certificate fetched from the link.
@@ -148,17 +171,61 @@ pub mod spdm {
         Verification,
         // Apply appraisal policies
         ApplyEvidenceResultAppraisalPolicy,
+        // All done
+        Completed,
+    }
+
+    #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum SpdmHandlerError {
+        #[error("Unable to complete measurement trigger: {0}")]
+        TriggerMeasurementFail(String),
+        #[error("Nras error: {0}")]
+        NrasError(#[from] nras::NrasError),
+        #[error("Missing values: {field} - {machine_id}/{device_id}")]
+        MissingData {
+            field: String,
+            machine_id: MachineId,
+            device_id: String,
+        },
+        #[error("Verifier not implemented at {module} for: {machine_id}/{device_id}")]
+        VerifierNotImplemented {
+            module: String,
+            machine_id: MachineId,
+            device_id: String,
+        },
+        #[error("Verification Failed: {0}")]
+        VerificationFailed(String),
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub enum AttestationStatus {
         Success,
-        Failure { cause: String }, // TODO: Replace it with error type.
+        NotSupported,
+        Failure { cause: SpdmHandlerError },
+    }
+
+    pub enum DeviceType {
+        Gpu,
+        Cx7,
+        Unknown,
+    }
+
+    impl FromStr for DeviceType {
+        type Err = SpdmHandlerError;
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            Ok(if s.contains("GPU") {
+                DeviceType::Gpu
+            } else if s.contains("CX7") {
+                DeviceType::Cx7
+            } else {
+                DeviceType::Unknown
+            })
+        }
     }
 
     /// Minor/sub-state, associated with device/component of a machine.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    pub enum FetchMeasurementDeviceStates {
+    pub enum FetchDataDeviceStates {
         // Each component may have a unique metadata structure.
         // but firmware-version is the most common and important metadata.
         FetchMetadata,
@@ -166,9 +233,9 @@ pub mod spdm {
         // field.
         FetchCertificate,
         // Use Action URL to trigger the measurement collection.
-        Trigger,
+        Trigger { retry_count: i32 },
         // Keep polling until measurement collection is completed.
-        Poll,
+        Poll { task_id: String, retry_count: i32 },
         // Collect using GET method.
         Collect,
         // Data is collected.
@@ -180,7 +247,7 @@ pub mod spdm {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub enum VerificationDeviceStates {
         GetVerifierResponse,
-        VerifyResponse { state: SpdmVerifierResponse },
+        VerifyResponse { state: nras::RawAttestationOutcome },
         // Sync state
         VerificationCompleted,
     }
@@ -196,33 +263,73 @@ pub mod spdm {
     /// Minor/sub-state, associated with device/component of a machine.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub enum AttestationDeviceState {
-        FetchMesurements(FetchMeasurementDeviceStates),
+        NotApplicable,
+        FetchData(FetchDataDeviceStates),
         Verification(VerificationDeviceStates),
         ApplyEvidenceResultAppraisalPolicy(EvidenceResultAppraisalPolicyDeviceStates),
+        // Final Sync State
         AttestationCompleted { status: AttestationStatus },
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct SpdmJwtEntry(pub String, pub String);
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct SpdmVerifierResponse(pub SpdmJwtEntry, pub HashMap<String, String>);
-
     /// History table
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct SpdmMachineHistoryState {
-        pub state: AttestationState,
+    pub struct SpdmMachineStateSnapshot {
+        pub machine_state: AttestationState,
         pub devices_state: HashMap<String, AttestationDeviceState>,
+        pub device_state: Option<AttestationDeviceState>,
+        pub machine_version: ConfigVersion,
+        pub device_version: Option<ConfigVersion>,
+        pub update_machine_version: bool,
+        pub update_device_version: bool,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+    pub struct SpdmObjectId_ {
+        pub machine_id: MachineId,
+        pub device_id: String,
+    }
+
+    #[derive(thiserror::Error, Debug, Clone)]
+    pub enum SpdmObjectIdParseError {
+        #[error("The Object ID must have 2 parts but not as should be {0:?}")]
+        WrongFormat(String),
+        #[error("The Machine ID parsing failed: {0}")]
+        MachineIdParsingFailed(#[from] carbide_uuid::machine::MachineIdParseError),
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+    pub struct SpdmObjectId(pub MachineId, pub Option<String>);
+
+    impl FromStr for SpdmObjectId {
+        type Err = SpdmObjectIdParseError;
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let values = s.split(',').collect_vec();
+            if values.len() != 2 {
+                return Err(SpdmObjectIdParseError::WrongFormat(s.to_string()));
+            }
+
+            Ok(Self(
+                values[0].parse().map_err(SpdmObjectIdParseError::from)?,
+                if values[1].is_empty() {
+                    None
+                } else {
+                    Some(values[1].to_string())
+                },
+            ))
+        }
+    }
+
+    impl Display for SpdmObjectId {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{},{}", self.0, self.1.clone().unwrap_or_default())
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub struct SpdmMachineAttestationHistory {
-        // Machine id. Host and DPU are treated at separate entity here.
         pub machine_id: MachineId,
         pub updated_at: DateTime<Utc>,
-        pub state_snapshot: SpdmMachineHistoryState,
-        pub state_version: ConfigVersion,
-        pub attestation_status: SpdmAttestationStatus,
+        pub state_snapshot: SpdmMachineStateSnapshot,
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,15 +339,13 @@ pub mod spdm {
 
     impl<'r> sqlx::FromRow<'r, PgRow> for SpdmMachineAttestationHistory {
         fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-            let snapshot: sqlx::types::Json<SpdmMachineHistoryState> =
+            let snapshot: sqlx::types::Json<SpdmMachineStateSnapshot> =
                 row.try_get("state_snapshot")?;
 
             Ok(SpdmMachineAttestationHistory {
                 machine_id: row.try_get("machine_id")?,
                 updated_at: row.try_get("updated_at")?,
                 state_snapshot: snapshot.0,
-                state_version: row.try_get("state_version")?,
-                attestation_status: row.try_get("attestation_status")?,
             })
         }
     }
@@ -271,18 +376,19 @@ pub mod spdm {
             let ca_certificate: Option<sqlx::types::Json<CaCertificate>> =
                 row.try_get("ca_certificate")?;
             let evidence: Option<sqlx::types::Json<Evidence>> = row.try_get("evidence")?;
-            let last_known_metadata: Option<sqlx::types::Json<SpdmMachineDeviceMetadata>> =
-                row.try_get("last_known_metadata")?;
-            let current_metadata: Option<sqlx::types::Json<SpdmMachineDeviceMetadata>> =
-                row.try_get("current_metadata")?;
+            let metadata: Option<sqlx::types::Json<SpdmMachineDeviceMetadata>> =
+                row.try_get("metadata")?;
+            let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
+                row.try_get("state_outcome")?;
 
             Ok(SpdmMachineDeviceAttestation {
                 machine_id: row.try_get("machine_id")?,
                 state: controller_state.0,
+                state_version: row.try_get("state_version")?,
+                state_outcome: controller_state_outcome.map(|x| x.0),
                 device_id: row.try_get("device_id")?,
                 nonce: row.try_get("nonce")?,
-                last_known_metadata: last_known_metadata.map(|x| x.0),
-                current_metadata: current_metadata.map(|x| x.0),
+                metadata: metadata.map(|x| x.0),
                 ca_certificate_link: row.try_get("ca_certificate_link")?,
                 evidence_target: row.try_get("evidence_target")?,
                 ca_certificate: ca_certificate.map(|x| x.0),
@@ -294,19 +400,37 @@ pub mod spdm {
     impl<'r> sqlx::FromRow<'r, PgRow> for SpdmMachineSnapshot {
         fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
             let machine: sqlx::types::Json<SpdmMachineAttestation> = row.try_get("machine")?;
+            let device: Option<sqlx::types::Json<SpdmMachineDeviceAttestation>> =
+                row.try_get("device")?;
+            let bmc_info: sqlx::types::Json<BmcInfo> = row.try_get("bmc_info")?;
+            let devices_state: sqlx::types::Json<HashMap<String, AttestationDeviceState>> =
+                row.try_get("devices_state")?;
+
+            Ok(SpdmMachineSnapshot {
+                machine: machine.0,
+                device: device.map(|x| x.0),
+                devices_state: devices_state.0,
+                bmc_info: bmc_info.0,
+            })
+        }
+    }
+
+    impl<'r> sqlx::FromRow<'r, PgRow> for SpdmMachineDetails {
+        fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+            let machine: sqlx::types::Json<SpdmMachineAttestation> = row.try_get("machine")?;
             let devices: sqlx::types::Json<Vec<SpdmMachineDeviceAttestation>> =
                 row.try_get("devices")?;
 
-            Ok(SpdmMachineSnapshot {
+            Ok(SpdmMachineDetails {
                 machine: machine.0,
                 devices: devices.0,
             })
         }
     }
 
-    impl From<SpdmMachineSnapshot> for AttestationMachineData {
-        fn from(value: SpdmMachineSnapshot) -> Self {
-            AttestationMachineData {
+    impl From<SpdmMachineDetails> for rpc::forge::attestation_response::AttestationMachineData {
+        fn from(value: SpdmMachineDetails) -> Self {
+            rpc::forge::attestation_response::AttestationMachineData {
                 machine_id: Some(value.machine.machine_id),
                 requested_at: Some(value.machine.requested_at.into()),
                 started_at: value.machine.started_at.map(|x| x.into()),
@@ -328,15 +452,124 @@ pub mod spdm {
                 device_id: value.device_id,
                 nonce: Some(value.nonce.into()),
                 state: format!("{:?}", value.state),
-                last_known_metadata: value
-                    .last_known_metadata
-                    .as_ref()
-                    .map(|x| serde_json::to_string(x).unwrap_or_default()),
-                current_metadata: value
-                    .current_metadata
+                metadata: value
+                    .metadata
                     .as_ref()
                     .map(|x| serde_json::to_string(x).unwrap_or_default()),
             }
         }
+    }
+
+    impl From<SpdmMachineSnapshot> for SpdmMachineStateSnapshot {
+        fn from(value: SpdmMachineSnapshot) -> Self {
+            Self {
+                machine_state: value.machine.state,
+                devices_state: value.devices_state,
+                device_state: value.device.clone().map(|x| x.state),
+                machine_version: value.machine.state_version,
+                device_version: value.device.map(|x| x.state_version),
+                update_machine_version: false,
+                update_device_version: false,
+            }
+        }
+    }
+
+    pub fn from_component_integrity(
+        integrity: ComponentIntegrity,
+        machine_id: MachineId,
+    ) -> SpdmMachineDeviceAttestation {
+        let ca_certificate_link = integrity
+            .spdm
+            .map(|x| x.identity_authentication)
+            .map(|x| x.component_certificate)
+            .map(|x| x.odata_id);
+
+        let evidence_target =
+            if let Some(Some(data)) = integrity.actions.map(|x| x.get_signed_measurements) {
+                Some(data.target)
+            } else {
+                None
+            };
+
+        SpdmMachineDeviceAttestation {
+            machine_id,
+            device_id: integrity.id,
+            nonce: uuid::Uuid::new_v4(),
+            state: AttestationDeviceState::FetchData(FetchDataDeviceStates::FetchMetadata),
+            state_version: ConfigVersion::initial(),
+            state_outcome: None,
+            metadata: None,
+            ca_certificate_link,
+            ca_certificate: None,
+            evidence_target,
+            evidence: None,
+        }
+    }
+
+    #[async_trait::async_trait]
+    pub trait Verifier: std::fmt::Debug + Send + Sync + 'static {
+        fn client(&self, nras_config: nras::Config) -> Box<dyn nras::VerifierClient>;
+        async fn parse_attestation_outcome(
+            &self,
+            nras_config: &nras::Config,
+            state: &RawAttestationOutcome,
+        ) -> Result<ProcessedAttestationOutcome, NrasError>;
+    }
+
+    #[derive(Debug, Default)]
+    pub struct VerifierImpl {}
+
+    #[async_trait::async_trait]
+    impl Verifier for VerifierImpl {
+        fn client(&self, nras_config: nras::Config) -> Box<dyn nras::VerifierClient> {
+            Box::new(NrasVerifierClient::new_with_config(&nras_config))
+        }
+        async fn parse_attestation_outcome(
+            &self,
+            nras_config: &nras::Config,
+            state: &RawAttestationOutcome,
+        ) -> Result<ProcessedAttestationOutcome, NrasError> {
+            // now create a KeyStore to validate those tokens
+            let nras_keystore = nras::NrasKeyStore::new_with_config(nras_config).await?;
+            let parser = nras::Parser::new_with_config(nras_config);
+            parser.parse_attestation_outcome(state, &nras_keystore)
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::attestation::spdm::SpdmObjectId;
+
+    #[test]
+    fn test_spdmobject_id_from_str() {
+        let machine_id: MachineId = "fm100htv4fu8fpktl0e0qrg4dl58g2bc2g7naq0l6c15ruc22po1i5rfsq0"
+            .parse()
+            .unwrap();
+        let device_id = "Device-1".to_string();
+        let spdm_object_id = SpdmObjectId(machine_id, Some(device_id.clone()));
+
+        let expected_str = format!("{},{}", machine_id, device_id);
+        assert_eq!(expected_str, spdm_object_id.to_string());
+
+        let parsed_object_id: SpdmObjectId = spdm_object_id.to_string().parse().unwrap();
+
+        assert_eq!(parsed_object_id, spdm_object_id);
+    }
+
+    #[test]
+    fn test_spdmobject_id_from_str_no_device() {
+        let machine_id: MachineId = "fm100htv4fu8fpktl0e0qrg4dl58g2bc2g7naq0l6c15ruc22po1i5rfsq0"
+            .parse()
+            .unwrap();
+        let spdm_object_id = SpdmObjectId(machine_id, None);
+
+        let expected_str = format!("{},", machine_id);
+        assert_eq!(expected_str, spdm_object_id.to_string());
+
+        let parsed_object_id: SpdmObjectId = spdm_object_id.to_string().parse().unwrap();
+
+        assert_eq!(parsed_object_id, spdm_object_id);
     }
 }

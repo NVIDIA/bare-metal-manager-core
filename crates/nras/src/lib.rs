@@ -21,9 +21,9 @@ use std::collections as stdcol;
 pub use client::{NrasVerifierClient, VerifierClient};
 pub use keystore::{KeyStore, NrasKeyStore};
 pub use parser::Parser;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub nras_url: String,
     pub nras_gpu_url_suffix: String,
@@ -42,7 +42,7 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NrasError {
     #[error("Error talking to NRAS: {0}")]
     Communication(String),
@@ -97,7 +97,7 @@ impl From<DeviceAttestationInfo> for String {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawAttestationOutcome {
     // this typically corresponds to ["JWT", "<jwt_token>"] entry in the response
     pub overall_outcome: (String, String),

@@ -191,6 +191,9 @@ pub enum StateHandlerError {
         resource: &'static str,
         error: String,
     },
+
+    #[error("Spdm error: {0}")]
+    SpdmError(#[from] model::attestation::spdm::SpdmHandlerError),
 }
 
 impl StateHandlerError {
@@ -224,6 +227,7 @@ impl StateHandlerError {
                 "network_segment" => "network_segment_cleanup_failed",
                 _ => "resource_cleanup_failed",
             },
+            StateHandlerError::SpdmError(_) => "spdm_attestation_error",
         }
     }
 }

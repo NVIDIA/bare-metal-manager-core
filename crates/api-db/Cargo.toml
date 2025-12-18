@@ -34,6 +34,7 @@ futures-util = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
+libredfish = { workspace = true }
 mac_address = { workspace = true }
 names = { default-features = false, workspace = true }
 octseq = { workspace = true }
