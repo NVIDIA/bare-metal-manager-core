@@ -27,7 +27,7 @@ use model::site_explorer::{
 };
 use regex::Regex;
 
-use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password};
 
 const NOT_FOUND: u16 = 404;
 
@@ -117,8 +117,8 @@ impl RedfishClient {
         current_bmc_root_credentials: Credentials,
         new_password: String,
     ) -> Result<(), EndpointExplorationError> {
-        let curr_user = match &current_bmc_root_credentials {
-            Credentials::UsernamePassword { username, .. } => username,
+        let (curr_user, curr_password) = match &current_bmc_root_credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
         };
         let mut client = self
             .create_direct_redfish_client(
@@ -143,6 +143,8 @@ impl RedfishClient {
                 client
                     .change_password_by_id("1", new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::NvidiaDpu
@@ -158,6 +160,8 @@ impl RedfishClient {
                 client
                     .change_password_by_id(curr_user.as_str(), new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             // Handle Vikings
@@ -171,24 +175,32 @@ impl RedfishClient {
                 client
                     .change_password_by_id("2", new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Supermicro => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Dell => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Hpe => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Unknown => {
