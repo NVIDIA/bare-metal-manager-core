@@ -245,8 +245,11 @@ pub struct DebugBundle {
     )]
     pub output_path: String,
 
-    #[clap(long, help = "Grafana base URL (e.g., https://grafana.example.com)")]
-    pub grafana_url: String,
+    #[clap(
+        long,
+        help = "Grafana base URL (e.g., https://grafana.example.com). If not provided, log collection is skipped."
+    )]
+    pub grafana_url: Option<String>,
 
     #[clap(
         long,
@@ -254,7 +257,4 @@ pub struct DebugBundle {
         help = "Batch size for log collection (default: 5000, max: 5000)"
     )]
     pub batch_size: u32,
-
-    #[clap(long, help = "Skip log collection and only collect machine metadata")]
-    pub no_logs: bool,
 }
