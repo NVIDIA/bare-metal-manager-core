@@ -101,6 +101,7 @@ script = '''
 [tasks.stage-scout-update-check]
 description = "Copies the scout-update script and systemd files to build-output"
 script = '''
+  # Internal scout profiles
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
@@ -108,6 +109,17 @@ script = '''
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+
+  # OSS scout profiles
+  mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
+
+  mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
 '''
 
 [tasks.build-boot-artifacts-x86-host]
