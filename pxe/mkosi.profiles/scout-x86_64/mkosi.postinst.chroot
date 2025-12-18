@@ -26,10 +26,9 @@ tar -zxf nerdctl-2.0.2-linux-amd64.tar.gz nerdctl
 mv nerdctl /usr/bin/nerdctl
 rm nerdctl-2.0.2-linux-amd64.tar.gz
 
-# FIXME: Bring back the step once Benchpress is migrated to public repo.
-# cd /opt && git clone https://gitlab-master.nvidia.com/omniverse/saas/benchpress.git
-# cd /opt/benchpress && git apply /opt/patches/benchpress.patch
-# cd /opt/benchpress && python3 -m venv venv
+cd /opt && git clone https://gitlab-master.nvidia.com/omniverse/saas/benchpress.git
+cd /opt/benchpress && git apply /opt/patches/benchpress.patch
+cd /opt/benchpress && python3 -m venv venv
 
 # begin nvinit setup
 # most debs are installed from the .conf file.
