@@ -223,6 +223,7 @@ impl StateHandler for SpdmAttestationStateHandler {
     type ControllerState = SpdmMachineStateSnapshot;
     type ContextObjects = SpdmStateHandlerContextObjects;
 
+    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         object_id: &Self::ObjectId,
@@ -366,6 +367,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
     type ControllerState = SpdmMachineStateSnapshot;
     type ContextObjects = SpdmStateHandlerContextObjects;
 
+    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         object_id: &Self::ObjectId,
