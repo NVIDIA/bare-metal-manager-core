@@ -113,7 +113,7 @@ async fn test_switch_state_transitions(
             iteration_time: ITERATION_TIME,
             ..Default::default()
         })
-        .database(pool.clone())
+        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
         .build_and_spawn()
@@ -178,7 +178,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
             iteration_time: ITERATION_TIME,
             ..Default::default()
         })
-        .database(pool.clone())
+        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
         .build_and_spawn()
@@ -266,7 +266,7 @@ async fn test_switch_error_state_handling(
             iteration_time: ITERATION_TIME,
             ..Default::default()
         })
-        .database(pool.clone())
+        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
         .build_and_spawn()
@@ -382,7 +382,7 @@ async fn test_switch_deletion_with_state_controller(
             iteration_time: ITERATION_TIME,
             ..Default::default()
         })
-        .database(pool.clone())
+        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
         .build_and_spawn()

@@ -132,6 +132,7 @@ async fn test_max_outstanding_updates(
         env.pool.clone(),
         config,
         vec![module1.clone(), module2.clone()],
+        env.api.work_lock_manager_handle.clone(),
     );
 
     machine_update_manager.run_single_iteration().await?;
@@ -204,6 +205,9 @@ async fn test_remove_machine_update_markers(
 #[crate::sqlx_test()]
 fn test_start(pool: sqlx::PgPool) {
     let test_module = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
+    let work_lock_manager_handle = db::work_lock_manager::start(pool.clone(), Default::default())
+        .await
+        .unwrap();
 
     let mut config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
@@ -215,8 +219,12 @@ fn test_start(pool: sqlx::PgPool) {
     Arc::get_mut(&mut config)
         .unwrap()
         .machine_update_run_interval = Some(1);
-    let update_manager =
-        MachineUpdateManager::new_with_modules(pool, config, vec![test_module.clone()]);
+    let update_manager = MachineUpdateManager::new_with_modules(
+        pool,
+        config,
+        vec![test_module.clone()],
+        work_lock_manager_handle,
+    );
 
     let stop = update_manager.start();
 

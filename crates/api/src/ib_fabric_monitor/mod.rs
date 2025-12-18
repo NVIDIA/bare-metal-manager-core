@@ -20,6 +20,7 @@ use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use db::ib_partition::IBPartition;
+use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
 use health_report::OverrideMode;
 use metrics::{
@@ -51,11 +52,11 @@ pub struct IbFabricMonitor {
     fabric_manager: Arc<dyn IBFabricManager>,
 
     host_health: HostHealthConfig,
+    work_lock_manager_handle: WorkLockManagerHandle,
 }
 
 impl IbFabricMonitor {
-    const DB_LOCK_NAME: &'static str = "ib_fabric_monitor_lock";
-    const DB_LOCK_QUERY: &'static str = "SELECT pg_try_advisory_xact_lock((SELECT 'ib_fabric_monitor_lock'::regclass::oid)::integer)";
+    const ITERATION_WORK_KEY: &'static str = "IbFabricMonitor::run_single_iteration";
 
     /// Create a IbFabricMonitor
     pub fn new(
@@ -64,6 +65,7 @@ impl IbFabricMonitor {
         meter: opentelemetry::metrics::Meter,
         fabric_manager: Arc<dyn IBFabricManager>,
         config: Arc<CarbideConfig>,
+        work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -88,6 +90,7 @@ impl IbFabricMonitor {
             metric_holder,
             fabric_manager,
             host_health: config.host_health,
+            work_lock_manager_handle,
         }
     }
 
@@ -135,22 +138,16 @@ impl IbFabricMonitor {
         }
     }
 
-    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
         let mut metrics = IbFabricMonitorMetrics::new();
 
-        let mut txn =
-            self.db_pool.begin().await.map_err(|e| {
-                CarbideError::internal(format!("Failed to create transaction: {e}"))
-            })?;
-
-        let num_changes = if sqlx::query_scalar(Self::DB_LOCK_QUERY)
-            .fetch_one(&mut *txn)
+        let num_changes = if let Ok(_lock) = self
+            .work_lock_manager_handle
+            .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
             .await
-            .unwrap_or(false)
         {
             tracing::trace!(
-                lock = Self::DB_LOCK_NAME,
+                lock = Self::ITERATION_WORK_KEY,
                 "IbFabricMonitor acquired the lock",
             );
 
@@ -197,10 +194,6 @@ impl IbFabricMonitor {
             self.metric_holder.update_metrics(metrics);
 
             res?;
-
-            txn.commit().await.map_err(|e| {
-                CarbideError::internal(format!("Failed to commit transaction: {e}"))
-            })?;
 
             num_changes
         } else {

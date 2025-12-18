@@ -292,6 +292,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -730,6 +731,7 @@ async fn test_site_explorer_audit_exploration_results(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -905,6 +907,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:98")?;
@@ -1016,6 +1019,7 @@ async fn test_site_explorer_reexplore(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -1153,6 +1157,7 @@ async fn test_site_explorer_creates_managed_host(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
@@ -1571,6 +1576,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
     let mut txn = env.pool.begin().await.unwrap();
     const NUM_DPUS: usize = 2;
@@ -1987,6 +1993,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         endpoint_explorer,
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -2203,6 +2210,7 @@ async fn test_site_explorer_health_report(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Run site explorer and check the health state of the Machine
@@ -2350,6 +2358,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Machine interface should not have any machine id associated with it right now.
@@ -2458,6 +2467,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // No way to find a machine_interface using machine id as machine id is not yet associated with
@@ -3041,6 +3051,7 @@ async fn test_site_explorer_unknown_vendor(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3253,6 +3264,7 @@ async fn test_machine_creation_with_sku(
         endpoint_explorer,
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -3557,6 +3569,7 @@ async fn test_expected_machine_device_type_metrics(
         endpoint_explorer,
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Run site explorer to collect metrics
@@ -3704,6 +3717,7 @@ async fn test_site_explorer_power_shelf_discovery(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3857,6 +3871,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -4016,6 +4031,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -4157,6 +4173,7 @@ async fn test_site_explorer_power_shelf_disabled(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -4278,6 +4295,7 @@ async fn test_site_explorer_power_shelf_error_handling(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -4342,6 +4360,7 @@ async fn test_site_explorer_creates_power_shelf(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create a power shelf using FakePowerShelf
@@ -4659,6 +4678,7 @@ async fn test_power_shelf_state_history(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create the power shelf using site explorer
@@ -4924,6 +4944,7 @@ async fn test_power_shelf_state_history_multiple(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create the power shelves using site explorer
@@ -5149,6 +5170,7 @@ async fn test_power_shelf_state_history_error_handling(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create the power shelf using site explorer
@@ -5326,6 +5348,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();

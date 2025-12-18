@@ -12,30 +12,17 @@
 
 //! Database access methods used in the StateController framework
 
+use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use db::{BIND_LIMIT, DatabaseError};
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgPool};
 
+use crate::api::TransactionVending;
 use crate::state_controller::controller::{
-    ControllerIteration, ControllerIterationId, QueuedObject,
+    ControllerIteration, ControllerIterationId, LockedControllerIteration, QueuedObject,
 };
 
-pub async fn lock_iteration_table(
-    txn: &mut PgConnection,
-    table_id: &str,
-) -> Result<(), DatabaseError> {
-    let query = format!("LOCK TABLE {table_id} IN EXCLUSIVE MODE NOWAIT");
-    match sqlx::query(&query).execute(&mut *txn).await {
-        Ok(_result) => {}
-        Err(e) => {
-            return Err(DatabaseError::new("lock controller iteration table", e));
-        }
-    }
-
-    Ok(())
-}
-
 /// Inserts a new entry into the iteration table
-pub async fn create_iteration(
+async fn create_iteration(
     txn: &mut PgConnection,
     table_id: &str,
 ) -> Result<ControllerIteration, DatabaseError> {
@@ -83,16 +70,32 @@ pub async fn delete_old_iterations(
     Ok(())
 }
 
-/// Locks the iteration table for the duration of the current transaction and
-/// creates a new entry in it.
-pub async fn lock_iteration_table_and_start_iteration(
-    txn: &mut PgConnection,
+/// Acquires a work lock for iteration_table and creates a new entry in it, returning the ControllerIteration
+/// along with the WorkLock.
+pub async fn lock_and_start_iteration(
+    pool: &PgPool,
+    work_lock_manager_handle: &WorkLockManagerHandle,
     table_id: &str,
-) -> Result<ControllerIteration, DatabaseError> {
-    lock_iteration_table(txn, table_id).await?;
-    let result = create_iteration(txn, table_id).await?;
-    delete_old_iterations(txn, table_id, result.id).await?;
-    Ok(result)
+) -> Result<LockedControllerIteration, LockIterationTableError> {
+    let work_lock = work_lock_manager_handle
+        .try_acquire_lock(format!("lock_iteration::{table_id}"))
+        .await?;
+    let mut txn = pool.txn_begin().await?;
+    let iteration_data = create_iteration(&mut txn, table_id).await?;
+    delete_old_iterations(&mut txn, table_id, iteration_data.id).await?;
+    txn.commit().await?;
+    Ok(LockedControllerIteration {
+        iteration_data,
+        _work_lock: work_lock,
+    })
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum LockIterationTableError {
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
+    #[error(transparent)]
+    AcquireLock(#[from] AcquireLockError),
 }
 
 /// Enqueues object IDs for processing into the queued objects table with name `table_id`

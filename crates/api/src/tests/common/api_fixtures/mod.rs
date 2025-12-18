@@ -1212,6 +1212,7 @@ pub async fn create_test_env_with_overrides(
         test_meter.meter(),
         ib_fabric_manager.clone(),
         config.clone(),
+        work_lock_manager_handle.clone(),
     );
 
     let nvl_partition_monitor = NvlPartitionMonitor::new(
@@ -1220,6 +1221,7 @@ pub async fn create_test_env_with_overrides(
         // test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
         config.host_health,
+        work_lock_manager_handle.clone(),
     );
 
     let site_fabric_networks = overrides
@@ -1299,7 +1301,7 @@ pub async fn create_test_env_with_overrides(
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
         rms_client,
         nmxm_pool: nmxm_sim.clone(),
-        work_lock_manager_handle,
+        work_lock_manager_handle: work_lock_manager_handle.clone(),
     });
 
     let attestation_enabled = config.attestation_enabled;
@@ -1345,7 +1347,7 @@ pub async fn create_test_env_with_overrides(
     });
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(machine_swap.clone()))
@@ -1369,7 +1371,7 @@ pub async fn create_test_env_with_overrides(
     };
 
     let ib_controller = StateController::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(ib_swap.clone()))
@@ -1385,7 +1387,7 @@ pub async fn create_test_env_with_overrides(
     };
 
     let mut network_controller = StateController::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(network_swap.clone()))
@@ -1393,7 +1395,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build state controller");
 
     let power_shelf_controller = StateController::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
@@ -1401,7 +1403,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build PowerShelfStateController");
 
     let switch_controller = StateController::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_switches", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(SwitchStateHandler::default()))
@@ -1444,6 +1446,7 @@ pub async fn create_test_env_with_overrides(
         Arc::new(fake_endpoint_explorer.clone()),
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
+        work_lock_manager_handle.clone(),
     );
 
     // Create some instance types

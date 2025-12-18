@@ -8,6 +8,7 @@ use db::machine::find_machine_ids;
 use db::managed_host::load_by_machine_ids;
 use db::nvl_logical_partition::{IdColumn as LpIdColumn, LogicalPartition};
 use db::nvl_partition::{IdColumn, NvlPartition, NvlPartitionName};
+use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, ObjectColumnFilter, machine};
 use model::hardware_info::{MachineNvLinkInfo, NvLinkGpu};
 use model::instance::snapshot::InstanceSnapshot;
@@ -17,6 +18,7 @@ use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnap
 use sqlx::PgPool;
 use tokio::sync::oneshot;
 
+use crate::api::TransactionVending;
 use crate::cfg::file::NvLinkConfig;
 use crate::nvlink::NmxmClientPool;
 use crate::{CarbideError, CarbideResult};
@@ -390,11 +392,11 @@ pub struct NvlPartitionMonitor {
     nmxm_client_pool: Arc<dyn NmxmClientPool>,
     config: NvLinkConfig,
     host_health: HostHealthConfig,
+    work_lock_manager_handle: WorkLockManagerHandle,
 }
 
 impl NvlPartitionMonitor {
-    const DB_LOCK_NAME: &'static str = "nvlink_partition_monitor_lock";
-    const DB_LOCK_QUERY: &'static str = "SELECT pg_try_advisory_xact_lock((SELECT 'nvlink_partition_monitor_lock'::regclass::oid)::integer)";
+    const ITERATION_WORK_KEY: &'static str = "NvlPartitionMonitor::run_single_iteration";
 
     pub fn new(
         db_pool: PgPool,
@@ -402,6 +404,7 @@ impl NvlPartitionMonitor {
         //metric_holder: Arc<MetricHolder>,
         config: NvLinkConfig,
         host_health: HostHealthConfig,
+        work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
         Self {
             db_pool,
@@ -409,6 +412,7 @@ impl NvlPartitionMonitor {
             //metric_holder,
             config,
             host_health,
+            work_lock_manager_handle,
         }
     }
 
@@ -452,104 +456,102 @@ impl NvlPartitionMonitor {
         }
     }
 
-    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
-        let mut txn =
-            self.db_pool.begin().await.map_err(|e| {
-                CarbideError::internal(format!("Failed to create transaction: {e}"))
-            })?;
-
-        let num_changes = if sqlx::query_scalar(Self::DB_LOCK_QUERY)
-            .fetch_one(&mut *txn)
+        let _lock = match self
+            .work_lock_manager_handle
+            .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
             .await
-            .unwrap_or(false)
         {
-            tracing::trace!(
-                lock = Self::DB_LOCK_NAME,
-                "NvlPartitionMonitor acquired the lock",
-            );
-
-            let nmxm_client = self
-                .nmxm_client_pool
-                .create_client(&self.config.nmx_m_endpoint, None)
-                .await
-                .map_err(|e| {
-                    CarbideError::internal(format!("Failed to create NMXM client: {e}"))
-                })?;
-
-            // Gather instances and NMX-M GPU info from DB, and partitions list from NMX-M.
-            let managed_host_snapshots = self.load_mnnvl_managed_host_snapshots(&mut txn).await?;
-            let machine_nvlink_info = machine::find_nvlink_info_by_machine_ids(
-                &mut txn,
-                &managed_host_snapshots.keys().copied().collect::<Vec<_>>(),
-            )
-            .await?;
-            let db_nvl_partitions =
-                db::nvl_partition::find_by(&mut txn, ObjectColumnFilter::<IdColumn>::All).await?;
-
-            let db_nvl_logical_partitions =
-                db::nvl_logical_partition::find_by(&mut txn, ObjectColumnFilter::<LpIdColumn>::All)
-                    .await?;
-
-            let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
-                CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
-            })?;
-
-            let mut partition_processing_context = PartitionProcessingContext::new(
-                nmx_m_partitions,
-                db_nvl_logical_partitions.clone(),
-                db_nvl_partitions,
-                machine_nvlink_info,
-            );
-
-            // Check if any partitions need to be created, updated, or deleted.
-            let observations = self
-                .check_nv_link_partitions(
-                    &mut partition_processing_context,
-                    &managed_host_snapshots
-                        .values()
-                        .filter_map(|mh| mh.instance.clone())
-                        .collect::<Vec<_>>(),
-                )
-                .await?;
-
-            self.record_nvlink_status_observation(observations).await?;
-
-            let nmx_m_operations = partition_processing_context.nmx_m_operations;
-
-            // Execute any NMX-M operations.
-            let pending_nmx_m_operations = self.execute_nmx_m_operations(nmx_m_operations).await?;
-
-            // Poll NMX-M operation IDs with timeout
-            let completed_nmx_m_operations = self
-                .poll_nmx_m_operations_with_timeout(pending_nmx_m_operations)
-                .await?;
-
-            let num_completed_operations = completed_nmx_m_operations.len();
-
-            // Get a fresh list of partitions from NMX-M.
-            let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
-                CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
-            })?;
-
-            // Update db.
-            self.update_db_with_nmx_m_operations(
-                &mut txn,
-                completed_nmx_m_operations.clone(),
-                &db_nvl_logical_partitions,
-                &nmx_m_partitions,
-            )
-            .await?;
-
-            num_completed_operations
-        } else {
-            0
+            Ok(lock) => lock,
+            Err(e) => {
+                tracing::warn!(
+                    "NvlPartitionMonitor failed to acquire work lock: Another instance of carbide running? {e}"
+                );
+                return Ok(0);
+            }
         };
+        tracing::trace!(
+            lock = Self::ITERATION_WORK_KEY,
+            "NvlPartitionMonitor acquired the lock",
+        );
 
-        txn.commit()
+        let nmxm_client = self
+            .nmxm_client_pool
+            .create_client(&self.config.nmx_m_endpoint, None)
             .await
-            .map_err(|e| CarbideError::internal(format!("Failed to commit transaction: {e}")))?;
-        Ok(num_changes)
+            .map_err(|e| CarbideError::internal(format!("Failed to create NMXM client: {e}")))?;
+
+        // Gather instances and NMX-M GPU info from DB, and partitions list from NMX-M.
+        let mut txn = self.db_pool.txn_begin().await?;
+        let managed_host_snapshots = self.load_mnnvl_managed_host_snapshots(&mut txn).await?;
+        let machine_nvlink_info = machine::find_nvlink_info_by_machine_ids(
+            &mut txn,
+            &managed_host_snapshots.keys().copied().collect::<Vec<_>>(),
+        )
+        .await?;
+        let db_nvl_partitions =
+            db::nvl_partition::find_by(&mut txn, ObjectColumnFilter::<IdColumn>::All).await?;
+
+        let db_nvl_logical_partitions =
+            db::nvl_logical_partition::find_by(&mut txn, ObjectColumnFilter::<LpIdColumn>::All)
+                .await?;
+
+        // Don't hold the transaction across unrelated awaits
+        txn.commit().await?;
+
+        let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
+            CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
+        })?;
+
+        let mut partition_processing_context = PartitionProcessingContext::new(
+            nmx_m_partitions,
+            db_nvl_logical_partitions.clone(),
+            db_nvl_partitions,
+            machine_nvlink_info,
+        );
+
+        // Check if any partitions need to be created, updated, or deleted.
+        let observations = self
+            .check_nv_link_partitions(
+                &mut partition_processing_context,
+                &managed_host_snapshots
+                    .values()
+                    .filter_map(|mh| mh.instance.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .await?;
+
+        self.record_nvlink_status_observation(observations).await?;
+
+        let nmx_m_operations = partition_processing_context.nmx_m_operations;
+
+        // Execute any NMX-M operations.
+        let pending_nmx_m_operations = self.execute_nmx_m_operations(nmx_m_operations).await?;
+
+        // Poll NMX-M operation IDs with timeout
+        let completed_nmx_m_operations = self
+            .poll_nmx_m_operations_with_timeout(pending_nmx_m_operations)
+            .await?;
+
+        let num_completed_operations = completed_nmx_m_operations.len();
+
+        // Get a fresh list of partitions from NMX-M.
+        let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
+            CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
+        })?;
+
+        // Update db.
+        let mut txn = self.db_pool.txn_begin().await?;
+        self.update_db_with_nmx_m_operations(
+            &mut txn,
+            completed_nmx_m_operations.clone(),
+            &db_nvl_logical_partitions,
+            &nmx_m_partitions,
+        )
+        .await?;
+        txn.commit().await?;
+
+        Ok(num_completed_operations)
     }
 
     // Check the passed NvLink partition "observations" (physical partition info from NMX-M supplemented by physical and logical partition info from DB)

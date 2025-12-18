@@ -15,7 +15,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::panic::Location;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -30,6 +29,7 @@ use db::{
     power_shelf as db_power_shelf, switch as db_switch,
 };
 use forge_network::sanitized_mac;
+use futures_util::TryFutureExt;
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
@@ -71,6 +71,7 @@ mod redfish;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 
 mod managed_host;
+use db::work_lock_manager::WorkLockManagerHandle;
 use db::{ObjectColumnFilter, predicted_machine_interface};
 pub use managed_host::is_endpoint_in_managed_host;
 use model::expected_machine::ExpectedMachine;
@@ -144,12 +145,11 @@ pub struct SiteExplorer {
     endpoint_explorer: Arc<dyn EndpointExplorer>,
     firmware_config: Arc<FirmwareConfig>,
     common_pools: Arc<CommonPools>,
+    work_lock_manager_handle: WorkLockManagerHandle,
 }
 
 impl SiteExplorer {
-    const DB_LOCK_NAME: &'static str = "site_explorer_lock";
-    const DB_LOCK_QUERY: &'static str =
-        "SELECT pg_try_advisory_xact_lock((SELECT 'site_explorer_lock'::regclass::oid)::integer)";
+    const ITERATION_WORK_KEY: &'static str = "SiteExplorer::run_single_iteration";
 
     pub fn new(
         database_connection: sqlx::PgPool,
@@ -158,6 +158,7 @@ impl SiteExplorer {
         endpoint_explorer: Arc<dyn EndpointExplorer>,
         firmware_config: Arc<FirmwareConfig>,
         common_pools: Arc<CommonPools>,
+        work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -176,6 +177,7 @@ impl SiteExplorer {
             endpoint_explorer,
             firmware_config,
             common_pools,
+            work_lock_manager_handle,
         }
     }
 
@@ -212,103 +214,94 @@ impl SiteExplorer {
     // https://github.com/rust-lang/rust/issues/110011 will be
     // implemented
     #[track_caller]
-    fn txn_begin(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = CarbideResult<db::Transaction<'_>>> + Send + '_>> {
+    fn txn_begin(&self) -> impl Future<Output = CarbideResult<db::Transaction<'_>>> {
         let loc = Location::caller();
-        Box::pin(async move {
-            Ok(db::Transaction::begin_with_location(&self.database_connection, loc).await?)
-        })
+        db::Transaction::begin_with_location(&self.database_connection, loc).map_err(Into::into)
     }
 
-    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = SiteExplorationMetrics::new();
 
-        let mut txn =
-            self.database_connection.begin().await.map_err(|e| {
-                CarbideError::internal(format!("Failed to create transaction: {e}"))
-            })?;
-
-        if sqlx::query_scalar(SiteExplorer::DB_LOCK_QUERY)
-            .fetch_one(&mut *txn)
+        let _work_lock = match self
+            .work_lock_manager_handle
+            .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
             .await
-            .unwrap_or(false)
         {
-            tracing::trace!(
-                lock = SiteExplorer::DB_LOCK_NAME,
-                "SiteExplorer acquired the lock",
-            );
-
-            let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
-
-            let explore_site_span = tracing::span!(
-                parent: None,
-                tracing::Level::INFO,
-                "explore_site",
-                span_id,
-                otel.status_code = tracing::field::Empty,
-                otel.status_message = tracing::field::Empty,
-                created_machines = tracing::field::Empty,
-                identified_managed_hosts = tracing::field::Empty,
-                endpoint_explorations = tracing::field::Empty,
-                endpoint_explorations_success = tracing::field::Empty,
-                endpoint_explorations_failures = tracing::field::Empty,
-                endpoint_explorations_failures_by_type = tracing::field::Empty,
-            );
-
-            let res = self
-                .explore_site(&mut metrics)
-                .instrument(explore_site_span.clone())
-                .await;
-            explore_site_span.record(
-                "identified_managed_hosts",
-                metrics.exploration_identified_managed_hosts,
-            );
-            explore_site_span.record("created_machines", metrics.created_machines);
-            explore_site_span.record("endpoint_explorations", metrics.endpoint_explorations);
-            explore_site_span.record(
-                "endpoint_explorations_success",
-                metrics.endpoint_explorations_success,
-            );
-            explore_site_span.record(
-                "endpoint_explorations_failures",
-                metrics
-                    .endpoint_explorations_failures_by_type
-                    .values()
-                    .sum::<usize>(),
-            );
-            explore_site_span.record(
-                "endpoint_explorations_failures_by_type",
-                serde_json::to_string(&metrics.endpoint_explorations_failures_by_type)
-                    .unwrap_or_default(),
-            );
-
-            match &res {
-                Ok(()) => {
-                    explore_site_span.record("otel.status_code", "ok");
-                }
-                Err(e) => {
-                    tracing::error!("SiteExplorer run failed due to: {:?}", e);
-                    explore_site_span.record("otel.status_code", "error");
-                    // Writing this field will set the span status to error
-                    // Therefore we only write it on errors
-                    explore_site_span.record("otel.status_message", format!("{e:?}"));
-                }
+            Ok(lock) => lock,
+            Err(e) => {
+                return Err(CarbideError::internal(format!(
+                    "Failed to acquire connection: {e}"
+                )));
             }
+        };
 
-            // Cache all other metrics that have been captured in this iteration.
-            // Those will be queried by OTEL on demand
-            self.metric_holder.update_metrics(metrics);
+        tracing::trace!(
+            lock = SiteExplorer::ITERATION_WORK_KEY,
+            "SiteExplorer acquired the lock",
+        );
 
-            res?;
+        let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
 
-            txn.commit().await.map_err(|e| {
-                CarbideError::internal(format!("Failed to commit transaction: {e}"))
-            })?;
+        let explore_site_span = tracing::span!(
+            parent: None,
+            tracing::Level::INFO,
+            "explore_site",
+            span_id,
+            otel.status_code = tracing::field::Empty,
+            otel.status_message = tracing::field::Empty,
+            created_machines = tracing::field::Empty,
+            identified_managed_hosts = tracing::field::Empty,
+            endpoint_explorations = tracing::field::Empty,
+            endpoint_explorations_success = tracing::field::Empty,
+            endpoint_explorations_failures = tracing::field::Empty,
+            endpoint_explorations_failures_by_type = tracing::field::Empty,
+        );
+
+        let res = self
+            .explore_site(&mut metrics)
+            .instrument(explore_site_span.clone())
+            .await;
+        explore_site_span.record(
+            "identified_managed_hosts",
+            metrics.exploration_identified_managed_hosts,
+        );
+        explore_site_span.record("created_machines", metrics.created_machines);
+        explore_site_span.record("endpoint_explorations", metrics.endpoint_explorations);
+        explore_site_span.record(
+            "endpoint_explorations_success",
+            metrics.endpoint_explorations_success,
+        );
+        explore_site_span.record(
+            "endpoint_explorations_failures",
+            metrics
+                .endpoint_explorations_failures_by_type
+                .values()
+                .sum::<usize>(),
+        );
+        explore_site_span.record(
+            "endpoint_explorations_failures_by_type",
+            serde_json::to_string(&metrics.endpoint_explorations_failures_by_type)
+                .unwrap_or_default(),
+        );
+
+        match &res {
+            Ok(()) => {
+                explore_site_span.record("otel.status_code", "ok");
+            }
+            Err(e) => {
+                tracing::error!("SiteExplorer run failed due to: {:?}", e);
+                explore_site_span.record("otel.status_code", "error");
+                // Writing this field will set the span status to error
+                // Therefore we only write it on errors
+                explore_site_span.record("otel.status_message", format!("{e:?}"));
+            }
         }
 
-        Ok(())
+        // Cache all other metrics that have been captured in this iteration.
+        // Those will be queried by OTEL on demand
+        self.metric_holder.update_metrics(metrics);
+
+        res
     }
 
     /// Audits and collects metrics of _all_ explored results vs. _all_ expected machines, not a single exploration cycle.
@@ -1420,7 +1413,6 @@ impl SiteExplorer {
             .map_err(|e| CarbideError::internal(e.to_string()))
     }
 
-    #[allow(txn_held_across_await)]
     async fn update_explored_endpoints(
         &self,
         metrics: &mut SiteExplorationMetrics,
@@ -1848,8 +1840,11 @@ impl SiteExplorer {
         // All subtasks finished. We now update the database
         let mut txn = self.txn_begin().await?;
 
-        for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
+        let mut redfish_errors = Vec::new();
+
+        for (mut endpoint, result, exploration_duration) in exploration_results.into_iter() {
             let address = endpoint.address;
+            let mut redfish_error = None;
 
             metrics.endpoint_explorations += 1;
             metrics
@@ -1864,7 +1859,7 @@ impl SiteExplorer {
                         .or_default() += 1;
 
                     if e.is_redfish() {
-                        self.handle_redfish_error(&endpoint, metrics, e).await;
+                        redfish_error = Some(e.clone());
                     }
                 }
             }
@@ -1884,7 +1879,7 @@ impl SiteExplorer {
             }
 
             match endpoint.old_report {
-                Some((old_version, mut old_report)) => {
+                Some((old_version, ref mut old_report)) => {
                     match result {
                         Ok(mut report) => {
                             report.last_exploration_latency = Some(exploration_duration);
@@ -1895,7 +1890,7 @@ impl SiteExplorer {
                                     "Initial exploration of endpoint"
                                 );
                             }
-                            let _updated = db::explored_endpoints::try_update(
+                            db::explored_endpoints::try_update(
                                 address,
                                 old_version,
                                 &report,
@@ -1912,7 +1907,7 @@ impl SiteExplorer {
                             let _updated = db::explored_endpoints::try_update(
                                 address,
                                 old_version,
-                                &old_report,
+                                old_report,
                                 true,
                                 &mut txn,
                             )
@@ -1945,9 +1940,20 @@ impl SiteExplorer {
                     }
                 }
             }
+
+            // We wait until the end to add it to redfish_errors so we can move endpoint safely
+            if let Some(e) = redfish_error {
+                redfish_errors.push((e, endpoint));
+            }
         }
 
         txn.commit().await?;
+
+        // We handle redfish errors after committing the transaction, to avoid holding the
+        // transaction while issuing expensive redfish calls.
+        for (e, endpoint) in redfish_errors {
+            self.handle_redfish_error(&endpoint, metrics, &e).await;
+        }
 
         if let Some(err) = last_join_error.take() {
             return Err(err.into());
@@ -2009,7 +2015,6 @@ impl SiteExplorer {
             })
     }
 
-    #[allow(txn_held_across_await)]
     async fn update_explored_endpoints_power_shelf(
         &self,
         metrics: &mut SiteExplorationMetrics,
@@ -2273,8 +2278,11 @@ impl SiteExplorer {
                 DatabaseError::new("begin update power shelf endpoint information", e)
             })?;
 
-        for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
+        let mut redfish_errors = Vec::new();
+
+        for (mut endpoint, result, exploration_duration) in exploration_results.into_iter() {
             let address = endpoint.address;
+            let mut redfish_error = None;
 
             metrics.endpoint_explorations += 1;
             metrics
@@ -2289,12 +2297,12 @@ impl SiteExplorer {
                         .or_default() += 1;
 
                     if e.is_redfish() {
-                        self.handle_redfish_error(&endpoint, metrics, e).await;
+                        redfish_error = Some(e.clone());
                     }
                 }
             }
-            match endpoint.old_report {
-                Some((old_version, mut old_report)) => match result {
+            match &mut endpoint.old_report {
+                Some((old_version, old_report)) => match result {
                     Ok(mut report) => {
                         report.last_exploration_latency = Some(exploration_duration);
                         if old_report.endpoint_type == EndpointType::Unknown {
@@ -2306,7 +2314,7 @@ impl SiteExplorer {
                         }
                         let _updated = db::explored_endpoints::try_update(
                             address,
-                            old_version,
+                            *old_version,
                             &report,
                             false,
                             &mut txn,
@@ -2318,8 +2326,8 @@ impl SiteExplorer {
                         old_report.last_exploration_latency = Some(exploration_duration);
                         let _updated = db::explored_endpoints::try_update(
                             address,
-                            old_version,
-                            &old_report,
+                            *old_version,
+                            old_report,
                             true,
                             &mut txn,
                         )
@@ -2343,11 +2351,22 @@ impl SiteExplorer {
                     }
                 },
             }
+
+            // We wait until the end to add it to redfish_errors so we can move endpoint safely
+            if let Some(e) = redfish_error {
+                redfish_errors.push((e, endpoint));
+            }
         }
 
         txn.commit()
             .await
             .map_err(|e| DatabaseError::new("end update power shelf endpoint information", e))?;
+
+        // We handle redfish errors after committing the transaction, to avoid holding the
+        // transaction while issuing expensive redfish calls.
+        for (e, endpoint) in redfish_errors {
+            self.handle_redfish_error(&endpoint, metrics, &e).await;
+        }
 
         if let Some(err) = last_join_error.take() {
             return Err(err.into());

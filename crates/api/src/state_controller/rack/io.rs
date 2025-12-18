@@ -36,7 +36,7 @@ impl StateControllerIO for RackStateControllerIO {
     type MetricsEmitter = NoopMetricsEmitter;
     type ContextObjects = RackStateHandlerContextObjects;
 
-    const DB_LOCK_NAME: &'static str = "rack_controller_lock";
+    const DB_WORK_KEY: &'static str = "rack_controller_lock";
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "rack_controller_iteration_ids";
     const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "rack_controller_queued_objects";
 

@@ -21,6 +21,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use carbide_uuid::machine::MachineId;
+use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, ObjectFilter, Transaction};
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::MachineUpdateModule;
@@ -52,12 +53,11 @@ pub struct MachineUpdateManager {
     update_modules: Vec<Box<dyn MachineUpdateModule>>,
     metrics: Option<MachineUpdateManagerMetrics>,
     host_health: HostHealthConfig,
+    work_lock_manager_handle: WorkLockManagerHandle,
 }
 
 impl MachineUpdateManager {
-    const DB_LOCK_NAME: &'static str = "machine_update_lock";
-    const DB_LOCK_QUERY: &'static str =
-        "SELECT pg_try_advisory_xact_lock((SELECT 'machine_update_lock'::regclass::oid)::integer)";
+    const ITERATION_WORK_KEY: &'static str = "MachineUpdateManager::run_single_iteration";
     const DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES: i32 = 0;
 
     /// create a MachineUpdateManager with provided modules, overriding the default.
@@ -66,6 +66,7 @@ impl MachineUpdateManager {
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
         modules: Vec<Box<dyn MachineUpdateModule>>,
+        work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
         MachineUpdateManager {
             database_connection,
@@ -74,6 +75,7 @@ impl MachineUpdateManager {
             update_modules: modules,
             metrics: None,
             host_health: config.host_health,
+            work_lock_manager_handle,
         }
     }
 
@@ -82,6 +84,7 @@ impl MachineUpdateManager {
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
         meter: opentelemetry::metrics::Meter,
+        work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
         let mut update_modules = vec![];
 
@@ -105,6 +108,7 @@ impl MachineUpdateManager {
             update_modules,
             metrics: Some(machine_update_metrics),
             host_health: config.host_health,
+            work_lock_manager_handle,
         }
     }
 
@@ -163,87 +167,90 @@ impl MachineUpdateManager {
         .map_err(Into::into)
     }
 
-    #[allow(txn_held_across_await)]
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut updates_started_count = 0;
-        let mut current_updating_count = 0;
-        let mut max_concurrent_updates = 0;
+
+        let _lock = match self
+            .work_lock_manager_handle
+            .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
+            .await
+        {
+            Ok(lock) => lock,
+            Err(e) => {
+                tracing::warn!(
+                    "MachineUpdateManager failed to acquire work lock: Another instance of carbide running? {e}"
+                );
+                return Ok(());
+            }
+        };
+
+        tracing::trace!(
+            lock = MachineUpdateManager::ITERATION_WORK_KEY,
+            "Machine update manager acquired the lock",
+        );
 
         let mut txn = Transaction::begin(&self.database_connection).await?;
 
-        if sqlx::query_scalar(MachineUpdateManager::DB_LOCK_QUERY)
-            .fetch_one(txn.as_pgconn())
-            .await
-            .unwrap_or(false)
-        {
-            tracing::trace!(
-                lock = MachineUpdateManager::DB_LOCK_NAME,
-                "Machine update manager acquired the lock",
-            );
-
-            for update_module in self.update_modules.iter() {
-                update_module.clear_completed_updates(&mut txn).await?;
-            }
-
-            // current host machines in maintenance
-            let mut current_updating_machines: HashSet<MachineId> =
-                MachineUpdateManager::get_updating_machines(&mut txn).await?;
-
-            for update_module in self.update_modules.iter() {
-                current_updating_machines = update_module
-                    .get_updates_in_progress(&mut txn)
-                    .await?
-                    .union(&current_updating_machines)
-                    .copied()
-                    .collect();
-            }
-
-            let snapshots = self.get_all_snapshots(&mut txn).await?;
-
-            let (all_count, unhealthy_count) =
-                db::machine::count_healthy_unhealthy_host_machines(&snapshots).await?;
-            max_concurrent_updates = self
-                .max_concurrent_machine_updates
-                .max_concurrent_updates(all_count, unhealthy_count)
-                .unwrap_or(MachineUpdateManager::DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES); // XXX
-            for update_module in self.update_modules.iter() {
-                if (current_updating_machines.len() as i32) >= max_concurrent_updates {
-                    break;
-                }
-                tracing::debug!("in progress: {:?}", current_updating_machines);
-                let available_updates =
-                    max_concurrent_updates - current_updating_machines.len() as i32;
-
-                let updates_started = update_module
-                    .start_updates(
-                        &mut txn,
-                        available_updates,
-                        &current_updating_machines,
-                        &snapshots,
-                    )
-                    .await?;
-                tracing::debug!("started: {:?}", updates_started);
-
-                updates_started_count += updates_started.len();
-
-                current_updating_machines = current_updating_machines
-                    .union(&updates_started)
-                    .copied()
-                    .collect();
-            }
-            current_updating_count = current_updating_machines.len();
-
-            //refresh snapshots for metrics
-            let snapshots = self.get_all_snapshots(&mut txn).await?;
-
-            for update_module in self.update_modules.iter() {
-                update_module.update_metrics(&mut txn, &snapshots).await;
-            }
-
-            txn.commit().await?;
-        } else {
-            tracing::debug!("Machine update manager failed to acquire the lock");
+        for update_module in self.update_modules.iter() {
+            update_module.clear_completed_updates(&mut txn).await?;
         }
+
+        // current host machines in maintenance
+        let mut current_updating_machines: HashSet<MachineId> =
+            MachineUpdateManager::get_updating_machines(&mut txn).await?;
+
+        for update_module in self.update_modules.iter() {
+            current_updating_machines = update_module
+                .get_updates_in_progress(&mut txn)
+                .await?
+                .union(&current_updating_machines)
+                .copied()
+                .collect();
+        }
+
+        let snapshots = self.get_all_snapshots(&mut txn).await?;
+
+        let (all_count, unhealthy_count) =
+            db::machine::count_healthy_unhealthy_host_machines(&snapshots);
+        let max_concurrent_updates = self
+            .max_concurrent_machine_updates
+            .max_concurrent_updates(all_count, unhealthy_count)
+            .unwrap_or(MachineUpdateManager::DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES); // XXX
+        for update_module in self.update_modules.iter() {
+            if (current_updating_machines.len() as i32) >= max_concurrent_updates {
+                break;
+            }
+            tracing::debug!("in progress: {:?}", current_updating_machines);
+            let available_updates = max_concurrent_updates - current_updating_machines.len() as i32;
+
+            let updates_started = update_module
+                .start_updates(
+                    &mut txn,
+                    available_updates,
+                    &current_updating_machines,
+                    &snapshots,
+                )
+                .await?;
+            tracing::debug!("started: {:?}", updates_started);
+
+            updates_started_count += updates_started.len();
+
+            current_updating_machines = current_updating_machines
+                .union(&updates_started)
+                .copied()
+                .collect();
+        }
+        let current_updating_count = current_updating_machines.len();
+
+        //refresh snapshots for metrics
+        let snapshots = self.get_all_snapshots(&mut txn).await?;
+
+        for update_module in self.update_modules.iter() {
+            update_module.update_metrics(&mut txn, &snapshots).await;
+        }
+
+        txn.commit().await?;
+
         if let Some(metrics) = self.metrics.as_ref() {
             metrics
                 .machine_updates_started

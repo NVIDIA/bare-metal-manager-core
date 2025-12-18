@@ -47,15 +47,11 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
         ObjectMetrics = <Self::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
     >;
 
-    /// The name of the table in the database that will be used for advisory locking
+    /// The name of the work item that will be locked via db::work_lock_manager.
     ///
     /// This lock will prevent multiple instances of controller running on multiple nodes
     /// from making changes to objects at the same time
-    /// TODO: This table will be removed in favor of `DB_ITERATION_ID_TABLE_NAME` in
-    /// a future revision. It is kept around until all deployments have both fields,
-    /// which would guarantee that all deployments lock on both tables. That way
-    /// the exclusion mechanism will still work after the first lock is removed.
-    const DB_LOCK_NAME: &'static str;
+    const DB_WORK_KEY: &'static str;
 
     /// The name of the table in the database that will be used to generate run IDs
     /// The table will be locked whenever a new iteration is started
