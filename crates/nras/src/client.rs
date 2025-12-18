@@ -19,7 +19,7 @@ use crate::{DeviceAttestationInfo, NrasError, RawAttestationOutcome};
 
 // trait to invoke REST methods on the NRAS service
 #[async_trait]
-pub trait VerifierClient {
+pub trait VerifierClient: std::fmt::Debug + Send + Sync + 'static {
     async fn attest_gpu(
         &self,
         device_attestation_info: &DeviceAttestationInfo,
@@ -34,6 +34,7 @@ pub trait VerifierClient {
     ) -> Result<RawAttestationOutcome, NrasError>;
 }
 
+#[derive(Debug)]
 pub struct NrasVerifierClient {
     config: crate::Config,
     http_client: reqwest::Client,

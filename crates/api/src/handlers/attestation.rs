@@ -1,7 +1,9 @@
 use ::rpc::common::MachineIdList;
 use ::rpc::forge::{self as rpc, AttestationResponse};
 use config_version::ConfigVersion;
-use db::attestation::spdm::insert_or_update_machine_attestation_request;
+use db::attestation::spdm::{
+    insert_or_update_machine_attestation_request, load_details_for_machine_ids,
+};
 use itertools::Itertools;
 use model::attestation::spdm::SpdmMachineAttestation;
 use tonic::{Request, Response, Status};
@@ -25,13 +27,21 @@ pub(crate) async fn trigger_machine_attestation(
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     let mut txn = api.txn_begin().await?;
+    let machines = load_details_for_machine_ids(&mut txn, &[machine_id]).await?;
+
+    let state_version = if let Some(machine) = machines.first() {
+        machine.machine.state_version.increment()
+    } else {
+        ConfigVersion::initial()
+    };
+
     let attestation_request = SpdmMachineAttestation {
         machine_id,
         requested_at: chrono::Utc::now(),
         started_at: None,
         canceled_at: None,
         state: model::attestation::spdm::AttestationState::CheckIfAttestationSupported,
-        state_version: ConfigVersion::initial(),
+        state_version,
         state_outcome: None,
         attestation_status: model::attestation::spdm::SpdmAttestationStatus::NotStarted,
     };
@@ -77,13 +87,12 @@ pub(crate) async fn list_machines_under_attestation(
     let request = request.get_ref();
 
     let mut txn = api.txn_begin().await?;
-    let snapshot =
-        db::attestation::spdm::load_snapshot_for_machine_ids(&mut txn, &request.machine_ids)
-            .await?;
+    let details =
+        db::attestation::spdm::load_details_for_machine_ids(&mut txn, &request.machine_ids).await?;
     txn.commit().await?;
 
     Ok(Response::new(AttestationResponse {
-        machines: snapshot.iter().map(|x| x.clone().into()).collect_vec(),
+        machines: details.into_iter().map(|x| x.into()).collect_vec(),
     }))
 }
 

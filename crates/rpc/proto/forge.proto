@@ -737,8 +737,7 @@ message AttestationResponse {
     string device_id = 1;
     common.UUID nonce = 2;
     string state = 3;
-    optional string last_known_metadata = 4;
-    optional string current_metadata = 5;
+    optional string metadata = 4;
   }
   message AttestationMachineData {
     common.MachineId machine_id = 1;

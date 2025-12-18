@@ -221,6 +221,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub switch_state_controller: SwitchStateControllerConfig,
 
+    /// SpdmStateController related configuration parameter
+    #[serde(default)]
+    pub spdm_state_controller: SpdmStateControllerConfig,
+
     #[serde(default)]
     pub host_models: HashMap<String, Firmware>,
 
@@ -365,6 +369,18 @@ pub struct CarbideConfig {
 
     // rms_api_url is the URL to the Rack Manager Service API.
     pub rms_api_url: Option<String>,
+
+    // SPDM Config
+    #[serde(default)]
+    pub spdm: SpdmConfig,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SpdmConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub nras_config: Option<nras::Config>,
 }
 
 /// Parameters used by the Power config.
@@ -724,6 +740,14 @@ pub struct RackStateControllerConfig {
 /// SwitchStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct SwitchStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+}
+
+/// SpdmStateController related config
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct SpdmStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,

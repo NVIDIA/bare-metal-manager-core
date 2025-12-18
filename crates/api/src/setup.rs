@@ -24,6 +24,7 @@ use figment::providers::{Env, Format, Toml};
 use forge_secrets::ForgeVaultClient;
 use forge_secrets::credentials::CredentialProvider;
 use futures_util::TryFutureExt;
+use model::attestation::spdm::VerifierImpl;
 use model::expected_machine::ExpectedMachine;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::HostHealthConfig;
@@ -74,6 +75,8 @@ use crate::state_controller::power_shelf::handler::PowerShelfStateHandler;
 use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
 use crate::state_controller::rack::handler::RackStateHandler;
 use crate::state_controller::rack::io::RackStateControllerIO;
+use crate::state_controller::spdm::handler::SpdmAttestationStateHandler;
+use crate::state_controller::spdm::io::SpdmStateControllerIO;
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::{attestation, db_init, dpa, ethernet_virtualization, listener};
@@ -637,6 +640,28 @@ pub async fn initialize_and_start_controllers(
                 .build_and_spawn()
                 .expect("Unable to build DpaInterfaceStateController"),
         );
+    }
+
+    if carbide_config.spdm.enabled {
+        let Some(nras_config) = carbide_config.spdm.nras_config.clone() else {
+            return Err(eyre::eyre!(
+                "SPDm attestation is enabled but NRAS Config is missing!!"
+            ));
+        };
+
+        let verifier = Arc::new(VerifierImpl::default());
+
+        let _spdm_state_controller_handle = StateController::<SpdmStateControllerIO>::builder()
+            .database(db_pool.clone())
+            .meter("spdm_attestation", meter.clone())
+            .services(handler_services.clone())
+            .iteration_config((&carbide_config.spdm_state_controller.controller).into())
+            .state_handler(Arc::new(SpdmAttestationStateHandler::new(
+                verifier,
+                nras_config,
+            )))
+            .build_and_spawn()
+            .expect("Unable to build SpdmStateController");
     }
 
     let _ib_partition_controller_handle =
