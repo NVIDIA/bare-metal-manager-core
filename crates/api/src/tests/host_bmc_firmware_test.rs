@@ -408,7 +408,7 @@ fn build_exploration_report(
         machine_id,
         versions: HashMap::default(),
         model: None,
-        forge_setup_status: None,
+        machine_setup_status: None,
         secure_boot_status: None,
         lockdown_status: None,
         power_shelf_id: None,

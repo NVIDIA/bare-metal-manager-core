@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
+use mac_address::MacAddress;
 use model::expected_machine::ExpectedMachine;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
@@ -30,6 +31,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
     /// The query carries the information `MachineInterface` information that is derived
     /// from DHCP requests as well as the information that might have been fetched in
     /// a previous exploration.
+    #[allow(clippy::too_many_arguments)]
     async fn explore_endpoint(
         &self,
         address: SocketAddr,
@@ -38,6 +40,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         expected_power_shelf: Option<ExpectedPowerShelf>,
         expected_switch: Option<ExpectedSwitch>,
         last_report: Option<&EndpointExplorationReport>,
+        boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
 
     async fn check_preconditions(
@@ -104,7 +107,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         interface: &MachineInterfaceSnapshot,
     ) -> Result<Option<bool>, EndpointExplorationError>;
 
-    async fn forge_setup(
+    async fn machine_setup(
         &self,
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,

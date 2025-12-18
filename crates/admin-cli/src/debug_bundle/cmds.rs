@@ -1775,8 +1775,8 @@ impl<'a> ZipBundleCreator<'a> {
             })
             .collect::<Vec<_>>();
 
-        // Format forge setup status
-        let forge_setup_status_info = report.forge_setup_status.as_ref().map(|status| {
+        // Format machine setup status
+        let machine_setup_status_info = report.machine_setup_status.as_ref().map(|status| {
             json!({
                 "is_done": status.is_done,
                 "diffs_count": status.diffs.len(),
@@ -1791,7 +1791,7 @@ impl<'a> ZipBundleCreator<'a> {
             "managers": managers_info,
             "chassis": chassis_info,
             "firmware_inventory": firmware_inventory_info,
-            "forge_setup_status": forge_setup_status_info,
+            "machine_setup_status": machine_setup_status_info,
         });
 
         // Create final JSON structure

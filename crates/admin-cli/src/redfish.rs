@@ -112,31 +112,31 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         ClearPending => {
             redfish.clear_pending().await?;
         }
-        ForgeSetup(forge_setup_args) => {
-            let bios_profiles = if let Some(profiles_string) = forge_setup_args.bios_profiles {
+        MachineSetup(machine_setup_args) => {
+            let bios_profiles = if let Some(profiles_string) = machine_setup_args.bios_profiles {
                 let parsed: libredfish::BiosProfileVendor =
                     serde_json::from_str(profiles_string.as_str())?;
                 parsed
             } else {
                 HashMap::default()
             };
-            let selected_profile = forge_setup_args
+            let selected_profile = machine_setup_args
                 .selected_profile
                 .unwrap_or(libredfish::BiosProfileType::Performance);
 
             redfish
                 .machine_setup(
-                    forge_setup_args.boot_interface_mac.clone().as_deref(),
+                    machine_setup_args.boot_interface_mac.clone().as_deref(),
                     &bios_profiles,
                     selected_profile,
                 )
                 .await?;
         }
-        ForgeSetupStatus(forge_setup_status_args) => {
+        MachineSetupStatus(machine_setup_status_args) => {
             println!(
                 "{}",
                 redfish
-                    .machine_setup_status(forge_setup_status_args.boot_interface_mac.as_deref())
+                    .machine_setup_status(machine_setup_status_args.boot_interface_mac.as_deref())
                     .await?
             );
         }

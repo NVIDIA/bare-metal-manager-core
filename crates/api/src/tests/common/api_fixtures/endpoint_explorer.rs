@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
+use mac_address::MacAddress;
 use model::expected_machine::ExpectedMachine;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
@@ -80,6 +81,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         _expected_power_shelf: Option<ExpectedPowerShelf>,
         _expected_switch: Option<ExpectedSwitch>,
         _last_report: Option<&EndpointExplorationReport>,
+        _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {bmc_ip_address} is getting explored");
         let guard = self.reports.lock().unwrap();
@@ -144,7 +146,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         })
     }
 
-    async fn forge_setup(
+    async fn machine_setup(
         &self,
         _address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,

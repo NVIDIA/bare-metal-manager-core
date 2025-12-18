@@ -487,8 +487,8 @@ service Forge {
   rpc Lockdown(LockdownRequest) returns (LockdownResponse);
   // Fetch Lockdown Status
   rpc LockdownStatus(LockdownStatusRequest) returns (site_explorer.LockdownStatus);
-  // Start Forge Setup
-  rpc ForgeSetup(ForgeSetupRequest) returns (ForgeSetupResponse);
+  // Start Machine Setup
+  rpc MachineSetup(MachineSetupRequest) returns (MachineSetupResponse);
   // Set DPU as first boot option
   rpc SetDpuFirstBootOrder(SetDpuFirstBootOrderRequest) returns (SetDpuFirstBootOrderResponse);
   // Create BMC User
@@ -3374,18 +3374,18 @@ message LockdownStatusRequest {
   optional common.MachineId machine_id = 2;
 }
 
-message ForgeSetupStatusRequest {
+message MachineSetupStatusRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
 }
 
-message ForgeSetupRequest {
+message MachineSetupRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
   optional string boot_interface_mac = 3;
 }
 
-message ForgeSetupResponse {
+message MachineSetupResponse {
 }
 
 message SetDpuFirstBootOrderRequest {

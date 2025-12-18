@@ -134,13 +134,13 @@
 			</td>
 		</tr>
 		<tr>
-			<th>Forge Setup</th>
+			<th>Machine Setup</th>
 			<td class="action-cell">
 				<div>
-					<span class="bubble {% if forge_setup_status == "OK" %}success{% else %}error{% endif %}">{{ forge_setup_status }}</span>
+					<span class="bubble {% if machine_setup_status == "OK" %}success{% else %}error{% endif %}">{{ machine_setup_status }}</span>
 				</div>
 						<div>
-				<form id="forge_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/forge-setup">
+				<form id="machine_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/machine-setup">
 					<div style="display: flex; gap: 8px; align-items: center;">
 						{% if is_dell_endpoint %}
 						<input type="text" id="boot_interface_mac" name="boot_interface_mac" 
@@ -148,7 +148,7 @@
 							   title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
 							   required>
 						{% endif %}
-						<input type="submit" value="Forge Setup" class="disabled">
+						<input type="submit" value="Machine Setup" class="disabled">
 					</div>
 				</form>
 

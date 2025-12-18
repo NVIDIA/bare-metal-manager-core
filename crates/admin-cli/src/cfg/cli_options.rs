@@ -830,10 +830,10 @@ pub enum RedfishCommand {
     CreateBmcUser(BmcUser),
     /// Create new BMC user
     DeleteBmcUser(DeleteBmcUser),
-    /// Setup host for Forge use
-    ForgeSetup(ForgeSetupArgs),
-    /// Is everything ForgeSetup does already done? What's missing?
-    ForgeSetupStatus(ForgeSetupStatusArgs),
+    /// Setup host for use
+    MachineSetup(MachineSetupArgs),
+    /// Is everything MachineSetup does already done? What's missing?
+    MachineSetupStatus(MachineSetupStatusArgs),
     /// Set our password policy
     SetForgePasswordPolicy,
     /// List one or all BIOS boot options
@@ -1054,7 +1054,7 @@ pub struct DeleteBmcUser {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
-pub struct ForgeSetupArgs {
+pub struct MachineSetupArgs {
     #[clap(long, help = "boot_interface_mac")]
     pub boot_interface_mac: Option<String>,
     #[clap(long, help = "BIOS profile config in JSON format")]
@@ -1064,7 +1064,7 @@ pub struct ForgeSetupArgs {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
-pub struct ForgeSetupStatusArgs {
+pub struct MachineSetupStatusArgs {
     #[clap(long, help = "boot_interface_mac")]
     pub boot_interface_mac: Option<String>,
 }

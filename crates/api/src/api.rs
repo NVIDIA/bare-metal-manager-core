@@ -1095,11 +1095,11 @@ impl Forge for Api {
         crate::handlers::bmc_endpoint_explorer::is_infinite_boot_enabled(self, request).await
     }
 
-    async fn forge_setup(
+    async fn machine_setup(
         &self,
-        request: Request<rpc::ForgeSetupRequest>,
-    ) -> Result<Response<::rpc::forge::ForgeSetupResponse>, Status> {
-        crate::handlers::bmc_endpoint_explorer::forge_setup(self, request).await
+        request: Request<rpc::MachineSetupRequest>,
+    ) -> Result<Response<::rpc::forge::MachineSetupResponse>, Status> {
+        crate::handlers::bmc_endpoint_explorer::machine_setup(self, request).await
     }
 
     async fn set_dpu_first_boot_order(

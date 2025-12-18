@@ -81,8 +81,12 @@ pub struct EndpointExplorationReport {
     /// Model, parsed out of chassis and service
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub forge_setup_status: Option<ForgeSetupStatus>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "ForgeSetupStatus"
+    )]
+    pub machine_setup_status: Option<MachineSetupStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secure_boot_status: Option<SecureBootStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,7 +154,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             systems: report.systems.into_iter().map(Into::into).collect(),
             chassis: report.chassis.into_iter().map(Into::into).collect(),
             service: report.service.into_iter().map(Into::into).collect(),
-            forge_setup_status: report.forge_setup_status.map(Into::into),
+            machine_setup_status: report.machine_setup_status.map(Into::into),
             secure_boot_status: report.secure_boot_status.map(Into::into),
             lockdown_status: report.lockdown_status.map(Into::into),
         }
@@ -183,6 +187,8 @@ pub struct ExploredEndpoint {
     pub last_redfish_powercycle: Option<chrono::DateTime<chrono::Utc>>,
     /// Flag to prevent site explorer from taking remediation actions on redfish errors
     pub pause_remediation: bool,
+    /// The MAC address of the boot interface (primary interface) for this host endpoint
+    pub boot_interface_mac: Option<MacAddress>,
 }
 
 impl Display for ExploredEndpoint {
@@ -662,7 +668,7 @@ impl EndpointExplorationReport {
             machine_id: None,
             versions: HashMap::default(),
             model: None,
-            forge_setup_status: None,
+            machine_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
             power_shelf_id: None,
@@ -1465,19 +1471,19 @@ impl From<Inventory> for rpc::site_explorer::Inventory {
     }
 }
 
-/// `ForgeSetupStatus` definition. Matches redfish definition
+/// `MachineSetupStatus` definition. Matches redfish definition
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
-pub struct ForgeSetupStatus {
+pub struct MachineSetupStatus {
     pub is_done: bool,
-    pub diffs: Vec<ForgeSetupDiff>,
+    pub diffs: Vec<MachineSetupDiff>,
 }
 
-impl From<ForgeSetupStatus> for rpc::site_explorer::ForgeSetupStatus {
-    fn from(forge_setup_status: ForgeSetupStatus) -> Self {
-        rpc::site_explorer::ForgeSetupStatus {
-            is_done: forge_setup_status.is_done,
-            diffs: forge_setup_status
+impl From<MachineSetupStatus> for rpc::site_explorer::MachineSetupStatus {
+    fn from(machine_setup_status: MachineSetupStatus) -> Self {
+        rpc::site_explorer::MachineSetupStatus {
+            is_done: machine_setup_status.is_done,
+            diffs: machine_setup_status
                 .diffs
                 .into_iter()
                 .map(Into::into)
@@ -1501,21 +1507,21 @@ impl From<BootOrder> for rpc::site_explorer::BootOrder {
     }
 }
 
-/// `ForgeSetupDiff` definition. Matches redfish definition
+/// `MachineSetupDiff` definition. Matches redfish definition
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
-pub struct ForgeSetupDiff {
+pub struct MachineSetupDiff {
     pub key: String,
     pub expected: String,
     pub actual: String,
 }
 
-impl From<ForgeSetupDiff> for rpc::site_explorer::ForgeSetupDiff {
-    fn from(forge_setup_diff: ForgeSetupDiff) -> Self {
-        rpc::site_explorer::ForgeSetupDiff {
-            key: forge_setup_diff.key,
-            expected: forge_setup_diff.expected,
-            actual: forge_setup_diff.actual,
+impl From<MachineSetupDiff> for rpc::site_explorer::MachineSetupDiff {
+    fn from(machine_setup_diff: MachineSetupDiff) -> Self {
+        rpc::site_explorer::MachineSetupDiff {
+            key: machine_setup_diff.key,
+            expected: machine_setup_diff.expected,
+            actual: machine_setup_diff.actual,
         }
     }
 }
@@ -1865,7 +1871,7 @@ mod tests {
             machine_id: None,
             versions: HashMap::default(),
             model: None,
-            forge_setup_status: None,
+            machine_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
             power_shelf_id: None,
@@ -1926,7 +1932,7 @@ mod tests {
             machine_id: None,
             versions: HashMap::default(),
             model: None,
-            forge_setup_status: None,
+            machine_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
             power_shelf_id: None,

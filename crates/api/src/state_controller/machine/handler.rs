@@ -3331,7 +3331,7 @@ impl DpuMachineStateHandler {
                 }
 
                 let boot_interface_mac = None; // libredfish will choose the DPU
-                if let Err(e) = call_forge_setup_and_handle_no_dpu_error(
+                if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
                     dpu_redfish_client.as_ref(),
                     boot_interface_mac,
                     state.host_snapshot.associated_dpu_machine_ids().len(),
@@ -3340,7 +3340,7 @@ impl DpuMachineStateHandler {
                 .await
                 {
                     let msg = format!(
-                        "redfish forge_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}",
+                        "redfish machine_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}",
                         dpu_snapshot.id, e
                     );
                     tracing::warn!(msg);
@@ -4524,7 +4524,7 @@ impl StateHandler for HostMachineStateHandler {
                             return Ok(StateHandlerOutcome::transition(next_state));
                         }
                         Ok(_) => {
-                            // Lockdown is disabled, proceed with forge_setup
+                            // Lockdown is disabled, proceed with machine_setup
                         }
                     }
 
@@ -8196,13 +8196,13 @@ fn can_restart_reprovision(dpu_snapshots: &[Machine], version: ConfigVersion) ->
     dpu_reprovision_restart_requested_after_state_transition(version, *latest_requested_at)
 }
 
-/// Call [`Redfish::forge_setup`], but ignore any [`RedfishError::NoDpu`] if we expect there to be no DPUs.
+/// Call [`Redfish::machine_setup`], but ignore any [`RedfishError::NoDpu`] if we expect there to be no DPUs.
 ///
 /// TODO(ken): This is a temporary workaround for work-in-progress on zero-DPU support (August 2024)
 /// The way we should do this going forward is to plumb the actual non-DPU MAC address we want to
 /// boot from, but that information is not in scope at this time. Once it is, and we pass it to
-/// forge_setup, we should no longer expect a NoDpu error and can thus call vanilla forge_setup again.
-async fn call_forge_setup_and_handle_no_dpu_error(
+/// machine_setup, we should no longer expect a NoDpu error and can thus call vanilla machine_setup again.
+async fn call_machine_setup_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
     boot_interface_mac: Option<&str>,
     expected_dpu_count: usize,
@@ -8222,7 +8222,7 @@ async fn call_forge_setup_and_handle_no_dpu_error(
     ) {
         (Err(RedfishError::NoDpu), 0, true) => {
             tracing::info!(
-                "redfish forge_setup failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this."
+                "redfish machine_setup failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this."
             );
             Ok(())
         }
@@ -8605,7 +8605,7 @@ async fn configure_host_bios(
         _ => SystemPowerControl::ForceRestart,
     };
 
-    if let Err(e) = call_forge_setup_and_handle_no_dpu_error(
+    if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
         redfish_client,
         boot_interface_mac.as_deref(),
         mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
@@ -8614,12 +8614,12 @@ async fn configure_host_bios(
     .await
     {
         tracing::warn!(
-            "redfish forge_setup failed for {}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}",
+            "redfish machine_setup failed for {}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}",
             mh_snapshot.host_snapshot.id,
             e
         );
 
-        // if forge_setup failed, rebooted to potentially work around
+        // if machine_setup failed, rebooted to potentially work around
         // a known race between the DPU UEFI and the BMC, where if
         // the BMC is not up when DPU UEFI runs, then Attributes might
         // not come through. The fix is to force-restart the DPU to
@@ -8647,11 +8647,11 @@ async fn configure_host_bios(
             .await?
         };
         return Err(StateHandlerError::GenericError(eyre::eyre!(
-            "redfish forge_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"
+            "redfish machine_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"
         )));
     };
 
-    // Host needs to be rebooted to pick up the changes after calling forge_setup
+    // Host needs to be rebooted to pick up the changes after calling machine_setup
     handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn).await
 }
 
@@ -8769,7 +8769,7 @@ async fn set_host_boot_order(
                 _ => SystemPowerControl::ForceRestart,
             };
 
-            // Host needs to be rebooted to pick up the changes after calling forge_setup
+            // Host needs to be rebooted to pick up the changes after calling machine_setup
             handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn)
                 .await?;
 
