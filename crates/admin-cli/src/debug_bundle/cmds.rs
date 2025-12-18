@@ -61,6 +61,7 @@ struct GrafanaTimeRange {
 enum LogType {
     CarbideApi,
     HostSpecific,
+    DpuAgent,
 }
 
 impl LogType {
@@ -68,6 +69,7 @@ impl LogType {
         match self {
             LogType::CarbideApi => format!("Carbide-API Batch {batch_number}"),
             LogType::HostSpecific => format!("Host Batch {batch_number}"),
+            LogType::DpuAgent => format!("DPU-Agent Batch {batch_number}"),
         }
     }
 
@@ -75,6 +77,7 @@ impl LogType {
         match self {
             LogType::CarbideApi => "carbide-api",
             LogType::HostSpecific => "host-specific",
+            LogType::DpuAgent => "dpu-agent",
         }
     }
 }
@@ -748,19 +751,20 @@ async fn get_machine_analysis(
 ///
 /// 1. **Host-Specific Logs**: Machine-specific logs from Loki (filtered by `host_machine_id`)
 /// 2. **Carbide-API Logs**: API server logs from Loki (filtered by `k8s_container_name`)
-/// 3. **Health Alerts**: Historical health alerts for the machine within the specified time range
-/// 4. **Health Alert Overrides**: Current alert overrides configured for the machine
-/// 5. **Site Controller Details**: BMC/Redfish exploration data including:
+/// 3. **DPU Agent Logs**: DPU agent service logs from Loki (filtered by `systemd_unit` and `host_machine_id`)
+/// 4. **Health Alerts**: Historical health alerts for the machine within the specified time range
+/// 5. **Health Alert Overrides**: Current alert overrides configured for the machine
+/// 6. **Site Controller Details**: BMC/Redfish exploration data including:
 ///    - BMC IP and MAC addresses
 ///    - Systems, Managers, and Chassis information
 ///    - Firmware inventory
 ///    - Credential availability status
-/// 6. **Machine Info**: State machine information including:
+/// 7. **Machine Info**: State machine information including:
 ///    - Current state and state version
 ///    - SLA status and controller outcome
 ///    - Validation test failures
 ///    - Reboot history and failure details
-/// 7. **Metadata**: Summary file with batch information and Grafana links
+/// 8. **Metadata**: Summary file with batch information and Grafana links
 ///
 /// # Arguments
 ///
@@ -778,6 +782,7 @@ async fn get_machine_analysis(
 /// Creates a ZIP file with the following structure:
 /// - `host_logs_<machine_id>.txt` - Host-specific logs
 /// - `carbide_api_logs.txt` - API server logs
+/// - `dpu_agent_logs_<machine_id>.txt` - DPU agent service logs
 /// - `health_alerts.json` - Health alerts history
 /// - `health_alert_overrides.json` - Active alert overrides
 /// - `site_controller_details.json` - BMC/Redfish exploration data
@@ -800,9 +805,8 @@ async fn get_machine_analysis(
 ///     end_time: Some("06:10:00".to_string()),
 ///     utc: false,
 ///     output_path: "/tmp".to_string(),
-///     grafana_url: "https://grafana-dev3.frg.nvidia.com".to_string(),
+///     grafana_url: Some("https://grafana.example.com".to_string()),
 ///     batch_size: 5000,
-///     no_logs: false,
 /// };
 ///
 /// let api_client = ApiClient::new(config).await?;
@@ -840,47 +844,74 @@ pub async fn handle_debug_bundle(
         debug_bundle.utc,
     );
 
-    // Conditionally collect logs based on --no-logs flag
-    let (host_logs, host_batch_links, carbide_api_logs, carbide_batch_links, loki_uid) =
-        if !debug_bundle.no_logs {
-            // Use new GrafanaClient struct
-            let grafana_client = GrafanaClient::new(debug_bundle.grafana_url.clone())?;
+    // Conditionally collect logs based on --grafana-url presence
+    let (
+        host_logs,
+        host_batch_links,
+        carbide_api_logs,
+        carbide_batch_links,
+        dpu_agent_logs,
+        dpu_batch_links,
+        loki_uid,
+    ) = if let Some(grafana_url) = &debug_bundle.grafana_url {
+        // Use new GrafanaClient struct
+        let grafana_client = GrafanaClient::new(grafana_url.clone())?;
 
-            println!("\nStep 0: Fetching Loki datasource UID...");
-            let loki_uid = grafana_client.get_loki_datasource_uid().await?;
+        println!("\nFetching Loki datasource UID...");
+        let loki_uid = grafana_client.get_loki_datasource_uid().await?;
 
-            println!("\nStep 1: Downloading host-specific logs...");
-            let (host_logs, host_batch_links) = get_host_logs(
-                &debug_bundle.host_id,
-                time_range.clone(),
-                &debug_bundle.grafana_url,
-                &loki_uid,
-                debug_bundle.batch_size,
-            )
-            .await?;
+        println!("\nDownloading host-specific logs...");
+        let (host_logs, host_batch_links) = get_host_logs(
+            &debug_bundle.host_id,
+            time_range.clone(),
+            grafana_url,
+            &loki_uid,
+            debug_bundle.batch_size,
+        )
+        .await?;
 
-            println!("\nStep 2: Downloading carbide-api logs...");
-            let (carbide_api_logs, carbide_batch_links) = get_carbide_api_logs(
-                time_range.clone(),
-                &debug_bundle.grafana_url,
-                &loki_uid,
-                debug_bundle.batch_size,
-            )
-            .await?;
+        println!("\nDownloading carbide-api logs...");
+        let (carbide_api_logs, carbide_batch_links) = get_carbide_api_logs(
+            time_range.clone(),
+            grafana_url,
+            &loki_uid,
+            debug_bundle.batch_size,
+        )
+        .await?;
 
-            (
-                host_logs,
-                host_batch_links,
-                carbide_api_logs,
-                carbide_batch_links,
-                Some(loki_uid),
-            )
-        } else {
-            println!("\nSkipping log collection (--no-logs flag set)");
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), None)
-        };
+        println!("\nDownloading DPU agent logs...");
+        let (dpu_agent_logs, dpu_batch_links) = get_dpu_agent_logs(
+            &debug_bundle.host_id,
+            time_range.clone(),
+            grafana_url,
+            &loki_uid,
+            debug_bundle.batch_size,
+        )
+        .await?;
 
-    println!("\nStep 3: Fetching health alerts...");
+        (
+            host_logs,
+            host_batch_links,
+            carbide_api_logs,
+            carbide_batch_links,
+            dpu_agent_logs,
+            dpu_batch_links,
+            Some(loki_uid),
+        )
+    } else {
+        println!("\nSkipping log collection (--grafana-url not provided)");
+        (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+        )
+    };
+
+    println!("\nFetching health alerts...");
     let health_alerts = get_health_alerts(api_client, &debug_bundle.host_id, &time_range).await?;
     let alert_count = health_alerts
         .histories
@@ -889,19 +920,19 @@ pub async fn handle_debug_bundle(
         .unwrap_or(0);
     println!("   Alerts: {} records collected", alert_count);
 
-    println!("\nStep 4: Fetching health alert overrides...");
+    println!("\nFetching health alert overrides...");
     let alert_overrides = get_alert_overrides(api_client, &debug_bundle.host_id).await?;
     println!(
         "   Overrides: {} overrides collected",
         alert_overrides.overrides.len()
     );
 
-    println!("\nStep 5: Fetching site controller details...");
+    println!("\nFetching site controller details...");
     let site_controller_analysis =
         get_site_controller_analysis(api_client, &debug_bundle.host_id).await?;
 
-    // Step 6: Machine Info
-    println!("\nStep 6: Fetching machine info...");
+    // Machine Info
+    println!("\nFetching machine info...");
     let machine_id = MachineId::from_str(&debug_bundle.host_id).map_err(|e| {
         CarbideCliError::GenericError(format!(
             "Invalid machine ID '{}': {}",
@@ -916,6 +947,7 @@ pub async fn handle_debug_bundle(
         "   Carbide-API Logs: {} logs collected",
         carbide_api_logs.len()
     );
+    println!("   DPU Agent Logs: {} logs collected", dpu_agent_logs.len());
     println!(
         "   Health Alerts: {} records",
         health_alerts
@@ -932,17 +964,19 @@ pub async fn handle_debug_bundle(
     println!("   Machine State Information: Collected");
     println!(
         "   Total Logs: {}",
-        host_logs.len() + carbide_api_logs.len()
+        host_logs.len() + carbide_api_logs.len() + dpu_agent_logs.len()
     );
 
     // Create ZIP file with logs, health alerts, health alert overrides, site controller details, and machine info
-    println!("\nStep 7: Creating ZIP file...");
+    println!("\nCreating ZIP file...");
     create_debug_bundle_zip(
         &debug_bundle,
         &host_logs,
         &carbide_api_logs,
+        &dpu_agent_logs,
         &host_batch_links,
         &carbide_batch_links,
+        &dpu_batch_links,
         loki_uid.as_deref(),
         &health_alerts,
         &alert_overrides,
@@ -983,6 +1017,25 @@ async fn get_carbide_api_logs(
     let log_type = LogType::CarbideApi;
 
     // NEW() NOW RETURNS RESULT
+    let mut collector =
+        LogCollector::new(grafana_url.to_string(), loki_uid.to_string(), batch_size)?;
+    let logs = collector.collect_logs(&expr, log_type, time_range).await?;
+    let batch_links = collector.get_batch_links().clone();
+    Ok((logs, batch_links))
+}
+
+async fn get_dpu_agent_logs(
+    host_id: &str,
+    time_range: TimeRange,
+    grafana_url: &str,
+    loki_uid: &str,
+    batch_size: u32,
+) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
+    let expr = format!(
+        "{{systemd_unit=\"forge-dpu-agent.service\", host_machine_id=\"{host_id}\"}} |= ``"
+    );
+    let log_type = LogType::DpuAgent;
+
     let mut collector =
         LogCollector::new(grafana_url.to_string(), loki_uid.to_string(), batch_size)?;
     let logs = collector.collect_logs(&expr, log_type, time_range).await?;
@@ -1415,8 +1468,10 @@ impl<'a> ZipBundleCreator<'a> {
         &self,
         host_logs: &[LogEntry],
         carbide_logs: &[LogEntry],
+        dpu_agent_logs: &[LogEntry],
         host_batch_links: &[(String, String, usize, String)],
         carbide_batch_links: &[(String, String, usize, String)],
+        dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
         health_alerts: &::rpc::forge::MachineHealthHistories,
         alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
@@ -1439,6 +1494,12 @@ impl<'a> ZipBundleCreator<'a> {
             options,
         )?;
         self.add_file(&mut zip, "carbide_api_logs.txt", carbide_logs, options)?;
+        self.add_file(
+            &mut zip,
+            &format!("dpu_agent_logs_{}.txt", self.config.host_id),
+            dpu_agent_logs,
+            options,
+        )?;
         self.add_alerts_json(&mut zip, health_alerts, options)?;
         self.add_alert_overrides_json(&mut zip, alert_overrides, options)?;
         self.add_site_controller_analysis_json(&mut zip, site_controller_analysis, options)?;
@@ -1447,8 +1508,10 @@ impl<'a> ZipBundleCreator<'a> {
             &mut zip,
             host_logs.len(),
             carbide_logs.len(),
+            dpu_agent_logs.len(),
             host_batch_links,
             carbide_batch_links,
+            dpu_batch_links,
             loki_uid,
             health_alerts,
             alert_overrides,
@@ -1462,10 +1525,12 @@ impl<'a> ZipBundleCreator<'a> {
 
         println!("ZIP created: {filepath}");
         println!(
-            "Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} overrides), site_controller_details.json, machine_info.json, metadata.txt",
+            "Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), dpu_agent_logs_{}.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} overrides), site_controller_details.json, machine_info.json, metadata.txt",
             self.config.host_id,
             host_logs.len(),
             carbide_logs.len(),
+            self.config.host_id,
+            dpu_agent_logs.len(),
             health_alerts
                 .histories
                 .get(&self.config.host_id)
@@ -1856,8 +1921,10 @@ impl<'a> ZipBundleCreator<'a> {
         zip: &mut ZipWriter<File>,
         host_count: usize,
         carbide_count: usize,
+        dpu_agent_count: usize,
         host_batch_links: &[(String, String, usize, String)],
         carbide_batch_links: &[(String, String, usize, String)],
+        dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
         health_alerts: &::rpc::forge::MachineHealthHistories,
         alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
@@ -1879,10 +1946,22 @@ impl<'a> ZipBundleCreator<'a> {
             "Time Range: {} to {}",
             self.config.start_time, end_time_display
         )?;
-        writeln!(zip, "Grafana URL: {}", self.config.grafana_url)?;
+        writeln!(
+            zip,
+            "Grafana URL: {}",
+            self.config
+                .grafana_url
+                .as_deref()
+                .unwrap_or("N/A (logs not collected)")
+        )?;
         writeln!(zip, "Host Logs: {host_count}")?;
         writeln!(zip, "Carbide-API Logs: {carbide_count}")?;
-        writeln!(zip, "Total: {}", host_count + carbide_count)?;
+        writeln!(zip, "DPU Agent Logs: {dpu_agent_count}")?;
+        writeln!(
+            zip,
+            "Total: {}",
+            host_count + carbide_count + dpu_agent_count
+        )?;
         writeln!(zip)?;
 
         // Add Health Alerts Info
@@ -2007,7 +2086,7 @@ impl<'a> ZipBundleCreator<'a> {
         writeln!(zip)?;
 
         // Generate overall Grafana links only if logs were collected
-        if let Some(loki_uid) = loki_uid {
+        if let (Some(loki_uid), Some(grafana_url)) = (loki_uid, &self.config.grafana_url) {
             let (start_date, start_time) = parse_datetime_input(&self.config.start_time)?;
 
             // Handle optional end_time (default to "now")
@@ -2030,23 +2109,20 @@ impl<'a> ZipBundleCreator<'a> {
             let (start_ms, end_ms) = time_range.to_grafana_format()?;
 
             let host_expr = format!("{{host_machine_id=\"{}\"}} |= ``", self.config.host_id);
-            let host_overall_link = generate_grafana_link(
-                &self.config.grafana_url,
-                loki_uid,
-                &host_expr,
-                &start_ms,
-                &end_ms,
-            )?;
+            let host_overall_link =
+                generate_grafana_link(grafana_url, loki_uid, &host_expr, &start_ms, &end_ms)?;
 
             let carbide_expr =
                 format!("{{{K8S_CONTAINER_NAME_LABEL}=\"{CARBIDE_API_CONTAINER_NAME}\"}} |= ``");
-            let carbide_overall_link = generate_grafana_link(
-                &self.config.grafana_url,
-                loki_uid,
-                &carbide_expr,
-                &start_ms,
-                &end_ms,
-            )?;
+            let carbide_overall_link =
+                generate_grafana_link(grafana_url, loki_uid, &carbide_expr, &start_ms, &end_ms)?;
+
+            let dpu_agent_expr = format!(
+                "{{systemd_unit=\"forge-dpu-agent.service\", host_machine_id=\"{}\"}} |= ``",
+                self.config.host_id
+            );
+            let dpu_agent_overall_link =
+                generate_grafana_link(grafana_url, loki_uid, &dpu_agent_expr, &start_ms, &end_ms)?;
 
             // Host Logs - Overall Link and Batches
             writeln!(zip, "Host Logs Grafana Link (Complete Time Range):")?;
@@ -2079,6 +2155,21 @@ impl<'a> ZipBundleCreator<'a> {
                     writeln!(zip)?;
                 }
             }
+
+            // DPU Agent Logs - Overall Link and Batches
+            writeln!(zip, "DPU Agent Logs Grafana Link (Complete Time Range):")?;
+            writeln!(zip, "  {}", dpu_agent_overall_link)?;
+            writeln!(zip)?;
+
+            if !dpu_batch_links.is_empty() {
+                writeln!(zip, "DPU Agent Logs Batches:")?;
+                for (batch_label, grafana_link, log_count, time_range_display) in dpu_batch_links {
+                    writeln!(zip, "  {batch_label} ({log_count} logs):")?;
+                    writeln!(zip, "    Time Range: {time_range_display}")?;
+                    writeln!(zip, "    {grafana_link}")?;
+                    writeln!(zip)?;
+                }
+            }
         }
 
         Ok(())
@@ -2090,8 +2181,10 @@ fn create_debug_bundle_zip(
     debug_bundle: &DebugBundle,
     host_logs: &[LogEntry],
     carbide_api_logs: &[LogEntry],
+    dpu_agent_logs: &[LogEntry],
     host_batch_links: &[(String, String, usize, String)],
     carbide_batch_links: &[(String, String, usize, String)],
+    dpu_batch_links: &[(String, String, usize, String)],
     loki_uid: Option<&str>,
     health_alerts: &::rpc::forge::MachineHealthHistories,
     alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
@@ -2101,8 +2194,10 @@ fn create_debug_bundle_zip(
     ZipBundleCreator::new(debug_bundle).create_bundle(
         host_logs,
         carbide_api_logs,
+        dpu_agent_logs,
         host_batch_links,
         carbide_batch_links,
+        dpu_batch_links,
         loki_uid,
         health_alerts,
         alert_overrides,

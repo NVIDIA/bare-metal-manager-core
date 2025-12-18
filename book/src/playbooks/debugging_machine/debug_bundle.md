@@ -9,7 +9,8 @@ The debug bundle command collects data from two sources:
 1. **Grafana (Loki)** (optional): Fetches logs using Grafana's Loki datasource
    - Host machine logs
    - Carbide API logs
-   - ***Note:*** Log collection can be skipped using the `--no-logs` flag if Grafana is not configured
+   - DPU agent logs
+   - ***Note:*** Log collection is skipped if `--grafana-url` is not provided
 
 2. **Carbide API**: Fetches machine information
    - Health alerts for the specified time range
@@ -23,6 +24,7 @@ The generated ZIP file contains:
 
 - Host machine logs from Grafana
 - Carbide API container logs from Grafana
+- DPU agent logs from Grafana
 - Machine health alerts for the time range
 - Health alert overrides (if any are configured)
 - Site controller details (BMC IP, port, and other controller information)
@@ -39,7 +41,7 @@ You need `carbide-admin-cli` installed with valid client certificates to connect
 
 ### 2. Grafana Authentication Token (Optional)
 
-***Note:*** This is only required if Grafana is configured in your environment and you want to collect logs. If Grafana is not configured, use the `--no-logs` flag to skip log collection.
+***Note:*** This is only required if you want to collect logs. If `--grafana-url` is not provided, log collection is skipped.
 
 Set the `GRAFANA_AUTH_TOKEN` environment variable:
 
@@ -63,7 +65,7 @@ export https_proxy=socks5://127.0.0.1:8888
 
 - **Machine ID**: The host machine ID you want to collect debug information for
 - **Time Range**: Start and end times for log collection
-- **Grafana URL**: Your Grafana base URL (e.g., `https://grafana.example.com`)
+- **Grafana URL** (optional): Your Grafana base URL (e.g., `https://grafana.example.com`)
 - **Output Path**: Directory where the ZIP file will be saved
 
 ## Running the Debug Bundle Command
@@ -71,7 +73,7 @@ export https_proxy=socks5://127.0.0.1:8888
 ### Command Syntax
 
 ```bash
-carbide-admin-cli -c <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> --grafana-url <URL> [--end-time <TIME>] [--output-path <PATH>] [--batch-size <SIZE>] [--no-logs] [--utc]
+carbide-admin-cli -c <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> [--grafana-url <URL>] [--end-time <TIME>] [--output-path <PATH>] [--batch-size <SIZE>] [--utc]
 ```
 
 ### Parameters
@@ -83,19 +85,18 @@ carbide-admin-cli -c <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> 
   - From inside cluster: `https://127.0.0.1:1079`
 - `<MACHINE_ID>`: The machine ID to collect debug information for
 - `--start-time <TIME>`: Start time in format `HH:MM:SS` or `YYYY-MM-DD HH:MM:SS`
-- `--grafana-url <URL>`: Grafana base URL (e.g., `https://grafana.example.com`)
 
 **Optional:**
 
+- `--grafana-url <URL>`: Grafana base URL (e.g., `https://grafana.example.com`). If not provided, log collection is skipped.
 - `--end-time <TIME>`: End time in format `HH:MM:SS` or `YYYY-MM-DD HH:MM:SS` (default: current time)
 - `--output-path <PATH>`: Directory where the ZIP file will be saved (default: `/tmp`)
 - `--batch-size <SIZE>`: Batch size for log collection (default: `5000`, max: `5000`)
-- `--no-logs`: Skip log collection and only collect machine metadata (use when Grafana is not configured)
 - `--utc`: Interpret start-time and end-time as UTC instead of local timezone
 
 ### Examples
 
-**Basic example (with Grafana configured):**
+**With Grafana configured (collect logs):**
 
 ```bash
 GRAFANA_AUTH_TOKEN=<your-token> \
@@ -119,14 +120,12 @@ carbide-admin-cli -c https://<your-carbide-api-url>/ mh debug-bundle \
   --grafana-url https://grafana.example.com
 ```
 
-**Without Grafana (use `--no-logs` flag):**
+**Without Grafana (metadata only):**
 
 ```bash
 carbide-admin-cli -c https://<your-carbide-api-url>/ mh debug-bundle \
   <machine-id> \
-  --start-time 06:00:00 \
-  --grafana-url https://grafana.example.com \
-  --no-logs
+  --start-time 06:00:00
 ```
 
 ## Understanding the Output
@@ -145,28 +144,32 @@ Step 1: Downloading host-specific logs...
 Step 2: Downloading carbide-api logs...
    Processing batch 1/1 (250 records)
 
-Step 3: Fetching health alerts...
+Step 3: Downloading DPU agent logs...
+   Processing batch 1/1 (74 records)
+
+Step 4: Fetching health alerts...
    Alerts: 42 records collected
 
-Step 4: Fetching health alert overrides...
+Step 5: Fetching health alert overrides...
    Overrides: 2 overrides collected
 
-Step 5: Fetching site controller details...
+Step 6: Fetching site controller details...
    Fetching BMC information for machine...
 
-Step 6: Fetching machine info...
+Step 7: Fetching machine info...
    Fetching machine state and metadata...
 
 Debug Bundle Summary:
    Host Logs: 500 logs collected
    Carbide-API Logs: 250 logs collected
+   DPU Agent Logs: 74 logs collected
    Health Alerts: 42 records
    Health Alert Overrides: 2 overrides
    Site Controller Details: Collected
    Machine State Information: Collected
-   Total Logs: 750
+   Total Logs: 824
 
-Step 7: Creating ZIP file...
+Step 8: Creating ZIP file...
 
 ZIP created: /tmp/20241121060000_<machine-id>.zip
 ```
