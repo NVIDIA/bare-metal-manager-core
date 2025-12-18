@@ -155,6 +155,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         client
             .clear_uefi_password(current_password.as_str())
             .await
+            .map_err(|err| redact_password(err, current_password.as_str()))
             .map_err(RedfishClientCreationError::RedfishError)
     }
 
@@ -259,6 +260,8 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         client
             .change_uefi_password(current_password.as_str(), new_password.as_str())
             .await
+            .map_err(|err| redact_password(err, new_password.as_str()))
+            .map_err(|err| redact_password(err, current_password.as_str()))
             .map_err(RedfishClientCreationError::RedfishError)
     }
 }
@@ -656,6 +659,76 @@ pub async fn did_dpu_finish_booting(
             Ok((is_dpu_up, system.boot_progress))
         }
         None => Ok((false, None)),
+    }
+}
+
+// Some BMC implementation may return passwords in response body and
+// we can display them to user. This function is helper to remove
+// password leak for password-related refish functions.
+pub(crate) fn redact_password(
+    err: libredfish::RedfishError,
+    password: &str,
+) -> libredfish::RedfishError {
+    type RfError = libredfish::RedfishError;
+    const REDACTED: &str = "REDACTED";
+    let redact = |v: String| v.replace(password, REDACTED);
+    match err {
+        RfError::HTTPErrorCode {
+            url,
+            status_code,
+            response_body,
+        } => RfError::HTTPErrorCode {
+            url,
+            status_code,
+            response_body: redact(response_body),
+        },
+        RfError::JsonDeserializeError { url, body, source } => RfError::JsonDeserializeError {
+            url,
+            body: redact(body),
+            source,
+        },
+        RfError::JsonSerializeError {
+            url,
+            object_debug,
+            source,
+        } => RfError::JsonSerializeError {
+            url,
+            object_debug: redact(object_debug),
+            source,
+        },
+        RfError::InvalidValue {
+            url,
+            field,
+            err: libredfish::model::InvalidValueError(v),
+        } => RfError::InvalidValue {
+            url,
+            field,
+            err: libredfish::model::InvalidValueError(redact(v)),
+        },
+        RfError::GenericError { error } => RfError::GenericError {
+            error: redact(error),
+        },
+        // All errors are enumerated here instead of default to get
+        // compile error on any new error in libredfish added. This
+        // gives you chance to think if password may leak to the new
+        // error or not.
+        RfError::NetworkError { .. }
+        | RfError::NoContent
+        | RfError::NoHeader
+        | RfError::Lockdown
+        | RfError::MissingVendor
+        | RfError::PasswordChangeRequired
+        | RfError::FileError(_)
+        | RfError::UserNotFound(_)
+        | RfError::NotSupported(_)
+        | RfError::UnnecessaryOperation
+        | RfError::MissingKey { .. }
+        | RfError::InvalidKeyType { .. }
+        | RfError::TooManyUsers
+        | RfError::NoDpu
+        | RfError::ReqwestError(_)
+        | RfError::TypeMismatch { .. }
+        | RfError::MissingBootOption(_) => err,
     }
 }
 
@@ -1783,5 +1856,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(PowerState::Off, client.get_power_state().await.unwrap());
+    }
+
+    #[test]
+    fn password_redact_from_error() {
+        const PASSWORD: &str = "1234";
+        let err = libredfish::RedfishError::HTTPErrorCode {
+            url: "https://example.com/redfish/v1/Systems/1/Bios/Actions/Bios.ChangePassword".into(),
+            status_code: http::StatusCode::BAD_REQUEST,
+            response_body: format!(r#""MessageArgs":["{PASSWORD}"]"#),
+        };
+        assert!(err.to_string().contains(PASSWORD));
+        assert!(
+            !redact_password(err, PASSWORD)
+                .to_string()
+                .contains(PASSWORD)
+        );
     }
 }
