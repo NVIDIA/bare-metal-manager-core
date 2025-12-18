@@ -139,9 +139,10 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
+        boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         self.redfish_client
-            .generate_exploration_report(bmc_ip_address, credentials)
+            .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
             .await
     }
 
@@ -230,7 +231,7 @@ impl BmcEndpointExplorer {
         self.set_bmc_root_credentials(bmc_mac_address, &bmc_credentials)
             .await?;
 
-        self.generate_exploration_report(bmc_ip_address, bmc_credentials)
+        self.generate_exploration_report(bmc_ip_address, bmc_credentials, None)
             .await
     }
 
@@ -255,14 +256,14 @@ impl BmcEndpointExplorer {
             .await
     }
 
-    pub async fn forge_setup(
+    pub async fn machine_setup(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
         boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
-            .forge_setup(bmc_ip_address, credentials, boot_interface_mac)
+            .machine_setup(bmc_ip_address, credentials, boot_interface_mac)
             .await
     }
 
@@ -585,6 +586,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         expected_power_shelf: Option<ExpectedPowerShelf>,
         expected_switch: Option<ExpectedSwitch>,
         last_report: Option<&EndpointExplorationReport>,
+        boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         // If the site explorer was previously unable to login to the root BMC account using
         // the expected credentials, wait for an operator to manually intervene.
@@ -606,7 +608,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         // Create the redfish client and generate the report.
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => Ok(self
-                .generate_exploration_report(bmc_ip_address, credentials)
+                .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
                 .await?),
 
             Err(EndpointExplorationError::MissingCredentials { .. }) => {
@@ -797,7 +799,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         }
     }
 
-    async fn forge_setup(
+    async fn machine_setup(
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
@@ -807,13 +809,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.forge_setup(bmc_ip_address, credentials, boot_interface_mac)
+                self.machine_setup(bmc_ip_address, credentials, boot_interface_mac)
                     .await
             }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support starting forge_setup for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    "BMC endpoint explorer does not support starting machine_setup for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)

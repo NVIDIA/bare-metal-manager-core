@@ -819,7 +819,7 @@ pub(crate) async fn invoke_power(
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     // Lenovo does not yet provide a BMC lockdown so a user could
-    // change the boot order which we set in `libredfish::forge_setup`.
+    // change the boot order which we set in `libredfish::machine_setup`.
     // We also can't call `boot_first` for other vendors because lockdown
     // prevents it.
     // We use `boot_first` instead of `boot_once` for two reasons:

@@ -29,8 +29,8 @@ message EndpointExplorationReport {
   repeated Chassis chassis = 14;
   // `Service` reported by Redfish
   repeated Service service = 15;
-  // `ForgeSetupStatus` reported by Redfish
-  ForgeSetupStatus forge_setup_status = 16;
+  // `MachineSetupStatus` reported by Redfish
+  MachineSetupStatus machine_setup_status = 16;
   // `SecureBootStatus` reported by Redfish
   SecureBootStatus secure_boot_status = 17;
   // `LockdownStatus` reported by Redfish
@@ -202,14 +202,14 @@ message Inventory {
   optional string release_date = 4;
 }
 
-// `ForgeSetupStatus` definition. Matches redfish definition
-message ForgeSetupStatus {
+// `MachineSetupStatus` definition. Matches redfish definition
+message MachineSetupStatus {
   bool is_done = 1;
-  repeated ForgeSetupDiff diffs = 2;
+  repeated MachineSetupDiff diffs = 2;
 }
 
-// `ForgeSetupDiff` definition. Matches redfish definition
-message ForgeSetupDiff {
+// `MachineSetupDiff` definition. Matches redfish definition
+message MachineSetupDiff {
   string key = 1;
   string expected = 2;
   string actual = 3;

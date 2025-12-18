@@ -94,6 +94,7 @@ pub struct Endpoint {
     pub(crate) expected_power_shelf: Option<ExpectedPowerShelf>,
     pub(crate) expected_switch: Option<ExpectedSwitch>,
     pause_remediation: bool,
+    boot_interface_mac: Option<MacAddress>,
 }
 
 impl Display for Endpoint {
@@ -103,6 +104,7 @@ impl Display for Endpoint {
 }
 
 impl Endpoint {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         address: IpAddr,
         iface: MachineInterfaceSnapshot,
@@ -111,6 +113,7 @@ impl Endpoint {
         last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
         old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
         pause_remediation: bool,
+        boot_interface_mac: Option<MacAddress>,
     ) -> Self {
         Self {
             address,
@@ -123,6 +126,7 @@ impl Endpoint {
             expected_power_shelf: None,
             expected_switch: None,
             pause_remediation,
+            boot_interface_mac,
         }
     }
 }
@@ -1046,6 +1050,7 @@ impl SiteExplorer {
         }
 
         let mut managed_hosts = Vec::new();
+        let mut boot_interface_macs: Vec<(IpAddr, MacAddress)> = Vec::new();
 
         let is_dpu_in_nic_mode = |dpu_ep: &ExploredEndpoint, host_ep: &ExploredEndpoint| -> bool {
             let nic_mode = dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic);
@@ -1280,6 +1285,8 @@ impl SiteExplorer {
                 .report
                 .fetch_host_primary_interface_mac(&dpus_explored_for_host)
             {
+                boot_interface_macs.push((ep.address, mac_address));
+
                 let primary_dpu_position = dpus_explored_for_host
                     .iter()
                     .position(|x| x.host_pf_mac_address.unwrap_or_default() == mac_address);
@@ -1341,6 +1348,11 @@ impl SiteExplorer {
                 .as_slice(),
         )
         .await?;
+
+        // Persist boot interface MACs for host endpoints
+        for (address, mac) in &boot_interface_macs {
+            db::explored_endpoints::set_boot_interface_mac(*address, *mac, &mut txn).await?;
+        }
 
         txn.commit().await?;
 
@@ -1592,6 +1604,7 @@ impl SiteExplorer {
                 endpoint.last_redfish_reboot,
                 Some((endpoint.report_version, endpoint.report)),
                 endpoint.pause_remediation,
+                endpoint.boot_interface_mac,
             ));
         }
 
@@ -1609,6 +1622,7 @@ impl SiteExplorer {
                 None,
                 None,
                 false, // New endpoints haven't been explored yet, so pause_remediation defaults to false
+                None,  // boot_interface_mac not yet discovered for new endpoints
             ))
         }
 
@@ -1631,6 +1645,7 @@ impl SiteExplorer {
                     endpoint.last_redfish_reboot,
                     Some((endpoint.report_version, endpoint.report)),
                     endpoint.pause_remediation,
+                    endpoint.boot_interface_mac,
                 ));
             }
         }
@@ -1776,6 +1791,7 @@ impl SiteExplorer {
                             endpoint.expected_power_shelf.clone(),
                             endpoint.expected_switch.clone(),
                             endpoint.old_report.as_ref().map(|report| &report.1),
+                            endpoint.boot_interface_mac,
                         )
                         .await;
 
@@ -2119,6 +2135,7 @@ impl SiteExplorer {
                 endpoint.last_redfish_reboot,
                 Some((endpoint.report_version, endpoint.report.clone())),
                 false, // TODO(chet): Need to check on this.
+                None,  // Power shelves don't have boot_interface_mac
             ));
         }
 
@@ -2136,6 +2153,7 @@ impl SiteExplorer {
                 None,
                 None,
                 false, // TODO(chet): Check on this.
+                None,  // Power shelves don't have boot_interface_mac
             ))
         }
 
@@ -2156,6 +2174,7 @@ impl SiteExplorer {
                     endpoint.last_redfish_reboot,
                     Some((endpoint.report_version, endpoint.report.clone())),
                     false, // TODO(chet): Check on this.
+                    None,  // Power shelves don't have boot_interface_mac
                 ));
             }
         }
@@ -2219,6 +2238,7 @@ impl SiteExplorer {
                             endpoint.expected_power_shelf.clone(),
                             endpoint.expected_switch.clone(),
                             endpoint.old_report.as_ref().map(|report| &report.1),
+                            None, // Power shelves don't have boot interface MAC
                         )
                         .await;
 
@@ -3377,11 +3397,11 @@ impl SiteExplorer {
                 .await?;
 
             let _ = self.endpoint_explorer
-                .forge_setup(bmc_target_addr, &interface, None)
+                .machine_setup(bmc_target_addr, &interface, None)
                 .await
                 .map_err(|err| {
                     tracing::error!(
-                        "Site Explorer failed to call forge_setup against Lenovo (bmc_ip_address: {}): {}",
+                        "Site Explorer failed to call machine_setup against Lenovo (bmc_ip_address: {}): {}",
                         host_endpoint.address,
                         err
                     )
@@ -3396,7 +3416,7 @@ impl SiteExplorer {
                 .await
                 .map_err(|err| {
                     tracing::error!(
-                        "Site Explorer failed to restart Lenovo (bmc_ip_address: {}) after calling forge_setup: {}",
+                        "Site Explorer failed to restart Lenovo (bmc_ip_address: {}) after calling machine_setup: {}",
                         host_endpoint.address,
                         err
                     )
@@ -3668,6 +3688,7 @@ mod tests {
             last_redfish_reboot: None,
             last_redfish_powercycle: None,
             pause_remediation: false,
+            boot_interface_mac: None,
         };
 
         assert_eq!(

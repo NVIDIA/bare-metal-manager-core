@@ -276,8 +276,8 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(explored_endpoint::pause_remediation),
             )
             .route(
-                "/explored-endpoint/{endpoint_ip}/forge-setup",
-                post(explored_endpoint::forge_setup),
+                "/explored-endpoint/{endpoint_ip}/machine-setup",
+                post(explored_endpoint::machine_setup),
             )
             .route(
                 "/explored-endpoint/{endpoint_ip}/set-dpu-first-boot-order",
