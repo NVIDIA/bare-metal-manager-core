@@ -3894,6 +3894,19 @@ pub struct RebootStatus {
     status: String,             // what we did or are waiting for
 }
 
+/// Outcome of configure_host_bios function.
+enum BiosConfigOutcome {
+    Done,
+    WaitingForReboot(String),
+}
+
+/// Outcome of set_host_boot_order function.
+enum SetBootOrderOutcome {
+    Continue(SetBootOrderInfo),
+    Done,
+    WaitingForReboot(String),
+}
+
 /// In case machine does not come up until a specified duration, this function tries to reboot
 /// it again. The reboot continues till 6 hours only. After that this function gives up.
 /// WARNING:
@@ -4198,12 +4211,12 @@ async fn handle_host_boot_order_setup(
             )
             .await?
             {
-                Some(boot_order_info) => ManagedHostState::HostInit {
+                SetBootOrderOutcome::Continue(boot_order_info) => ManagedHostState::HostInit {
                     machine_state: MachineState::SetBootOrder {
                         set_boot_order_info: Some(boot_order_info),
                     },
                 },
-                None => {
+                SetBootOrderOutcome::Done => {
                     if host_handler_params.attestation_enabled {
                         ManagedHostState::HostInit {
                             machine_state: MachineState::Measuring {
@@ -4215,6 +4228,9 @@ async fn handle_host_boot_order_setup(
                             machine_state: MachineState::WaitingForDiscovery,
                         }
                     }
+                }
+                SetBootOrderOutcome::WaitingForReboot(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
                 }
             }
         }
@@ -4528,21 +4544,27 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     }
 
-                    configure_host_bios(
+                    match configure_host_bios(
                         txn,
                         ctx,
                         &self.host_handler_params.reachability_params,
                         redfish_client.as_ref(),
                         mh_snapshot,
                     )
-                    .await?;
-
-                    // BIOS configuration done, move to polling
-                    Ok(StateHandlerOutcome::transition(
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::PollingBiosSetup,
-                        },
-                    ))
+                    .await?
+                    {
+                        BiosConfigOutcome::Done => {
+                            // BIOS configuration done, move to polling
+                            Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::HostInit {
+                                    machine_state: MachineState::PollingBiosSetup,
+                                },
+                            ))
+                        }
+                        BiosConfigOutcome::WaitingForReboot(reason) => {
+                            Ok(StateHandlerOutcome::wait(reason))
+                        }
+                    }
                 }
                 MachineState::PollingBiosSetup => {
                     let next_state = ManagedHostState::HostInit {
@@ -8437,23 +8459,30 @@ async fn handle_instance_host_platform_config(
             }
         }
         HostPlatformConfigurationState::ConfigureBios => {
-            configure_host_bios(
+            match configure_host_bios(
                 txn,
                 ctx,
                 reachability_params,
                 redfish_client.as_ref(),
                 mh_snapshot,
             )
-            .await?;
-
-            // BIOS configuration done, move to polling
-            return Ok(StateHandlerOutcome::transition(
-                ManagedHostState::Assigned {
-                    instance_state: InstanceState::HostPlatformConfiguration {
-                        platform_config_state: HostPlatformConfigurationState::PollingBiosSetup,
-                    },
-                },
-            ));
+            .await?
+            {
+                BiosConfigOutcome::Done => {
+                    // BIOS configuration done, move to polling
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::HostPlatformConfiguration {
+                                platform_config_state:
+                                    HostPlatformConfigurationState::PollingBiosSetup,
+                            },
+                        },
+                    ));
+                }
+                BiosConfigOutcome::WaitingForReboot(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
+            }
         }
         HostPlatformConfigurationState::PollingBiosSetup => {
             let next_instance_state = InstanceState::HostPlatformConfiguration {
@@ -8537,14 +8566,19 @@ async fn handle_instance_host_platform_config(
             )
             .await?
             {
-                Some(boot_order_info) => InstanceState::HostPlatformConfiguration {
-                    platform_config_state: HostPlatformConfigurationState::SetBootOrder {
-                        set_boot_order_info: boot_order_info,
-                    },
-                },
-                None => InstanceState::HostPlatformConfiguration {
+                SetBootOrderOutcome::Continue(boot_order_info) => {
+                    InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::SetBootOrder {
+                            set_boot_order_info: boot_order_info,
+                        },
+                    }
+                }
+                SetBootOrderOutcome::Done => InstanceState::HostPlatformConfiguration {
                     platform_config_state: HostPlatformConfigurationState::LockHost,
                 },
+                SetBootOrderOutcome::WaitingForReboot(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
             }
         }
         HostPlatformConfigurationState::LockHost => {
@@ -8572,7 +8606,7 @@ async fn configure_host_bios(
     reachability_params: &ReachabilityParams,
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
-) -> Result<(), StateHandlerError> {
+) -> Result<BiosConfigOutcome, StateHandlerError> {
     let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
         let primary_interface = mh_snapshot
             .host_snapshot
@@ -8637,16 +8671,19 @@ async fn configure_host_bios(
             )
             .await?
         };
-        return Err(StateHandlerError::GenericError(eyre::eyre!(
-            "redfish machine_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"
+        // Return WaitingForReboot instead of Err to ensure the transaction is committed
+        // and last_reboot_requested is persisted. Returning Err would cause a transaction
+        // rollback, leading to a tight reboot loop since the reboot timestamp is lost.
+        return Ok(BiosConfigOutcome::WaitingForReboot(format!(
+            "redfish machine_setup failed: {e}; triggered host reboot: {reboot_status:#?}"
         )));
     };
 
     // Host needs to be rebooted to pick up the changes after calling machine_setup
-    handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn).await
+    handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn).await?;
+    Ok(BiosConfigOutcome::Done)
 }
 
-// set_host_boot_order returns the next
 #[allow(txn_held_across_await)]
 async fn set_host_boot_order(
     txn: &mut PgConnection,
@@ -8655,12 +8692,12 @@ async fn set_host_boot_order(
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
     set_boot_order_info: SetBootOrderInfo,
-) -> Result<Option<SetBootOrderInfo>, StateHandlerError> {
+) -> Result<SetBootOrderOutcome, StateHandlerError> {
     match set_boot_order_info.set_boot_order_state {
         SetBootOrderState::SetBootOrder => {
             if mh_snapshot.dpu_snapshots.is_empty() {
                 // MachineState::SetBootOrder is a NO-OP for the Zero-DPU case
-                Ok(None)
+                Ok(SetBootOrderOutcome::Done)
             } else {
                 let primary_interface = mh_snapshot
                     .host_snapshot
@@ -8720,13 +8757,16 @@ async fn set_host_boot_order(
                                 )
                                 .await?
                             };
-                        return Err(StateHandlerError::GenericError(eyre::eyre!(
-                            "redfish set_boot_order_dpu_first failed: {e}; triggered host reboot?: {reboot_status:#?}"
+                        // Return wait instead of Err to ensure the transaction is committed
+                        // and last_reboot_requested is persisted. Returning Err would cause a transaction
+                        // rollback, leading to a tight reboot loop since the reboot timestamp is lost.
+                        return Ok(SetBootOrderOutcome::WaitingForReboot(format!(
+                            "redfish set_boot_order_dpu_first failed: {e}; triggered host reboot: {reboot_status:#?}"
                         )));
                     }
                 };
 
-                Ok(Some(SetBootOrderInfo {
+                Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
                     set_boot_order_jid: jid,
                     set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
                 }))
@@ -8749,7 +8789,7 @@ async fn set_host_boot_order(
                 }
             }
 
-            Ok(Some(SetBootOrderInfo {
+            Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
                 set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),
                 set_boot_order_state: SetBootOrderState::RebootHost,
             }))
@@ -8764,7 +8804,7 @@ async fn set_host_boot_order(
             handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn)
                 .await?;
 
-            Ok(Some(SetBootOrderInfo {
+            Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
                 set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),
                 set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobCompletion,
             }))
@@ -8786,7 +8826,7 @@ async fn set_host_boot_order(
                 }
             }
 
-            Ok(None)
+            Ok(SetBootOrderOutcome::Done)
         }
     }
 }
