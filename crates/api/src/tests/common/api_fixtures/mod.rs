@@ -1358,7 +1358,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build state controller");
 
     let spdm_controller = StateController::<SpdmStateControllerIO>::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("spdm", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(spdm_swap.clone()))
