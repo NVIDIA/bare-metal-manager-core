@@ -652,7 +652,7 @@ pub async fn initialize_and_start_controllers(
         let verifier = Arc::new(VerifierImpl::default());
 
         let _spdm_state_controller_handle = StateController::<SpdmStateControllerIO>::builder()
-            .database(db_pool.clone())
+            .database(db_pool.clone(), work_lock_manager_handle.clone())
             .meter("spdm_attestation", meter.clone())
             .services(handler_services.clone())
             .iteration_config((&carbide_config.spdm_state_controller.controller).into())
