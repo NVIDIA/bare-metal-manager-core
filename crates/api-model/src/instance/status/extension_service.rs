@@ -110,7 +110,9 @@ impl InstanceExtensionServicesStatus {
                             dpu_statuses.push(MachineExtensionServiceStatus {
                                 machine_id: *dpu_id,
                                 status: ExtensionServiceDeploymentStatus::Unknown,
-                                error_message: None,
+                                error_message: Some(
+                                    format!("Status observation is found for DPU {} but service is not in it.", dpu_id)
+                                ),
                                 components: vec![],
                             });
                         }

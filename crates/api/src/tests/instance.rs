@@ -5510,7 +5510,7 @@ async fn test_update_instance_with_extension_services(
             .as_ref()
             .unwrap()
             .state
-            == rpc::forge::TenantState::Provisioning as i32
+            == rpc::forge::TenantState::Configuring as i32
     );
 
     // The extension services config in the instance rpc response should be empty because
