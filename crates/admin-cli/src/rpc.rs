@@ -1018,7 +1018,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    // Given an DPA inteface ID, fetch it from Carbide and return it
+    // Given an DPA interface ID, fetch it from Carbide and return it
     pub async fn get_one_dpa(
         &self,
         dpa_id: DpaInterfaceId,
@@ -1042,12 +1042,13 @@ impl ApiClient {
             .await?
             .vpc_ids;
 
-        let vpcs = self
-            .0
-            .find_vpcs_by_ids(VpcsByIdsRequest { vpc_ids })
-            .await?;
-
-        Ok(vpcs)
+        Ok(if vpc_ids.is_empty() {
+            rpc::VpcList { vpcs: vec![] }
+        } else {
+            self.0
+                .find_vpcs_by_ids(VpcsByIdsRequest { vpc_ids })
+                .await?
+        })
     }
 
     pub async fn create_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
@@ -1374,7 +1375,7 @@ impl ApiClient {
 
             let Some(interfaces) = machine.discovery_info.map(|di| di.network_interfaces) else {
                 return Err(CarbideCliError::GenericError(format!(
-                    "no inteface information for machine: {}",
+                    "no interface information for machine: {}",
                     machine.id.unwrap_or_default()
                 )));
             };
