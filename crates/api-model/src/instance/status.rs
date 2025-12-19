@@ -106,27 +106,28 @@ impl InstanceStatus {
                 InstanceState::NetworkConfigUpdate { .. } => tenant::TenantState::Configuring,
 
                 InstanceState::Ready => {
-                    if !extension_services_ready {
-                        tenant::TenantState::Provisioning
-                    } else {
-                        let phone_home_pending =
-                            phone_home_enrolled && phone_home_last_contact.is_none();
+                    let phone_home_pending =
+                        phone_home_enrolled && phone_home_last_contact.is_none();
 
-                        // TODO phone_home_last_contact window? e.g. must have been received in last 10 minutes
-                        match (phone_home_pending, configs_synced) {
-                            // If there is no pending phone-home, but configs are
-                            // not synced, configs must have changed after provisioning finished
-                            // since we entered Ready state.
-                            (false, SyncState::Pending) => tenant::TenantState::Configuring,
+                    // TODO phone_home_last_contact window? e.g. must have been received in last 10 minutes
+                    match (phone_home_pending, configs_synced, extension_services_ready) {
+                        // If there is no pending phone-home, but configs are
+                        // not synced, configs must have changed after provisioning finished
+                        // since we entered Ready state.
+                        (false, SyncState::Pending, _) => tenant::TenantState::Configuring,
 
-                            // If there is no pending phone-home,
-                            // return Ready (this was the default before phone_home)
-                            (false, SyncState::Synced) => tenant::TenantState::Ready,
+                        // If there is no pending phone-home, but extension services are not ready,
+                        // then extension services must have changed after provisioning finished
+                        // since we entered Ready state.
+                        (false, _, false) => tenant::TenantState::Configuring,
 
-                            // If there is a pending phone-home, we're still
-                            // provisioning.
-                            (true, _) => tenant::TenantState::Provisioning,
-                        }
+                        // If there is no pending phone-home and extension services are ready,
+                        // return Ready (this was the default before phone_home)
+                        (false, SyncState::Synced, true) => tenant::TenantState::Ready,
+
+                        // If there is a pending phone-home, we're still
+                        // provisioning.
+                        (true, _, _) => tenant::TenantState::Provisioning,
                     }
                 }
                 // If termination had been requested (i.e., if the `deleted` column
