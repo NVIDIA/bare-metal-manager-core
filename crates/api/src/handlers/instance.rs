@@ -1332,7 +1332,7 @@ pub async fn force_delete_instance(
         .to_owned();
 
     let ib_fabric = ib_fabric_manager
-        .connect(model::ib::DEFAULT_IB_FABRIC_NAME)
+        .new_client(model::ib::DEFAULT_IB_FABRIC_NAME)
         .await?;
 
     // Collect the ib partition and ib ports information about this machine

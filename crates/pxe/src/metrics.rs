@@ -30,7 +30,7 @@ const SIZE_BUCKETS: &[f64; 9] = &[
     10000000000.0,
 ];
 
-pub(crate) async fn setup_prometheus() -> PrometheusHandle {
+pub(crate) fn setup_prometheus() -> PrometheusHandle {
     let prometheus_builder = PrometheusBuilder::new()
         .add_global_label("system", "carbide-pxe")
         .add_global_label("build_version", carbide_version::v!(build_version))

@@ -343,7 +343,10 @@ pub async fn run_metrics_server(
         let metrics_manager = metrics_manager.clone();
 
         tokio::spawn(async move {
-            let service = service_fn(move |req| serve_metrics(req, metrics_manager.clone()));
+            let service = service_fn(move |req| {
+                let metrics_manager = metrics_manager.clone();
+                async move { serve_metrics(req, metrics_manager) }
+            });
 
             if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
                 tracing::error!(error=?e, "metrics server connection error");
@@ -352,17 +355,27 @@ pub async fn run_metrics_server(
     }
 }
 
-async fn serve_metrics(
+fn serve_metrics(
     _req: Request<Incoming>,
     metrics_manager: Arc<MetricsManager>,
-) -> Result<Response<String>, BoxedErr> {
+) -> Result<Response<String>, hyper::Error> {
     let encoder = TextEncoder::new();
-    let body = metrics_manager.export_all()?;
+    let body = match metrics_manager.export_all() {
+        Ok(body) => body,
+        Err(e) => {
+            tracing::error!(error=?e, "error exporting metrics");
+            return Ok(Response::builder()
+                .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                .body("error exporting metrics, see logs".to_string())
+                .expect("BUG: Response::builder error"));
+        }
+    };
 
     let response = Response::builder()
         .status(200)
         .header(CONTENT_TYPE, encoder.format_type())
-        .body(body)?;
+        .body(body)
+        .expect("BUG: Response::builder error");
     Ok(response)
 }
 

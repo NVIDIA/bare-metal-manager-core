@@ -69,7 +69,7 @@ pub(crate) async fn cleanup_machine_completed(
 }
 
 // Invoked by forge-scout whenever a certain Machine can not be properly acted on
-pub(crate) async fn report_forge_scout_error(
+pub(crate) fn report_forge_scout_error(
     _api: &Api,
     request: Request<rpc::ForgeScoutErrorReport>,
 ) -> Result<Response<rpc::ForgeScoutErrorReportResult>, Status> {

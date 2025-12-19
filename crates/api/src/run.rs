@@ -107,8 +107,7 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    let vault_client =
-        forge_vault::create_vault_client(&vault_config, metrics.meter.clone()).await?;
+    let vault_client = forge_vault::create_vault_client(&vault_config, metrics.meter.clone())?;
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
             .build()

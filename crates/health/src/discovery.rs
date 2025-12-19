@@ -60,7 +60,7 @@ pub struct DiscoveryLoopContext {
 }
 
 impl DiscoveryLoopContext {
-    pub async fn new(
+    pub fn new(
         limiter: Arc<dyn RateLimiter>,
         metrics_manager: Arc<MetricsManager>,
         config: Arc<Config>,
@@ -162,9 +162,7 @@ pub async fn run_discovery_iteration(
                     collector_registry,
                     ctx.client.clone(),
                     &ctx.config,
-                )
-                .await
-                {
+                ) {
                     Ok(monitor) => {
                         ctx.endpoint_monitors.insert(key.to_string(), monitor);
                         tracing::info!(
@@ -231,9 +229,7 @@ pub async fn run_discovery_iteration(
                     collector_registry,
                     ctx.client.clone(),
                     &ctx.config,
-                )
-                .await
-                {
+                ) {
                     Ok(collector) => {
                         ctx.logs_collectors.insert(key.to_string(), collector);
                         tracing::info!(
@@ -266,9 +262,7 @@ pub async fn run_discovery_iteration(
                     collector_registry,
                     ctx.client.clone(),
                     &ctx.config,
-                )
-                .await
-                {
+                ) {
                     Ok(collector) => {
                         ctx.firmware_collectors.insert(key.to_string(), collector);
                         tracing::info!(

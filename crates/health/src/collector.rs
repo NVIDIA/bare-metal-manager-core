@@ -64,7 +64,7 @@ pub struct Collector {
 }
 
 impl Collector {
-    pub async fn start<C: PeriodicCollector<BmcClient>>(
+    pub fn start<C: PeriodicCollector<BmcClient>>(
         endpoint: Arc<BmcEndpoint>,
         limiter: Arc<dyn RateLimiter>,
         iteration_interval: Duration,

@@ -156,13 +156,11 @@ impl CredentialClient {
             .await
     }
 
-    pub async fn get_default_hardware_dpu_bmc_root_credentials(
-        &self,
-    ) -> Result<Credentials, EndpointExplorationError> {
-        Ok(Credentials::UsernamePassword {
+    pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> Credentials {
+        Credentials::UsernamePassword {
             username: "root".into(),
             password: "0penBmc".into(),
-        })
+        }
     }
 
     pub async fn get_bmc_root_credentials(

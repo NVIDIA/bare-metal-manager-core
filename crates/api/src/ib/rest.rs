@@ -34,7 +34,7 @@ pub struct RestIBFabric {
 const DEFAULT_INDEX0: bool = true;
 const DEFAULT_MEMBERSHIP: PortMembership = PortMembership::Full;
 
-pub async fn connect(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
+pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
     // Detect authentification method
     // 'user token' or 'client authentification'
     // 'client authentification' method is choosen in case empty 'auth' string or valid path in 'auth'
@@ -68,7 +68,7 @@ pub async fn connect(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, Carbid
         cert,
     };
 
-    let ufm = ufmclient::connect(conf).map_err(CarbideError::from)?;
+    let ufm = ufmclient::new_client(conf).map_err(CarbideError::from)?;
 
     Ok(Arc::new(RestIBFabric { ufm }))
 }

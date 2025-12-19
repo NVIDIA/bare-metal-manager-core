@@ -206,7 +206,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     // Check if ports have been registered at UFM
     let ib_conn = env
         .ib_fabric_manager
-        .connect(DEFAULT_IB_FABRIC_NAME)
+        .new_client(DEFAULT_IB_FABRIC_NAME)
         .await
         .unwrap();
     verify_pkey_guids(
@@ -763,7 +763,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     // Check if ports have been registered at UFM
     let ib_conn = env
         .ib_fabric_manager
-        .connect(DEFAULT_IB_FABRIC_NAME)
+        .new_client(DEFAULT_IB_FABRIC_NAME)
         .await
         .unwrap();
     verify_pkey_guids(

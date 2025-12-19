@@ -26,7 +26,7 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 /// Request handler
-async fn handle_metrics_request(
+fn handle_metrics_request(
     req: Request<Incoming>,
     state: Arc<MetricsHandlerState>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
@@ -91,7 +91,10 @@ pub async fn run_metrics_endpoint(
                 tokio::spawn(http1::Builder::new().serve_connection(
                     TokioIo::new(stream),
                     service_fn(move |req| {
-                        handle_metrics_request(req, handler_state.clone())
+                        let handler_state = handler_state.clone();
+                        async move {
+                            handle_metrics_request(req, handler_state)
+                        }
                     }),
                 ));
             },

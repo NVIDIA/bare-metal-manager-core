@@ -756,7 +756,7 @@ impl MachineStateHandler {
                     return Ok(outcome);
                 }
 
-                if host_reprovisioning_requested(mh_snapshot).await {
+                if host_reprovisioning_requested(mh_snapshot) {
                     if let Some(next_state) = self
                         .host_upgrade
                         .handle_host_reprovision(
@@ -2708,7 +2708,7 @@ async fn handle_dpu_reprovision(
 }
 
 // Returns true if update_manager flagged this managed host as needing its firmware examined
-async fn host_reprovisioning_requested(state: &ManagedHostStateSnapshot) -> bool {
+fn host_reprovisioning_requested(state: &ManagedHostStateSnapshot) -> bool {
     state.host_snapshot.host_reprovision_requested.is_some()
 }
 
@@ -6275,8 +6275,7 @@ impl HostUpgradeState {
                     .await
             }
             HostReprovisionState::WaitingForScript { .. } => {
-                self.waiting_for_script(state, services, scenario, txn)
-                    .await
+                self.waiting_for_script(state, services, scenario)
             }
             HostReprovisionState::InitialReset { phase, last_time } => {
                 self.pre_update_resets(
@@ -6623,13 +6622,11 @@ impl HostUpgradeState {
         )
     }
 
-    #[allow(txn_held_across_await)]
-    async fn waiting_for_script(
+    fn waiting_for_script(
         &self,
         state: &ManagedHostStateSnapshot,
         _services: &CommonStateHandlerServices,
         scenario: HostFirmwareScenario,
-        _txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let machine_id = state.host_snapshot.id.to_string();
         let Some(success) = self.upgrade_script_state.state(&machine_id) else {
@@ -6774,15 +6771,11 @@ impl HostUpgradeState {
         let to_install = fw_info.to_install;
         let component_type = fw_info.component_type;
 
-        if !self
-            .downloader
-            .available(
-                &to_install.get_filename(*fw_info.firmware_number),
-                &to_install.get_url(),
-                &to_install.get_checksum(),
-            )
-            .await
-        {
+        if !self.downloader.available(
+            &to_install.get_filename(*fw_info.firmware_number),
+            &to_install.get_url(),
+            &to_install.get_checksum(),
+        ) {
             tracing::debug!(
                 "{} is being downloaded from {}, update deferred",
                 to_install.get_filename(*fw_info.firmware_number).display(),
@@ -6853,15 +6846,13 @@ impl HostUpgradeState {
             };
         let address = address.to_string();
 
-        self.async_firmware_uploader
-            .start_upload(
-                machine_id,
-                redfish_client,
-                filename,
-                redfish_component_type,
-                address,
-            )
-            .await;
+        self.async_firmware_uploader.start_upload(
+            machine_id,
+            redfish_client,
+            filename,
+            redfish_component_type,
+            address,
+        );
 
         // Upload complete and updated started, will monitor task in future iterations
         let reprovision_state = HostReprovisionState::WaitingForUpload {
@@ -7524,7 +7515,7 @@ struct AsyncFirmwareUploader {
 }
 
 impl AsyncFirmwareUploader {
-    async fn start_upload(
+    fn start_upload(
         &self,
         id: String,
         redfish_client: Box<dyn Redfish>,

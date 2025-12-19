@@ -350,7 +350,7 @@ impl IbFabricMonitor {
                     continue;
                 };
 
-                let conn = self.fabric_manager.connect(&fabric).await?;
+                let conn = self.fabric_manager.new_client(&fabric).await?;
                 let status = match conn
                     .bind_ib_ports(partition.into(), vec![guid.clone()])
                     .await
@@ -378,7 +378,7 @@ impl IbFabricMonitor {
             }
 
             for (fabric, guid, pkey) in report.unexpected_guid_pkeys {
-                let conn = self.fabric_manager.connect(&fabric).await?;
+                let conn = self.fabric_manager.new_client(&fabric).await?;
                 let status = match conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await {
                     Ok(()) => {
                         num_changes += 1;
@@ -444,7 +444,7 @@ async fn check_ib_fabric(
         .get_config()
         .allow_insecure_fabric_configuration;
 
-    let conn = fabric_manager.connect(fabric).await?;
+    let conn = fabric_manager.new_client(fabric).await?;
     let version = conn.versions().await?;
     metrics.ufm_version = version.ufm_version;
 
@@ -528,7 +528,7 @@ async fn get_ports_information(
     fabric: &str,
     metrics: &mut FabricMetrics,
 ) -> Result<HashMap<String, IBPort>, CarbideError> {
-    let conn = fabric_manager.connect(fabric).await?;
+    let conn = fabric_manager.new_client(fabric).await?;
 
     let ports = conn.find_ib_port(None).await?;
     let mut ports_by_state = HashMap::new();
@@ -552,7 +552,7 @@ async fn get_partition_information(
     fabric: &str,
     metrics: &mut FabricMetrics,
 ) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
-    let conn = fabric_manager.connect(fabric).await?;
+    let conn = fabric_manager.new_client(fabric).await?;
 
     // Due to the UFM bug we need to first get partition IDs and then query
     // each partition individually for additional data

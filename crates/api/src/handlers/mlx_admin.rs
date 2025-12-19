@@ -33,13 +33,13 @@ pub async fn profile_sync(
     Ok(Response::new(response))
 }
 
-pub async fn profile_show(
+pub fn profile_show(
     api: &Api,
     request: Request<mlx_device::MlxAdminProfileShowRequest>,
 ) -> Result<Response<mlx_device::MlxAdminProfileShowResponse>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
-    let response = handle_profile_show(api, request.profile_name).await?;
+    let response = handle_profile_show(api, request.profile_name)?;
     Ok(Response::new(response))
 }
 
@@ -55,12 +55,12 @@ pub async fn profile_compare(
     Ok(Response::new(response))
 }
 
-pub async fn profile_list(
+pub fn profile_list(
     api: &Api,
     request: Request<mlx_device::MlxAdminProfileListRequest>,
 ) -> Result<Response<mlx_device::MlxAdminProfileListResponse>, Status> {
     log_request_data(&request);
-    let response = handle_profile_list(api).await?;
+    let response = handle_profile_list(api)?;
     Ok(Response::new(response))
 }
 
@@ -311,7 +311,7 @@ async fn handle_profile_sync(
 }
 
 // handle_profile_show is a helper method for returning an MlxConfigProfile.
-async fn handle_profile_show(
+fn handle_profile_show(
     api: &Api,
     profile_name: String,
 ) -> Result<mlx_device::MlxAdminProfileShowResponse, Status> {
@@ -438,7 +438,7 @@ async fn handle_profile_compare(
 }
 
 // handle_profile_list is a helper method for listing profiles.
-async fn handle_profile_list(api: &Api) -> Result<mlx_device::MlxAdminProfileListResponse, Status> {
+fn handle_profile_list(api: &Api) -> Result<mlx_device::MlxAdminProfileListResponse, Status> {
     // Check if mlxconfig profiles are configured.
     let profiles = api
         .runtime_config
@@ -475,7 +475,6 @@ async fn handle_lockdown_lock(
     }
 
     let key = get_device_lockdown_key(&device_id)
-        .await
         .map_err(|e| Status::internal(format!("failed to get lockdown key: {e}")))?;
 
     let request = ScoutStreamScoutBoundMessage::new_flow(
@@ -540,7 +539,6 @@ async fn handle_lockdown_unlock(
     }
 
     let key = get_device_lockdown_key(&device_id)
-        .await
         .map_err(|e| Status::internal(format!("failed to get lockdown key: {e}")))?;
 
     let request = ScoutStreamScoutBoundMessage::new_flow(
@@ -1168,6 +1166,6 @@ async fn handle_config_compare(
 // for now, including for initial PoC, just leave it
 // like this. There's some work to do but I don't
 // want to block everything else on it.
-async fn get_device_lockdown_key(_device_id: &str) -> Result<String, String> {
+fn get_device_lockdown_key(_device_id: &str) -> Result<String, String> {
     Ok("12345678".to_string())
 }

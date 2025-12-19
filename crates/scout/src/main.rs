@@ -183,7 +183,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
             next_certs_check_time = get_next_certs_check_datetime()?;
             tracing::info!("Renewed next certs check time to {}", next_certs_check_time);
 
-            if check_certs_validity(&client_cert).await? {
+            if check_certs_validity(&client_cert)? {
                 initial_setup(config).await?;
             }
         }
@@ -741,7 +741,7 @@ fn is_time_to_check_certs_expiry(next_check_time: DateTime<Utc>) -> bool {
     false
 }
 
-async fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
+fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
     tracing::info!("Checking if client certs are going to expire soon ...");
     let mut ca_file = File::open(client_cert_path).map_err(CarbideClientError::StdIo)?;
 

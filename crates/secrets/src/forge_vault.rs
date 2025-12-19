@@ -259,10 +259,7 @@ impl From<VaultClientSettingsBuilderError> for SecretsError {
 }
 
 impl ForgeVaultClient {
-    async fn new(
-        vault_client_config: ForgeVaultClientConfig,
-        vault_metrics: ForgeVaultMetrics,
-    ) -> Self {
+    fn new(vault_client_config: ForgeVaultClientConfig, vault_metrics: ForgeVaultMetrics) -> Self {
         let (vault_refresher_tx, vault_refresher_rx) = tokio::sync::mpsc::channel(1);
         let vault_client_config_clone = vault_client_config.clone();
         let vault_metrics_clone = vault_metrics.clone();
@@ -682,7 +679,7 @@ impl VaultConfig {
     }
 }
 
-pub async fn create_vault_client(
+pub fn create_vault_client(
     vault_config: &VaultConfig,
     meter: Meter,
 ) -> eyre::Result<Arc<ForgeVaultClient>> {
@@ -737,6 +734,6 @@ pub async fn create_vault_client(
         vault_root_ca_path,
     };
 
-    let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics).await;
+    let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics);
     Ok(Arc::new(forge_vault_client))
 }

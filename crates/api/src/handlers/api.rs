@@ -20,7 +20,7 @@ use utils::HostPortPair;
 
 use crate::api::{Api, log_request_data};
 
-pub(crate) async fn version(
+pub(crate) fn version(
     api: &Api,
     request: Request<rpc::VersionRequest>,
 ) -> Result<Response<rpc::BuildInfo>, Status> {
@@ -44,7 +44,7 @@ pub(crate) async fn version(
     Ok(Response::new(v))
 }
 
-pub(crate) async fn echo(
+pub(crate) fn echo(
     _api: &Api,
     request: Request<rpc::EchoRequest>,
 ) -> Result<Response<rpc::EchoResponse>, Status> {
@@ -58,7 +58,7 @@ pub(crate) async fn echo(
 }
 
 // Override RUST_LOG or site-explorer create_machines
-pub(crate) async fn set_dynamic_config(
+pub(crate) fn set_dynamic_config(
     api: &Api,
     request: Request<rpc::SetDynamicConfigRequest>,
 ) -> Result<Response<()>, Status> {

@@ -93,41 +93,35 @@ struct EndpointWiring {
     report_sink: Option<Arc<dyn HealthReportSink>>,
 }
 
-async fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError> {
+fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError> {
     let mut sources: Vec<Arc<dyn EndpointSource>> = Vec::new();
 
     if !config.endpoint_sources.static_bmc_endpoints.is_empty() {
         let static_source = StaticEndpointSource::from_config(
             config.endpoint_sources.static_bmc_endpoints.as_slice(),
-        )?;
+        );
         sources.push(Arc::new(static_source));
     }
 
     if let Configurable::Enabled(ref source_cfg) = config.endpoint_sources.carbide_api {
-        let api_client = Arc::new(
-            ApiClientWrapper::new(
-                source_cfg.root_ca.clone(),
-                source_cfg.client_cert.clone(),
-                source_cfg.client_key.clone(),
-                &source_cfg.api_url,
-            )
-            .await?,
-        );
+        let api_client = Arc::new(ApiClientWrapper::new(
+            source_cfg.root_ca.clone(),
+            source_cfg.client_cert.clone(),
+            source_cfg.client_key.clone(),
+            &source_cfg.api_url,
+        ));
         sources.push(api_client as Arc<dyn EndpointSource>);
     }
 
     let mut sinks: Vec<Arc<dyn HealthReportSink>> = Vec::new();
 
     if let Configurable::Enabled(ref sink_cfg) = config.health_sinks.carbide_api {
-        let api_client = Arc::new(
-            ApiClientWrapper::new(
-                sink_cfg.root_ca.clone(),
-                sink_cfg.client_cert.clone(),
-                sink_cfg.client_key.clone(),
-                &sink_cfg.api_url,
-            )
-            .await?,
-        );
+        let api_client = Arc::new(ApiClientWrapper::new(
+            sink_cfg.root_ca.clone(),
+            sink_cfg.client_cert.clone(),
+            sink_cfg.client_key.clone(),
+            &sink_cfg.api_url,
+        ));
         sinks.push(api_client as Arc<dyn HealthReportSink>);
     }
 
@@ -183,7 +177,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
     let EndpointWiring {
         source: endpoint_source,
         report_sink,
-    } = build_endpoint_wiring(&config).await?;
+    } = build_endpoint_wiring(&config)?;
 
     let config_arc = Arc::new(config);
 
@@ -206,10 +200,9 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         let endpoint_source = endpoint_source.clone();
         let report_sink = report_sink.clone();
 
-        async move {
-            let mut ctx =
-                DiscoveryLoopContext::new(limiter, metrics_manager, config.clone()).await?;
+        let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
 
+        async move {
             loop {
                 let stats = discovery::run_discovery_iteration(
                     endpoint_source.clone(),

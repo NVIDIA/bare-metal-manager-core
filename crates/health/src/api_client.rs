@@ -121,12 +121,7 @@ pub struct ApiClientWrapper {
 }
 
 impl ApiClientWrapper {
-    pub async fn new(
-        root_ca: String,
-        client_cert: String,
-        client_key: String,
-        api_url: &Url,
-    ) -> Result<Self, HealthError> {
+    pub fn new(root_ca: String, client_cert: String, client_key: String, api_url: &Url) -> Self {
         let client_config = ForgeClientConfig::new(
             root_ca,
             Some(ClientCert {
@@ -138,7 +133,7 @@ impl ApiClientWrapper {
 
         let client = ForgeApiClient::new(&api_config);
 
-        Ok(Self { client })
+        Self { client }
     }
 
     pub async fn fetch_bmc_hosts(&self) -> Result<Vec<BmcEndpoint>, HealthError> {
@@ -292,7 +287,7 @@ impl StaticEndpointSource {
         Self { endpoints }
     }
 
-    pub fn from_config(configs: &[StaticBmcEndpoint]) -> Result<Self, HealthError> {
+    pub fn from_config(configs: &[StaticBmcEndpoint]) -> Self {
         let endpoints = configs
             .iter()
             .filter_map(|cfg| {
@@ -319,7 +314,7 @@ impl StaticEndpointSource {
             })
             .collect();
 
-        Ok(Self { endpoints })
+        Self { endpoints }
     }
 }
 

@@ -2677,8 +2677,7 @@ async fn test_site_explorer_fixtures_singledpu(
         })
         .await?
         // Place site explorer results into the mock site explorer
-        .insert_site_exploration_results()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .await
         .mark_preingestion_complete()
@@ -2751,8 +2750,7 @@ async fn test_site_explorer_fixtures_multidpu(
         })
         .await?
         // Place site explorer results into the mock site explorer
-        .insert_site_exploration_results()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .await
         .mark_preingestion_complete()
@@ -2834,8 +2832,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
         })
         .await?
         // Place site explorer results into the mock site explorer
-        .insert_site_exploration_results()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .await
         .mark_preingestion_complete()
@@ -2943,8 +2940,7 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
         })
         .await?
         // Place mock exploration results into the mock site explorer
-        .insert_site_exploration_results()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .await
         // Mark preingestion as complete before we run site-explorer for the first time

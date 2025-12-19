@@ -156,9 +156,7 @@ async fn test_dpu_pxe_gets_correct_os_when_machine_is_not_created(
         .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))
         .boxed()
         .await?
-        .insert_site_exploration_results()
-        .boxed()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .boxed()
         .await;

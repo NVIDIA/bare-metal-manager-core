@@ -20,7 +20,7 @@ use rpc::forge::PowerShelf;
 use super::args::ShowPowerShelf;
 use crate::rpc::ApiClient;
 
-pub async fn show_power_shelves(
+pub fn show_power_shelves(
     power_shelves: Vec<PowerShelf>,
     output_format: OutputFormat,
 ) -> Result<()> {
@@ -250,6 +250,6 @@ pub async fn handle_show(
     let response = api_client.0.find_power_shelves(query).await?;
     let power_shelves = response.power_shelves;
 
-    let _ = show_power_shelves(power_shelves, output_format).await;
+    show_power_shelves(power_shelves, output_format).ok();
     Ok(())
 }

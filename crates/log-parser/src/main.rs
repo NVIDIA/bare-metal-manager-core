@@ -150,10 +150,7 @@ impl Default for LogFile {
     }
 }
 
-async fn clear_prior_events(
-    event_type: &EventType,
-    log: &mut LogFile,
-) -> Result<(), anyhow::Error> {
+fn clear_prior_events(event_type: &EventType, log: &mut LogFile) {
     for event in log.events.iter_mut() {
         for clear_events in event_type.clears.iter() {
             if event.name.contains(clear_events) {
@@ -161,17 +158,11 @@ async fn clear_prior_events(
             }
         }
     }
-    Ok(())
 }
 
-async fn queue_event(
-    timestamp: i64,
-    event_type: &EventType,
-    log: &mut LogFile,
-    buffer: &str,
-) -> Result<(), anyhow::Error> {
+fn queue_event(timestamp: i64, event_type: &EventType, log: &mut LogFile, buffer: &str) {
     if !event_type.clears.is_empty() {
-        clear_prior_events(event_type, log).await?;
+        clear_prior_events(event_type, log);
     }
     let event = Event {
         name: event_type.name.clone(),
@@ -193,16 +184,15 @@ async fn queue_event(
         let _ = log.events.pop_front();
     }
     log.events.push_back(event);
-    Ok(())
 }
 
-async fn check_constraints(
+fn check_constraints(
     event_type: &EventType,
     constraints: &EventConstraints,
     log: &mut LogFile,
     timestamp: i64,
     buffer: &str,
-) -> Result<(), anyhow::Error> {
+) {
     // duration and count of occurences of this event
     if constraints.count.is_some() && constraints.duration.is_some() {
         if Some(event_type.name.clone()) == log.pending_event {
@@ -230,7 +220,7 @@ async fn check_constraints(
             log.pending_event_ts = None;
             log.pending_event = None;
             // send the summary event, it has met the constraints and considered as occurred
-            queue_event(timestamp, event_type, log, buffer).await?;
+            queue_event(timestamp, event_type, log, buffer);
         }
     } else if let Some(event_pattern) = constraints.preceded_by.as_ref() {
         let mut event_pattern_matched = true;
@@ -242,19 +232,18 @@ async fn check_constraints(
             }
         }
         if event_pattern_matched {
-            queue_event(timestamp, event_type, log, buffer).await?;
+            queue_event(timestamp, event_type, log, buffer);
         }
     }
-    Ok(())
 }
 
-async fn process_events(
+fn process_events(
     timestamp: i64,
     event_types: &[EventType],
     event_regexes: &[Regex],
     log: &mut LogFile,
     buffer: &str,
-) -> Result<(), anyhow::Error> {
+) {
     // process slice
     for (event_type, regex_str) in event_types.iter().zip(event_regexes.iter()) {
         // check if ignore case is specified and match lowercase string (regex specified MUST be lowercase)
@@ -262,20 +251,19 @@ async fn process_events(
             if let Some(_no_case_matched) = regex_str.captures(buffer.to_ascii_lowercase().as_str())
             {
                 if let Some(constraints) = &event_type.constraints {
-                    check_constraints(event_type, constraints, log, timestamp, buffer).await?;
+                    check_constraints(event_type, constraints, log, timestamp, buffer);
                 } else {
-                    queue_event(timestamp, event_type, log, buffer).await?;
+                    queue_event(timestamp, event_type, log, buffer);
                 }
             }
         } else if let Some(_matched) = regex_str.captures(buffer) {
             if let Some(constraints) = &event_type.constraints {
-                check_constraints(event_type, constraints, log, timestamp, buffer).await?;
+                check_constraints(event_type, constraints, log, timestamp, buffer);
             } else {
-                queue_event(timestamp, event_type, log, buffer).await?;
+                queue_event(timestamp, event_type, log, buffer);
             }
         }
     }
-    Ok(())
 }
 
 /// look at the given log file and figure out how much to read from it
@@ -342,8 +330,7 @@ async fn process_log_file_events(
                         cfg.events_regex.as_ref().unwrap(), // this Vec<regex> is guaranteed to exist at this point
                         log,
                         &str_buffer,
-                    )
-                    .await?
+                    );
                 }
             } else {
                 eprintln!(

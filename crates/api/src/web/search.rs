@@ -41,7 +41,7 @@ pub async fn find(
     }
 
     if let Ok(machine_id) = MachineId::from_str(query) {
-        return find_machine_id(machine_id).await.into_response();
+        return find_machine_id(machine_id).into_response();
     }
 
     if IpAddr::from_str(query).is_ok() {
@@ -81,7 +81,7 @@ fn shortcodes(q: &str) -> Option<&'static str> {
     }
 }
 
-async fn find_machine_id(machine_id: MachineId) -> impl IntoResponse {
+fn find_machine_id(machine_id: MachineId) -> impl IntoResponse {
     match machine_id.machine_type() {
         MachineType::Dpu => Redirect::to(&format!("/admin/machine/{machine_id}")),
         MachineType::Host | MachineType::PredictedHost => {

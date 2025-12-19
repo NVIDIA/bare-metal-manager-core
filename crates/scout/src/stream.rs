@@ -127,8 +127,7 @@ async fn run_scout_stream_loop(
 
             // Handle the oneof message type from the ScoutStreamScoutBoundMessage,
             // generating a follow-up ScoutStreamApiBoundMessage "response".
-            let payload =
-                handle_scout_stream_api_bound_message(flow_uuid, machine_id, request).await;
+            let payload = handle_scout_stream_api_bound_message(flow_uuid, machine_id, request);
 
             // And then send the response back to carbide-api.
             if let Err(e) = tx.send(payload).await {
@@ -146,7 +145,7 @@ async fn run_scout_stream_loop(
 
 // handle_scout_stream_api_bound_message routes incoming oneof-based requests
 // to the appropriate handler.
-async fn handle_scout_stream_api_bound_message(
+fn handle_scout_stream_api_bound_message(
     flow_uuid: uuid::Uuid,
     machine_id: MachineId,
     request: scout_stream_scout_bound_message::Payload,
@@ -157,98 +156,98 @@ async fn handle_scout_stream_api_bound_message(
     );
     match request {
         scout_stream_scout_bound_message::Payload::ScoutStreamAgentPingRequest(req) => {
-            let response = handle_ping(machine_id, req).await;
+            let response = handle_ping(machine_id, req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::ScoutStreamAgentPingResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceProfileSyncRequest(req) => {
-            let response = mlx_device::handle_profile_sync(req).await;
+            let response = mlx_device::handle_profile_sync(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceProfileSyncResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceProfileCompareRequest(req) => {
-            let response = mlx_device::handle_profile_compare(req).await;
+            let response = mlx_device::handle_profile_compare(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceProfileCompareResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceLockdownLockRequest(req) => {
-            let response = mlx_device::handle_lockdown_lock(req).await;
+            let response = mlx_device::handle_lockdown_lock(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceLockdownResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceLockdownUnlockRequest(req) => {
-            let response = mlx_device::handle_lockdown_unlock(req).await;
+            let response = mlx_device::handle_lockdown_unlock(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceLockdownResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceLockdownStatusRequest(req) => {
-            let response = mlx_device::handle_lockdown_status(req).await;
+            let response = mlx_device::handle_lockdown_status(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceLockdownResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceInfoDeviceRequest(req) => {
-            let response = mlx_device::handle_info_device(req).await;
+            let response = mlx_device::handle_info_device(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceInfoDeviceResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceInfoReportRequest(req) => {
-            let response = mlx_device::handle_info_report(req).await;
+            let response = mlx_device::handle_info_report(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceInfoReportResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceRegistryListRequest(req) => {
-            let response = mlx_device::handle_registry_list(req).await;
+            let response = mlx_device::handle_registry_list(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceRegistryListResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceRegistryShowRequest(req) => {
-            let response = mlx_device::handle_registry_show(req).await;
+            let response = mlx_device::handle_registry_show(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceRegistryShowResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceConfigQueryRequest(req) => {
-            let response = mlx_device::handle_config_query(req).await;
+            let response = mlx_device::handle_config_query(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceConfigQueryResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceConfigSetRequest(req) => {
-            let response = mlx_device::handle_config_set(req).await;
+            let response = mlx_device::handle_config_set(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceConfigSetResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceConfigSyncRequest(req) => {
-            let response = mlx_device::handle_config_sync(req).await;
+            let response = mlx_device::handle_config_sync(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceConfigSyncResponse(response),
             )
         }
         scout_stream_scout_bound_message::Payload::MlxDeviceConfigCompareRequest(req) => {
-            let response = mlx_device::handle_config_compare(req).await;
+            let response = mlx_device::handle_config_compare(req);
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceConfigCompareResponse(response),
@@ -258,7 +257,7 @@ async fn handle_scout_stream_api_bound_message(
 }
 
 // handle_ping handles a scout stream agent ping
-pub async fn handle_ping(
+pub fn handle_ping(
     machine_id: MachineId,
     _request: rpc::forge::ScoutStreamAgentPingRequest,
 ) -> rpc::forge::ScoutStreamAgentPingResponse {
