@@ -102,7 +102,10 @@ impl InternalRBACRules {
         x.perm("UpdateInstanceOperatingSystem", vec![SiteAgent]);
         x.perm("UpdateInstanceConfig", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstanceIds", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("FindInstancesByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindInstancesByIds",
+            vec![ForgeAdminCLI, SiteAgent, Ssh, SshRs],
+        );
         x.perm(
             "FindInstanceByMachineID",
             vec![ForgeAdminCLI, Agent, SiteAgent],
