@@ -49,14 +49,14 @@ use crate::state_controller::config::IterationConfig;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 
-static BF2_NIC: &str = "24.43.3608";
-static BF2_BMC: &str = "BF-24.10-33";
+static BF2_NIC: &str = "24.47.1026";
+static BF2_BMC: &str = "BF-25.10-9";
 static BF2_CEC: &str = "4-15";
-static BF2_UEFI: &str = "4.9.3-22-g5c9f881c3f";
-static BF3_NIC: &str = "32.43.3608";
-static BF3_BMC: &str = "BF-24.10-33";
+static BF2_UEFI: &str = "4.13.0-26-g337fea6bfd";
+static BF3_NIC: &str = "32.47.1026";
+static BF3_BMC: &str = "BF-25.10-9";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
-static BF3_UEFI: &str = "4.9.3-22-g5c9f881c3f";
+static BF3_UEFI: &str = "4.13.0-26-g337fea6bfd";
 
 /// carbide-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -505,7 +505,7 @@ impl CarbideConfig {
     // to configure the DPA.
     pub fn get_dpa_profile(&self, _device_type: String) -> String {
         // XXX TODO XXX
-        // Figure out profie that needs to be applied to the given device type
+        // Figure out profile that needs to be applied to the given device type
         // XXX TODO XXX
         "bf3-spx-enabled".to_string()
     }
@@ -1003,7 +1003,7 @@ pub struct SiteExplorerConfig {
     pub concurrent_explorations: u64,
     /// How many nodes should be explored in a single run.
     /// Default is 10.
-    /// This number divded by `concurrent_explorations` will determine how many
+    /// This number divided by `concurrent_explorations` will determine how many
     /// exploration batches are needed inside a run.
     /// If the value is set too high the site exploration will take a lot of time
     /// and the exploration report will be updated less frequent. Therefore it
@@ -1828,7 +1828,7 @@ impl FirmwareConfig {
             cur_model.ordering = cfg.ordering
         }
 
-        // if explicit_start_needed is true, it should take precendence. We shouldn't be doing automatic upgrades.
+        // if explicit_start_needed is true, it should take precedence. We shouldn't be doing automatic upgrades.
         if cfg.explicit_start_needed {
             cur_model.explicit_start_needed = true;
         }
