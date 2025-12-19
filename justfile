@@ -153,3 +153,9 @@ run-mac-mat:
   sudo echo sudo enabled # get sudo without password (so we don't have to run cargo as root)
   REPO_ROOT=. cargo run --bin machine-a-tron dev/machine-a-tron/config/mac.toml --forge-root-ca-path dev/certs/localhost/ca.crt --client-cert-path dev/certs/localhost/localhost.crt --client-key-path dev/certs/localhost/localhost.key
 
+update-dpu-packages:
+  #!/usr/bin/env bash
+  cargo make --cwd bluefield build-forge-dpu-deb-local
+  cargo make package-scout-aarch64-release-cross
+  cargo make --cwd pxe setup-apt-repo-arm64
+

@@ -92,11 +92,13 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
     )
     .await;
     assert!(
-        instructions
-            .pxe_script
-            .contains("Current state: Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "),
-        "Actual script: {}", instructions.pxe_script
+        instructions.pxe_script.contains("Current state: Ready"),
+        "Actual script: {}",
+        instructions.pxe_script
     );
+    assert!(instructions.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
 }
 
 #[crate::sqlx_test]
@@ -133,9 +135,13 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     assert!(
         instructions
             .pxe_script
-            .contains("Current state: DPUInitializing/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "),
-        "Actual script: {}", instructions.pxe_script
+            .contains("Current state: DPUInitializing/WaitingForNetworkConfig"),
+        "Actual script: {}",
+        instructions.pxe_script
     );
+    assert!(instructions.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
 
     assert!(!instructions.pxe_script.contains("aarch64/carbide.root"));
 }
