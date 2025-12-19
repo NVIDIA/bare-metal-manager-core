@@ -592,7 +592,7 @@ pub async fn power_options_show(
         }
 
         let power_options = power_options.remove(0);
-        power_options_show_one(&power_options, output_format).await?;
+        power_options_show_one(&power_options, output_format)?;
 
         return Ok(());
     }
@@ -600,7 +600,7 @@ pub async fn power_options_show(
     power_options_show_all(output_format, api_client).await
 }
 
-pub async fn power_options_show_one(
+pub fn power_options_show_one(
     power_option: &PowerOptions,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
@@ -780,7 +780,6 @@ pub async fn update_power_option(
         updated_power_option.first().unwrap(),
         OutputFormat::AsciiTable,
     )
-    .await
 }
 
 pub async fn maintenance_on(api_client: &ApiClient, args: MaintenanceOn) -> CarbideCliResult<()> {

@@ -127,7 +127,7 @@ impl IBFabricManager for IBFabricManagerImpl {
         self.config.clone()
     }
 
-    async fn connect(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
+    async fn new_client(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
         match self.config.manager_type {
             IBFabricManagerType::Disable => Ok(self.disable_fabric.clone()),
             #[cfg(test)]
@@ -160,7 +160,7 @@ impl IBFabricManager for IBFabricManagerImpl {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 };
 
-                rest::connect(endpoint, &token).await
+                rest::new_client(endpoint, &token)
             }
         }
     }

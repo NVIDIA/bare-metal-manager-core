@@ -97,14 +97,6 @@ impl MachineValidationManager {
         }
         Ok(())
     }
-    pub async fn get_config_file(platform_name: String) -> Result<String, MachineValidationError> {
-        tracing::info!(platform_name);
-        let path: String = format!("/tmp/config/{platform_name}.yaml");
-        if std::fs::metadata(path.clone()).is_err() {
-            return Ok("/tmp/config/default.yaml".to_string());
-        }
-        Ok(path)
-    }
 
     pub async fn run(
         machine_id: &MachineId,

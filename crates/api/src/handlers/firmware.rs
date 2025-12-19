@@ -70,7 +70,7 @@ pub(crate) async fn set_firmware_update_time_window(
     Ok(Response::new(rpc::SetFirmwareUpdateTimeWindowResponse {}))
 }
 
-pub(crate) async fn list_host_firmware(
+pub(crate) fn list_host_firmware(
     api: &Api,
     _request: Request<rpc::ListHostFirmwareRequest>,
 ) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
@@ -100,7 +100,7 @@ pub(crate) async fn list_host_firmware(
     }))
 }
 
-pub(crate) async fn get_desired_firmware_versions(
+pub(crate) fn get_desired_firmware_versions(
     api: &Api,
     request: Request<rpc::GetDesiredFirmwareVersionsRequest>,
 ) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {

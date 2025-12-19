@@ -495,7 +495,7 @@ async fn main() -> color_eyre::Result<()> {
         }
         CliCommand::Credential(credential_action) => match credential_action {
             CredentialAction::AddUFM(c) => {
-                let username = url_validator(c.url.clone()).await?;
+                let username = url_validator(c.url.clone())?;
                 let password = c.token.clone();
                 let req = forgerpc::CredentialCreationRequest {
                     credential_type: CredentialType::Ufm.into(),
@@ -507,7 +507,7 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.0.create_credential(req).await?;
             }
             CredentialAction::DeleteUFM(c) => {
-                let username = url_validator(c.url.clone()).await?;
+                let username = url_validator(c.url.clone())?;
                 let req = forgerpc::CredentialDeletionRequest {
                     credential_type: CredentialType::Ufm.into(),
                     username: Some(username),
@@ -526,7 +526,7 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddBMC(c) => {
-                let password = password_validator(c.password.clone()).await?;
+                let password = password_validator(c.password.clone())?;
                 let req = forgerpc::CredentialCreationRequest {
                     credential_type: CredentialType::from(c.kind).into(),
                     username: c.username,
@@ -545,7 +545,7 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.0.delete_credential(req).await?;
             }
             CredentialAction::AddUefi(c) => {
-                let mut password = password_validator(c.password.clone()).await?;
+                let mut password = password_validator(c.password.clone())?;
                 if c.password.is_empty() {
                     password = Credentials::generate_password_no_special_char();
                 }
@@ -1474,13 +1474,13 @@ async fn main() -> color_eyre::Result<()> {
     Ok(())
 }
 
-pub async fn url_validator(url: String) -> Result<String, CarbideCliError> {
+pub fn url_validator(url: String) -> Result<String, CarbideCliError> {
     let addr = tonic::transport::Uri::try_from(&url)
         .map_err(|_| CarbideCliError::GenericError("invalid url".to_string()))?;
     Ok(addr.to_string())
 }
 
-pub async fn password_validator(s: String) -> Result<String, CarbideCliError> {
+pub fn password_validator(s: String) -> Result<String, CarbideCliError> {
     // TODO: check password according BMC pwd rule.
     if s.is_empty() {
         return Err(CarbideCliError::GenericError("invalid input".to_string()));

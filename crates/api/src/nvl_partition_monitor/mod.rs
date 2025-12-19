@@ -511,15 +511,13 @@ impl NvlPartitionMonitor {
         );
 
         // Check if any partitions need to be created, updated, or deleted.
-        let observations = self
-            .check_nv_link_partitions(
-                &mut partition_processing_context,
-                &managed_host_snapshots
-                    .values()
-                    .filter_map(|mh| mh.instance.clone())
-                    .collect::<Vec<_>>(),
-            )
-            .await?;
+        let observations = self.check_nv_link_partitions(
+            &mut partition_processing_context,
+            &managed_host_snapshots
+                .values()
+                .filter_map(|mh| mh.instance.clone())
+                .collect::<Vec<_>>(),
+        )?;
 
         self.record_nvlink_status_observation(observations).await?;
 
@@ -556,7 +554,7 @@ impl NvlPartitionMonitor {
 
     // Check the passed NvLink partition "observations" (physical partition info from NMX-M supplemented by physical and logical partition info from DB)
     // against the instance config and generate NMX-M operations to bring the observations into alignment with the config.
-    async fn check_nv_link_partitions(
+    fn check_nv_link_partitions(
         &self,
         partition_ctx: &mut PartitionProcessingContext,
         instances: &[InstanceSnapshot],

@@ -32,14 +32,14 @@ pub async fn external_config_show(
         .await?;
 
     if extended {
-        show_external_config_show_details(ret.configs, is_json).await?;
+        show_external_config_show_details(ret.configs, is_json)?;
     } else {
-        show_external_config_show(ret.configs, is_json).await?;
+        show_external_config_show(ret.configs, is_json)?;
     }
     Ok(())
 }
 
-pub async fn show_external_config_show_details(
+pub fn show_external_config_show_details(
     configs: Vec<forgerpc::MachineValidationExternalConfig>,
     json: bool,
 ) -> CarbideCliResult<()> {
@@ -51,7 +51,7 @@ pub async fn show_external_config_show_details(
     Ok(())
 }
 
-pub async fn show_external_config_show(
+pub fn show_external_config_show(
     configs: Vec<forgerpc::MachineValidationExternalConfig>,
     json: bool,
 ) -> CarbideCliResult<()> {

@@ -869,6 +869,7 @@ async fn debug_failed_machine_status_update(
 }
 
 #[cfg(not(test))]
+#[allow(clippy::unused_async)]
 async fn debug_failed_machine_status_update(
     _txn: &mut PgConnection,
     _machine_id: &MachineId,

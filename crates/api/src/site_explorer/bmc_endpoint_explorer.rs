@@ -73,12 +73,9 @@ impl BmcEndpointExplorer {
         Ok(password)
     }
 
-    pub async fn get_default_hardware_dpu_bmc_root_credentials(
-        &self,
-    ) -> Result<Credentials, EndpointExplorationError> {
+    pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> Credentials {
         self.credential_client
             .get_default_hardware_dpu_bmc_root_credentials()
-            .await
     }
 
     pub async fn get_bmc_root_credentials(
@@ -193,8 +190,7 @@ impl BmcEndpointExplorer {
                     // This machine is a DPU.
                     // Try the DPU hardware default password to handle the DPU case
                     // This password will not work for a Viking host and we will return an error
-                    current_bmc_credentials =
-                        self.get_default_hardware_dpu_bmc_root_credentials().await?;
+                    current_bmc_credentials = self.get_default_hardware_dpu_bmc_root_credentials();
                 }
                 _ => {
                     return Err(EndpointExplorationError::MissingCredentials {

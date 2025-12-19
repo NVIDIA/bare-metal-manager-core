@@ -187,9 +187,7 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         )
         .await;
 
-    let machine_updates = dpu_nic_firmware_update
-        .check_for_updates(&snapshots, 10)
-        .await;
+    let machine_updates = dpu_nic_firmware_update.check_for_updates(&snapshots, 10);
     assert_eq!(machine_updates.len(), 2);
 
     Ok(())

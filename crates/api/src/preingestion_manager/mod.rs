@@ -1402,13 +1402,11 @@ async fn initiate_update(
     firmware_number: u32,
 ) -> Result<(), DatabaseError> {
     if !to_install.get_filename(firmware_number).ends_with("bfb")
-        && !downloader
-            .available(
-                &to_install.get_filename(firmware_number),
-                &to_install.get_url(),
-                &to_install.get_checksum(),
-            )
-            .await
+        && !downloader.available(
+            &to_install.get_filename(firmware_number),
+            &to_install.get_url(),
+            &to_install.get_checksum(),
+        )
     {
         tracing::debug!(
             "{} is being downloaded from {}, update deferred",

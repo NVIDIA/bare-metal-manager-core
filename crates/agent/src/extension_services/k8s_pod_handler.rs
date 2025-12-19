@@ -701,7 +701,7 @@ JSON
     }
 
     /// Write kubelet systemd override configuration to enable image credential provider
-    async fn write_kubelet_override_conf(&self) -> Result<()> {
+    fn write_kubelet_override_conf(&self) -> Result<()> {
         // Create systemd override directory if it doesn't exist
         std::fs::create_dir_all(Path::new(KUBELET_SYSTEMD_OVERRIDE_DIR))
             .wrap_err("Failed to create kubelet systemd override directory")?;
@@ -941,7 +941,7 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
             );
 
             // Write kubelet systemd override to configure image credential provider
-            self.write_kubelet_override_conf().await?;
+            self.write_kubelet_override_conf()?;
 
             // Generate credential provider script
             let script_content = self.generate_credential_provider_script(&credential_list)?;

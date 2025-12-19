@@ -20,7 +20,7 @@ use rpc::forge::Switch;
 use super::args::ShowSwitch;
 use crate::rpc::ApiClient;
 
-pub async fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Result<()> {
+pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Result<()> {
     match output_format {
         OutputFormat::AsciiTable => {
             println!("Switches:");
@@ -212,6 +212,6 @@ pub async fn handle_show(
     let response = api_client.0.find_switches(query).await?;
     let switches = response.switches;
 
-    let _ = show_switches(switches, output_format).await;
+    show_switches(switches, output_format).ok();
     Ok(())
 }

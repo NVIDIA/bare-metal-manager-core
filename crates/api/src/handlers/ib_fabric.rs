@@ -15,7 +15,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
 
-pub(crate) async fn find_ids(
+pub(crate) fn find_ids(
     api: &Api,
     request: Request<rpc::IbFabricSearchFilter>,
 ) -> Result<Response<rpc::IbFabricIdList>, Status> {
@@ -39,7 +39,7 @@ pub(crate) async fn ufm_browse(
 
     let request = request.into_inner();
 
-    let fabric = api.ib_fabric_manager.connect(&request.fabric_id).await?;
+    let fabric = api.ib_fabric_manager.new_client(&request.fabric_id).await?;
 
     let response = fabric.raw_get(&request.path).await?;
 

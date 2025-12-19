@@ -155,7 +155,7 @@ async fn get_domain_name(domain_id: Option<DomainId>, api_client: &ApiClient) ->
     }
 }
 
-async fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<Table> {
+fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -212,7 +212,7 @@ async fn show_all_segments(
     if json {
         println!("{}", serde_json::to_string_pretty(&all_segments)?);
     } else {
-        convert_network_to_nice_table(all_segments).await.printstd();
+        convert_network_to_nice_table(all_segments).printstd();
     }
     Ok(())
 }

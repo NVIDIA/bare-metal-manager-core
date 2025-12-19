@@ -59,7 +59,6 @@ pub async fn dispatch(
                     &format,
                     show_cmd.machine,
                 )
-                .await
             }
             args::MachineHardwareInfoCommand::Update(capability) => match capability {
                 args::MachineHardwareInfo::Gpus(gpus) => {

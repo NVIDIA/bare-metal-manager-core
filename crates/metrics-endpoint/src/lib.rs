@@ -177,7 +177,8 @@ pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), 
                 .serve_connection(
                     io,
                     service_fn(move |req: Request<body::Incoming>| {
-                        handle_metrics_request(req, handler_state.clone())
+                        let handler_state = handler_state.clone();
+                        async move { handle_metrics_request(req, handler_state) }
                     }),
                 )
                 .await
@@ -189,7 +190,7 @@ pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), 
 }
 
 /// Metrics request handler
-async fn handle_metrics_request(
+fn handle_metrics_request(
     req: Request<body::Incoming>,
     state: Arc<MetricsHandlerState>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {

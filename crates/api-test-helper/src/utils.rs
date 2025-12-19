@@ -287,7 +287,7 @@ pub async fn populate_initial_vault_secrets(
     metrics: &MetricsSetup,
 ) -> Result<(), Report> {
     let vault_client =
-        forge_vault::create_vault_client(vault_config_overrides, metrics.meter.clone()).await?;
+        forge_vault::create_vault_client(vault_config_overrides, metrics.meter.clone())?;
     vault_client
         .set_credentials(
             &CredentialKey::BmcCredentials {

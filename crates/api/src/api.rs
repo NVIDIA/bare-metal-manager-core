@@ -73,7 +73,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::VersionRequest>,
     ) -> Result<Response<rpc::BuildInfo>, Status> {
-        crate::handlers::api::version(self, request).await
+        crate::handlers::api::version(self, request)
     }
 
     async fn create_domain(
@@ -275,7 +275,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::IbFabricSearchFilter>,
     ) -> Result<Response<rpc::IbFabricIdList>, Status> {
-        crate::handlers::ib_fabric::find_ids(self, request).await
+        crate::handlers::ib_fabric::find_ids(self, request)
     }
 
     async fn find_network_segment_ids(
@@ -457,7 +457,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::EchoRequest>,
     ) -> Result<Response<rpc::EchoResponse>, Status> {
-        crate::handlers::api::echo(self, request).await
+        crate::handlers::api::echo(self, request)
     }
 
     async fn create_tenant(
@@ -573,7 +573,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ForgeScoutErrorReport>,
     ) -> Result<Response<rpc::ForgeScoutErrorReportResult>, Status> {
-        crate::handlers::machine_scout::report_forge_scout_error(self, request).await
+        crate::handlers::machine_scout::report_forge_scout_error(self, request)
     }
 
     async fn discover_dhcp(
@@ -1187,7 +1187,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::SetDynamicConfigRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::api::set_dynamic_config(self, request).await
+        crate::handlers::api::set_dynamic_config(self, request)
     }
 
     async fn clear_host_uefi_password(
@@ -2290,7 +2290,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::GetDesiredFirmwareVersionsRequest>,
     ) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
-        crate::handlers::firmware::get_desired_firmware_versions(self, request).await
+        crate::handlers::firmware::get_desired_firmware_versions(self, request)
     }
 
     async fn create_sku(
@@ -2526,7 +2526,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ListHostFirmwareRequest>,
     ) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
-        crate::handlers::firmware::list_host_firmware(self, request).await
+        crate::handlers::firmware::list_host_firmware(self, request)
     }
 
     // Scout is telling Carbide the mlx device configuration in its machine
@@ -2765,7 +2765,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::MlxAdminProfileShowRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminProfileShowResponse>, Status> {
-        crate::handlers::mlx_admin::profile_show(self, request).await
+        crate::handlers::mlx_admin::profile_show(self, request)
     }
 
     async fn mlx_admin_profile_compare(
@@ -2779,7 +2779,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::MlxAdminProfileListRequest>,
     ) -> Result<Response<mlx_device_pb::MlxAdminProfileListResponse>, Status> {
-        crate::handlers::mlx_admin::profile_list(self, request).await
+        crate::handlers::mlx_admin::profile_list(self, request)
     }
 
     async fn mlx_admin_lockdown_lock(

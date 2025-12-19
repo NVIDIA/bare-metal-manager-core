@@ -59,7 +59,10 @@ pub async fn spawn(
                                     .serve_connection(
                                         io,
                                         hyper::service::service_fn(move |req| {
-                                            serve_metrics(req, metrics_state.clone())
+                                            let metrics_state = metrics_state.clone();
+                                            async move {
+                                                serve_metrics(req, metrics_state)
+                                            }
                                         }),
                                     )
                                     .await
@@ -86,7 +89,7 @@ pub enum SpawnError {
     Listen(std::io::Error),
 }
 
-async fn serve_metrics(
+fn serve_metrics(
     req: Request<body::Incoming>,
     state: Arc<MetricsState>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {

@@ -738,7 +738,7 @@ pub async fn handle_update_machine_hardware_info_gpus(
         .await
 }
 
-pub async fn handle_show_machine_hardware_info(
+pub fn handle_show_machine_hardware_info(
     _api_client: &ApiClient,
     _output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     _output_format: &OutputFormat,

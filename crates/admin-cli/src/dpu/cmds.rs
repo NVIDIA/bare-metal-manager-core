@@ -482,14 +482,11 @@ impl From<DpuStatus> for Row {
     }
 }
 
-pub async fn get_dpu_version_status(
-    build_info: &BuildInfo,
-    machine: &Machine,
-) -> CarbideCliResult<String> {
+pub fn get_dpu_version_status(build_info: &BuildInfo, machine: &Machine) -> String {
     let mut version_statuses = Vec::default();
 
     let Some(runtime_config) = build_info.runtime_config.as_ref() else {
-        return Ok("No runtime config".to_owned());
+        return "No runtime config".to_owned();
     };
 
     let expected_agent_version = &build_info.build_version;
@@ -536,9 +533,9 @@ pub async fn get_dpu_version_status(
     */
 
     if version_statuses.is_empty() {
-        Ok("Up to date".to_owned())
+        "Up to date".to_owned()
     } else {
-        Ok(version_statuses.join("\n"))
+        version_statuses.join("\n")
     }
 }
 
@@ -584,7 +581,7 @@ async fn generate_dpu_status_data(
     let mut dpu_status = Vec::new();
     let build_info = api_client.0.version(true).await?;
     for machine in machines {
-        let version_status = get_dpu_version_status(&build_info, &machine).await?;
+        let version_status = get_dpu_version_status(&build_info, &machine);
         let mut status = DpuStatus::from(machine);
         status.version_status = Some(version_status);
         dpu_status.push(status);
