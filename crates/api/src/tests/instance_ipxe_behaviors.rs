@@ -49,19 +49,25 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     // Second boot should return "exit"
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(
+        pxe.pxe_script.contains("Current state: Assigned/Ready"),
+        "Actual script: {}",
         pxe.pxe_script
-            .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
-        "Actual script: {}", pxe.pxe_script
     );
+    assert!(pxe.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
 
     // A regular reboot attempt should still lead to returning "exit"
     invoke_instance_power(&env, mh.id, false).await;
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(
+        pxe.pxe_script.contains("Current state: Assigned/Ready"),
+        "Actual script: {}",
         pxe.pxe_script
-            .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
-        "Actual script: {}", pxe.pxe_script
     );
+    assert!(pxe.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
 
     // A reboot with flag `boot_with_custom_ipxe` should provide the custom iPXE
     invoke_instance_power(&env, mh.id, true).await;
@@ -72,10 +78,13 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     invoke_instance_power(&env, mh.id, false).await;
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(
+        pxe.pxe_script.contains("Current state: Assigned/Ready"),
+        "Actual script: {}",
         pxe.pxe_script
-            .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
-        "Actual script: {}", pxe.pxe_script
     );
+    assert!(pxe.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
 }
 
 #[crate::sqlx_test]

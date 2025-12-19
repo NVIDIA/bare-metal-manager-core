@@ -53,10 +53,10 @@ then
     while (( ${DONE} != 1 ))
     do
       # We store the HTTP HEAD info for the script which will check for updates later.
-      curl -sf --head ${newrootfsurl} 2>/dev/null | sed 's/\r//g' > ${ROOTFS_INFO_FILE}
+      curl -sSf --head ${newrootfsurl} 2> ./curl.err | sed 's/\r//g' > ${ROOTFS_INFO_FILE}
       if (( $? == 0 ))
       then
-        curl -sf -o - ${newrootfsurl} 2>/dev/null | tee ${TMPFILE} | zstd -d 2>/dev/null | cpio -i 2>/dev/null
+        curl -sSf -o - ${newrootfsurl} 2> ./curl.err | tee ${TMPFILE} | zstd -d 2> ./zstd.err | cpio -i 2> ./cpio.err
         if (( $? == 0 ))
         then
           if [ -e "/sys/class/tpm/tpm0/pcr-sha256/${PCR}" ]
@@ -71,9 +71,17 @@ then
             send_msg "LOADER: Unable to find PCR ${PCR}, is TPM installed and configured correctly?"
           fi
           DONE=1
+        else
+          send_msg "LOADER: Download failed:"
+          send_msg "LOADER: curl error: $(<./curl.err)"
+          send_msg "LOADER: zstd error: $(<./zstd.err)"
+          send_msg "LOADER: cpio error: $(<./cpio.err)"
+	  sleep 1
         fi
       else
-	      sleep 1
+          send_msg "LOADER: Failed to gather root filesystem information:"
+          send_msg "LOADER: curl error: $(<./curl.err)"
+	  sleep 1
       fi
     done
     
