@@ -133,7 +133,7 @@
 				
 				let grafanaBaseUrl = "https://grafana-"+ name +".frg.nvidia.com";
 				document.getElementById("grafana-url").href = grafanaBaseUrl;
-				document.getElementById("serial-console-url").href = grafanaBaseUrl + "/d/ssh-console-logs-v2/serial-console?orgId=1";
+				document.getElementById("serial-console-url").href = grafanaBaseUrl + "/d/ssh-console-rs-logs/serial-console-rust-version?orgId=1";
 				document.getElementById("argo-url").href = "https://argocd-"+ name +".frg.nvidia.com/";
 			}
 
