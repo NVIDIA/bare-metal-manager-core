@@ -722,6 +722,8 @@ service Forge {
   rpc DeleteNVLinkLogicalPartition(NVLinkLogicalPartitionDeletionRequest) returns (NVLinkLogicalPartitionDeletionResult);
   // Find all Logical partitions under a specified tenant
   rpc NVLinkLogicalPartitionsForTenant(TenantSearchQuery) returns (NVLinkLogicalPartitionList);
+
+  rpc NmxmBrowse(NmxmBrowseRequest) returns (NmxmBrowseResponse);
 }
 
 message AttestationIdsRequest {
@@ -2592,6 +2594,8 @@ message Machine {
   bool update_complete = 42;
 
   optional MachineNVLinkInfo nvlink_info = 43;
+
+  optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
 }
 
 message InstanceNetworkRestrictions {
@@ -5556,6 +5560,32 @@ message NVLinkGpu {
   int32 slot_id = 3;
   int32 device_id = 4;
   uint64 guid = 5;
+}
+
+message MachineNVLinkStatusObservation {
+  repeated MachineNVLinkGpuStatusObservation gpu_status = 1;
+}
+
+message MachineNVLinkGpuStatusObservation {
+  string gpu_id = 1;
+  optional common.NVLinkPartitionId partition_id = 2;
+  optional common.NVLinkLogicalPartitionId logical_partition_id = 3;
+  uint32 device_instance = 4;
+  common.NVLinkDomainId domain_id = 5;
+  uint64 guid = 6;
+}
+
+message NmxmBrowseRequest {
+  string path = 1;
+}
+
+message NmxmBrowseResponse {
+  // Response body
+  string body = 1;
+  // Response status code
+  int32 code = 2;
+  // Response headers
+  map<string, string> headers = 3;
 }
 
 // Describe an NVLink based Partition configuration and status

@@ -161,10 +161,6 @@ pub async fn create_logical_partition(
     args: CreateLogicalPartition,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let uuid = uuid::Uuid::parse_str(&args.name)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?;
-    let mut m = Vec::new();
-    m.extend(args.members);
     let metadata = forgerpc::Metadata {
         name: args.name,
         labels: vec![forgerpc::Label {
@@ -178,7 +174,7 @@ pub async fn create_logical_partition(
             metadata: Some(metadata),
             tenant_organization_id: args.tenant_organization_id,
         }),
-        id: Some(uuid.into()),
+        id: None,
     };
     let _partition = api_client
         .0

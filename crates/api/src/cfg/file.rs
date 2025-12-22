@@ -954,9 +954,11 @@ pub struct NvLinkConfig {
     pub nmx_m_operation_timeout: std::time::Duration,
 
     /// NMX-M endpoint (name or IP address) used to create client connections,
-    /// include port number as well if required eg. 127.0.0.1:4010
+    /// include port number as well if required eg. https://127.0.0.1:4010
     #[serde(default = "default_nmx_m_endpoint")]
     pub nmx_m_endpoint: String,
+    /// Set to true if NMX-M doesn't adhere to security requirements. Defaults to false
+    pub allow_insecure: bool,
 }
 
 fn default_nmx_m_endpoint() -> String {
@@ -970,6 +972,7 @@ impl Default for NvLinkConfig {
             monitor_run_interval: Self::default_monitor_run_interval(),
             nmx_m_operation_timeout: Self::default_nmx_m_operation_timeout(),
             nmx_m_endpoint: "localhost".to_string(),
+            allow_insecure: false,
         }
     }
 }
@@ -3431,6 +3434,7 @@ mqtt_endpoint = "mqtt.forge"
                 monitor_run_interval: std::time::Duration::from_secs(33),
                 nmx_m_operation_timeout: std::time::Duration::from_secs(21),
                 nmx_m_endpoint: "localhost".to_string(),
+                allow_insecure: true,
             }
         );
     }

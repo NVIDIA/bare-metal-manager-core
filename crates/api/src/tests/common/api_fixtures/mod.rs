@@ -1218,7 +1218,7 @@ pub async fn create_test_env_with_overrides(
     let nvl_partition_monitor = NvlPartitionMonitor::new(
         db_pool.clone(),
         nmxm_sim.clone(),
-        // test_meter.meter(),
+        test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
         config.host_health,
         work_lock_manager_handle.clone(),

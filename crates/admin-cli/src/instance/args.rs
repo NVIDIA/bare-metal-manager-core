@@ -15,7 +15,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcPrefixId;
 use clap::{ArgGroup, Parser};
 use rpc::InstanceInfinibandConfig;
-use rpc::forge::OperatingSystem;
+use rpc::forge::{InstanceNvLinkConfig, OperatingSystem};
 
 use crate::cfg::cli_options::SortField;
 
@@ -183,6 +183,19 @@ pub struct UpdateIbConfig {
         value_name = "IB_JSON"
     )]
     pub config: InstanceInfinibandConfig,
+}
+
+#[derive(Parser, Debug)]
+pub struct UpdateNvLinkConfig {
+    #[clap(short, long, required(true))]
+    pub instance: InstanceId,
+    #[clap(
+        long,
+        required(true),
+        help = "NVLink configuration in JSON format",
+        value_name = "NVLINK_JSON"
+    )]
+    pub config: InstanceNvLinkConfig,
 }
 
 /// Global options passed to instance commands

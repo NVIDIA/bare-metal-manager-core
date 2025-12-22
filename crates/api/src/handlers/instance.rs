@@ -1100,6 +1100,11 @@ pub(crate) async fn update_instance_config(
     )
     .await?;
 
+    tracing::debug!(
+        "Updating instance {} with NVLink config {:?}",
+        instance.id,
+        config.nvlink
+    );
     update_instance_nvlink_config(&mh_snapshot, &instance, &config.nvlink, &mut txn).await?;
 
     db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;

@@ -69,6 +69,8 @@ mod network_device;
 mod network_security_group;
 mod network_segment;
 mod network_status;
+mod nmxm_browser;
+mod nvlink;
 mod power_shelf;
 mod power_shelf_state_history;
 mod rack;
@@ -430,6 +432,16 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/network-status", get(network_status::show_html))
             .route("/network-status.json", get(network_status::show_all_json))
+            .route("/nmxm-browser", get(nmxm_browser::query))
+            .route(
+                "/nvlink-partition",
+                get(nvlink::show_nvlink_logical_partitions_html),
+            )
+            .route(
+                "/nvlink-partition.json",
+                get(nvlink::show_nvlink_logical_partitions_json),
+            )
+            .route("/nvlink-partition/{id}", get(nvlink::detail))
             .route("/resource-pool", get(resource_pool::show_html))
             .route("/resource-pool.json", get(resource_pool::show_all_json))
             .route("/vpc", get(vpc::show_html))

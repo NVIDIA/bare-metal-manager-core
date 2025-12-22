@@ -325,7 +325,10 @@ pub async fn start_api(
         vault_client.clone(),
     ));
 
-    let nmxm_client_pool = libnmxm::NmxmClientPool::builder().build()?;
+    let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
+
+    let nmxm_client_pool =
+        libnmxm::NmxmClientPool::builder(nvlink_config.allow_insecure).build()?;
     let nmxm_pool = NmxmClientPoolImpl::new(vault_client.clone(), nmxm_client_pool);
 
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
@@ -717,7 +720,7 @@ pub async fn initialize_and_start_controllers(
     let nvlink_partition_monitor = NvlPartitionMonitor::new(
         db_pool.clone(),
         shared_nmxm_pool.clone(),
-        // meter.clone(),
+        meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
         carbide_config.host_health,
         work_lock_manager_handle.clone(),

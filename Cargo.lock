@@ -4988,6 +4988,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "getopts",
+ "http",
  "reqwest",
  "serde",
  "serde_derive",

@@ -2470,6 +2470,13 @@ impl Forge for Api {
         crate::handlers::logical_partition::update(self, request).await
     }
 
+    async fn nmxm_browse(
+        &self,
+        request: Request<rpc::NmxmBrowseRequest>,
+    ) -> Result<Response<rpc::NmxmBrowseResponse>, Status> {
+        crate::handlers::nvl_partition::nmxm_browse(self, request).await
+    }
+
     // Return a Vector of all the DPA interface IDs
     async fn get_all_dpa_interface_ids(
         &self,

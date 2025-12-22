@@ -12,6 +12,13 @@ pub struct AsyncResponse {
     pub operation_id: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawResponse {
+    pub body: String,
+    pub code: u16,
+    pub headers: http::HeaderMap,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CountResponse {
     /// Number of objects
