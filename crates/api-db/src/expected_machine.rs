@@ -101,7 +101,8 @@ pub async fn find_one_linked(
  em.bmc_mac_address,
  mi.id AS interface_id,
  host(ee.address) AS address,
- mt.machine_id
+ mt.machine_id,
+ em.id AS expected_machine_id
 FROM expected_machines em
  LEFT JOIN machine_interfaces mi ON em.bmc_mac_address = mi.mac_address
  LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
@@ -132,7 +133,8 @@ pub async fn find_all_linked(txn: &mut PgConnection) -> DatabaseResult<Vec<Linke
  em.bmc_mac_address,
  mi.id AS interface_id,
  host(ee.address) AS address,
- mt.machine_id
+ mt.machine_id,
+ em.id AS expected_machine_id
 FROM expected_machines em
  LEFT JOIN machine_interfaces mi ON em.bmc_mac_address = mi.mac_address
  LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
