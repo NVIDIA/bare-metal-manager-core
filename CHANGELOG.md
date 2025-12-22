@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased (v2025.12.19-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.05-rc2-0...trunk)
+## [Unreleased (v2025.01.02-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.19-rc2-0...trunk)
 
 ### Added
 
@@ -11,6 +11,72 @@
 ### Removed
 
 ### Internal Changes
+
+## [v2025.12.19-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.05-rc2-0..v2025.12.19-rc2-0)
+
+### Added in v2025.12.19-rc2-0
+
+- [MR-5019](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5019): Added the ability to store boot interface MAC addresses for explored endpoints to enable boot order verification in machine setup status checks.
+- [MR-5026](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5026): Added the ability to collect DPU agent logs in the debug-bundle command.
+- [FORGE-7238](https://jirasw.nvidia.com/browse/FORGE-7238),[MR-4971](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4971): Added the ability to perform SPDM attestation.
+- [MR-4955](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4955): Added the ability to configure logs and metrics collection for DPU extension services through OTEL config fragments.
+- [MR-4983](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4983): Added the ability to create stateful NSGs.
+- [MR-5001](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5001): Added the ability to auto-generate a doc file about metrics emitted by Carbide while running the integration test.
+- [FORGE-7150](https://jirasw.nvidia.com/browse/FORGE-7150),[MR-4795](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4795): Added the ability to monitor BMC health through a new Health service based on nv-redfish with improved efficiency, scalability, and enhanced sensor discovery.
+- [MR-4989](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4989): Set up github actions.
+- [MR-5005](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5005): Added the ability to collect metrics for nvlink partition monitoring.
+- [MR-4973](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4973): Added the ability to view nvlink logical and physical partitions in the admin web interface, query nmx-m via nmxm-browser, and automatically clean up nvlink partitions when instances are released.
+- [MR-4974](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4974): Added the ability to view and update tenant routing profiles via CLI, web UI, and API, with row-level locking to prevent updates for tenants with active VPCs.
+- [MR-4980](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4980): Added the ability to fetch Manager's DateTime field from redfish and enable network and hard_disk boot options for SMCs when setting boot order.
+
+### Changed in v2025.12.19-rc2-0
+
+- [FORGE-7502](https://jirasw.nvidia.com/browse/FORGE-7502),[MR-5012](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5012): Changed the recommended DPU FW version to to DOCA 3.2.0 (HBN) and generate URM artifacts on the fly instead of storing them.
+- [MR-5014](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5014): Changed the behavior of distroless container setup to fix path handling bugs, improve package installation and dependency management, and refactor directory structure and staging logic.
+
+### Fixed in v2025.12.19-rc2-0
+
+- [MR-5042](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5042): Have the state machine logic handling bios and boot order configuration.
+- [MR-5038](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5038): Fixed an issue where `forge-admin-cli` attempted to find VPCs with an empty ID list during VPC creation in dev-env, causing a gRPC error.
+- [MR-5036](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5036): Fixed an issue where SSH permissions were missing after switching from FindInstances to FindInstancesByIds.
+- [MR-5037](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5037): Fixed an issue where SpdmStateControllerIO did not comply with the updated StateControllerIO trait requirements after merging conflicting changes.
+- [FORGE-7491](https://jirasw.nvidia.com/browse/FORGE-7491),[MR-5025](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5025): Fixed an issue where passwords were leaked in libredfish error messages when changing BMC or UEFI passwords.
+- [MR-5032](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5032): Fixed an issue where transactions were not allowed to be held across await points for SPDM.
+- [MR-5024](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5024): Fixed an issue where the boot order fix mechanism during tenant deletion did not cover SMCs, Vikings, and GB200s.
+- [MR-5028](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5028): Revert "fix: ipxe for arm64 - exclude non snp drivers since they cause issues during device init"
+- [MR-4990](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4990): Fixed an issue where building the BMC HTTP client while a transaction was open could block due to additional database connections and Vault calls.
+- [MR-5002](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5002): Fixed an issue where `api-integration-tests` failed to compile when built individually because the `linux-build` feature was not added to a dependency.
+- [FORGE-7484](https://jirasw.nvidia.com/browse/FORGE-7484),[MR-4995](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4995): Fixed an issue where the UEFI firmware version was missing from the default DPU config, preventing site-explorer from updating the known version of DPU BMC firmware and bios version.
+- [MR-4997](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4997): Fixed an issue where non-SNP drivers included in the iPXE build could claim NIC devices and cause conflicts with the SNP driver built into UEFI firmware.
+- [MR-4993](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4993): Fixed an issue where liveness checking produced false positives because span equality checks failed to match spans pointing to the same source code.
+- [MR-4992](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4992): Fixed an issue where code location tracking for transaction start always pointed to the db crate.
+- [FORGE-7519](https://jirasw.nvidia.com/browse/FORGE-7519),[MR-5041](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5041): Fixed and issue where iPXE assumed the wrong machine state during boot.
+
+### Internal Changes in v2025.12.19-rc2-0
+
+- [MR-5045](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5045): Internal change where power manager is disabled for tests because it was causing test flakes by preventing state controller from switching states.
+- [MR-5023](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5023): Internal change where tenant-state calculation logic no longer short-circuits on extension services readiness.
+- [MR-5020](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5020): Internal change where unnecessary async/await patterns were removed using clippy's unused_async lint, fixing 3 txn_held_across_await cases.
+- [MR-5022](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5022): Internal change where advisory table locks were replaced with WorkLockManager for state controller IO, IbFabricMonitor, MachineUpdateManager, and similar components to prevent holding transactions across await points.
+- [MR-5030](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5030): Internal change where HostPlatformConfiguration states were added to the state chart.
+- [MR-5021](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5021): Internal change where LOCK TABLE functions now require PgTransaction instead of PgConnection to enforce that table locks are only acquired within transactions.
+- [MR-5027](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5027): Internal change where SUMMARY.md parsing error was fixed by correcting nested chapter links to contain only hyperlinks.
+- [MR-4991](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4991): Internal change where postgres advisory locks that held transactions across await points are replaced with a work_locks table using RAII-style drop traits for automatic lock release.
+- [MR-5015](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5015): Internal change where top-level subcommands are refactored into their own modules with separate args, commands, and dispatcher files to keep main.rs cleaner and improve code organization.
+- [MR-5017](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5017): Internal change where the `txn_held_across_await` lint now correctly detects transactions held across await points in async closures by using closure capture Place information and scanning additional HIR body types.
+- [MR-5010](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5010): Internal change where top-level subcommands are refactored into separate modules with dedicated argument, command, and dispatch handlers to improve code organization and keep main.rs cleaner.
+- [MR-5007](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5007): Internal change where top-level subcommands are refactored into separate modules (mod.rs, args.rs, cmds.rs) following an established pattern to keep main.rs cleaner and improve code organization.
+- [MR-5004](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5004): Internal change where a top-level subcommand was refactored into its own module with separate `mod.rs`, `args.rs`, and `cmds.rs` files to keep `main.rs` cleaner and improve modularity.
+- [MR-4999](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4999): Internal change where a top-level subcommand is refactored into its own module with separate args, commands, and dispatcher files.
+- [MR-5000](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5000): fix: build container instructions and Makefile.toml.
+- [MR-4998](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4998): Internal change where top-level subcommands are refactored into their own modules (`mod.rs`, `args.rs`, `cmds.rs`) to keep `main.rs` cleaner and improve modularity.
+- [MR-4996](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4996): Internal change where top-level subcommands are refactored into separate modules with dedicated argument parsing, command handlers, and dispatch logic.
+- [MR-4994](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4994): Internal change where static names were removed from txn_begin since code location is already tracked via track_caller feature.
+- [MR-4979](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4979): Internal change where tokio mutexes were replaced with std::sync::Mutex in HostUpgradeState::waiting_for_upload to remove the need for the txn_held_across_await lint allowance.
+- [MR-4988](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4988): Internal change where container build errors were fixed by adding conditional compilation for linux-build feature in attestation handlers, and new OSS mkosi profiles (mkosi-oss-aarch64 and mkosi-oss-x86_64) were added that exclude NVIDIA ROOT CA's and NVINIT.
+- [MR-4987](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4987): Internal change where grpc RBAC permissions are opened up for rla.
+- [MR-4946](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4946): Move 'forged' Carbide-Core kustomize bases into Carbide.
+- [MR-4960](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4960): Add EA Carbide docs in new "docs" folder.
 
 ## [v2025.12.05-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.11.21-rc2-0...v2025.12.05-rc2-0)
 
