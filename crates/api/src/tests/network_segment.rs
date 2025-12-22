@@ -647,8 +647,11 @@ async fn test_network_segment_metrics(
     pool: sqlx::PgPool,
     test_type: MetricsTestType,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env =
-        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::no_network_segments()).await;
+    let mut overrides = TestEnvOverrides::no_network_segments();
+    // This tests relies that drain period is not ended between two
+    // consequential run_single_iteration
+    overrides.network_segments_drain_period = Some(chrono::Duration::seconds(10));
+    let env = create_test_env_with_overrides(pool.clone(), overrides).await;
 
     let segment =
         create_network_segment_with_api(&env, true, true, None, test_type.segment_type() as i32, 1)
