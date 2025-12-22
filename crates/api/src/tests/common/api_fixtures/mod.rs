@@ -1036,7 +1036,7 @@ pub fn get_config() -> CarbideConfig {
             hb_interval: Duration::minutes(2),
         }),
         power_manager_options: PowerManagerOptions {
-            enabled: true,
+            enabled: false,
             ..PowerManagerOptions::default()
         },
         auto_machine_repair_plugin: Default::default(),
