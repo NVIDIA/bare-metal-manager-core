@@ -230,6 +230,7 @@ pub struct TestEnvOverrides {
     pub create_network_segments: Option<bool>,
     pub dpu_agent_version_staleness_threshold: Option<chrono::Duration>,
     pub prevent_allocations_on_stale_dpu_agent_version: Option<bool>,
+    pub network_segments_drain_period: Option<chrono::Duration>,
 }
 
 impl TestEnvOverrides {
@@ -1380,7 +1381,9 @@ pub async fn create_test_env_with_overrides(
 
     let network_swap = SwapHandler {
         inner: Arc::new(Mutex::new(NetworkSegmentStateHandler::new(
-            chrono::Duration::milliseconds(500),
+            overrides
+                .network_segments_drain_period
+                .unwrap_or(chrono::Duration::milliseconds(500)),
             common_pools.ethernet.pool_vlan_id.clone(),
             common_pools.ethernet.pool_vni.clone(),
         ))),
