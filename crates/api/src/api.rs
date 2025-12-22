@@ -1260,20 +1260,6 @@ impl Forge for Api {
         crate::handlers::expected_machine::delete_all(self, request).await
     }
 
-    async fn create_expected_machines(
-        &self,
-        request: Request<rpc::BatchExpectedMachineOperationRequest>,
-    ) -> Result<Response<rpc::BatchExpectedMachineOperationResponse>, Status> {
-        crate::handlers::expected_machine::create_expected_machines(self, request).await
-    }
-
-    async fn update_expected_machines(
-        &self,
-        request: Request<rpc::BatchExpectedMachineOperationRequest>,
-    ) -> Result<Response<rpc::BatchExpectedMachineOperationResponse>, Status> {
-        crate::handlers::expected_machine::update_expected_machines(self, request).await
-    }
-
     async fn get_expected_power_shelf(
         &self,
         request: Request<rpc::ExpectedPowerShelfRequest>,

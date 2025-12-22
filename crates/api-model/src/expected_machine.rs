@@ -150,7 +150,6 @@ pub struct LinkedExpectedMachine {
     pub interface_id: Option<MachineInterfaceId>, // from machine_interfaces table
     pub address: Option<String>,     // The explored endpoint
     pub machine_id: Option<MachineId>, // The machine
-    pub expected_machine_id: Option<Uuid>, // The expected machine ID
 }
 
 impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
@@ -161,9 +160,6 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
             interface_id: m.interface_id.map(|u| u.to_string()),
             explored_endpoint_address: m.address,
             machine_id: m.machine_id,
-            expected_machine_id: m.expected_machine_id.map(|id| ::rpc::common::Uuid {
-                value: id.to_string(),
-            }),
         }
     }
 }
