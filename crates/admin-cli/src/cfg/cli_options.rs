@@ -1610,7 +1610,7 @@ pub enum NvlPartitionOptions {
 #[derive(Parser, Debug)]
 pub struct ShowNvlPartition {
     #[clap(
-        default_value(None),
+        default_value(""),
         help = "The NvLink Partition ID to query, leave empty for all (default)"
     )]
     pub id: String,
@@ -1635,7 +1635,7 @@ pub enum LogicalPartitionOptions {
 #[derive(Parser, Debug)]
 pub struct ShowLogicalPartition {
     #[clap(
-        default_value(None),
+        default_value(""),
         help = "The partition ID to query, leave empty for all (default)"
     )]
     pub id: String,
@@ -1648,8 +1648,6 @@ pub struct ShowLogicalPartition {
 pub struct CreateLogicalPartition {
     #[clap(short = 'n', long, help = "name of the partition")]
     pub name: String,
-    #[clap(short, long, value_delimiter = ',', value_name = "list of members")]
-    pub members: Vec<String>,
     #[clap(short, long, help = "The Tenant Org ID to create the partition for")]
     pub tenant_organization_id: String,
 }

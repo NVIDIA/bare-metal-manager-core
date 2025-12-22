@@ -116,11 +116,11 @@ pub struct NmxmClientPool {
 }
 
 impl NmxmClientPool {
-    pub fn builder() -> NmxmClientPoolBuilder {
+    pub fn builder(allow_insecure: bool) -> NmxmClientPoolBuilder {
         NmxmClientPoolBuilder {
             timeout: DEFAULT_TIMEOUT,
-            //nmx-m probably has self-signed certs, need this set to false
-            accept_invalid_certs: false,
+            //nmx-m probably has self-signed certs, need this set to true
+            accept_invalid_certs: allow_insecure,
         }
     }
 
@@ -140,6 +140,37 @@ pub struct NmxmApiClient {
 impl NmxmApiClient {
     pub fn new(client: HttpClient, endpoint: Endpoint) -> Self {
         Self { client, endpoint }
+    }
+
+    pub async fn get_raw(&self, api: &str) -> Result<RawResponse, NmxmApiError> {
+        let url = format!("{}/{}", self.endpoint.host, api);
+
+        let http_client = self.client.clone();
+        let mut req_b = http_client.get(&url);
+        req_b = req_b.header(ACCEPT, HeaderValue::from_static("*/*"));
+        req_b = req_b.header(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        req_b = req_b.header(USER_AGENT, HeaderValue::from_static("libnmxm/0.1"));
+        if let Some(username) = self.endpoint.username.as_ref() {
+            req_b = req_b.basic_auth(username, self.endpoint.password.as_ref());
+        }
+
+        let response = req_b.send().await.map_err(|e| NmxmApiError::NetworkError {
+            url: url.clone(),
+            source: e,
+        })?;
+        let status_code = response.status();
+        let headers = response.headers().clone();
+        let text = response.text().await.map_err(|_| NmxmApiError::APIError {
+            url,
+            status: status_code,
+            message: "error reading response".to_string(),
+        })?;
+
+        Ok(RawResponse {
+            body: text,
+            code: status_code.as_u16(),
+            headers,
+        })
     }
 
     pub async fn get<T>(&self, api: &str) -> Result<(StatusCode, T), NmxmApiError>
@@ -333,6 +364,7 @@ fn truncate(s: &str, len: usize) -> &str {
 #[async_trait::async_trait]
 pub trait Nmxm: Send + Sync + 'static {
     async fn create(&self, endpoint: Endpoint) -> Result<Box<dyn Nmxm>, NmxmApiError>;
+    async fn raw_get(&self, api: &str) -> Result<RawResponse, NmxmApiError>;
     async fn get_chassis(&self, id: String) -> Result<Vec<Chassis>, NmxmApiError>;
     async fn get_chassis_count(&self, domain: Option<Vec<uuid::Uuid>>)
     -> Result<i64, NmxmApiError>;

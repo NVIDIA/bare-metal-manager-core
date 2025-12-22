@@ -43,6 +43,31 @@ pub struct MachineNvLinkGpuStatusObservation {
     pub guid: u64,
 }
 
+impl From<MachineNvLinkStatusObservation> for rpc::forge::MachineNvLinkStatusObservation {
+    fn from(value: MachineNvLinkStatusObservation) -> Self {
+        rpc::forge::MachineNvLinkStatusObservation {
+            gpu_status: value
+                .nvlink_gpus
+                .into_iter()
+                .map(rpc::forge::MachineNvLinkGpuStatusObservation::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<MachineNvLinkGpuStatusObservation> for rpc::forge::MachineNvLinkGpuStatusObservation {
+    fn from(value: MachineNvLinkGpuStatusObservation) -> Self {
+        rpc::forge::MachineNvLinkGpuStatusObservation {
+            gpu_id: value.gpu_id,
+            partition_id: value.partition_id,
+            logical_partition_id: value.logical_partition_id,
+            device_instance: value.device_instance,
+            domain_id: Some(value.domain_id),
+            guid: value.guid,
+        }
+    }
+}
+
 impl Default for MachineNvLinkGpuStatusObservation {
     fn default() -> Self {
         Self {

@@ -21,6 +21,16 @@ carbide_api_db_span_query_time_milliseconds_bucket{operation="network_segments_c
 carbide_api_db_span_query_time_milliseconds_bucket{operation="network_segments_controller",le="+Inf"} 2
 carbide_api_db_span_query_time_milliseconds_sum{operation="network_segments_controller"} 0
 carbide_api_db_span_query_time_milliseconds_count{operation="network_segments_controller"} 2
+# HELP carbide_nvlink_partition_monitor_nmxm_changes_applied_total Number of changes requested to Nmx-M
+# TYPE carbide_nvlink_partition_monitor_nmxm_changes_applied_total counter
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="create",status="false"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="create",status="true"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="pending",status="false"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="pending",status="true"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="remove",status="false"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="remove",status="true"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="update",status="false"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="update",status="true"} 0
 # HELP forge_ib_monitor_ufm_changes_applied_total The amount of changes that have been performed at UFM
 # TYPE forge_ib_monitor_ufm_changes_applied_total counter
 forge_ib_monitor_ufm_changes_applied_total{fabric="default",operation="bind_guid_to_pkey",status="error"} 0
