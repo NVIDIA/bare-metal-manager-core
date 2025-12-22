@@ -1150,6 +1150,7 @@ Architecture: amd64" > Release
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
 script = '''
+  ${ELEVATE} apt-get -y install file
   # Check that efi kernel is compressed
   efi_kernel="/tmp/bfb-dump/dump-image-v0"
   if file -b "$efi_kernel" | grep -q 'LZMA compressed data'; then
