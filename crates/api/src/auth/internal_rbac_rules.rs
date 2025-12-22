@@ -226,6 +226,8 @@ impl InternalRBACRules {
         x.perm("AddExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CreateExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdateExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("GetExpectedMachine", vec![ForgeAdminCLI, Rla]);
         x.perm(
             "GetAllExpectedMachines",
