@@ -77,7 +77,8 @@ use tracing::instrument;
 use version_compare::Cmp;
 
 use crate::cfg::file::{
-    BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig, TimePeriod,
+    BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig,
+    PowerManagerOptions, TimePeriod,
 };
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::redfish::{self, host_power_control, set_host_uefi_password};
@@ -134,6 +135,17 @@ pub struct PowerOptionConfig {
     pub next_try_duration_on_success: chrono::TimeDelta,
     pub next_try_duration_on_failure: chrono::TimeDelta,
     pub wait_duration_until_host_reboot: chrono::TimeDelta,
+}
+
+impl From<PowerManagerOptions> for PowerOptionConfig {
+    fn from(options: PowerManagerOptions) -> Self {
+        Self {
+            enabled: options.enabled,
+            next_try_duration_on_success: options.next_try_duration_on_success,
+            next_try_duration_on_failure: options.next_try_duration_on_failure,
+            wait_duration_until_host_reboot: options.wait_duration_until_host_reboot,
+        }
+    }
 }
 
 /// The actual Machine State handler
