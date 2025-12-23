@@ -19,13 +19,17 @@ use rpc::forge::{
 };
 
 use crate::redfish::RedfishClientPool;
-use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_managed_host, create_test_env_with_overrides,
+};
 
 #[crate::sqlx_test]
 async fn test_power_manager_create_entry_on_host_creation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
+            .await;
     let mut txn = env.pool.begin().await?;
     let power_entry = db::power_options::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
@@ -68,7 +72,9 @@ async fn test_power_manager_create_entry_on_host_creation(
 async fn test_power_manager_update_fail_since_no_maintenance_set(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
+            .await;
     let mut txn = env.pool.begin().await?;
     let power_entry = db::power_options::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
@@ -116,7 +122,9 @@ pub async fn update_next_try_now(
 async fn test_power_manager_state_machine_desired_on_machine_off(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
+            .await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
@@ -180,7 +188,9 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
 async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
+            .await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;

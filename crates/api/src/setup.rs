@@ -67,7 +67,7 @@ use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
 use crate::state_controller::dpa_interface::io::DpaInterfaceStateControllerIO;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
 use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
-use crate::state_controller::machine::handler::{MachineStateHandlerBuilder, PowerOptionConfig};
+use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
@@ -574,19 +574,7 @@ pub async fn initialize_and_start_controllers(
                         .clone(),
                 )
                 .credential_provider(api_service.credential_provider.clone())
-                .power_options_config(PowerOptionConfig {
-                    // Should these parameters be configurable?
-                    enabled: carbide_config.power_manager_options.enabled,
-                    next_try_duration_on_success: carbide_config
-                        .power_manager_options
-                        .next_try_duration_on_success,
-                    next_try_duration_on_failure: carbide_config
-                        .power_manager_options
-                        .next_try_duration_on_failure,
-                    wait_duration_until_host_reboot: carbide_config
-                        .power_manager_options
-                        .wait_duration_until_host_reboot,
-                })
+                .power_options_config(carbide_config.power_manager_options.clone().into())
                 .skip_polling_checks(carbide_config.machine_state_controller.skip_polling_checks)
                 .build(),
         ))

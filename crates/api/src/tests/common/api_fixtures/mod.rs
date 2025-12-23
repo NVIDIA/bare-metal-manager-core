@@ -99,7 +99,7 @@ use crate::state_controller::controller::StateController;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
 use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
 use crate::state_controller::machine::handler::{
-    MachineStateHandler, MachineStateHandlerBuilder, ReachabilityParams,
+    MachineStateHandler, MachineStateHandlerBuilder, PowerOptionConfig, ReachabilityParams,
 };
 use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
@@ -231,6 +231,7 @@ pub struct TestEnvOverrides {
     pub dpu_agent_version_staleness_threshold: Option<chrono::Duration>,
     pub prevent_allocations_on_stale_dpu_agent_version: Option<bool>,
     pub network_segments_drain_period: Option<chrono::Duration>,
+    pub power_manager_enabled: Option<bool>,
 }
 
 impl TestEnvOverrides {
@@ -246,6 +247,11 @@ impl TestEnvOverrides {
             create_network_segments: Some(false),
             ..Default::default()
         }
+    }
+
+    pub fn enable_power_manager(mut self) -> Self {
+        self.power_manager_enabled = Some(true);
+        self
     }
 }
 
@@ -1307,6 +1313,10 @@ pub async fn create_test_env_with_overrides(
 
     let attestation_enabled = config.attestation_enabled;
     let ipmi_tool = Arc::new(IPMIToolTestImpl {});
+    let mut power_options: PowerOptionConfig = config.power_manager_options.clone().into();
+    if let Some(v) = overrides.power_manager_enabled {
+        power_options.enabled = v;
+    }
 
     let machine_swap = SwapHandler {
         inner: Arc::new(Mutex::new(
@@ -1326,6 +1336,7 @@ pub async fn create_test_env_with_overrides(
                 .instance_autoreboot_period(
                     config.machine_updater.instance_autoreboot_period.clone(),
                 )
+                .power_options_config(power_options)
                 .build(),
         )),
     };

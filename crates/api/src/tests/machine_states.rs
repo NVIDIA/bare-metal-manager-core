@@ -329,6 +329,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .hardware_models(env.config.get_firmware_config())
+        .power_options_config(env.config.power_manager_options.clone().into())
         .build();
     env.override_machine_state_controller_handler(handler).await;
     env.run_machine_state_controller_iteration().await;
