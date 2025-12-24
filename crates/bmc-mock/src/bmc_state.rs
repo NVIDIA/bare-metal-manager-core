@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 use rand::Rng;
 use rand::distr::StandardUniform;
 
+use crate::json::json_patch;
+
 /// Dell Specific -- iDRAC job implementation
 /// TODO (spyda): move most of this logic to libredfish
 const DELL_JOB_TYPE: &str = "DellConfiguration";
@@ -46,6 +48,8 @@ impl Job {
 pub struct BmcState {
     pub jobs: Arc<Mutex<HashMap<String, Job>>>,
     pub secure_boot_enabled: Arc<AtomicBool>,
+    pub bios: Arc<Mutex<serde_json::Value>>,
+    pub dell_attrs: Arc<Mutex<serde_json::Value>>,
 }
 
 impl BmcState {
@@ -91,5 +95,27 @@ impl BmcState {
 
     pub fn set_secure_boot_enabled(&mut self, enabled: bool) {
         self.secure_boot_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn update_bios(&mut self, v: serde_json::Value) {
+        let mut bios = self.bios.lock().unwrap();
+        json_patch(&mut bios, v);
+    }
+
+    pub fn get_bios(&self, mut base: serde_json::Value) -> serde_json::Value {
+        let bios = self.bios.lock().unwrap();
+        json_patch(&mut base, bios.clone());
+        base
+    }
+
+    pub fn update_dell_attrs(&mut self, v: serde_json::Value) {
+        let mut dell_attrs = self.dell_attrs.lock().unwrap();
+        json_patch(&mut dell_attrs, v);
+    }
+
+    pub fn get_dell_attrs(&self, mut base: serde_json::Value) -> serde_json::Value {
+        let dell_attrs = self.dell_attrs.lock().unwrap();
+        json_patch(&mut base, dell_attrs.clone());
+        base
     }
 }

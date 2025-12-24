@@ -32,6 +32,7 @@ use regex::{Captures, Regex};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::bmc_state::BmcState;
+use crate::json::json_patch;
 use crate::{
     DpuMachineInfo, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, PowerStateQuerying,
     SetSystemPowerReq, call_router_with_new_request, rf,
@@ -87,6 +88,14 @@ pub fn wrap_router_with_mock_machine(
             get(get_managers_ethernet_interface),
         )
         .route(
+            rf!("Managers/{manager_id}/Oem/Dell/DellAttributes/{manager_id}"),
+            get(get_managers_oem_dell_attributes),
+        )
+        .route(
+            rf!("Managers/{manager_id}/Oem/Dell/DellAttributes/{manager_id}"),
+            patch(patch_managers_oem_dell_attributes),
+        )
+        .route(
             rf!("Systems/{system_id}/EthernetInterfaces/{nic}"),
             get(get_systems_ethernet_interface),
         )
@@ -129,12 +138,20 @@ pub fn wrap_router_with_mock_machine(
             get(get_dpu_bios),
         )
         .route(
+            rf!("Systems/Bluefield/Bios/Settings"),
+            patch(patch_dpu_bios),
+        )
+        .route(
             rf!("Systems/{system_id}/Actions/ComputerSystem.Reset"),
             post(post_reset_system),
         )
         .route(
             rf!("Systems/System.Embedded.1/Bios/Settings"),
             patch(patch_bios_settings),
+        )
+        .route(
+            rf!("Systems/System.Embedded.1/Bios"),
+            get(get_bios),
         )
         .route(
             rf!("Systems/System.Embedded.1"),
@@ -179,6 +196,8 @@ pub fn wrap_router_with_mock_machine(
             bmc_state: BmcState{
                 jobs: Arc::new(Mutex::new(HashMap::new())),
                 secure_boot_enabled: Arc::new(AtomicBool::new(false)),
+                bios: Arc::new(Mutex::new(serde_json::json!({}))),
+                dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
             },
         })
 }
@@ -249,6 +268,13 @@ enum MockWrapperError {
     NotFound(String),
     #[error("{0}")]
     SetSystemPower(#[from] SetSystemPowerError),
+    #[error("Missing field {0}")]
+    MissingField(&'static str),
+    #[error("Invalid field format: {field}; expecected: {expected}")]
+    InvalidFieldFormat {
+        field: &'static str,
+        expected: &'static str,
+    },
     #[error("Error sending to BMC command channel: {0}")]
     BmcCommandSendError(#[from] mpsc::error::SendError<BmcCommand>),
     #[error("Error receiving from BMC command channel: {0}")]
@@ -271,6 +297,14 @@ impl IntoResponse for MockWrapperError {
             MockWrapperError::SetSystemPower(e) => {
                 (StatusCode::BAD_REQUEST, e.to_string()).into_response()
             }
+            MockWrapperError::MissingField(f) => {
+                (StatusCode::BAD_REQUEST, format!("Missing field {f}")).into_response()
+            }
+            MockWrapperError::InvalidFieldFormat { field, expected } => (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid field {field} format; expected: {expected}"),
+            )
+                .into_response(),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
         }
     }
@@ -304,6 +338,28 @@ async fn get_managers_ethernet_interface(
         }
     }
     Ok(Bytes::from(iface.to_string()))
+}
+
+async fn get_managers_oem_dell_attributes(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<(String, String)>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    let inner_json = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
+    let patched_dell_attrs = state.bmc_state.get_dell_attrs(inner_json);
+    Ok(Bytes::from(patched_dell_attrs.to_string()))
+}
+
+async fn patch_managers_oem_dell_attributes(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<(String, String)>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let body = request.into_body().collect().await?.to_bytes();
+    let patch_dell_attrs: serde_json::Value = serde_json::from_slice(&body)?;
+    state.bmc_state.update_dell_attrs(patch_dell_attrs);
+    Ok(Bytes::from(""))
 }
 
 async fn get_systems_ethernet_interface(
@@ -833,11 +889,12 @@ async fn get_dpu_bios(
     let MachineInfo::Dpu(dpu) = state.machine_info else {
         return Ok(inner_response);
     };
+    let inner_bios = serde_json::from_slice(inner_response.as_ref())?;
+    let patched_bios = state.bmc_state.get_bios(inner_bios);
 
     // For DPUs in NicMode, rewrite the BIOS attributes to reflect as such
     if dpu.nic_mode {
-        let serde_json::Value::Object(mut bios) = serde_json::from_slice(inner_response.as_ref())?
-        else {
+        let serde_json::Value::Object(mut bios) = patched_bios else {
             tracing::error!(
                 "Invalid JSON response, expected object, got {:?}",
                 inner_response
@@ -866,8 +923,19 @@ async fn get_dpu_bios(
         );
         Ok(Bytes::from(serde_json::to_string(&bios)?))
     } else {
-        Ok(inner_response)
+        Ok(Bytes::from(serde_json::to_string(&patched_bios)?))
     }
+}
+
+async fn patch_dpu_bios(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<()>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let body = request.into_body().collect().await?.to_bytes();
+    let patch_bios_request: serde_json::Value = serde_json::from_slice(&body)?;
+    state.bmc_state.update_bios(patch_bios_request);
+    Ok(Bytes::from(""))
 }
 
 async fn patch_dell_system(
@@ -893,11 +961,39 @@ async fn patch_dell_system(
 }
 
 async fn patch_bios_settings(
-    State(_state): State<MockWrapperState>,
+    State(mut state): State<MockWrapperState>,
     _path: Path<()>,
-    _request: Request<Body>,
+    request: Request<Body>,
 ) -> impl IntoResponse {
     // Dell password change, needs a job ID to be returned in the Location: header
+    let body = match request.into_body().collect().await.map(|v| v.to_bytes()) {
+        Ok(v) => v,
+        Err(err) => return MockWrapperError::from(err).into_response(),
+    };
+    let mut patch_bios_request: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(err) => return MockWrapperError::from(err).into_response(),
+    };
+    // Clear is transformed to Enabled state after reboot. Check if we
+    // need to apply this logic here.
+    const TPM2_HIERARCHY: &str = "Tpm2Hierarchy";
+    const ATTRIBUTES: &str = "Attributes";
+    let tpm2_clear_to_enabled = patch_bios_request
+        .as_object()
+        .and_then(|obj| obj.get(ATTRIBUTES))
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.get(TPM2_HIERARCHY))
+        .and_then(|v| v.as_str())
+        .is_some_and(|v| v == "Clear");
+    if tpm2_clear_to_enabled {
+        json_patch(
+            &mut patch_bios_request,
+            serde_json::json!({ATTRIBUTES: {
+                TPM2_HIERARCHY: "Enabled"
+            }}),
+        );
+    }
+    state.bmc_state.update_bios(patch_bios_request);
     Response::builder()
         .status(StatusCode::OK)
         .header(
@@ -906,6 +1002,17 @@ async fn patch_bios_settings(
         )
         .body(Body::from(""))
         .unwrap()
+}
+
+async fn get_bios(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<()>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    let inner_bios = serde_json::from_slice(inner_response.as_ref())?;
+    let patched_bios = state.bmc_state.get_bios(inner_bios);
+    Ok(Bytes::from(serde_json::to_string(&patched_bios)?))
 }
 
 async fn post_dell_create_bios_job(
@@ -965,14 +1072,22 @@ async fn update_firmware_simple_update(
 async fn patch_dpu_secure_boot(
     State(mut state): State<MockWrapperState>,
     _path: Path<()>,
-    _request: Request<Body>,
-) -> impl IntoResponse {
-    state.bmc_state.set_secure_boot_enabled(true);
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("Location", "/redfish/v1/Systems/Bluefield/SecureBoot")
-        .body(Body::from(""))
-        .unwrap()
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let body = request.into_body().collect().await?.to_bytes();
+    let secure_boot_request: serde_json::Value = serde_json::from_slice(&body)?;
+    const SECURE_BOOT_ENABLE: &str = "SecureBootEnable";
+    let enabled = secure_boot_request
+        .get(SECURE_BOOT_ENABLE)
+        .ok_or(MockWrapperError::MissingField(SECURE_BOOT_ENABLE))?
+        .as_bool()
+        .ok_or(MockWrapperError::InvalidFieldFormat {
+            field: SECURE_BOOT_ENABLE,
+            expected: "Bool",
+        })?;
+
+    state.bmc_state.set_secure_boot_enabled(enabled);
+    Ok(Bytes::from(""))
 }
 
 async fn get_dpu_secure_boot(
@@ -1252,22 +1367,6 @@ fn mac_address_patch(m: MacAddress) -> serde_json::Value {
     serde_json::json!({
         "MACAddress": m.to_string()
     })
-}
-
-fn json_patch(target: &mut serde_json::Value, patch: serde_json::Value) {
-    match (target, patch) {
-        (serde_json::Value::Object(target_obj), serde_json::Value::Object(patch_obj)) => {
-            for (k, v_patch) in patch_obj {
-                match target_obj.get_mut(&k) {
-                    Some(v_target) => json_patch(v_target, v_patch),
-                    None => {
-                        target_obj.insert(k, v_patch);
-                    }
-                }
-            }
-        }
-        (target_slot, v_patch) => *target_slot = v_patch,
-    }
 }
 
 fn resource_status_ok() -> ResourceStatus {

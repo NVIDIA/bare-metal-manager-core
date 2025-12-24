@@ -179,7 +179,6 @@ pub async fn start(
         power_down_wait = "1s"
         failure_retry_time = "1s"
         dpu_up_threshold = "31449600s"
-        skip_polling_checks = true
 
         [machine_state_controller.controller]
         iteration_time = "1s"

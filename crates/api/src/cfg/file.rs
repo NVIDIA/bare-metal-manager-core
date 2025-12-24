@@ -629,10 +629,6 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub scout_reporting_timeout: Duration,
-    /// Skip polling checks (PollingLockdownStatus and PollingBiosSetup) for integration tests.
-    /// This should ONLY be used for testing purposes where Redfish polling is not available.
-    #[serde(default)]
-    pub skip_polling_checks: bool,
 }
 
 impl MachineStateControllerConfig {
@@ -667,7 +663,6 @@ impl Default for MachineStateControllerConfig {
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
             scout_reporting_timeout: MachineStateControllerConfig::scout_reporting_timeout_default(
             ),
-            skip_polling_checks: false,
         }
     }
 }
@@ -2387,7 +2382,6 @@ mod tests {
             failure_retry_time: Duration::minutes(90),
             dpu_up_threshold: Duration::weeks(1),
             scout_reporting_timeout: Duration::minutes(5),
-            skip_polling_checks: false,
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -2426,7 +2420,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
-                skip_polling_checks: false,
             }
         );
     }
@@ -2446,7 +2439,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
-                skip_polling_checks: false,
             }
         );
     }
@@ -2675,7 +2667,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(5),
-                skip_polling_checks: false,
             }
         );
         assert_eq!(
@@ -2831,7 +2822,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(31),
                 dpu_up_threshold: Duration::minutes(33),
                 scout_reporting_timeout: Duration::minutes(20),
-                skip_polling_checks: false,
             }
         );
         assert_eq!(
@@ -3090,7 +3080,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(20),
-                skip_polling_checks: false,
             }
         );
         assert_eq!(
