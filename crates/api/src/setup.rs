@@ -575,7 +575,6 @@ pub async fn initialize_and_start_controllers(
                 )
                 .credential_provider(api_service.credential_provider.clone())
                 .power_options_config(carbide_config.power_manager_options.clone().into())
-                .skip_polling_checks(carbide_config.machine_state_controller.skip_polling_checks)
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {

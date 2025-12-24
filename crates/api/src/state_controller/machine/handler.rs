@@ -125,7 +125,6 @@ pub struct HostHandlerParams {
     pub reachability_params: ReachabilityParams,
     pub machine_validation_config: MachineValidationConfig,
     pub bom_validation: BomValidationConfig,
-    pub skip_polling_checks: bool,
 }
 
 /// Parameters used by the Power config.
@@ -181,7 +180,6 @@ pub struct MachineStateHandlerBuilder {
     power_options_config: PowerOptionConfig,
     enable_secure_boot: bool,
     hgx_bmc_gpu_reboot_delay: chrono::Duration,
-    skip_polling_checks: bool,
 }
 
 impl MachineStateHandlerBuilder {
@@ -217,7 +215,6 @@ impl MachineStateHandlerBuilder {
             },
             enable_secure_boot: false,
             hgx_bmc_gpu_reboot_delay: chrono::Duration::seconds(30),
-            skip_polling_checks: false,
         }
     }
 
@@ -335,11 +332,6 @@ impl MachineStateHandlerBuilder {
         self
     }
 
-    pub fn skip_polling_checks(mut self, skip_polling_checks: bool) -> Self {
-        self.skip_polling_checks = skip_polling_checks;
-        self
-    }
-
     pub fn build(self) -> MachineStateHandler {
         MachineStateHandler::new(self)
     }
@@ -370,14 +362,12 @@ impl MachineStateHandler {
                 reachability_params: builder.reachability_params,
                 machine_validation_config: builder.machine_validation_config,
                 bom_validation: builder.bom_validation,
-                skip_polling_checks: builder.skip_polling_checks,
             }),
             dpu_handler: DpuMachineStateHandler::new(
                 builder.dpu_nic_firmware_initial_update_enabled,
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.reachability_params,
                 builder.enable_secure_boot,
-                builder.skip_polling_checks,
             ),
             instance_handler: InstanceStateHandler::new(
                 builder.attestation_enabled,
@@ -386,7 +376,6 @@ impl MachineStateHandler {
                 host_upgrade.clone(),
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.enable_secure_boot,
-                builder.skip_polling_checks,
             ),
             reachability_params: builder.reachability_params,
             host_upgrade,
@@ -2966,7 +2955,6 @@ pub struct DpuMachineStateHandler {
     hardware_models: FirmwareConfig,
     reachability_params: ReachabilityParams,
     enable_secure_boot: bool,
-    skip_polling_checks: bool,
 }
 
 impl DpuMachineStateHandler {
@@ -2975,14 +2963,12 @@ impl DpuMachineStateHandler {
         hardware_models: FirmwareConfig,
         reachability_params: ReachabilityParams,
         enable_secure_boot: bool,
-        skip_polling_checks: bool,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
             hardware_models,
             reachability_params,
             enable_secure_boot,
-            skip_polling_checks,
         }
     }
 
@@ -3412,15 +3398,6 @@ impl DpuMachineStateHandler {
             DpuInitState::PollingBiosSetup => {
                 let next_state = DpuInitState::WaitingForNetworkConfig
                     .next_state(&state.managed_state, dpu_machine_id)?;
-
-                // Skip polling check if the flag is set (for integration tests)
-                if self.skip_polling_checks {
-                    tracing::info!(
-                        dpu_id = %dpu_snapshot.id,
-                        "Skipping BIOS setup polling check for integration test"
-                    );
-                    return Ok(StateHandlerOutcome::transition(next_state));
-                }
 
                 let dpu_redfish_client = match ctx
                     .services
@@ -4588,15 +4565,6 @@ impl StateHandler for HostMachineStateHandler {
                         },
                     };
 
-                    // Skip polling check if the flag is set (for integration tests)
-                    if self.host_handler_params.skip_polling_checks {
-                        tracing::info!(
-                            machine_id = %mh_snapshot.host_snapshot.id,
-                            "Skipping BIOS setup polling check for integration test"
-                        );
-                        return Ok(StateHandlerOutcome::transition(next_state));
-                    }
-
                     let redfish_client = ctx
                         .services
                         .redfish_client_pool
@@ -4865,15 +4833,6 @@ impl StateHandler for HostMachineStateHandler {
                                 }
                             };
 
-                            // Skip polling check if the flag is set (for integration tests)
-                            if self.host_handler_params.skip_polling_checks {
-                                tracing::info!(
-                                    machine_id = %mh_snapshot.host_snapshot.id,
-                                    "Skipping lockdown status polling check for integration test"
-                                );
-                                return Ok(StateHandlerOutcome::transition(next_state));
-                            }
-
                             let redfish_client = ctx
                                 .services
                                 .redfish_client_pool
@@ -4967,7 +4926,6 @@ pub struct InstanceStateHandler {
     host_upgrade: Arc<HostUpgradeState>,
     hardware_models: FirmwareConfig,
     enable_secure_boot: bool,
-    skip_polling_checks: bool,
 }
 
 impl InstanceStateHandler {
@@ -4978,7 +4936,6 @@ impl InstanceStateHandler {
         host_upgrade: Arc<HostUpgradeState>,
         hardware_models: FirmwareConfig,
         enable_secure_boot: bool,
-        skip_polling_checks: bool,
     ) -> Self {
         InstanceStateHandler {
             attestation_enabled,
@@ -4987,7 +4944,6 @@ impl InstanceStateHandler {
             host_upgrade,
             hardware_models,
             enable_secure_boot,
-            skip_polling_checks,
         }
     }
 }
@@ -5329,7 +5285,6 @@ impl StateHandler for InstanceStateHandler {
                         mh_snapshot,
                         &self.reachability_params,
                         platform_config_state.clone(),
-                        self.skip_polling_checks,
                     )
                     .await
                 }
@@ -8303,7 +8258,6 @@ async fn handle_instance_host_platform_config(
     mh_snapshot: &mut ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     platform_config_state: HostPlatformConfigurationState,
-    skip_polling_checks: bool,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let redfish_client = ctx
         .services
@@ -8505,19 +8459,6 @@ async fn handle_instance_host_platform_config(
                     },
                 },
             };
-
-            // Skip polling check if the flag is set (only for integration tests!)
-            if skip_polling_checks {
-                tracing::info!(
-                    machine_id = %mh_snapshot.host_snapshot.id,
-                    "Skipping BIOS setup polling check for integration test"
-                );
-                return Ok(StateHandlerOutcome::transition(
-                    ManagedHostState::Assigned {
-                        instance_state: next_instance_state,
-                    },
-                ));
-            }
 
             let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
                 let primary_interface = mh_snapshot
