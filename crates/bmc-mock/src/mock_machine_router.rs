@@ -155,7 +155,7 @@ pub fn wrap_router_with_mock_machine(
         )
         .route(
             rf!("Systems/System.Embedded.1"),
-        patch(patch_dell_system).get(get_dell_system),
+            patch(patch_dell_system).get(get_dell_system),
         )
         .route(
             rf!("Systems/Bluefield/SecureBoot"),
@@ -187,6 +187,8 @@ pub fn wrap_router_with_mock_machine(
         .route(rf!("UpdateService/FirmwareInventory/DPU_UEFI"), get(get_dpu_uefi_firmware))
         .route(rf!("UpdateService/FirmwareInventory/DPU_NIC"), get(get_dpu_nic_firmware))
         .route(rf!("Systems/Bluefield/Oem/Nvidia"), get(get_oem_nvidia))
+        // Couple routes for bug injection.
+        .route("/InjectedBugs", get(get_injected_bugs). post(post_injected_bugs))
         .fallback(fallback_to_inner_router)
         .with_state(MockWrapperState {
             machine_info,
@@ -198,6 +200,7 @@ pub fn wrap_router_with_mock_machine(
                 secure_boot_enabled: Arc::new(AtomicBool::new(false)),
                 bios: Arc::new(Mutex::new(serde_json::json!({}))),
                 dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
+                injected_bugs: Default::default(),
             },
         })
 }
@@ -498,6 +501,12 @@ async fn get_chassis_network_adapter(
             return state.call_inner_router(request).await;
         };
 
+        if let Some(helper) = state.bmc_state.injected_bugs.all_dpu_lost_on_host() {
+            return Ok(Bytes::from(serde_json::to_string(
+                &helper.network_adapter(&chassis_id, &network_adapter_id),
+            )?));
+        }
+
         // Build a NetworkAdapter from our mock DPU info (mainly just the serial number)
         let adapter = NetworkAdapter {
             id: network_adapter_id.clone(),
@@ -595,6 +604,17 @@ async fn get_pcie_device(
 
     if !pcie_device_id.starts_with(MAT_DPU_PCIE_DEVICE_PREFIX) {
         return state.call_inner_router(request).await;
+    }
+
+    if state
+        .bmc_state
+        .injected_bugs
+        .all_dpu_lost_on_host()
+        .is_some()
+    {
+        return Err(MockWrapperError::NotFound(
+            "All DPU lost bug injected".into(),
+        ));
     }
 
     let Some(dpu_index) = pcie_device_id
@@ -1328,6 +1348,29 @@ async fn post_reset_system(
         state.call_inner_router(request).await?;
         Ok("".into())
     }
+}
+
+async fn get_injected_bugs(
+    State(state): State<MockWrapperState>,
+    _path: Path<()>,
+    _request: Request<Body>,
+) -> MockWrapperResult {
+    Ok(Bytes::from(serde_json::to_string(
+        &state.bmc_state.injected_bugs.get(),
+    )?))
+}
+
+async fn post_injected_bugs(
+    State(state): State<MockWrapperState>,
+    _path: Path<()>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let body = request.into_body().collect().await?.to_bytes();
+    let bug_args: serde_json::Value = serde_json::from_slice(&body)?;
+    state.bmc_state.injected_bugs.update(bug_args);
+    Ok(Bytes::from(serde_json::to_string(
+        &state.bmc_state.injected_bugs.get(),
+    )?))
 }
 
 struct ResourceName {

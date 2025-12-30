@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use rand::Rng;
 use rand::distr::StandardUniform;
 
+use crate::bug::InjectedBugs;
 use crate::json::json_patch;
 
 /// Dell Specific -- iDRAC job implementation
@@ -50,6 +51,7 @@ pub struct BmcState {
     pub secure_boot_enabled: Arc<AtomicBool>,
     pub bios: Arc<Mutex<serde_json::Value>>,
     pub dell_attrs: Arc<Mutex<serde_json::Value>>,
+    pub injected_bugs: InjectedBugs,
 }
 
 impl BmcState {
