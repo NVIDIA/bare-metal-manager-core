@@ -211,7 +211,7 @@ jobs:
             -w /workspace \
             ${ENV_ARGS} \
             ${{ inputs.build_container }} \
-            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe ${{ inputs.cargo_make_task }}"
+            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe --env SA_ENABLEMENT=1 ${{ inputs.cargo_make_task }}"
 
       # Run build directly on runner (for ephemeral images with mkosi)
       - name: Run cargo make task (shell mode)
@@ -231,7 +231,7 @@ jobs:
           echo "============================================"
 
           # Run the cargo make task with full output
-          cargo make --cwd pxe ${{ inputs.cargo_make_task }} 2>&1 | tee build.log
+          cargo make --cwd pxe --env SA_ENABLEMENT=1 ${{ inputs.cargo_make_task }} 2>&1 | tee build.log
 
           echo "Build completed!"
 
