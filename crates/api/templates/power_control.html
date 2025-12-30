@@ -14,5 +14,8 @@
 			title="This is equivalent to unplugging and reconnecting power cables. Not supported on Vikings."
 			value="ACPowercycle">AC Powercycle</option>
 	</select>
+	{% if let Some(bmc_action_redirect_to) = bmc_action_redirect_to %}
+	<input type="hidden" name="redirect_to" value="{{ bmc_action_redirect_to }}">
+	{% endif %}
 	<input type="submit" value="Submit">
 </form>

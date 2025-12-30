@@ -4,5 +4,8 @@
 			value="true">
 		<label for="use_ipmi">Use IPMI</label>
 	</div>
+	{% if let Some(bmc_action_redirect_to) = bmc_action_redirect_to %}
+	<input type="hidden" name="redirect_to" value="{{ bmc_action_redirect_to }}">
+	{% endif %}
 	<input type="submit" value="Reset BMC">
 </form>
