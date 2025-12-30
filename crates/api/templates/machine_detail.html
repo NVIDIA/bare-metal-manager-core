@@ -194,10 +194,11 @@
 </table>
 {% endif %}
 
-<h3>BMC</h3>
+<h3 id="bmc_info_view">BMC</h3>
 {% match bmc_info %}
 {% when Some with (bmc_info) %}
 {% set bmc_ip = bmc_info.ip.clone().unwrap_or_default() %}
+{% set bmc_action_redirect_to = Some(format!("/admin/machine/{}#bmc_info_view", self.id)) %}
 <table class="detailsview">
 	<tr><th>IP</th><td><a href="/admin/explored-endpoint/{{ bmc_ip }}">{{ bmc_ip }}</a></td></tr>
 	<tr><th>Port</th><td>{{ bmc_info.port|option_fmt }}</td></tr>

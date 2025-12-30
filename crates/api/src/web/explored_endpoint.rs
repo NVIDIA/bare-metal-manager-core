@@ -373,7 +373,9 @@ struct ExploredEndpointDetail {
     is_dell_endpoint: bool,
     report_age: String,
     pause_remediation: bool,
+    bmc_action_redirect_to: Option<String>,
 }
+
 struct ExploredEndpointInfo {
     endpoint: ExploredEndpoint,
     credentials_set: String,
@@ -420,6 +422,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             is_dell_endpoint,
             report_age,
             pause_remediation,
+            bmc_action_redirect_to: None,
         }
     }
 }
@@ -658,7 +661,9 @@ pub async fn power_control(
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<PowerControlEndpointAction>,
 ) -> Response {
-    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+    let view_url = form
+        .redirect_to
+        .unwrap_or_else(|| format!("/admin/explored-endpoint/{endpoint_ip}"));
 
     let Some(action) = form.action else {
         return Redirect::to(&view_url).into_response();
@@ -691,6 +696,7 @@ pub async fn power_control(
 #[derive(Deserialize, Debug)]
 pub struct PowerControlEndpointAction {
     action: Option<String>,
+    redirect_to: Option<String>,
 }
 
 pub async fn bmc_reset(
@@ -698,7 +704,9 @@ pub async fn bmc_reset(
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<BmcResetEndpointAction>,
 ) -> Response {
-    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+    let view_url = form
+        .redirect_to
+        .unwrap_or_else(|| format!("/admin/explored-endpoint/{endpoint_ip}"));
 
     let use_ipmi = match form.use_ipmi {
         Some(i) => i.parse::<bool>().unwrap_or_default(),
@@ -727,6 +735,7 @@ pub async fn bmc_reset(
 #[derive(Deserialize, Debug)]
 pub struct BmcResetEndpointAction {
     use_ipmi: Option<String>,
+    redirect_to: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
