@@ -219,10 +219,7 @@ impl MachineStateMachine {
     ) -> MachineStateMachine {
         MachineStateMachine {
             live_state: Arc::new(RwLock::new(LiveState {
-                // TODO: we want to support cases where machines are racked and plugged in but powered off,
-                // but currently the machine state controller doesn't appear to turn machines on, and they
-                // get stuck in WaitingForDiscovery. Once this is fixed, we can start initially-off.
-                power_state: MockPowerState::On,
+                power_state: MockPowerState::Off,
                 tpm_ek_certificate,
                 ..Default::default()
             })),
