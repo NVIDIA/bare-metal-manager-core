@@ -39,6 +39,7 @@ use tower_http::normalize_path::NormalizePathLayer;
 use tracing::{debug, error, info};
 
 mod bmc_state;
+mod bug;
 mod json;
 mod machine_info;
 mod mock_machine_router;
