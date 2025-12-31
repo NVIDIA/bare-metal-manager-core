@@ -6,7 +6,7 @@ on:
       - main
       - release/*
       - "pull-request/[0-9]+"
-      - "for-review/test-version"
+      - "for-review/fix-build-on-gha-test"
     tags:
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
       - "v[0-9].[0-9].[0-9]*"
