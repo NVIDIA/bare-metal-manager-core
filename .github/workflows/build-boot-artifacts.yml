@@ -33,6 +33,12 @@ on:
         required: false
         default: true
         type: boolean
+      
+      sa_enablement:
+        description: 'Enable SA enablement'
+        required: false
+        default: false
+        type: boolean
     outputs:
       artifacts_json:
         description: 'Artifacts paths as JSON array'
@@ -183,6 +189,8 @@ jobs:
           echo "Working directory: $(pwd)"
           echo "============================================"
 
+
+
       # Run build in container mode (for boot artifacts)
       - name: Run cargo make task (container mode)
         if: inputs.use_container == true
@@ -205,13 +213,34 @@ jobs:
           echo "FORGE_CA=prod"
           echo "============================================"
 
+          EXTRA_DOCKER_ARGS=""
+          if [[ "${{ inputs.cargo_make_task }}" == "build-boot-artifacts-bfb-ci" ]]; then
+            # bfb build runs `docker pull/save` (see pxe/Makefile.toml tasks.bfb-hbn-pull/export).
+            # Allow docker CLI inside the build container to talk to the host Docker daemon.
+            EXTRA_DOCKER_ARGS="${EXTRA_DOCKER_ARGS} -v /var/run/docker.sock:/var/run/docker.sock"
+
+            # Also pass Docker auth config so pulls from NVCR work.
+            if [[ -d "${HOME}/.docker" ]]; then
+              EXTRA_DOCKER_ARGS="${EXTRA_DOCKER_ARGS} -v ${HOME}/.docker:/docker-config:ro -e DOCKER_CONFIG=/docker-config"
+            else
+              echo "⚠️  ${HOME}/.docker not found; NVCR pulls inside the build container may fail"
+            fi
+          fi
+
+          if [[ "${{ inputs.sa_enablement }}" == "true" ]]; then
+            SA_ENABLEMENT=1
+          else
+            SA_ENABLEMENT=0
+          fi
+
           # Run cargo make in container
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
+            ${EXTRA_DOCKER_ARGS} \
             -w /workspace \
             ${ENV_ARGS} \
             ${{ inputs.build_container }} \
-            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe --env SA_ENABLEMENT=1 ${{ inputs.cargo_make_task }}"
+            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe --env SA_ENABLEMENT=${SA_ENABLEMENT} ${{ inputs.cargo_make_task }}"
 
       # Run build directly on runner (for ephemeral images with mkosi)
       - name: Run cargo make task (shell mode)
@@ -225,13 +254,20 @@ jobs:
           # Source cargo environment
           source $HOME/.cargo/env
 
+          if [[ "${{ inputs.sa_enablement }}" == "true" ]]; then
+            SA_ENABLEMENT=1
+          else
+            SA_ENABLEMENT=0
+          fi
+
           echo "============================================"
           echo "Running on shell runner (mkosi mode)"
           echo "VERSION=${{ inputs.version }}"
+          echo "SA_ENABLEMENT=${SA_ENABLEMENT}"
           echo "============================================"
 
           # Run the cargo make task with full output
-          cargo make --cwd pxe --env SA_ENABLEMENT=1 ${{ inputs.cargo_make_task }} 2>&1 | tee build.log
+          cargo make --cwd pxe --env SA_ENABLEMENT=${SA_ENABLEMENT} ${{ inputs.cargo_make_task }} 2>&1 | tee build.log
 
           echo "Build completed!"
 

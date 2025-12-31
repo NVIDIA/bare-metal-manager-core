@@ -551,6 +551,7 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
       runner: linux-amd64-cpu8
       use_container: false
+      sa_enablement: true
     secrets: inherit
 
   build-boot-artifacts-ephemeral-image-arm-host:
@@ -567,6 +568,7 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
       runner: linux-arm64-cpu8
       use_container: false
+      sa_enablement: true
     secrets: inherit
 
   # ============================================================================
