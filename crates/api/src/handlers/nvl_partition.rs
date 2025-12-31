@@ -102,3 +102,44 @@ pub(crate) async fn for_tenant(
 
     Ok(Response::new(rpc::NvLinkPartitionList { partitions }))
 }
+
+pub(crate) async fn nmxm_browse(
+    api: &Api,
+    request: Request<rpc::NmxmBrowseRequest>,
+) -> Result<tonic::Response<rpc::NmxmBrowseResponse>, Status> {
+    log_request_data(&request);
+
+    let request = request.into_inner();
+
+    if let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref()
+        && nvlink_config.enabled
+    {
+        let nmx_m_client = api
+            .nmxm_pool
+            .create_client(&nvlink_config.nmx_m_endpoint, None)
+            .await
+            .map_err(|e| CarbideError::internal(format!("Failed to create NMX-M client: {e}")))?;
+
+        let response = nmx_m_client
+            .raw_get(&request.path)
+            .await
+            .map_err(|e| CarbideError::internal(format!("Failed to get raw response: {e}")))?;
+
+        Ok(tonic::Response::new(::rpc::forge::NmxmBrowseResponse {
+            body: response.body,
+            code: response.code.into(),
+            headers: response
+                .headers
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k.map(|k| k.to_string()).unwrap_or_default(),
+                        String::from_utf8_lossy(v.as_bytes()).to_string(),
+                    )
+                })
+                .collect(),
+        }))
+    } else {
+        Err(CarbideError::internal("nvlink config not enabled".to_string()).into())
+    }
+}

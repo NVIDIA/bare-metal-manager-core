@@ -260,7 +260,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 service: Vec::new(),
                 versions: HashMap::default(),
                 model: None,
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -292,6 +292,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -615,7 +616,7 @@ async fn test_site_explorer_audit_exploration_results(
                 chassis: Vec::new(),
                 service: Vec::new(),
                 versions: HashMap::default(),
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -641,7 +642,7 @@ async fn test_site_explorer_audit_exploration_results(
                 chassis: Vec::new(),
                 service: Vec::new(),
                 versions: HashMap::default(),
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -662,7 +663,7 @@ async fn test_site_explorer_audit_exploration_results(
                 chassis: Vec::new(),
                 service: Vec::new(),
                 versions: HashMap::default(),
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -687,7 +688,7 @@ async fn test_site_explorer_audit_exploration_results(
                 chassis: Vec::new(),
                 service: Vec::new(),
                 versions: HashMap::default(),
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -730,6 +731,7 @@ async fn test_site_explorer_audit_exploration_results(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -905,6 +907,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:98")?;
@@ -1016,6 +1019,7 @@ async fn test_site_explorer_reexplore(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -1153,6 +1157,7 @@ async fn test_site_explorer_creates_managed_host(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
@@ -1338,6 +1343,7 @@ async fn test_site_explorer_creates_managed_host(
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .dpu_enable_secure_boot(env.config.dpu_config.dpu_enable_secure_boot)
+        .power_options_config(env.config.power_manager_options.clone().into())
         .build();
     env.override_machine_state_controller_handler(handler).await;
     env.run_machine_state_controller_iteration().await;
@@ -1571,6 +1577,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
     let mut txn = env.pool.begin().await.unwrap();
     const NUM_DPUS: usize = 2;
@@ -1987,6 +1994,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         endpoint_explorer,
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -2203,6 +2211,7 @@ async fn test_site_explorer_health_report(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Run site explorer and check the health state of the Machine
@@ -2350,6 +2359,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Machine interface should not have any machine id associated with it right now.
@@ -2458,6 +2468,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // No way to find a machine_interface using machine id as machine id is not yet associated with
@@ -2667,8 +2678,7 @@ async fn test_site_explorer_fixtures_singledpu(
         })
         .await?
         // Place site explorer results into the mock site explorer
-        .insert_site_exploration_results()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .await
         .mark_preingestion_complete()
@@ -2741,8 +2751,7 @@ async fn test_site_explorer_fixtures_multidpu(
         })
         .await?
         // Place site explorer results into the mock site explorer
-        .insert_site_exploration_results()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .await
         .mark_preingestion_complete()
@@ -2824,8 +2833,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
         })
         .await?
         // Place site explorer results into the mock site explorer
-        .insert_site_exploration_results()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .await
         .mark_preingestion_complete()
@@ -2933,8 +2941,7 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
         })
         .await?
         // Place mock exploration results into the mock site explorer
-        .insert_site_exploration_results()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .await
         // Mark preingestion as complete before we run site-explorer for the first time
@@ -3041,6 +3048,7 @@ async fn test_site_explorer_unknown_vendor(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3253,6 +3261,7 @@ async fn test_machine_creation_with_sku(
         endpoint_explorer,
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -3482,7 +3491,7 @@ async fn test_expected_machine_device_type_metrics(
                 machine_id: None,
                 versions: std::collections::HashMap::new(),
                 model: Some("test-model".to_string()),
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -3503,7 +3512,7 @@ async fn test_expected_machine_device_type_metrics(
                 machine_id: None,
                 versions: std::collections::HashMap::new(),
                 model: Some("test-model".to_string()),
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -3524,7 +3533,7 @@ async fn test_expected_machine_device_type_metrics(
                 machine_id: None,
                 versions: std::collections::HashMap::new(),
                 model: Some("test-model".to_string()),
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -3557,6 +3566,7 @@ async fn test_expected_machine_device_type_metrics(
         endpoint_explorer,
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Run site explorer to collect metrics
@@ -3676,7 +3686,7 @@ async fn test_site_explorer_power_shelf_discovery(
             service: Vec::new(),
             versions: HashMap::default(),
             model: Some("PowerShelf-2000".to_string()),
-            forge_setup_status: None,
+            machine_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
             power_shelf_id: None,
@@ -3704,6 +3714,7 @@ async fn test_site_explorer_power_shelf_discovery(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3829,7 +3840,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
             service: Vec::new(),
             versions: HashMap::default(),
             model: Some("PowerShelf-2000".to_string()),
-            forge_setup_status: None,
+            machine_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
             power_shelf_id: None,
@@ -3857,6 +3868,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3987,7 +3999,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
                 service: Vec::new(),
                 versions: HashMap::default(),
                 model: Some("PowerShelf-2000".to_string()),
-                forge_setup_status: None,
+                machine_setup_status: None,
                 secure_boot_status: None,
                 lockdown_status: None,
                 power_shelf_id: None,
@@ -4016,6 +4028,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -4129,7 +4142,7 @@ async fn test_site_explorer_power_shelf_disabled(
             service: Vec::new(),
             versions: HashMap::default(),
             model: Some("PowerShelf-2000".to_string()),
-            forge_setup_status: None,
+            machine_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
             power_shelf_id: None,
@@ -4157,6 +4170,7 @@ async fn test_site_explorer_power_shelf_disabled(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -4278,6 +4292,7 @@ async fn test_site_explorer_power_shelf_error_handling(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -4342,6 +4357,7 @@ async fn test_site_explorer_creates_power_shelf(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create a power shelf using FakePowerShelf
@@ -4409,7 +4425,7 @@ async fn test_site_explorer_creates_power_shelf(
         service: Vec::new(),
         versions: HashMap::default(),
         model: Some("PowerShelf-2000".to_string()),
-        forge_setup_status: None,
+        machine_setup_status: None,
         secure_boot_status: None,
         lockdown_status: None,
         power_shelf_id: None,
@@ -4428,6 +4444,7 @@ async fn test_site_explorer_creates_power_shelf(
         last_redfish_reboot: None,
         last_redfish_powercycle: None,
         pause_remediation: false,
+        boot_interface_mac: None,
     };
 
     // Test power shelf creation
@@ -4617,7 +4634,7 @@ async fn test_power_shelf_state_history(
         service: Vec::new(),
         versions: HashMap::default(),
         model: Some("PowerShelf-2000".to_string()),
-        forge_setup_status: None,
+        machine_setup_status: None,
         secure_boot_status: None,
         lockdown_status: None,
         power_shelf_id: None,
@@ -4636,6 +4653,7 @@ async fn test_power_shelf_state_history(
         last_redfish_reboot: None,
         last_redfish_powercycle: None,
         pause_remediation: false,
+        boot_interface_mac: None,
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -4659,6 +4677,7 @@ async fn test_power_shelf_state_history(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create the power shelf using site explorer
@@ -4843,7 +4862,7 @@ async fn test_power_shelf_state_history_multiple(
         service: Vec::new(),
         versions: HashMap::default(),
         model: Some("PowerShelf-2000".to_string()),
-        forge_setup_status: None,
+        machine_setup_status: None,
         secure_boot_status: None,
         lockdown_status: None,
         power_shelf_id: None,
@@ -4868,7 +4887,7 @@ async fn test_power_shelf_state_history_multiple(
         service: Vec::new(),
         versions: HashMap::default(),
         model: Some("PowerShelf-3000".to_string()),
-        forge_setup_status: None,
+        machine_setup_status: None,
         secure_boot_status: None,
         lockdown_status: None,
         power_shelf_id: None,
@@ -4887,6 +4906,7 @@ async fn test_power_shelf_state_history_multiple(
         last_redfish_reboot: None,
         last_redfish_powercycle: None,
         pause_remediation: false,
+        boot_interface_mac: None,
     };
 
     let explored_endpoint2 = ExploredEndpoint {
@@ -4901,6 +4921,7 @@ async fn test_power_shelf_state_history_multiple(
         last_redfish_reboot: None,
         last_redfish_powercycle: None,
         pause_remediation: false,
+        boot_interface_mac: None,
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -4924,6 +4945,7 @@ async fn test_power_shelf_state_history_multiple(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create the power shelves using site explorer
@@ -5107,7 +5129,7 @@ async fn test_power_shelf_state_history_error_handling(
         service: Vec::new(),
         versions: HashMap::default(),
         model: Some("TestModel".to_string()),
-        forge_setup_status: None,
+        machine_setup_status: None,
         secure_boot_status: None,
         lockdown_status: None,
         power_shelf_id: None,
@@ -5126,6 +5148,7 @@ async fn test_power_shelf_state_history_error_handling(
         last_redfish_reboot: None,
         last_redfish_powercycle: None,
         pause_remediation: false,
+        boot_interface_mac: None,
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -5149,6 +5172,7 @@ async fn test_power_shelf_state_history_error_handling(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     // Create the power shelf using site explorer
@@ -5298,7 +5322,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
             service: Vec::new(),
             versions: HashMap::default(),
             model: Some("PowerShelf-2000".to_string()),
-            forge_setup_status: None,
+            machine_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
             power_shelf_id: None,
@@ -5326,6 +5350,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         endpoint_explorer.clone(),
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();

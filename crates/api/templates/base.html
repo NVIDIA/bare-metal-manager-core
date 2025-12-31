@@ -80,11 +80,18 @@
 				<li><a href="/admin/ufm-browser">UFM Browser</a></li>
 			</ul>
 			<hr />
+                        <h3>NVLink</h3>
+                        <ul>
+                               <li><a href="/admin/nmxm-browser">NMX-M Browser</a></li>
+                        </ul>
+			<hr />
+
 			<h3>Tenant Objects</h3>
 			<ul>
 				<li><a href="/admin/domain">Domains</a></li>
 				<li><a href="/admin/vpc">VPCs</a></li>
 				<li><a href="/admin/ib-partition">InfiniBand Partitions</a></li>
+				<li><a href="/admin/nvlink-partition">NVLink Partitions</a></li>
 				<li><a href="/admin/network-segment">Network Segments</a></li>
 				<li><a href="/admin/instance">Instances</a></li>
 				<li><a href="/admin/tenant">Tenants</a></li>
@@ -126,7 +133,7 @@
 				
 				let grafanaBaseUrl = "https://grafana-"+ name +".frg.nvidia.com";
 				document.getElementById("grafana-url").href = grafanaBaseUrl;
-				document.getElementById("serial-console-url").href = grafanaBaseUrl + "/d/ssh-console-logs-v2/serial-console?orgId=1";
+				document.getElementById("serial-console-url").href = grafanaBaseUrl + "/d/ssh-console-rs-logs/serial-console-rust-version?orgId=1";
 				document.getElementById("argo-url").href = "https://argocd-"+ name +".frg.nvidia.com/";
 			}
 

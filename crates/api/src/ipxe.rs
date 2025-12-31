@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
-use carbide_uuid::machine::{MachineInterfaceId, MachineType};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use db::{self};
 use mac_address::MacAddress;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -105,20 +105,32 @@ impl PxeInstructions {
         txn: &mut PgConnection,
         target: PxeInstructionRequest,
     ) -> Result<String, CarbideError> {
-        let error_instructions = |x: &ManagedHostState| -> String {
+        let error_instructions = |machine_id: MachineId,
+                                  interface_id: MachineInterfaceId,
+                                  state: &ManagedHostState|
+         -> String {
             format!(
                 r#"
-echo Current state: {x}. Could not continue boot due to invalid state ||
+echo Machine ID: {machine_id}
+echo Interface ID: {interface_id}
+echo Current state: {state}
+echo Could not continue boot due to invalid state ||
 sleep 5 ||
 exit ||
 "#
             )
         };
 
-        let exit_instructions = |x: &ManagedHostState| -> String {
+        let exit_instructions = |machine_id: MachineId,
+                                 interface_id: MachineInterfaceId,
+                                 state: &ManagedHostState|
+         -> String {
             format!(
                 r#"
-echo Current state: {x}. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. To re-run iPXE instructions and OS installation, trigger a reboot request with flag rebootWithCustomIpxe/boot_with_custom_ipxe set. ||
+echo Machine ID: {machine_id}
+echo Interface ID: {interface_id}
+echo Current state: {state}
+echo This state assumes an OS is provisioned and will exit into the OS in 5 seconds. To re-run iPXE instructions and OS installation, trigger a reboot request with flag rebootWithCustomIpxe/boot_with_custom_ipxe set. ||
 sleep 5 ||
 exit ||
 "#
@@ -211,6 +223,7 @@ exit ||
                 "Invalid machine id. Not found in db.".to_string(),
             ))?;
 
+        tracing::info!(machine_id = %machine.id, interface_id = %target.interface_id, state=%machine.current_state(), "Found existing machine for pxe instructions");
         // DPUs need to boot twice during initial discovery. Both reboots require
         // that the DPU gets pxe instructions.
         //
@@ -252,12 +265,20 @@ exit ||
                             ));
                         }
                         _ => {
-                            return Ok(exit_instructions(machine.current_state()));
+                            return Ok(exit_instructions(
+                                machine_id,
+                                target.interface_id,
+                                machine.current_state(),
+                            ));
                         }
                     }
                 }
                 _ => {
-                    return Ok(exit_instructions(machine.current_state()));
+                    return Ok(exit_instructions(
+                        machine_id,
+                        target.interface_id,
+                        machine.current_state(),
+                    ));
                 }
             }
         }
@@ -353,7 +374,11 @@ exit ||
                                     // this is a block storage os image
                                     // boot will be via the block storage snapshot volume
                                     // no ipxe script for os imaging
-                                    exit_instructions(machine.current_state())
+                                    exit_instructions(
+                                        machine_id,
+                                        target.interface_id,
+                                        machine.current_state(),
+                                    )
                                 } else {
                                     let mut qcow_imaging_ipxe = format!(
                                         "{} console={},115200 image_url={} image_sha={}",
@@ -394,7 +419,7 @@ exit ||
                             }
                         }
                     } else {
-                        exit_instructions(machine.current_state())
+                        exit_instructions(machine_id, target.interface_id, machine.current_state())
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage { .. }
@@ -408,9 +433,9 @@ exit ||
                     )
                 }
 
-                _ => error_instructions(machine.current_state()),
+                _ => error_instructions(machine_id, target.interface_id, machine.current_state()),
             },
-            x => error_instructions(x),
+            x => error_instructions(machine_id, target.interface_id, x),
         };
 
         Ok(pxe_script)

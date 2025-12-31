@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
-use carbide_uuid::machine::MachineId;
 use eyre::Context;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -344,10 +343,6 @@ impl DpuMachineHandle {
         live_state.is_up
             && (self.0.dpu_info.nic_mode
                 || matches!(live_state.booted_os.0, Some(OsImage::DpuAgent)))
-    }
-
-    pub async fn observed_machine_id(&self) -> Option<MachineId> {
-        self.0.live_state.read().unwrap().observed_machine_id
     }
 
     pub async fn wait_until_machine_up_with_api_state(

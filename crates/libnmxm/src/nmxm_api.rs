@@ -67,6 +67,13 @@ impl Nmxm for NmxmApi {
         Ok(Box::new(self.clone()))
     }
 
+    async fn raw_get(&self, api: &str) -> Result<RawResponse, NmxmApiError> {
+        let url = format!("{}/{}", "nmx/v1", api);
+        let response = self.client.get_raw(&url).await?;
+
+        Ok(response)
+    }
+
     async fn get_chassis_count(
         &self,
         _domain: Option<Vec<uuid::Uuid>>,

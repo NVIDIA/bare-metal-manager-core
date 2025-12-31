@@ -1083,6 +1083,9 @@ impl From<Machine> for rpc::forge::Machine {
             hw_sku_device_type: machine.hw_sku_device_type,
             update_complete: machine.update_complete,
             nvlink_info: machine.nvlink_info.map(|info| info.into()),
+            nvlink_status_observation: machine
+                .nvlink_status_observation
+                .map(|status| status.into()),
         }
     }
 }

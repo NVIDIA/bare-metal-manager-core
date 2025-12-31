@@ -598,9 +598,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
 
     assert_eq!(
-        db::machine::count_healthy_unhealthy_host_machines(&all_machines)
-            .await
-            .unwrap(),
+        db::machine::count_healthy_unhealthy_host_machines(&all_machines),
         (1, 0)
     );
     txn.commit().await?;
@@ -645,9 +643,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
 
     assert_eq!(
-        db::machine::count_healthy_unhealthy_host_machines(&all_machines)
-            .await
-            .unwrap(),
+        db::machine::count_healthy_unhealthy_host_machines(&all_machines),
         (1, 1)
     );
     txn.commit().await?;

@@ -49,6 +49,8 @@ struct DbExploredEndpoint {
     last_redfish_powercycle: Option<chrono::DateTime<chrono::Utc>>,
     /// Flag to prevent site explorer from taking remediation actions on redfish errors
     pause_remediation: bool,
+    /// The MAC address of the boot interface (primary interface) for this host endpoint
+    boot_interface_mac: Option<MacAddress>,
 }
 
 impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
@@ -64,6 +66,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
         let last_redfish_reboot = row.try_get("last_redfish_reboot")?;
         let last_redfish_powercycle = row.try_get("last_redfish_powercycle")?;
         let pause_remediation = row.try_get("pause_remediation")?;
+        let boot_interface_mac = row.try_get("boot_interface_mac")?;
         Ok(DbExploredEndpoint {
             address: row.try_get("address")?,
             report: report.0,
@@ -76,6 +79,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
             last_redfish_reboot,
             last_redfish_powercycle,
             pause_remediation,
+            boot_interface_mac,
         })
     }
 }
@@ -94,6 +98,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
             last_redfish_reboot: endpoint.last_redfish_reboot,
             last_redfish_powercycle: endpoint.last_redfish_powercycle,
             pause_remediation: endpoint.pause_remediation,
+            boot_interface_mac: endpoint.boot_interface_mac,
         }
     }
 }
@@ -534,6 +539,21 @@ pub async fn set_pause_remediation(
     let query = "UPDATE explored_endpoints SET pause_remediation = $1 WHERE address = $2";
     sqlx::query(query)
         .bind(pause)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+pub async fn set_boot_interface_mac(
+    address: IpAddr,
+    mac: MacAddress,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE explored_endpoints SET boot_interface_mac = $1 WHERE address = $2";
+    sqlx::query(query)
+        .bind(mac)
         .bind(address)
         .execute(txn)
         .await

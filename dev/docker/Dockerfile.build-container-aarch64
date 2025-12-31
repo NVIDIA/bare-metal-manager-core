@@ -31,6 +31,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update &&  \
 		dosfstools \
 		fdisk \
 		gcc-aarch64-linux-gnu \
+		ipmitool \
 		iproute2 \
 		iputils-ping \
 		jq \
@@ -39,12 +40,14 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update &&  \
 		libboost-dev \
 		libgrpc-dev \
 		libopenipmi-dev \
+		openipmi \
 		libprotobuf-dev \
 		libssh-dev \
 		libssl-dev \
 		libtss2-dev \
 		libudev-dev \
 		pkg-config \
+		tpm2-tools \
 		postgresql-15 \
 		protobuf-compiler \
 		sudo \

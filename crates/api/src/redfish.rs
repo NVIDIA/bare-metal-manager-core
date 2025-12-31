@@ -21,9 +21,7 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
 };
 use libredfish::model::BootProgress;
-use libredfish::{
-    EnabledDisabled, Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl,
-};
+use libredfish::{Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::machine::Machine;
 use sqlx::PgConnection;
 use utils::HostPortPair;
@@ -102,6 +100,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     ///
     /// For testing purposes, if no credentials are found for the IP, and if self.proxy_address is
     /// set, will use anonymous auth.
+    #[allow(txn_held_across_await)]
     async fn create_client_for_ingested_host(
         &self,
         ip: IpAddr,
@@ -154,6 +153,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         client
             .clear_uefi_password(current_password.as_str())
             .await
+            .map_err(|err| redact_password(err, current_password.as_str()))
             .map_err(RedfishClientCreationError::RedfishError)
     }
 
@@ -258,6 +258,8 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         client
             .change_uefi_password(current_password.as_str(), new_password.as_str())
             .await
+            .map_err(|err| redact_password(err, new_password.as_str()))
+            .map_err(|err| redact_password(err, current_password.as_str()))
             .map_err(RedfishClientCreationError::RedfishError)
     }
 }
@@ -372,15 +374,6 @@ impl RedfishClientPool for RedfishClientPoolImpl {
     }
 }
 
-pub async fn is_assigned_machine_booting_scout(machine: &Machine) -> CarbideResult<bool> {
-    match machine.current_state() {
-        model::machine::ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage { .. },
-        } => Ok(true),
-        _ => Ok(false),
-    }
-}
-
 /// redfish utility functions
 ///
 /// host_power_control allows control over the power of the host
@@ -420,61 +413,6 @@ pub async fn host_power_control(
                 .await
                 .map_err(CarbideError::RedfishError)?;
         }
-        bmc_vendor::BMCVendor::Supermicro => {
-            // Wait to test out the newly added logic to query the pending bios settings below before we remove this logic
-            match machine.current_state() {
-                /*
-                    These two states will add pending BIOS settings prior to calling host_power_control
-                    On Supermicros, this will result in the following error from calling boot_once:
-                        Failed to advance state: handler_host_power_control failed:
-                        Error in libredfish: HTTP 400 Bad Request at https://10.217.155.10:443/redfish/v1/Systems/1:
-                        {"error":{"code":"Base.v1_10_3.GeneralError","message":"A general error has occurred. See ExtendedInfo for more information.",
-                        "@Message.ExtendedInfo": [{"MessageId":"SMC.v1_0_0.OemBiosSettingFileAlreadyExists","Severity":"Warning","Resolution":"No resolution is required.",
-                        "Message":"Bios setting file already exists.","MessageArgs":[""],"RelatedProperties":[""]}]}}
-                */
-                model::machine::ManagedHostState::HostInit {
-                    machine_state: model::machine::MachineState::WaitingForPlatformConfiguration,
-                }
-                | model::machine::ManagedHostState::HostInit {
-                    machine_state:
-                        model::machine::MachineState::SetBootOrder {
-                            set_boot_order_info: _,
-                        },
-                } => {}
-                _ => {
-                    let pending = redfish_client.pending().await?;
-                    if pending.is_empty() {
-                        // We need to unlock BMC to perform boot modification, and relock it later
-                        let lstatus = redfish_client.lockdown_status().await?;
-                        if !lstatus.is_fully_disabled() {
-                            redfish_client.lockdown(EnabledDisabled::Disabled).await?;
-                        }
-                        // Supermicro will boot the users OS if we don't do this
-                        let boot_result = redfish_client
-                            .boot_once(libredfish::Boot::Pxe)
-                            .await
-                            .map_err(CarbideError::RedfishError);
-                        if lstatus.is_fully_enabled() {
-                            redfish_client.lockdown(EnabledDisabled::Enabled).await?;
-                        }
-
-                        // We error only after lockdown is reinstaited
-                        boot_result?;
-                    } else {
-                        tracing::debug!(
-                            "(host_power_control): skip setting boot order on supermicro {} with pending bios settings:\n {pending:#?}",
-                            machine.id.to_string()
-                        );
-                    }
-                }
-            }
-
-            redfish_client
-                .power(action)
-                .await
-                .map_err(CarbideError::RedfishError)?;
-        }
-
         bmc_vendor::BMCVendor::Nvidia
             if (action == SystemPowerControl::GracefulRestart)
                 || (action == SystemPowerControl::ForceRestart) =>
@@ -499,12 +437,6 @@ pub async fn host_power_control(
                 && manager.id == "BMC";
 
             if is_viking {
-                // Vikings prepend the users OS to the boot order once it is installed and this cleans up the mess
-                redfish_client
-                    .boot_once(libredfish::Boot::UefiHttp)
-                    .await
-                    .map_err(CarbideError::RedfishError)?;
-
                 // vikings reboot their DPU's if redfish reset is used. \
                 // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
                 //
@@ -540,16 +472,6 @@ pub async fn host_power_control(
                         CarbideError::internal(format!("Failed to restart machine: {e}"))
                     })?;
             } else {
-                // Handle GB200s
-                // This handles cases where the server has prepended the users OS to the boot order.
-                // boot_first will add all UEFI HTTP options to the start of the list
-                if is_assigned_machine_booting_scout(machine).await? {
-                    redfish_client
-                        .boot_first(libredfish::Boot::UefiHttp)
-                        .await
-                        .map_err(CarbideError::RedfishError)?;
-                }
-
                 redfish_client
                     .power(action)
                     .await
@@ -658,6 +580,76 @@ pub async fn did_dpu_finish_booting(
     }
 }
 
+// Some BMC implementation may return passwords in response body and
+// we can display them to user. This function is helper to remove
+// password leak for password-related refish functions.
+pub(crate) fn redact_password(
+    err: libredfish::RedfishError,
+    password: &str,
+) -> libredfish::RedfishError {
+    type RfError = libredfish::RedfishError;
+    const REDACTED: &str = "REDACTED";
+    let redact = |v: String| v.replace(password, REDACTED);
+    match err {
+        RfError::HTTPErrorCode {
+            url,
+            status_code,
+            response_body,
+        } => RfError::HTTPErrorCode {
+            url,
+            status_code,
+            response_body: redact(response_body),
+        },
+        RfError::JsonDeserializeError { url, body, source } => RfError::JsonDeserializeError {
+            url,
+            body: redact(body),
+            source,
+        },
+        RfError::JsonSerializeError {
+            url,
+            object_debug,
+            source,
+        } => RfError::JsonSerializeError {
+            url,
+            object_debug: redact(object_debug),
+            source,
+        },
+        RfError::InvalidValue {
+            url,
+            field,
+            err: libredfish::model::InvalidValueError(v),
+        } => RfError::InvalidValue {
+            url,
+            field,
+            err: libredfish::model::InvalidValueError(redact(v)),
+        },
+        RfError::GenericError { error } => RfError::GenericError {
+            error: redact(error),
+        },
+        // All errors are enumerated here instead of default to get
+        // compile error on any new error in libredfish added. This
+        // gives you chance to think if password may leak to the new
+        // error or not.
+        RfError::NetworkError { .. }
+        | RfError::NoContent
+        | RfError::NoHeader
+        | RfError::Lockdown
+        | RfError::MissingVendor
+        | RfError::PasswordChangeRequired
+        | RfError::FileError(_)
+        | RfError::UserNotFound(_)
+        | RfError::NotSupported(_)
+        | RfError::UnnecessaryOperation
+        | RfError::MissingKey { .. }
+        | RfError::InvalidKeyType { .. }
+        | RfError::TooManyUsers
+        | RfError::NoDpu
+        | RfError::ReqwestError(_)
+        | RfError::TypeMismatch { .. }
+        | RfError::MissingBootOption(_) => err,
+    }
+}
+
 #[cfg(test)]
 pub mod test_support {
     use std::collections::HashMap;
@@ -669,10 +661,12 @@ pub mod test_support {
     use chrono::Utc;
     use forge_secrets::credentials::TestCredentialProvider;
     use libredfish::model::certificate::Certificate;
+    use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
     use libredfish::model::oem::nvidia_dpu::NicMode;
     use libredfish::model::secure_boot::SecureBootMode;
     use libredfish::model::sensor::GPUSensors;
     use libredfish::model::service_root::ServiceRoot;
+    use libredfish::model::software_inventory::SoftwareInventory;
     use libredfish::model::storage::Drives;
     use libredfish::model::task::Task;
     use libredfish::model::update_service::{ComponentType, TransferProtocolType, UpdateService};
@@ -1282,6 +1276,9 @@ pub mod test_support {
         ) -> Result<libredfish::model::service_root::ServiceRoot, RedfishError> {
             Ok(ServiceRoot {
                 vendor: Some("Nvidia".to_string()),
+                component_integrity: Some(ODataId {
+                    odata_id: "Valid Data".to_string(),
+                }),
                 ..Default::default()
             })
         }
@@ -1641,22 +1638,261 @@ pub mod test_support {
             &self,
         ) -> Result<libredfish::model::component_integrity::ComponentIntegrities, RedfishError>
         {
-            todo!()
+            Ok(ComponentIntegrities {
+                members: vec![ComponentIntegrity {
+                    component_integrity_enabled: true,
+                    component_integrity_type: "SPDM".to_string(),
+                    component_integrity_type_version: "1.1.0".to_string(),
+                    id: "ERoT_BMC_0".to_string(),
+                    name: "SPDM Integrity for ERoT_BMC_0".to_string(),
+                    target_component_uri: Some("/redfish/v1/Chassis/ERoT_BMC_0".to_string()),
+                    spdm: Some(libredfish::model::component_integrity::SPDMData {
+                        identity_authentication:
+                            libredfish::model::component_integrity::ResponderAuthentication {
+                                component_certificate: ODataId {
+                                    odata_id:
+                                        "/redfish/v1/Chassis/ERoT_BMC_0/Certificates/CertChain"
+                                            .to_string(),
+                                },
+                            },
+                        requester: ODataId {
+                            odata_id: "/redfish/v1/Managers/BMC_0".to_string(),
+                        },
+                    }),
+                    actions: Some(libredfish::model::component_integrity::SPDMActions {
+                        get_signed_measurements: Some(
+                            libredfish::model::component_integrity::SPDMGetSignedMeasurements {
+                                action_info: "/redfish/v1/ComponentIntegrity/ERoT_BMC_0/SPDMGetSignedMeasurementsActionInfo".to_string(),
+                                target: "/redfish/v1/ComponentIntegrity/ERoT_BMC_0/Actions/ComponentIntegrity.SPDMGetSignedMeasurements".to_string(),
+                            },
+                        ),
+                    }),
+                    links: Some(
+                        libredfish::model::component_integrity::ComponentsProtectedLinks {
+                            components_protected: vec![ODataId{ odata_id: "/redfish/v1/Managers/BMC_0".to_string() }]
+                        },
+                    ),
+                },
+                ComponentIntegrity {
+                    component_integrity_enabled: true,
+                    component_integrity_type: "SPDM".to_string(),
+                    component_integrity_type_version: "1.1.0".to_string(),
+                    id: "HGX_IRoT_GPU_0".to_string(),
+                    name: "SPDM Integrity for HGX_IRoT_GPU_0".to_string(),
+                    target_component_uri: Some("/redfish/v1/Chassis/HGX_IRoT_GPU_0".to_string()),
+                    spdm: Some(libredfish::model::component_integrity::SPDMData {
+                        identity_authentication:
+                            libredfish::model::component_integrity::ResponderAuthentication {
+                                component_certificate: ODataId {
+                                    odata_id:
+                                        "/redfish/v1/Chassis/HGX_IRoT_GPU_0/Certificates/CertChain"
+                                            .to_string(),
+                                },
+                            },
+                        requester: ODataId {
+                            odata_id: "/redfish/v1/Managers/BMC_0".to_string(),
+                        },
+                    }),
+                    actions: Some(libredfish::model::component_integrity::SPDMActions {
+                        get_signed_measurements: Some(
+                            libredfish::model::component_integrity::SPDMGetSignedMeasurements {
+                                action_info: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_0/SPDMGetSignedMeasurementsActionInfo".to_string(),
+                                target: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_0/Actions/ComponentIntegrity.SPDMGetSignedMeasurements".to_string(),
+                            },
+                        ),
+                    }),
+                    links: Some(
+                        libredfish::model::component_integrity::ComponentsProtectedLinks {
+                            components_protected: vec![ODataId{ odata_id: "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_0".to_string() }]
+                        },
+                    ),
+                },
+                ComponentIntegrity {
+                    component_integrity_enabled: true,
+                    component_integrity_type: "SPDM".to_string(),
+                    component_integrity_type_version: "1.1.0".to_string(),
+                    id: "HGX_IRoT_GPU_1".to_string(),
+                    name: "SPDM Integrity for HGX_IRoT_GPU_1".to_string(),
+                    target_component_uri: Some("/redfish/v1/Chassis/HGX_IRoT_GPU_1".to_string()),
+                    spdm: Some(libredfish::model::component_integrity::SPDMData {
+                        identity_authentication:
+                            libredfish::model::component_integrity::ResponderAuthentication {
+                                component_certificate: ODataId {
+                                    odata_id:
+                                        "/redfish/v1/Chassis/HGX_IRoT_GPU_1/Certificates/CertChain"
+                                            .to_string(),
+                                },
+                            },
+                        requester: ODataId {
+                            odata_id: "/redfish/v1/Managers/BMC_0".to_string(),
+                        },
+                    }),
+                    actions: Some(libredfish::model::component_integrity::SPDMActions {
+                        get_signed_measurements: Some(
+                            libredfish::model::component_integrity::SPDMGetSignedMeasurements {
+                                action_info: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_1/SPDMGetSignedMeasurementsActionInfo".to_string(),
+                                target: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_1/Actions/ComponentIntegrity.SPDMGetSignedMeasurements".to_string(),
+                            },
+                        ),
+                    }),
+                    links: Some(
+                        libredfish::model::component_integrity::ComponentsProtectedLinks {
+                            components_protected: vec![ODataId{ odata_id: "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1".to_string() }]
+                        },
+                    ),
+                },
+                ComponentIntegrity {
+                    component_integrity_enabled: true,
+                    component_integrity_type: "TPM".to_string(),
+                    component_integrity_type_version: "1.1.0".to_string(),
+                    id: "HGX_IRoT_GPU_1".to_string(),
+                    name: "SPDM Integrity for HGX_IRoT_GPU_1".to_string(),
+                    target_component_uri: Some("/redfish/v1/Chassis/HGX_IRoT_GPU_1".to_string()),
+                    spdm: Some(libredfish::model::component_integrity::SPDMData {
+                        identity_authentication:
+                            libredfish::model::component_integrity::ResponderAuthentication {
+                                component_certificate: ODataId {
+                                    odata_id:
+                                        "/redfish/v1/Chassis/HGX_IRoT_GPU_1/Certificates/CertChain"
+                                            .to_string(),
+                                },
+                            },
+                        requester: ODataId {
+                            odata_id: "/redfish/v1/Managers/BMC_0".to_string(),
+                        },
+                    }),
+                    actions: Some(libredfish::model::component_integrity::SPDMActions {
+                        get_signed_measurements: Some(
+                            libredfish::model::component_integrity::SPDMGetSignedMeasurements {
+                                action_info: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_1/SPDMGetSignedMeasurementsActionInfo".to_string(),
+                                target: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_1/Actions/ComponentIntegrity.SPDMGetSignedMeasurements".to_string(),
+                            },
+                        ),
+                    }),
+                    links: Some(
+                        libredfish::model::component_integrity::ComponentsProtectedLinks {
+                            components_protected: vec![ODataId{ odata_id: "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1".to_string() }]
+                        },
+                    ),
+                },
+                ComponentIntegrity {
+                    component_integrity_enabled: false,
+                    component_integrity_type: "SPDM".to_string(),
+                    component_integrity_type_version: "1.1.0".to_string(),
+                    id: "HGX_IRoT_GPU_1".to_string(),
+                    name: "SPDM Integrity for HGX_IRoT_GPU_1".to_string(),
+                    target_component_uri: Some("/redfish/v1/Chassis/HGX_IRoT_GPU_1".to_string()),
+                    spdm: Some(libredfish::model::component_integrity::SPDMData {
+                        identity_authentication:
+                            libredfish::model::component_integrity::ResponderAuthentication {
+                                component_certificate: ODataId {
+                                    odata_id:
+                                        "/redfish/v1/Chassis/HGX_IRoT_GPU_1/Certificates/CertChain"
+                                            .to_string(),
+                                },
+                            },
+                        requester: ODataId {
+                            odata_id: "/redfish/v1/Managers/BMC_0".to_string(),
+                        },
+                    }),
+                    actions: Some(libredfish::model::component_integrity::SPDMActions {
+                        get_signed_measurements: Some(
+                            libredfish::model::component_integrity::SPDMGetSignedMeasurements {
+                                action_info: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_1/SPDMGetSignedMeasurementsActionInfo".to_string(),
+                                target: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_1/Actions/ComponentIntegrity.SPDMGetSignedMeasurements".to_string(),
+                            },
+                        ),
+                    }),
+                    links: Some(
+                        libredfish::model::component_integrity::ComponentsProtectedLinks {
+                            components_protected: vec![ODataId{ odata_id: "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1".to_string() }]
+                        },
+                    ),
+                },
+                ComponentIntegrity {
+                    component_integrity_enabled: true,
+                    component_integrity_type: "SPDM".to_string(),
+                    component_integrity_type_version: "0.1.0".to_string(),
+                    id: "HGX_IRoT_GPU_1".to_string(),
+                    name: "SPDM Integrity for HGX_IRoT_GPU_1".to_string(),
+                    target_component_uri: Some("/redfish/v1/Chassis/HGX_IRoT_GPU_1".to_string()),
+                    spdm: Some(libredfish::model::component_integrity::SPDMData {
+                        identity_authentication:
+                            libredfish::model::component_integrity::ResponderAuthentication {
+                                component_certificate: ODataId {
+                                    odata_id:
+                                        "/redfish/v1/Chassis/HGX_IRoT_GPU_1/Certificates/CertChain"
+                                            .to_string(),
+                                },
+                            },
+                        requester: ODataId {
+                            odata_id: "/redfish/v1/Managers/BMC_0".to_string(),
+                        },
+                    }),
+                    actions: Some(libredfish::model::component_integrity::SPDMActions {
+                        get_signed_measurements: Some(
+                            libredfish::model::component_integrity::SPDMGetSignedMeasurements {
+                                action_info: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_1/SPDMGetSignedMeasurementsActionInfo".to_string(),
+                                target: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_1/Actions/ComponentIntegrity.SPDMGetSignedMeasurements".to_string(),
+                            },
+                        ),
+                    }),
+                    links: Some(
+                        libredfish::model::component_integrity::ComponentsProtectedLinks {
+                            components_protected: vec![ODataId{ odata_id: "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_1".to_string() }]
+                        },
+                    ),
+                },
+                ],
+                name: "ComponentIntegrities".to_string(),
+                count: 6,
+            })
         }
 
         async fn get_firmware_for_component(
             &self,
-            _component_integrity_id: &str,
+            component_integrity_id: &str,
         ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError>
         {
-            todo!()
+            if !component_integrity_id.contains("HGX_IRoT_GPU_") {
+                return Err(RedfishError::NotSupported(
+                    "not supported device".to_string(),
+                ));
+            }
+            Ok(SoftwareInventory {
+                odata: ODataLinks {
+                    odata_context: None,
+                    odata_id: "/redfish/v1/UpdateService/FirmwareInventory/HGX_FW_GPU_0"
+                        .to_string(),
+                    odata_type: "#SoftwareInventory.v1_4_0.SoftwareInventory".to_string(),
+                    odata_etag: None,
+                    links: None,
+                },
+                description: None,
+                id: component_integrity_id.to_string(),
+                version: Some("97.00.82.00.5F".to_string()),
+                release_date: None,
+            })
         }
 
         async fn get_component_ca_certificate(
             &self,
             _url: &str,
         ) -> Result<libredfish::model::component_integrity::CaCertificate, RedfishError> {
-            todo!()
+            Ok(serde_json::from_str(r#"{
+    "@odata.id": "/redfish/v1/Chassis/HGX_IRoT_GPU_0/Certificates/CertChain",
+    "@odata.type": "Certificate.v1_5_0.Certificate",
+    "CertificateString": "-----BEGIN CERTIFICATE-----\nMIIDdDCCAvqgAwIBAgIUdgzUdmT3058TdKflDS6w/mP3ps3F9n3TLq8GZw3U9tiL3T57skQBoIL\nTssh8Q5sdh+fdbgkiawE0IKvw26uFwIwZ0UBCk+3B6JuSijznMdCaX+lwxJ0Eq7V\nSFpkQATVveySG/Qo8NreDDAfu5dAcVBr\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIICjjCCAhWgAwIBAgIJQMW6N4r97aTmMAoGCCqGSM49BAMDMFcxKzApBgNVBAMM\nIk5WSURJQSBHQjEwMCBQcm92aXNpb25lciBJQ0EgMDAwMDAxGzAZBgNVBAoMEk5W\nSURJQSBDb3Jwb3JhdGlvbjELMAkGA1UEBhMCVVMwIBcNMjMwNjIwMDAwMDAwWhgP\nOTk5OTEyMzEyMzU5NTlaMGQxGzAZBgNVBAUTEjQwQzVCQTM3OEFGREVEQTRFNjEL\nMAkGA1UEBhMCVVMxGzAZBgNVBAoMEk5WSURJQSBDb3Jwb3JhdGlvbjEbMBkGA1UE\nAwwSR0IxMDAgQTAxIEZTUCBCUk9NMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE4j9u\nVBS3aGs3+UXZz0zjA75rR4+vZ/dmSi077kPcErBP7TeY82L2YfmaEpB2H/aEw9x3\n8aTby9x+920rG9NN+8O8CBKzQW7YBpwGFUkmnLtcN34cMEw2gwUGTEvdtPfdo4Gd\nMIGaMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgIEMDcGCCsGAQUFBwEB\nBCswKTAnBggrBgEFBQcwAYYbaHR0cDovL29jc3AubmRpcy5udmlkaWEuY29tMB0G\nA1UdDgQWBBSRs+v751iHdsbshaYSkL+OTRhnfTAfBgNVHSMEGDAWgBQD78BUvvHZ\nTb1ls+d0V1ySn+B2RTAKBggqhkjOPQQDAwNnADBkAjANWRl8oyEkvYEk2KOY6YgS\nesPo7Wjnvpox3fLIk6FCxcX0Zirezk1T6COhPIK95PACMG5JPYssNlWpjeWOLs5x\nkyAyW2sgtXU9RKxm6i8lmjWyXG3odPVUF8F12CaIxTp5eg==\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIICrjCCAjOgAwIBAgIQXYBfwgLOvCcgRkD8IC+BhTAKBggqhkjOPQQDAzA9MR4w\nHAYDVQQDDBVOVklESUEgR0IxMDAgSWRlbnRpdHkxGzAZBgNVBAoMEk5WSURJQSBD\nb3Jwb3JhdGlvbjAgFw0yMzA2MjAwMDAwMDBaGA85OTk5MTIzMTIzNTk1OVowVzEr\nMCkGA1UEAwwiTlZJRElBIEdCMTAwIFByb3Zpc2lvbmVyIElDQSAwMDAwMDEbMBkG\nA1UECgwSTlZJRElBIENvcnBvcmF0aW9uMQswCQYDVQQGEwJVUzB2MBAGByqGSM49\nAgEGBSuBBAAiA2IABBdKHmiD7JKUIKnyKTdLazbcVBj9HMpHaOE9nEcQvoeoZeHn\nV1Gc+SwOvxtMl7tckYLx4BQLEs/AXWYx0hAVleVP3krbeIfWtmEwsPa9IQQ4APpH\nOYZp9QwBoYHNcci9c6OB2zCB2DAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQE\nAwIBBjA8BgNVHR8ENTAzMDGgL6AthitodHRwOi8vY3JsLm5kaXMubnZpZGlhLmNv\nbS9jcmwvbDItZ2IxMDAuY3JsMDcGCCsGAQUFBwEBBCswKTAnBggrBgEFBQcwAYYb\naHR0cDovL29jc3AubmRpcy5udmlkaWEuY29tMB0GA1UdDgQWBBQD78BUvvHZTb1l\ns+d0V1ySn+B2RTAfBgNVHSMEGDAWgBTtqWR9ZFo/Pa3Guetkw1uSG6TgAjAKBggq\nhkjOPQQDAwNpADBmAjEA8M2NglY92IX9SQrtvdfMTxl4A02CqLHZeleuBHgRX7Mn\n5C7jfE5c23Ejl0j1JnB1AjEAt+tHqjht6MbZJtLX/09pFnFgcTHG0erYR8v375gq\niC3QSP6Khjum4ukzH0KV6JRm\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIICijCCAhCgAwIBAgIQV7ceDOVWAwo2pOUrTKlfHjAKBggqhkjOPQQDAzA1MSIw\nIAYDVQQDDBlOVklESUEgRGV2aWNlIElkZW50aXR5IENBMQ8wDQYDVQQKDAZOVklE\nSUEwIBcNMjMwMTAxMDAwMDAwWhgPOTk5OTEyMzEyMzU5NTlaMD0xHjAcBgNVBAMM\nFU5WSURJQSBHQjEwMCBJZGVudGl0eTEbMBkGA1UECgwSTlZJRElBIENvcnBvcmF0\naW9uMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE/XKlEaBWlqMDj+rpBFEjY2LYS+Ja\niRyYigtuUNpFRia3nsWoBwewhLA1wrw56KAGDXInX5Yde14hqPXCgjUzNkbN5mrC\nmya7oXdUtVYA186E9LlPsm8YEwiPaDd/3Vl8o4HaMIHXMA8GA1UdEwEB/wQFMAMB\nAf8wDgYDVR0PAQH/BAQDAgEGMDsGA1UdHwQ0MDIwMKAuoCyGKmh0dHA6Ly9jcmwu\nbmRpcy5udmlkaWEuY29tL2NybC9sMS1yb290LmNybDA3BggrBgEFBQcBAQQrMCkw\nJwYIKwYBBQUHMAGGG2h0dHA6Ly9vY3NwLm5kaXMubnZpZGlhLmNvbTAdBgNVHQ4E\nFgQU7alkfWRaPz2txrnrZMNbkhuk4AIwHwYDVR0jBBgwFoAUV4X/g/JjzGV9aLc6\nW/SNSsv7SV8wCgYIKoZIzj0EAwMDaAAwZQIwSDCBZ6OhBe4gV1ueWUwYAeDI/LAj\nS8GSEh5PxCwiHMs1EYcOGlCX2e/RlJ8lDFuGAjEAwFOOiBjvktWQP8Fgj7hGefny\nJPhnEXLwVYUemI4ejiPsua4GKin56ip9ZoEHdBUQ\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIICCzCCAZCgAwIBAgIQLTZwscoQBBHB/sDoKgZbVDAKBggqhkjOPQQDAzA1MSIw\nIAYDVQQDDBlOVklESUEgRGV2aWNlIElkZW50aXR5IENBMQ8wDQYDVQQKDAZOVklE\nSUEwIBcNMjExMTA1MDAwMDAwWhgPOTk5OTEyMzEyMzU5NTlaMDUxIjAgBgNVBAMM\nGU5WSURJQSBEZXZpY2UgSWRlbnRpdHkgQ0ExDzANBgNVBAoMBk5WSURJQTB2MBAG\nByqGSM49AgEGBSuBBAAiA2IABA5MFKM7+KViZljbQSlgfky/RRnEQScW9NDZF8SX\ngAW96r6u/Ve8ZggtcYpPi2BS4VFu6KfEIrhN6FcHG7WP05W+oM+hxj7nyA1r1jkB\n2Ry70YfThX3Ba1zOryOP+MJ9vaNjMGEwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8B\nAf8EBAMCAQYwHQYDVR0OBBYEFFeF/4PyY8xlfWi3Olv0jUrL+0lfMB8GA1UdIwQY\nMBaAFFeF/4PyY8xlfWi3Olv0jUrL+0lfMAoGCCqGSM49BAMDA2kAMGYCMQCPeFM3\nTASsKQVaT+8S0sO9u97PVGCpE9d/I42IT7k3UUOLSR/qvJynVOD1vQKVXf0CMQC+\nEY55WYoDBvs2wPAH1Gw4LbcwUN8QCff8bFmV4ZxjCRr4WXTLFHBKjbfneGSBWwA=\n-----END CERTIFICATE-----\n",
+    "CertificateType": "PEMchain",
+    "CertificateUsageTypes": [
+        "Device"
+    ],
+    "Id": "CertChain",
+    "Name": "HGX_IRoT_GPU_0 Certificate Chain",
+    "SPDM": {
+        "SlotId": 0
+    }
+}"#).unwrap())
         }
 
         async fn trigger_evidence_collection(
@@ -1664,14 +1900,26 @@ pub mod test_support {
             _url: &str,
             _nonce: &str,
         ) -> Result<Task, RedfishError> {
-            todo!()
+            Ok(serde_json::from_str(
+                "{
+            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+            \"@odata.type\": \"#Task.v1_4_3.Task\",
+            \"Id\": \"0\"
+            }",
+            )
+            .unwrap())
         }
 
         async fn get_evidence(
             &self,
             _url: &str,
         ) -> Result<libredfish::model::component_integrity::Evidence, RedfishError> {
-            todo!()
+            Ok(serde_json::from_str(r#"{
+  "HashingAlgorithm": "TPM_ALG_SHA_512",
+  "SignedMeasurements": "EeAB/81ALklRkZ0fn8F7O77CNxHPOc8qUBSxyklrCAUYJkkLATUAATIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABxanBrNxxfwfICAJzQ0008O0greTQqXk737JD0VEpjAwAAJiAwRSQU+6KuRrawestxwit0TbmColQFu1wvCp+l1Iwchz0xEfaiI6r4lmCUk5tL0DPnBnYBurQrNIrqqwk5G1C+H5VW25T+N/B+8oojcVByle4LCq6pubLivQGKAYPb",
+  "SigningAlgorithm": "TPM_ALG_ECDSA_ECC_NIST_P384",
+  "Version": "1.1.0"
+}"#).unwrap())
         }
     }
 
@@ -1782,5 +2030,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(PowerState::Off, client.get_power_state().await.unwrap());
+    }
+
+    #[test]
+    fn password_redact_from_error() {
+        const PASSWORD: &str = "1234";
+        let err = libredfish::RedfishError::HTTPErrorCode {
+            url: "https://example.com/redfish/v1/Systems/1/Bios/Actions/Bios.ChangePassword".into(),
+            status_code: http::StatusCode::BAD_REQUEST,
+            response_body: format!(r#""MessageArgs":["{PASSWORD}"]"#),
+        };
+        assert!(err.to_string().contains(PASSWORD));
+        assert!(
+            !redact_password(err, PASSWORD)
+                .to_string()
+                .contains(PASSWORD)
+        );
     }
 }

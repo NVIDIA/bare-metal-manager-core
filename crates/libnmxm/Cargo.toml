@@ -12,18 +12,12 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = { workspace = true }
+http = { workspace = true }
 serde_derive = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_with = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
-#tracing = "*"
-#thiserror = "*"
-#tracing-subscriber =  { workspace = true }
-#anyhow = "1.0.82"
-#getopts = "0.2.21"
-#uuid = { version = "^1.8", features = ["serde", "v4"] }
-#async-trait = "*"
 reqwest = { workspace = true, default-features = false, features = [
   "json",
   "rustls-tls",

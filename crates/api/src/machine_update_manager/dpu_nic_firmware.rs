@@ -69,7 +69,6 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     ) -> CarbideResult<HashSet<MachineId>> {
         let machine_updates: Vec<DpuMachineUpdate> = self
             .check_for_updates(snapshots, available_updates)
-            .await
             .into_iter()
             .filter(|u| updating_host_machines.get(&u.host_machine_id).is_none())
             .collect();
@@ -168,9 +167,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             None,
             &self.config.dpu_config.dpu_nic_firmware_update_versions,
             snapshots,
-        )
-        .await
-        {
+        ) {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
                     metrics
@@ -184,8 +181,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         let outdated_dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(
             &self.config.dpu_config.dpu_nic_firmware_update_versions,
             snapshots,
-        )
-        .await;
+        );
         if let Some(metrics) = &self.metrics {
             metrics
                 .unavailable_dpu_updates
@@ -225,7 +221,7 @@ impl DpuNicFirmwareUpdate {
         })
     }
 
-    pub async fn check_for_updates(
+    pub fn check_for_updates(
         &self,
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
         available_updates: i32,
@@ -234,9 +230,7 @@ impl DpuNicFirmwareUpdate {
             Some(available_updates),
             &self.config.dpu_config.dpu_nic_firmware_update_versions,
             snapshots,
-        )
-        .await
-        {
+        ) {
             Ok(machine_updates) => machine_updates,
             Err(e) => {
                 tracing::warn!("Failed to find machines needing updates: {}", e);

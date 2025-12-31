@@ -255,14 +255,14 @@ pub(crate) async fn is_infinite_boot_enabled(
     }))
 }
 
-pub(crate) async fn forge_setup(
+pub(crate) async fn machine_setup(
     api: &Api,
-    request: Request<rpc::ForgeSetupRequest>,
-) -> Result<Response<rpc::ForgeSetupResponse>, Status> {
+    request: Request<rpc::MachineSetupRequest>,
+) -> Result<Response<rpc::MachineSetupResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
-    // Note: ForgeSetupRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+    // Note: MachineSetupRequest uses a string for machine_id instead of a real MachineId, which is wrong.
     let machine_id = req
         .machine_id
         .as_ref()
@@ -279,13 +279,13 @@ pub(crate) async fn forge_setup(
 
     let endpoint_address = &bmc_endpoint_request.ip_address;
 
-    tracing::info!("Starting Forge Setup for BMC: {}", endpoint_address);
+    tracing::info!("Starting Machine Setup for BMC: {}", endpoint_address);
 
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
-        .forge_setup(
+        .machine_setup(
             bmc_addr,
             &machine_interface,
             req.boot_interface_mac.as_deref(),
@@ -293,9 +293,9 @@ pub(crate) async fn forge_setup(
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    tracing::info!("Forge Setup request succeeded to {}", endpoint_address);
+    tracing::info!("Machine Setup request succeeded to {}", endpoint_address);
 
-    Ok(Response::new(rpc::ForgeSetupResponse {}))
+    Ok(Response::new(rpc::MachineSetupResponse {}))
 }
 
 pub(crate) async fn set_dpu_first_boot_order(
@@ -449,6 +449,14 @@ pub(crate) async fn explore(
     let expected_power_shelf =
         crate::handlers::expected_power_shelf::query(api, bmc_mac_address).await?;
 
+    // Look up boot_interface_mac from existing explored endpoint if available
+    let mut txn = api.txn_begin().await?;
+    let boot_interface_mac = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr.ip()])
+        .await?
+        .first()
+        .and_then(|ep| ep.boot_interface_mac);
+    txn.commit().await?;
+
     let report = api
         .endpoint_explorer
         .explore_endpoint(
@@ -458,6 +466,7 @@ pub(crate) async fn explore(
             expected_power_shelf,
             expected_switch,
             None,
+            boot_interface_mac,
         )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
@@ -797,7 +806,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<MachineId>,
-) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), Status> {
+) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), CarbideError> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
             let interface = db::machine_interface::find_by_ip(
@@ -825,8 +834,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                             requested_ip: bmc_endpoint_request.ip_address.clone(),
                             requested_mac: request_mac,
                             found_mac: interface.mac_address.to_string(),
-                        }
-                        .into());
+                        });
                     }
 
                     request_mac
@@ -875,8 +883,8 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             ))
         }
 
-        _ => Err(Status::invalid_argument(
-            "Provide either machine_id or BmcEndpointRequest with at least ip_address",
+        _ => Err(CarbideError::InvalidArgument(
+            "Provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
         )),
     }
 }

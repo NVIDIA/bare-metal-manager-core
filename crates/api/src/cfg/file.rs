@@ -49,14 +49,14 @@ use crate::state_controller::config::IterationConfig;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 
-static BF2_NIC: &str = "24.43.3608";
-static BF2_BMC: &str = "BF-24.10-33";
+static BF2_NIC: &str = "24.47.1026";
+static BF2_BMC: &str = "BF-25.10-9";
 static BF2_CEC: &str = "4-15";
-static BF2_UEFI: &str = "4.9.3-22-g5c9f881c3f";
-static BF3_NIC: &str = "32.43.3608";
-static BF3_BMC: &str = "BF-24.10-33";
+static BF2_UEFI: &str = "4.13.0-26-g337fea6bfd";
+static BF3_NIC: &str = "32.47.1026";
+static BF3_BMC: &str = "BF-25.10-9";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
-static BF3_UEFI: &str = "4.9.3-22-g5c9f881c3f";
+static BF3_UEFI: &str = "4.13.0-26-g337fea6bfd";
 
 /// carbide-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -221,6 +221,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub switch_state_controller: SwitchStateControllerConfig,
 
+    /// SpdmStateController related configuration parameter
+    #[serde(default)]
+    pub spdm_state_controller: SpdmStateControllerConfig,
+
     #[serde(default)]
     pub host_models: HashMap<String, Firmware>,
 
@@ -365,6 +369,18 @@ pub struct CarbideConfig {
 
     // rms_api_url is the URL to the Rack Manager Service API.
     pub rms_api_url: Option<String>,
+
+    // SPDM Config
+    #[serde(default)]
+    pub spdm: SpdmConfig,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SpdmConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub nras_config: Option<nras::Config>,
 }
 
 /// Parameters used by the Power config.
@@ -489,7 +505,7 @@ impl CarbideConfig {
     // to configure the DPA.
     pub fn get_dpa_profile(&self, _device_type: String) -> String {
         // XXX TODO XXX
-        // Figure out profie that needs to be applied to the given device type
+        // Figure out profile that needs to be applied to the given device type
         // XXX TODO XXX
         "bf3-spx-enabled".to_string()
     }
@@ -613,10 +629,6 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub scout_reporting_timeout: Duration,
-    /// Skip polling checks (PollingLockdownStatus and PollingBiosSetup) for integration tests.
-    /// This should ONLY be used for testing purposes where Redfish polling is not available.
-    #[serde(default)]
-    pub skip_polling_checks: bool,
 }
 
 impl MachineStateControllerConfig {
@@ -651,7 +663,6 @@ impl Default for MachineStateControllerConfig {
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
             scout_reporting_timeout: MachineStateControllerConfig::scout_reporting_timeout_default(
             ),
-            skip_polling_checks: false,
         }
     }
 }
@@ -724,6 +735,14 @@ pub struct RackStateControllerConfig {
 /// SwitchStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct SwitchStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+}
+
+/// SpdmStateController related config
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct SpdmStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
@@ -930,9 +949,11 @@ pub struct NvLinkConfig {
     pub nmx_m_operation_timeout: std::time::Duration,
 
     /// NMX-M endpoint (name or IP address) used to create client connections,
-    /// include port number as well if required eg. 127.0.0.1:4010
+    /// include port number as well if required eg. https://127.0.0.1:4010
     #[serde(default = "default_nmx_m_endpoint")]
     pub nmx_m_endpoint: String,
+    /// Set to true if NMX-M doesn't adhere to security requirements. Defaults to false
+    pub allow_insecure: bool,
 }
 
 fn default_nmx_m_endpoint() -> String {
@@ -946,6 +967,7 @@ impl Default for NvLinkConfig {
             monitor_run_interval: Self::default_monitor_run_interval(),
             nmx_m_operation_timeout: Self::default_nmx_m_operation_timeout(),
             nmx_m_endpoint: "localhost".to_string(),
+            allow_insecure: false,
         }
     }
 }
@@ -979,7 +1001,7 @@ pub struct SiteExplorerConfig {
     pub concurrent_explorations: u64,
     /// How many nodes should be explored in a single run.
     /// Default is 10.
-    /// This number divded by `concurrent_explorations` will determine how many
+    /// This number divided by `concurrent_explorations` will determine how many
     /// exploration batches are needed inside a run.
     /// If the value is set too high the site exploration will take a lot of time
     /// and the exploration report will be updated less frequent. Therefore it
@@ -1804,7 +1826,7 @@ impl FirmwareConfig {
             cur_model.ordering = cfg.ordering
         }
 
-        // if explicit_start_needed is true, it should take precendence. We shouldn't be doing automatic upgrades.
+        // if explicit_start_needed is true, it should take precedence. We shouldn't be doing automatic upgrades.
         if cfg.explicit_start_needed {
             cur_model.explicit_start_needed = true;
         }
@@ -2360,7 +2382,6 @@ mod tests {
             failure_retry_time: Duration::minutes(90),
             dpu_up_threshold: Duration::weeks(1),
             scout_reporting_timeout: Duration::minutes(5),
-            skip_polling_checks: false,
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -2399,7 +2420,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
-                skip_polling_checks: false,
             }
         );
     }
@@ -2419,7 +2439,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
-                skip_polling_checks: false,
             }
         );
     }
@@ -2648,7 +2667,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(5),
-                skip_polling_checks: false,
             }
         );
         assert_eq!(
@@ -2804,7 +2822,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(31),
                 dpu_up_threshold: Duration::minutes(33),
                 scout_reporting_timeout: Duration::minutes(20),
-                skip_polling_checks: false,
             }
         );
         assert_eq!(
@@ -3063,7 +3080,6 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(20),
-                skip_polling_checks: false,
             }
         );
         assert_eq!(
@@ -3407,6 +3423,7 @@ mqtt_endpoint = "mqtt.forge"
                 monitor_run_interval: std::time::Duration::from_secs(33),
                 nmx_m_operation_timeout: std::time::Duration::from_secs(21),
                 nmx_m_endpoint: "localhost".to_string(),
+                allow_insecure: true,
             }
         );
     }

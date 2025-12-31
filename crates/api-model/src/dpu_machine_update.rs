@@ -37,7 +37,7 @@ impl DpuMachineUpdate {
     ///    6.1. Make sure none of the DPU is under reprovisioning while queuing a new DPU for a
     ///    managedhost. This is done by confirming that Host is not marked for updates
     ///
-    pub async fn find_available_outdated_dpus(
+    pub fn find_available_outdated_dpus(
         limit: Option<i32>,
         dpu_nic_firmware_update_versions: &[String],
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -46,8 +46,7 @@ impl DpuMachineUpdate {
             return Ok(vec![]);
         }
 
-        let outdated_dpus =
-            Self::find_outdated_dpus(dpu_nic_firmware_update_versions, snapshots).await;
+        let outdated_dpus = Self::find_outdated_dpus(dpu_nic_firmware_update_versions, snapshots);
 
         let mut scheduled_host_updates = 0;
         let available_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
@@ -71,12 +70,11 @@ impl DpuMachineUpdate {
         Ok(available_outdated_dpus)
     }
 
-    pub async fn find_unavailable_outdated_dpus(
+    pub fn find_unavailable_outdated_dpus(
         dpu_nic_firmware_update_versions: &[String],
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> Vec<DpuMachineUpdate> {
-        let outdated_dpus =
-            Self::find_outdated_dpus(dpu_nic_firmware_update_versions, snapshots).await;
+        let outdated_dpus = Self::find_outdated_dpus(dpu_nic_firmware_update_versions, snapshots);
 
         let unavailable_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
             .into_iter()
@@ -92,7 +90,7 @@ impl DpuMachineUpdate {
         unavailable_outdated_dpus
     }
 
-    pub async fn find_outdated_dpus(
+    pub fn find_outdated_dpus(
         dpu_nic_firmware_update_versions: &[String],
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> Vec<OutdatedHost> {

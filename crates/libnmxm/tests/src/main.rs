@@ -9,7 +9,7 @@ async fn main() -> Result<(), anyhow::Error> {
         password: None,
     };
 
-    let pool = libnmxm::NmxmClientPool::builder().build()?;
+    let pool = libnmxm::NmxmClientPool::builder(true).build()?;
     let nmxm = pool.create_client(endpoint).await?;
 
     let mut json;

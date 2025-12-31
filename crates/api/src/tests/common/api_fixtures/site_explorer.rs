@@ -157,7 +157,7 @@ impl<'a> MockExploredHost<'a> {
     // Create an EndpointExplorationReport for the host and DPUs, and seed them into the
     // MockEndpointExplorer in this test env. If any of the host BMC or DPU BMC's have not run DHCP
     // yet, they will be skipped (as we won't yet know their IP.)
-    pub async fn insert_site_exploration_results(mut self) -> eyre::Result<Self> {
+    pub fn insert_site_exploration_results(mut self) -> eyre::Result<Self> {
         self.test_env.endpoint_explorer.insert_endpoints(
             self.managed_host
                 .dpus
@@ -1108,9 +1108,7 @@ pub async fn new_mock_host(
         .discover_dhcp_host_bmc(|_, _| Ok(()))
         .boxed()
         .await?
-        .insert_site_exploration_results()
-        .boxed()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .boxed()
         .await
@@ -1187,9 +1185,7 @@ pub async fn new_host_with_machine_validation(
         .discover_dhcp_host_bmc(|_, _| Ok(()))
         .boxed()
         .await?
-        .insert_site_exploration_results()
-        .boxed()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .boxed()
         .await
@@ -1245,9 +1241,7 @@ pub async fn new_dpu(env: &TestEnv, config: ManagedHostConfig) -> eyre::Result<M
         .discover_dhcp_host_bmc(|_, _| Ok(()))
         .boxed()
         .await?
-        .insert_site_exploration_results()
-        .boxed()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .boxed()
         .await
@@ -1281,9 +1275,7 @@ pub async fn new_dpu_in_network_install(
         .discover_dhcp_host_bmc(|_, _| Ok(()))
         .boxed()
         .await?
-        .insert_site_exploration_results()
-        .boxed()
-        .await?
+        .insert_site_exploration_results()?
         .run_site_explorer_iteration()
         .boxed()
         .await

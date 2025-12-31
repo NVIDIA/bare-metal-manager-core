@@ -18,7 +18,7 @@ use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
     NewNetworkSegment,
 };
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgTransaction};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -219,7 +219,9 @@ pub(crate) async fn for_vpc(
 // Called by db_init::create_initial_networks
 pub(crate) async fn save(
     api: &Api,
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     mut ns: NewNetworkSegment,
     set_to_ready: bool,
     allocate_svi_ip: bool,

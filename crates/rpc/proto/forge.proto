@@ -487,8 +487,8 @@ service Forge {
   rpc Lockdown(LockdownRequest) returns (LockdownResponse);
   // Fetch Lockdown Status
   rpc LockdownStatus(LockdownStatusRequest) returns (site_explorer.LockdownStatus);
-  // Start Forge Setup
-  rpc ForgeSetup(ForgeSetupRequest) returns (ForgeSetupResponse);
+  // Start Machine Setup
+  rpc MachineSetup(MachineSetupRequest) returns (MachineSetupResponse);
   // Set DPU as first boot option
   rpc SetDpuFirstBootOrder(SetDpuFirstBootOrderRequest) returns (SetDpuFirstBootOrderResponse);
   // Create BMC User
@@ -718,6 +718,8 @@ service Forge {
   rpc DeleteNVLinkLogicalPartition(NVLinkLogicalPartitionDeletionRequest) returns (NVLinkLogicalPartitionDeletionResult);
   // Find all Logical partitions under a specified tenant
   rpc NVLinkLogicalPartitionsForTenant(TenantSearchQuery) returns (NVLinkLogicalPartitionList);
+
+  rpc NmxmBrowse(NmxmBrowseRequest) returns (NmxmBrowseResponse);
 }
 
 message AttestationIdsRequest {
@@ -737,8 +739,7 @@ message AttestationResponse {
     string device_id = 1;
     common.UUID nonce = 2;
     string state = 3;
-    optional string last_known_metadata = 4;
-    optional string current_metadata = 5;
+    optional string metadata = 4;
   }
   message AttestationMachineData {
     common.MachineId machine_id = 1;
@@ -2589,6 +2590,8 @@ message Machine {
   bool update_complete = 42;
 
   optional MachineNVLinkInfo nvlink_info = 43;
+
+  optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
 }
 
 message InstanceNetworkRestrictions {
@@ -3101,6 +3104,7 @@ message ManagedHostDpuExtensionServiceConfig {
   DpuExtensionServiceType service_type = 5;
   string data = 6;
   optional DpuExtensionServiceCredential credential = 7;
+  optional DpuExtensionServiceObservability observability = 8;
 }
 
 message ManagedHostQuarantineState {
@@ -3250,8 +3254,9 @@ message FlatInterfaceConfig {
 message FlatInterfaceNetworkSecurityGroupConfig {
   string id                                       = 1;
   string version                                  = 2;
-  NetworkSecurityGroupSource source               = 3;
+  NetworkSecurityGroupSource source               = 3;  
   repeated ResolvedNetworkSecurityGroupRule rules = 4;
+  bool stateful_egress                            = 5;
 }
 
 message ManagedHostNetworkStatusRequest {
@@ -3373,18 +3378,18 @@ message LockdownStatusRequest {
   optional common.MachineId machine_id = 2;
 }
 
-message ForgeSetupStatusRequest {
+message MachineSetupStatusRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
 }
 
-message ForgeSetupRequest {
+message MachineSetupRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
   optional string boot_interface_mac = 3;
 }
 
-message ForgeSetupResponse {
+message MachineSetupResponse {
 }
 
 message SetDpuFirstBootOrderRequest {
@@ -5015,8 +5020,11 @@ message UfmBrowseResponse {
   map<string, string> headers = 3;
 }
 
-message NetworkSecurityGroupAttributes {
+message NetworkSecurityGroupAttributes {  
   repeated NetworkSecurityGroupRuleAttributes rules = 1;
+
+  // Whether egress rules should be stateful.
+  bool stateful_egress                              = 2;
 }
 
 message NetworkSecurityGroup {
@@ -5526,6 +5534,32 @@ message NVLinkGpu {
   uint64 guid = 5;
 }
 
+message MachineNVLinkStatusObservation {
+  repeated MachineNVLinkGpuStatusObservation gpu_status = 1;
+}
+
+message MachineNVLinkGpuStatusObservation {
+  string gpu_id = 1;
+  optional common.NVLinkPartitionId partition_id = 2;
+  optional common.NVLinkLogicalPartitionId logical_partition_id = 3;
+  uint32 device_instance = 4;
+  common.NVLinkDomainId domain_id = 5;
+  uint64 guid = 6;
+}
+
+message NmxmBrowseRequest {
+  string path = 1;
+}
+
+message NmxmBrowseResponse {
+  // Response body
+  string body = 1;
+  // Response status code
+  int32 code = 2;
+  // Response headers
+  map<string, string> headers = 3;
+}
+
 // Describe an NVLink based Partition configuration and status
 message NVLinkPartition {
   common.NVLinkPartitionId id = 1;
@@ -5804,6 +5838,7 @@ message DpuExtensionServiceVersionInfo {
   string data = 2;
   bool has_credential = 3;
   string created = 4;
+  optional DpuExtensionServiceObservability observability = 5;
 }
 
 message DpuExtensionService {
@@ -5843,6 +5878,10 @@ message CreateDpuExtensionServiceRequest {
   // Versioned extension service spec
   string data = 6;
   optional DpuExtensionServiceCredential credential = 7;
+
+  // Metrics configuration to be added to the existing
+  // metrics collection service that runs on the DPU.
+  optional DpuExtensionServiceObservability observability = 8;
 }
 
 message UpdateDpuExtensionServiceRequest {
@@ -5858,9 +5897,13 @@ message UpdateDpuExtensionServiceRequest {
   // If the field here is set, the update will only be applied if the version
   // is equivalent to the current version on the Forge Site.
   // If a concurrent update changed the site configuration, the API will return
-  // a `ConcurrentModificationError`.
+  // a `ConcurrentModificationError`.  
   optional int32 if_version_ctr_match = 6;
-}
+
+  // Metrics configuration to be added to the existing
+  // metrics collection service that runs on the DPU.
+  optional DpuExtensionServiceObservability observability = 7;
+} 
 
 // If versions is empty, request to delete the whole service;
 // otherwise, request to delete the specified versions **but**
@@ -5925,6 +5968,32 @@ message InstanceDpuExtensionServiceInfo {
   string service_id = 2;
   string version = 3;
   optional string removed = 4; // Signals that this service is being removed from instance config and is terminating
+}
+
+message DpuExtensionServiceObservabilityConfigPrometheus {
+  uint32 scrape_interval_seconds = 1;
+  string endpoint                = 2;  
+}
+
+message DpuExtensionServiceObservabilityConfigLogging {
+  string path = 1;
+}
+
+message DpuExtensionServiceObservabilityConfig {
+  // The name of service being monitored OR the name of
+  // the portion of the service being monitored.
+  // This will default to the name of the service.
+  optional string name = 1;
+
+  oneof config {
+    DpuExtensionServiceObservabilityConfigPrometheus prometheus = 2;
+    DpuExtensionServiceObservabilityConfigLogging    logging    = 3;
+  }
+}
+
+
+message DpuExtensionServiceObservability {
+  repeated DpuExtensionServiceObservabilityConfig configs = 1;
 }
 
 // ScoutStreamApiBoundMessage is sent as part of scout initiating a new

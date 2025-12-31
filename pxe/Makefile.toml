@@ -16,40 +16,40 @@ PKG_VERSION = { script = [
 ] }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
-# BFB stuff
-# When the BFB is updated, the corresponding values at the top of api/src/cfg/file.rs will need to be updated as well.
-BFB_NAME = "bf-bundle-2.9.3-32_25.06_ubuntu-22.04_prod.bfb"
-BFB_UPSTREAM_LOCATION = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04"
-URM_LOCATION = "https://urm.nvidia.com/artifactory/sw-forge-admins-generic-local/build-artifacts/${HBN_VERSION}"
-DOCA_VERSION = "2.9.3"
-HBN_VERSION = "2.4.3"
-# As of 2.4.3, PID is used to download artifacts. A url like this http://pid/1138607 will be given to download the zip, which contains
-# the zip file, which was saved manually to the same name of teh hbn uri in the scripts/2.4.3/doca_hbn.yml which is also in the same zip.
-# once we know for sure the zip file in pid is the new way to get this file, we can automate all the manual steps that went in to upload
-# Such as making the doca_container_configs.zip manually from files inside the zip from pid and manually exporting the hbn image to
-# the named DOCA_HBN_URI.
-HBN_UPSTREAM_CONFIG_URL = "/tmp/doca_container_configs.zip"
+# BlueField Bundle (BFB) Version
+# NOTE: Update `crates/api/src/cfg/file.rs` to set the DOCA BFB component versions (BMC, NIC, CEC fw)
+# so that Carbide treats them as the expected DPU fw versions.
+# There are several ways to get the DPU fw versions. After the initial test upgrade you can retrieve them from the DPU ARM OS
+# - using a Redfish call (pick values of BMC_Firmware for BF?_BMC, Bluefield_FW_ERoT for BF?_CEC, DPU_UEFI for BF?_UEFI, DPU_NIC for BF?_NIC):
+# `curl -sk -u DPU_BMC_USER:DPU_BMC_PASSWORD 'https://DPU_BMC_IP/redfish/v1/UpdateService/FirmwareInventory?$expand=.($levels=1)' \
+# | jq -c ' .Members[] | select(.Id | test("^(BMC_Firmware|Bluefield_FW.*|DPU_UEFI|DPU_NIC)$")) | {Id, Version}'`
+# - using flint tool (BlueField-3 only):
+# `flint -d /dev/mst/mt41692_pciconf0 qbfb`
+#
+DOCA_VERSION = "3.2.0"
+BFB_BUILD = "113"
+BFB_RELEASE = "25.10"
+# DPU OS Ubuntu 22.04
+BFB_URL = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04"
+BFB_NAME = "bf-bundle-${DOCA_VERSION}-${BFB_BUILD}_${BFB_RELEASE}_ubuntu-22.04_prod.bfb"
+# DOCA HBN Version
+DOCA_HBN_VERSION = "3.2.0"
+DOCA_HBN_URL = "nvcr.io/nvidia/doca/doca_hbn:${DOCA_HBN_VERSION}-doca${DOCA_VERSION}"
+DOCA_HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/doca/doca_hbn/${DOCA_HBN_VERSION}/files"
+
 IPXE_BANNER_VERSION = { script = [
   "echo ${VERSION:-$(git describe --tags --first-parent --always --long)}",
 ] }
-DOCA_HBN_URI = "nvcr.io/nvstaging/doca/doca_hbn:2.4.3-doca2.9.3"
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
-[tasks.upload-bfb-artifacts-to-urm]
-env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "${HBN_UPSTREAM_CONFIG_URL}" }
-run_task = "internal-upload-bfb-artifacts-to-urm"
 
-# Do not directly call this as the variables are set in a non internal task
-[tasks.internal-upload-bfb-artifacts-to-urm]
-dependencies = [
-  "bfb-cleanup-tmp",
-  "bfb-create-tmp",
-  "bfb-download",
-  "save-bfb-for-preingestion",
-  "bfb-mv-to-build-dir",
-  "bfb-hbn-export",
-  "cp-hbn-installer-to-bfb",
-  "upload-artifacts-to-artifactory",
-]
+# Detect sudo/doas elevation command from env
+ELEVATE = { script = [
+  '''
+  command -v sudo >/dev/null 2>&1 && echo sudo && exit 0
+  command -v doas >/dev/null 2>&1 && echo doas && exit 0
+  echo ""
+  '''
+] }
 
 [tasks.save-bfb-for-preingestion]
 description = "Copy the vanilla BFB file to the static blobs directory"
@@ -57,22 +57,6 @@ command = "cp"
 args = ["/tmp/bfb-dump/${BFB_NAME}", "preingestion.bfb"]
 cwd = "static/blobs/internal/aarch64"
 
-[tasks.bfb-mv-to-build-dir]
-command = "mv"
-args = ["/tmp/bfb-dump/${BFB_NAME}", "${BUILD_LOCATION}"]
-
-[tasks.upload-artifacts-to-artifactory]
-command = "jf"
-args = [
-  "rt",
-  "upload",
-  "./*",
-  "sw-forge-admins-generic/build-artifacts/${HBN_VERSION}/",
-  "--server-id=urm",
-]
-cwd = "${BUILD_LOCATION}" # jf will try to upload the full path specified if the tool is executed out of the target directory
-
-# FIXME: FORGE-7058 - Make authentication to scout & DPUs configurable by someone else
 [tasks.stage-nvinit]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
 # Note that libnss-exec is located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
@@ -182,7 +166,6 @@ dependencies = [
 ]
 
 [tasks.bfb-aarch64-sa]
-env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "/tmp/doca_container_configs.zip" }
 run_task = "internal-bfb-aarch64-sa"
 
 [tasks.ipxe-aarch64-sa]
@@ -209,10 +192,10 @@ dependencies = [
 dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
-  # "bfb-aarch64-ci", # FIXME: FORGE-7502 - Disabled until URM migration completed
+  "bfb-aarch64-ci",
   "ipxe-aarch64-ci",
-  # "add-secure-boot-pk-pem", # FIXME: FORGE-7502 - Disabled until URM migration completed, due to bfb-aarch64-ci
-  # "setup-apt-repo-arm64", # FIXME: FORGE-7502 - Disabled until URM migration completed, due to bfb-aarch64-ci
+  "setup-apt-repo-arm64",
+  "add-secure-boot-pk-pem",
 ]
 
 [tasks.create-ephemeral-image-x86-host-ci]
@@ -686,7 +669,6 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 dependencies = [
   "ipxe-config",
-  "ipxe-patch-measured-boot",
   "ipxe-patch-mlnx",
   "ipxe-patch-grace-grace",
   "ipxe-patch-efi-rng",
@@ -698,7 +680,6 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 dependencies = [
   "ipxe-config",
-  "ipxe-patch-measured-boot",
   "ipxe-patch-mlnx",
   "ipxe-patch-grace-grace",
   "ipxe-patch-efi-rng",
@@ -710,7 +691,7 @@ category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
 args = [
-  "ipxe/upstream/src/bin-arm64-efi/snponly.efi",
+  "ipxe/upstream/src/bin-arm64-efi/ipxe.efi",
   "static/blobs/internal/aarch64/ipxe.efi",
 ]
 dependencies = ["ipxe-build-efi-aarch64"]
@@ -720,7 +701,7 @@ category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
 args = [
-  "ipxe/upstream/src/bin-arm64-efi/snponly.efi",
+  "ipxe/upstream/src/bin-arm64-efi/ipxe.efi",
   "static/blobs/internal/aarch64/ipxe.efi",
 ]
 dependencies = ["ipxe-build-efi-aarch64-ci"]
@@ -733,7 +714,7 @@ script = '''
   LD_ARG=""
   if [ -n "${SA_ENABLEMENT}" ]; then
     LD_ARG="LD=/usr/bin/ld.bfd"
-  fi	
+  fi
   make -j ${LD_ARG} \
     bin-x86_64-efi/snponly.efi \
     VERSION=${IPXE_BANNER_VERSION} \
@@ -754,7 +735,7 @@ script = '''
     build-artifacts-container-cross-aarch64 \
     make -j \
       CROSS_COMPILE=aarch64-linux-gnu- \
-      bin-arm64-efi/snponly.efi \
+      bin-arm64-efi/ipxe.efi \
       VERSION=${IPXE_BANNER_VERSION} \
       EMBED=/src/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls \
@@ -762,7 +743,7 @@ script = '''
   else
     make -j \
       CROSS_COMPILE=aarch64-linux-gnu- \
-      bin-arm64-efi/snponly.efi \
+      bin-arm64-efi/ipxe.efi \
       VERSION=${IPXE_BANNER_VERSION} \
       EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls
@@ -776,7 +757,7 @@ description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
 args = [
   "-j",
-  "bin-arm64-efi/snponly.efi",
+  "bin-arm64-efi/ipxe.efi",
   "VERSION=${IPXE_BANNER_VERSION}",
   "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
   "DEBUG=snp,tls",
@@ -784,32 +765,31 @@ args = [
 cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
-env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
 run_task = [
   { name = "internal-bfb-aarch64-ci", condition = { env_not_set = ["SA_ENABLEMENT"] } },
   { name = "internal-bfb-aarch64-sa", condition = { env_true = ["SA_ENABLEMENT"] } },
 ]
 
 [tasks.bfb-aarch64]
-env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
 run_task = [
   { name = "internal-bfb-aarch64", condition = { env_not_set = ["SA_ENABLEMENT"] } },
   { name = "internal-bfb-aarch64-sa", condition = { env_true = ["SA_ENABLEMENT"] } },
 ]
 
 [tasks.internal-bfb-aarch64-sa]
-env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}" }
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 dependencies = [
   "bfb-cleanup-tmp",
   "bfb-create-tmp",
-  "bfb-download-sa",
+  "bfb-download",
   "save-bfb-for-preingestion",
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi-sa",
-  #"download-docker-containers",  // save doca_hbn.tar to /tmp/bfb-dump/initramfs-tmp
+  #"download-docker-containers",  # save doca_hbn.tar to /tmp/bfb-dump/initramfs-tmp
+  #"bfb-hbn-pull",                # replacement for "download-docker-containers"
+  #"bfb-hbn-export",              # replacement for "download-docker-containers"
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb-ci",
   "bfb-add-debs-to-bfb",
@@ -841,15 +821,15 @@ dependencies = [
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi-ci",
-  "download-docker-containers",
+  "bfb-hbn-pull",
+  "bfb-hbn-export",
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb-ci",
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
-  "download-hbn-installer-to-bfb",
   "mkdir-hbn-folder-in-bfb",
-  "unzip-hbn-folder-in-bfb",
+  "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
   "mv-hbn-scripts-to-bfb",
   "cleanup-hbn-scripts",
@@ -875,15 +855,15 @@ dependencies = [
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi",
-  "download-docker-containers",
+  "bfb-hbn-pull",
+  "bfb-hbn-export",
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb",
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-dev-forge-root-ca-to-bfb",
-  "download-hbn-installer-to-bfb",
   "mkdir-hbn-folder-in-bfb",
-  "unzip-hbn-folder-in-bfb",
+  "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
   "mv-hbn-scripts-to-bfb",
   "cleanup-hbn-scripts",
@@ -909,20 +889,11 @@ description = "Download the BFB on aarch64 gitlab runner"
 command = "mkdir"
 args = ["-p", "${BUILD_LOCATION}"]
 
-# Used when SA's are building containers on site without access to internal
-# gitlab
-[tasks.bfb-download-sa]
-category = "iPXE Kernel"
-description = "Download the BFB on aarch64 gitlab runner"
-command = "wget"
-args = ["-Nnv", "${BFB_UPSTREAM_LOCATION}/${BFB_NAME}", "-P", "/tmp/bfb-dump"]
-
-
 [tasks.bfb-download]
 category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
 command = "wget"
-args = ["-Nnv", "${BFB_LOCATION}/${BFB_NAME}", "-P", "/tmp/bfb-dump"]
+args = ["-Nnv", "${BFB_URL}/${BFB_NAME}", "-P", "/tmp/bfb-dump"]
 
 [tasks.bfbtools-download]
 category = "iPXE Kernel"
@@ -934,12 +905,6 @@ args = [
   "-P",
   "/tmp/bfb-dump",
 ]
-
-[tasks.bfb-hbn-download]
-category = "iPXE Kernel"
-description = "Download the hbn doca container on aarch64 gitlab runner"
-command = "docker"
-args = ["pull", "--platform=linux/arm64", "${DOCA_HBN_URI}"]
 
 [tasks.bfb-extract]
 category = "iPXE Kernel"
@@ -968,22 +933,22 @@ description = "Extract the BFB initramfs on aarch64 gitlab runner"
 script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | cpio -id"]
 cwd = "${BUILD_LOCATION}"
 
+[tasks.bfb-hbn-pull]
+category = "iPXE Kernel"
+description = "Download the HBN DOCA container on aarch64 gitlab runner"
+command = "docker"
+args = ["pull", "--platform=linux/arm64", "${DOCA_HBN_URL}"]
+
 [tasks.bfb-hbn-export]
 category = "iPXE Kernel"
-description = "export the hbn doca container on aarch64 gitlab runner"
+description = "Export the HBN DOCA container on aarch64 gitlab runner"
 command = "docker"
-args = ["save", "--output=doca_hbn.tar", "${DOCA_HBN_URI}"]
+args = ["save", "--output=doca_hbn.tar", "${DOCA_HBN_URL}"]
 cwd = "${BUILD_LOCATION}"
-
-[tasks.download-docker-containers]
-category = "iPXE Kernel"
-description = "Download all the docker containers from artifactory"
-command = "wget"
-args = ["-Nnv", "${URM_LOCATION}/doca_hbn.tar", "-P", "${BUILD_LOCATION}"]
 
 [tasks.bfb-extract-ifconfig]
 category = "iPXE Kernel"
-description = "extract ifconfig from ubuntu tar"
+description = "Extract ifconfig from Ubuntu tar"
 command = "tar"
 args = ["xJf", "ubuntu/image.tar.xz", "./usr/sbin/ifconfig"]
 cwd = "${BUILD_LOCATION}"
@@ -991,14 +956,14 @@ cwd = "${BUILD_LOCATION}"
 [tasks.bfb-add-prod-forge-root-ca-to-bfb]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
-description = "Add the forge root CA to the bfb"
+description = "Add the Forge Root CA to the BFB"
 command = "cp"
 args = ["${FORGE_CA_PATH}", "${BUILD_LOCATION}/forge_root.pem"]
 
 [tasks.bfb-add-dev-forge-root-ca-to-bfb]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
-description = "Add the forge root CA to the bfb"
+description = "Add the Forge Root CA to the BFB"
 command = "cp"
 args = [
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
@@ -1007,7 +972,7 @@ args = [
 
 [tasks.cleanup-old-debs]
 category = "iPXE Kernel"
-description = "remove all the old debs in the target folder"
+description = "Remove all the old debs in the target folder"
 command = "find"
 args = [
   "${REPO_ROOT}/pxe/debs",
@@ -1021,7 +986,7 @@ args = [
 
 [tasks.download-debs-for-bfb]
 category = "iPXE Kernel"
-description = "wget the debs to nvinit_setup"
+description = "Wget the debs to nvinit_setup"
 command = "wget"
 args = [
   "-i",
@@ -1033,7 +998,7 @@ dependencies = ["cleanup-old-debs"]
 
 [tasks.bfb-add-debs-to-bfb]
 category = "iPXE Kernel"
-description = "Add debs folder to the bfb"
+description = "Add debs folder to the BFB"
 script = '''
   mkdir -p "${BUILD_LOCATION}/debs/"
   cp ${REPO_ROOT}/pxe/debs/*arm64.deb "${BUILD_LOCATION}/debs/"
@@ -1045,13 +1010,13 @@ dependencies = ["download-debs-for-bfb"]
 [tasks.bfb-add-nvinit-setup-to-bfb]
 condition = { env_not_set = ["SA_ENABLEMENT"] }
 category = "iPXE Kernel"
-description = "Add nvinit_setup folder to the bfb"
+description = "Add nvinit_setup folder to the BFB"
 command = "cp"
 args = ["-R", "${REPO_ROOT}/pxe/nvinit_setup", "${BUILD_LOCATION}"]
 
 [tasks.bfb-add-scout-to-bfb-ci]
 category = "iPXE Kernel"
-description = "Add the scout to the bfb"
+description = "Add the scout to the BFB"
 command = "cp"
 args = [
   "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
@@ -1060,7 +1025,7 @@ args = [
 
 [tasks.bfb-add-scout-to-bfb]
 category = "iPXE Kernel"
-description = "Add the scout to the bfb"
+description = "Add the scout to the BFB"
 command = "cp"
 args = [
   "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
@@ -1070,27 +1035,45 @@ dependencies = [
   { name = "build-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
 ]
 
-[tasks.cp-hbn-installer-to-bfb]
-category = "iPXE Kernel"
-description = "Add the HBN installer to the bfb"
-command = "cp"
-args = ["${HBN_CONFIG_URL}", "${BUILD_LOCATION}"]
-
 [tasks.download-hbn-installer-to-bfb-sa]
 category = "iPXE Kernel"
-description = "Add the HBN installer to the bfb"
+description = "Add the HBN installer to the BFB"
 command = "cp"
 args = ["/tmp/doca_container_configs.zip", "${BUILD_LOCATION}"]
 
 [tasks.download-hbn-installer-to-bfb]
 category = "iPXE Kernel"
-description = "Add the HBN installer to the bfb"
-command = "wget"
-args = ["-Nnv", "${HBN_CONFIG_URL}", "-P", "${BUILD_LOCATION}"]
+description = "Add the HBN installer to the BFB"
+script = '''
+  set -e
+  # NOTE: This `temp` directory workaround can be removed after the
+  # `mv-hbn-configs-to-bfb` and `mv-hbn-scripts-to-bfb` tasks are updated
+  ${ELEVATE} apt-get -y install xxd
+  mkdir -p temp
+  cd temp || exit 1
+  files=$(curl -s "$DOCA_HBN_CONFIG_URL")
+  printf '%s\n' "$files" |
+    jq -c '
+      .urls as $u
+    | .filepath as $p
+    | .sha256_base64 as $s
+    | range(0; $u | length) as $i
+    | {url: $u[$i], filepath: $p[$i], sha256_base64: $s[$i]}
+    ' |
+    while IFS= read -r obj; do
+      url=$(printf '%s\n' "$obj" | jq -r '.url')
+      path=$(printf '%s\n' "$obj" | jq -r '.filepath')
+      sha=$(printf '%s\n' "$obj" | jq -r '.sha256_base64' | base64 -d -w0 | xxd -ps -c32)
+      mkdir -p "$(dirname "$path")"
+      curl -sSL "$url" -o "$path"
+      printf '%s  %s\n' "$sha" "$path" | sha256sum -c --status || exit 1
+    done
+'''
+cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.mkdir-hbn-folder-in-bfb]
 category = "iPXE Kernel"
-description = "Make the HBN script target directory to the bfb"
+description = "Make the HBN script target directory to the BFB"
 command = "mkdir"
 args = ["${BUILD_LOCATION}/doca_container_configs"]
 
@@ -1103,14 +1086,14 @@ cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.mv-hbn-configs-to-bfb]
 category = "iPXE Kernel"
-description = "Add the HBN configs to the bfb"
+description = "Add the HBN configs to the BFB"
 command = "mv"
-args = ["temp/scripts/doca_hbn/${HBN_VERSION}/", "scripts"]
+args = ["temp/scripts/${DOCA_HBN_VERSION}/", "scripts"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.mv-hbn-scripts-to-bfb]
 category = "iPXE Kernel"
-description = "Add the HBN scripts to the bfb"
+description = "Add the HBN scripts to the BFB"
 command = "mv"
 args = ["temp/configs/${DOCA_VERSION}/", "configs"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
@@ -1141,10 +1124,10 @@ script = '''
   cp "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_arm64.deb" \
   "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout/"
 
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
-	dpkg-scanpackages -a arm64 -m pool > dists/focal/main/binary-arm64/Packages
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal"
-	echo "Origin: Ubuntu
+  cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
+  dpkg-scanpackages -a arm64 -m pool > dists/focal/main/binary-arm64/Packages
+  cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal"
+  echo "Origin: Ubuntu
 Label: Ubuntu
 Suite: focal
 Version: 20.04
@@ -1152,11 +1135,11 @@ Codename: focal
 Architectures: arm64
 Components: main
 Description: Forge apt repo" > Release
-	echo "Date: `LANG=C date -Ru`" >> Release
-	echo 'SHA256:' >> Release
-	find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
-	echo "Archive: focal
+  echo "Date: `LANG=C date -Ru`" >> Release
+  echo 'SHA256:' >> Release
+  find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
+  cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
+  echo "Archive: focal
 Version: 20.04
 Component: main
 Origin: Ubuntu
@@ -1172,10 +1155,10 @@ script = '''
   cp "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb" \
   "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout/"
 
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
-	dpkg-scanpackages --arch amd64 -m pool > dists/focal/main/binary-amd64/Packages
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal"
-	echo "Origin: Ubuntu
+  cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
+  dpkg-scanpackages --arch amd64 -m pool > dists/focal/main/binary-amd64/Packages
+  cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal"
+  echo "Origin: Ubuntu
 Label: Ubuntu
 Suite: focal
 Version: 20.04
@@ -1183,11 +1166,11 @@ Codename: focal
 Architectures: amd64
 Components: main
 Description: Forge apt repo" > Release
-	echo "Date: `LANG=C date -Ru`" >> Release
-	echo 'SHA256:' >> Release
-	find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-amd64"
-	echo "Archive: focal
+  echo "Date: `LANG=C date -Ru`" >> Release
+  echo 'SHA256:' >> Release
+  find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
+  cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-amd64"
+  echo "Archive: focal
 Version: 20.04
 Component: main
 Origin: Ubuntu
@@ -1198,8 +1181,16 @@ Architecture: amd64" > Release
 [tasks.bfb-copy-efi]
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
-command = "cp"
-args = ["/tmp/bfb-dump/dump-image-v0", "carbide.efi"]
+script = '''
+  ${ELEVATE} apt-get -y install file
+  # Check that efi kernel is compressed
+  efi_kernel="/tmp/bfb-dump/dump-image-v0"
+  if file -b "$efi_kernel" | grep -q 'LZMA compressed data'; then
+    xz --format=lzma -d "$efi_kernel" -c > carbide.efi
+  else
+    cp "$efi_kernel" carbide.efi
+  fi
+'''
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-remove-extracted-efi]
@@ -1212,14 +1203,14 @@ args = ["-fr", "${BUILD_LOCATION}/dump-image-v0"]
 category = "iPXE Kernel"
 description = "Rebuild the BFB root fs on aarch64 gitlab runner"
 script = '''
-    echo "Pipeline source is $CI_PIPELINE_SOURCE"
-    if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] ;then
-      echo "Rebuilding BFB with fast compression"
-      find . -print0 | cpio --null -o --format=newc | gzip -1 > ../dump-initramfs-v0
-    else
-      echo "Rebuilding BFB with best compression"
-      find . -print0 | cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0
-    fi
+  echo "Pipeline source is $CI_PIPELINE_SOURCE"
+  if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] ;then
+    echo "Rebuilding BFB with fast compression"
+    find . -print0 | cpio --null -o --format=newc | gzip -1 > ../dump-initramfs-v0
+  else
+    echo "Rebuilding BFB with best compression"
+    find . -print0 | cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0
+  fi
 '''
 cwd = "${BUILD_LOCATION}"
 
@@ -1246,30 +1237,30 @@ cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-add-custom_action]
 category = "iPXE Kernel"
-description = "Rebuild bfb with modified FS"
+description = "Rebuild BFB with modified FS"
 script = '''
-cat ${REPO_ROOT}/pxe/templates/bmc_fw_update > bf.cfg
-echo "
+  cat ${REPO_ROOT}/pxe/templates/bmc_fw_update > bf.cfg
+  echo "
 
-ENABLE_BR_HBN=yes
-ENABLE_BR_SFC=yes
+  ENABLE_BR_HBN=yes
+  ENABLE_BR_SFC=yes
 
-bfb_modify_os() {
-  set -e
-  dhclient oob_net0
-  cd /mnt/tmp/
-  curl http://carbide-pxe.forge/api/v0/cloud-init/user-data -o user_data.sh
-  sed -i '/ZOF/d' user_data.sh
-  source user_data.sh
-  carbide_modify_os
-}" >> bf.cfg
+  bfb_modify_os() {
+    set -e
+    dhclient oob_net0
+    cd /mnt/tmp/
+    curl http://carbide-pxe.forge/api/v0/cloud-init/user-data -o user_data.sh
+    sed -i '/ZOF/d' user_data.sh
+    source user_data.sh
+    carbide_modify_os
+  }" >> bf.cfg
 '''
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-rebuild-bfb]
 category = "iPXE Kernel"
 dependencies = ["bfb-create-bfb", "bfb-add-custom_action"]
-description = "Rebuild bfb with modified FS"
+description = "Rebuild BFB with modified FS"
 script = '''
 cat forge_tmp.bfb bf.cfg > forge.bfb
 rm forge_tmp.bfb
@@ -1278,7 +1269,7 @@ cwd = "static/blobs/internal/aarch64"
 
 [tasks.container-boot-artifacts-x86_64-ci]
 category = "iPXE Kernel"
-description = "Pacakge x86_64 EFI ipxe kernel and rootdisk"
+description = "Package x86_64 EFI iPXE kernel and rootdisk"
 command = "docker"
 args = [
   "-t",
@@ -1290,7 +1281,7 @@ args = [
 
 [tasks.container-boot-artifacts-aarch64-ci]
 category = "iPXE Kernel"
-description = "Pacakge aarch64 EFI ipxe kernel and rootdisk"
+description = "Package aarch64 EFI iPXE kernel and rootdisk"
 command = "docker"
 args = [
   "-t",
@@ -1302,14 +1293,13 @@ args = [
 
 [tasks.replace-bfpxe-script]
 category = "iPXE Kernel"
-description = "Switch bfpxe script from bfb to custom one"
+description = "Switch bfpxe script from BFB to custom one"
 command = "cp"
 args = ["${REPO_ROOT}/pxe/bfpxe", "${BUILD_LOCATION}/usr/bin/bfpxe"]
 
-
 [tasks.add-secure-boot-pk-pem]
 category = "iPXE Kernel"
-description = "Get secure boot pk from bfb and convert to pem"
+description = "Get secure boot pk from BFB and convert to pem"
 command = "openssl"
 args = ["x509", "-inform", "der", "-in", "/tmp/bfb-dump/initramfs-tmp/lib/firmware/mellanox/boot/capsule/certs/prod/pk.cer", "-outform", "pem", "-out", "static/blobs/internal/aarch64/secure-boot-pk.pem"]
 dependencies = ["bfb-rebuild-rootfs"]

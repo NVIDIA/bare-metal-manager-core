@@ -10,15 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-// dhcp package should only every be built for x86_64 arch
-#[cfg(target_arch = "x86_64")]
+// dhcp package is built for x86_64 and aarch64 architectures
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn main() {
     use std::env;
 
     let kea_include_path =
         env::var("KEA_INCLUDE_PATH").unwrap_or_else(|_| "/usr/include/kea".to_string());
+
+    #[cfg(target_arch = "x86_64")]
+    let default_kea_lib_path = "/usr/lib/x86_64-linux-gnu/kea";
+    #[cfg(target_arch = "aarch64")]
+    let default_kea_lib_path = "/usr/lib/aarch64-linux-gnu/kea";
+
     let kea_lib_path =
-        env::var("KEA_LIB_PATH").unwrap_or_else(|_| "/usr/lib/x86_64-linux-gnu/kea".to_string());
+        env::var("KEA_LIB_PATH").unwrap_or_else(|_| default_kea_lib_path.to_string());
 
     let kea_shim_root = format!("{}/src/kea", env!("CARGO_MANIFEST_DIR"));
 
@@ -36,8 +42,6 @@ fn main() {
         .file(format!("{kea_shim_root}/callouts.cc"))
         .file(format!("{kea_shim_root}/carbide_logger.cc"))
         .include(kea_include_path)
-        .shared_flag(false)
-        .static_flag(false)
         .pic(true)
         .compile("keashim");
 
@@ -60,5 +64,5 @@ fn main() {
     println!("cargo:rustc-link-lib=kea-exceptions");
 }
 
-#[cfg(not(target_arch = "x86_64"))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 fn main() {}

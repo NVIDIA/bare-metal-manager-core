@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,1012 +9,394 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
 
-use base64::Engine as _;
-use base64::engine::general_purpose;
-use carbide_uuid::machine::MachineId;
-use chrono::{DateTime, Utc};
-use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
-};
-use lazy_static::lazy_static;
-use libredfish::model::power::{Power, PowerControl, PowerSupply, Voltages};
-use libredfish::model::sel::LogEntry;
-use libredfish::model::sensor::{GPUSensors, ReadingType};
-use libredfish::model::software_inventory::SoftwareInventory;
-use libredfish::model::storage::Drives;
-use libredfish::model::thermal::{Fan, LeakDetector, Temperature, Thermal};
-use libredfish::model::{ResourceHealth, ResourceState, ResourceStatus};
-use libredfish::{PowerState, Redfish, RedfishClientPool, RedfishError};
-use opentelemetry::logs::{AnyValue, LogRecord, Logger};
-use opentelemetry::metrics::Meter;
-use opentelemetry::{Key, KeyValue};
-use opentelemetry_sdk::metrics::SdkMeterProvider;
-use report::HealthCheck;
-use rpc::forge_api_client::ForgeApiClient;
-use sha2::{Digest, Sha256};
-use tokio::sync::MutexGuard;
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use dashmap::DashMap;
+use http::Response;
+use http::header::CONTENT_TYPE;
+use hyper::Request;
+use hyper::body::Incoming;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
+use prometheus::core::{Collector, Desc};
+use prometheus::proto::LabelPair;
+use prometheus::{Encoder, Registry, TextEncoder, proto};
+use tokio::net::TcpListener;
 
 use crate::HealthError;
 
-lazy_static! {
-    static ref STATIC_MACHINE_ID_STRS: Mutex<HashMap<String, &'static str>> = Default::default();
+pub type MetricLabel = (String, String);
+type BoxedErr = Box<dyn std::error::Error + Send + Sync + 'static>;
+
+pub struct MetricsManager {
+    global_registry: Registry,
 }
 
-pub struct HardwareHealth {
-    thermal: Result<Thermal, HealthError>,
-    power: Result<Power, HealthError>,
-    power_state: Result<PowerState, HealthError>,
-    gpu_sensors: Result<Option<Vec<GPUSensors>>, HealthError>,
-    logs: Result<Vec<LogEntry>, HealthError>,
-    firmware: Result<Vec<SoftwareInventory>, HealthError>,
-    localstorage: Result<Vec<Drives>, RedfishError>,
-}
-
-pub struct DpuHealth {
-    thermal: Option<Thermal>,
-    reachable: bool,
-    attempted: bool,
-}
-
-#[derive(Clone, Debug, Hash, Default)]
-pub struct HealthHashData {
-    pub description: String,
-    pub firmware_digest: String,
-    pub sel_count: usize,
-    pub last_polled_ts: i64, // last time we polled the bmc (every 30 minutes at least)
-    pub last_recorded_ts: i64, // last time we pushed firmware versions and sel to loki, even if nothing changed (every 24 hours)
-    pub last_host_error_ts: i64, // last time we encountered an error scraping metrics from host bmc
-    pub last_dpu_error_ts: i64, // last time we encountered an error scraping the dpu bmc metrics
-    pub host_error_count: usize,
-    pub dpu_error_count: usize,
-    pub host: String,
-    pub dpu: String,
-    pub port: u16,
-    pub dpu_port: u16,
-    pub user: String,
-    pub dpu_user: String,
-    pub password: String,
-    pub dpu_password: String,
-}
-
-/// OpenTelemetry does not allow runtime-allocated strings to be used as the names of meters... they
-/// must be `&'static str`s. But we want machine_id's to be in the meter names, which are not static.
-/// This converts a `&str` to `&'static str` by "leaking" its memory a maximum of one time per unique
-/// machine ID, storing it in a global HashMap so we only leak it once.
-fn get_static_machine_id_str(machine_id: &MachineId) -> &'static str {
-    STATIC_MACHINE_ID_STRS
-        .lock()
-        .unwrap()
-        .entry(machine_id.to_string())
-        .or_insert_with(|| Box::leak(machine_id.to_string().into_boxed_str()))
-}
-
-/// get all the metrics we want from the bmc
-// none of these are a patch/post and will not affect the bmc doing other patch/post ops
-pub async fn get_metrics(redfish: Box<dyn Redfish>, last_polled_ts: i64) -> HardwareHealth {
-    // get the temperature, fans, voltages, power supplies, gpu sensors data from the bmc
-    let thermal = redfish.get_thermal_metrics().await;
-    let power = redfish.get_power_metrics().await;
-    let power_state = redfish.get_power_state().await;
-    let gpu_sensors = match redfish.get_gpu_sensors().await {
-        Ok(v) => Ok(Some(v)),
-        Err(RedfishError::NotSupported(_)) => Ok(None),
-        Err(e) => Err(e),
-    };
-
-    // get the system/hardware event log
-    let mut logs = Ok(Vec::new());
-    let mut firmware = Ok(Vec::new());
-    let mut localstorage = Ok(Vec::new());
-    let now: DateTime<Utc> = Utc::now();
-    // poll every 30 minutes for firmware versions and sel logs
-    if (now.timestamp() - last_polled_ts) > (30 * 60) {
-        logs = redfish.get_system_event_log().await;
-        localstorage = redfish.get_drives_metrics().await;
-        // get system firmware components versions, such as uefi, bmc, sbios, me, etc
-        async fn fetch_firmware(
-            redfish: Box<dyn Redfish>,
-        ) -> Result<Vec<SoftwareInventory>, HealthError> {
-            let components = redfish.get_software_inventories().await?;
-            let mut firmware = Vec::new();
-            for component in components.iter() {
-                firmware.push(redfish.get_firmware(component.as_str()).await?);
-            }
-            Ok(firmware)
-        }
-        firmware = fetch_firmware(redfish).await;
-    }
-    HardwareHealth {
-        thermal: thermal.map_err(|e| e.into()),
-        power: power.map_err(|e| e.into()),
-        power_state: power_state.map_err(|e| e.into()),
-        gpu_sensors: gpu_sensors.map_err(|e| e.into()),
-        logs: logs.map_err(|e| e.into()),
-        firmware,
-        localstorage,
+impl Default for MetricsManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-pub async fn get_dpu_metrics(redfish: Box<dyn Redfish>) -> Result<Thermal, HealthError> {
-    let dpu_thermal = redfish.get_thermal_metrics().await?;
-    Ok(dpu_thermal)
+impl MetricsManager {
+    pub fn new() -> Self {
+        Self {
+            global_registry: Registry::new(),
+        }
+    }
+
+    pub fn global_registry(&self) -> &Registry {
+        &self.global_registry
+    }
+
+    pub fn create_collector_registry(
+        &self,
+        id: String,
+        prefix: impl Into<String>,
+    ) -> Result<CollectorRegistry, HealthError> {
+        CollectorRegistry::new(id, self.global_registry.clone(), prefix)
+    }
+
+    pub fn export_all(&self) -> Result<String, HealthError> {
+        let encoder = TextEncoder::new();
+        let metric_families = self.global_registry.gather();
+        let mut buffer = Vec::new();
+        encoder.encode(&metric_families, &mut buffer)?;
+        String::from_utf8(buffer).map_err(|e| {
+            HealthError::GenericError(format!(
+                "MetricManager encoutered IO error while export is called: {e:?}"
+            ))
+        })
+    }
 }
 
-fn export_temperatures(
-    meter: Meter,
-    temperatures: Vec<Temperature>,
-    machine_id: &MachineId,
-    is_dpu: bool,
-) -> Result<(), HealthError> {
-    let gauge_name = if is_dpu {
-        "hw.dpu.temperature".to_string()
-    } else {
-        "hw.temperature".to_string()
-    };
-    let temperature_sensors = meter
-        .i64_gauge(gauge_name)
-        .with_description("Temperature sensors for this hardware")
-        .with_unit("Celsius")
-        .build();
-    for temperature in temperatures.iter() {
-        if temperature.reading_celsius.is_none() {
-            // don't add the reading if there's no value provided
-            continue;
-        }
-        let sensor_name = temperature.name.clone().as_str().replace(' ', "_");
-        temperature_sensors.record(
-            temperature.reading_celsius.unwrap() as i64,
-            &[
-                KeyValue::new("hw.id", sensor_name),
-                KeyValue::new("hw.host.id", machine_id.to_string()),
-            ],
-        )
-    }
-    Ok(())
+pub struct CollectorRegistry {
+    prefix: String,
+    registry: Box<SubRegistry>,
+    parent: Registry,
 }
 
-fn export_leak_sensors(
-    meter: Meter,
-    leak_detectors: Vec<LeakDetector>,
-    machine_id: &MachineId,
-    machine_serial: Option<String>,
-) -> Result<(), HealthError> {
-    let leak_detector_gauge = meter
-        .i64_gauge("hw.leak_detector")
-        .with_description("Leak Detector sensors for this hardware")
-        .with_unit("Moisture")
-        .build();
-    for detector in leak_detectors.iter() {
-        let value: i64 = match (detector.status.health, detector.status.state) {
-            (Some(ResourceHealth::Ok), Some(ResourceState::Enabled)) => 0,
-            (Some(ResourceHealth::Warning), Some(ResourceState::Enabled)) => 1,
-            (Some(ResourceHealth::Critical), Some(ResourceState::Enabled)) => 2,
-            _ => -1,
-        };
-        let sensor_name = detector.name.clone().as_str().replace(' ', "_");
+impl CollectorRegistry {
+    fn new(id: String, parent: Registry, prefix: impl Into<String>) -> Result<Self, HealthError> {
+        let desc = Desc::new(id.clone(), id, Vec::new(), HashMap::new())?;
 
-        let mut attributes = vec![
-            KeyValue::new("hw.id", sensor_name),
-            KeyValue::new("hw.host.id", machine_id.to_string()),
-        ];
+        let registry = Box::new(SubRegistry {
+            registry: Registry::new(),
+            desc,
+        });
 
-        if let Some(ref serial) = machine_serial {
-            attributes.push(KeyValue::new("hw.host.serial", serial.clone()));
-        }
+        parent.register(registry.clone())?;
 
-        leak_detector_gauge.record(value, &attributes);
+        Ok(Self {
+            prefix: prefix.into(),
+            registry,
+            parent,
+        })
     }
-    Ok(())
+
+    pub fn create_gauge_metrics(
+        &self,
+        id: String,
+        help: impl Into<String>,
+        static_labels: Vec<MetricLabel>,
+    ) -> Result<Arc<GaugeMetrics>, prometheus::Error> {
+        let metrics = Arc::new(GaugeMetrics::new(
+            id,
+            &self.registry.registry,
+            self.prefix.clone(),
+            help,
+            static_labels,
+        )?);
+
+        Ok(metrics)
+    }
+
+    pub fn registry(&self) -> &Registry {
+        &self.registry.registry
+    }
+
+    pub fn prefix(&self) -> &String {
+        &self.prefix
+    }
 }
 
-fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &MachineId) -> Result<(), HealthError> {
-    let fan_sensors = meter
-        .f64_gauge("hw.fan.speed")
-        .with_description("Fans for this hardware")
-        .with_unit("rpm")
-        .build();
-    for fan in fans.iter() {
-        let sensor_name = match &fan.fan_name {
-            Some(fan_name) => fan_name.replace(' ', "_"),
-            None => continue,
-        };
-        let Some(reading) = fan.reading else {
-            continue;
-        };
-        fan_sensors.record(
-            reading,
-            &[
-                KeyValue::new("hw.id", sensor_name),
-                KeyValue::new("hw.host.id", machine_id.to_string()),
-            ],
-        )
-    }
-    Ok(())
+#[derive(Clone)]
+struct SubRegistry {
+    registry: Registry,
+    desc: Desc,
 }
 
-fn export_voltages(
-    meter: Meter,
-    voltages: Option<Vec<Voltages>>,
-    machine_id: &MachineId,
-) -> Result<(), HealthError> {
-    if voltages.is_none() {
-        return Ok(());
+impl Collector for SubRegistry {
+    fn desc(&self) -> Vec<&Desc> {
+        vec![&self.desc]
     }
-    let voltage_sensors = meter
-        .f64_gauge("hw.voltage")
-        .with_description("Voltages for this hardware")
-        .with_unit("V")
-        .build();
-    for voltage in voltages.unwrap().iter() {
-        if voltage.reading_volts.is_none() {
-            continue;
-        }
-        let sensor_name = voltage.name.clone().as_str().replace(' ', "_");
-        voltage_sensors.record(
-            voltage.reading_volts.unwrap(),
-            &[
-                KeyValue::new("hw.id", sensor_name),
-                KeyValue::new("hw.host.id", machine_id.to_string()),
-            ],
-        )
+
+    fn collect(&self) -> Vec<proto::MetricFamily> {
+        self.registry.gather()
     }
-    Ok(())
 }
 
-fn export_power_supplies(
-    meter: Meter,
-    power_supplies: Option<Vec<PowerSupply>>,
-    power_state: PowerState,
-    machine_id: &MachineId,
-) -> Result<(), HealthError> {
-    if power_supplies.is_none() {
-        return Ok(());
+impl Drop for CollectorRegistry {
+    fn drop(&mut self) {
+        if let Err(e) = self.parent.unregister(self.registry.clone()) {
+            tracing::error!(e=?e, "Could not properly drop registry for collector {}", self.prefix())
+        }
     }
-    let power_supplies_output_watts_sensors = meter
-        .f64_gauge("hw.power_supply.output")
-        .with_description("Last output Wattage for this hardware")
-        .with_unit("Watts")
-        .build();
-    let power_supplies_utilization_sensors = meter
-        .f64_gauge("hw.power_supply.utilization")
-        .with_description("Utilization of power supply capacity")
-        .with_unit("%")
-        .build();
-    let power_supplies_input_voltage_sensors = meter
-        .f64_gauge("hw.power_supply.input")
-        .with_description("Input line Voltage")
-        .with_unit("V")
-        .build();
-    let power_state_sensor = meter
-        .i64_up_down_counter("hw.power_state")
-        .with_description("Power state")
-        .build();
-    let power_state_value: i64 = match power_state {
-        PowerState::On => 1,
-        _ => 0,
-    };
-    power_state_sensor.add(
-        power_state_value,
-        &[
-            KeyValue::new("hw.id", "power_state".to_string()),
-            KeyValue::new("hw.host.id", machine_id.to_string()),
-        ],
-    );
-    for power_supply in power_supplies.unwrap().iter() {
-        if power_supply.last_power_output_watts.is_none()
-            || power_supply.power_capacity_watts.is_none()
-        {
-            continue;
-        }
-        let last_power_output_watts = power_supply.last_power_output_watts.unwrap();
-        let power_capacity_watts = power_supply.power_capacity_watts.unwrap();
-        let sensor_name = power_supply.name.clone().as_str().replace(' ', "_");
-        power_supplies_output_watts_sensors.record(
-            last_power_output_watts,
-            &[
-                KeyValue::new("hw.id", sensor_name.clone()),
-                KeyValue::new("hw.host.id", machine_id.to_string()),
-            ],
-        );
-        if let Some(line_input_voltage) = power_supply.line_input_voltage {
-            power_supplies_input_voltage_sensors.record(
-                line_input_voltage,
-                &[
-                    KeyValue::new("hw.id", sensor_name.clone()),
-                    KeyValue::new("hw.host.id", machine_id.to_string()),
-                ],
-            );
-        }
-        let mut utilization: f64 = 0.0;
-        if power_capacity_watts > 0.0 {
-            utilization = (last_power_output_watts / power_capacity_watts) * 100.0;
-        }
-        power_supplies_utilization_sensors.record(
-            utilization,
-            &[
-                KeyValue::new("hw.id", sensor_name.clone()),
-                KeyValue::new("hw.host.id", machine_id.to_string()),
-            ],
-        );
-    }
-    Ok(())
 }
 
-fn export_power_control(
-    meter: Meter,
-    power_control: Vec<PowerControl>,
-    power_state: PowerState,
-    machine_id: &MachineId,
-) -> Result<(), HealthError> {
-    let power_state_value: i64 = match power_state {
-        PowerState::On => 1,
-        _ => 0,
-    };
-    if power_state_value == 0 {
-        return Ok(());
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+pub struct GaugeKey(String);
+
+impl From<String> for GaugeKey {
+    fn from(s: String) -> Self {
+        GaugeKey(s)
     }
-    let power_capacity_sensors = meter
-        .f64_gauge("hw.power_control.capacity")
-        .with_description("Power Capacity of this host")
-        .with_unit("Watts")
-        .build();
-    let power_acinput_sensors = meter
-        .f64_gauge("hw.power_control.acinput")
-        .with_description("Power AC Input for this host")
-        .with_unit("Watts")
-        .build();
-    let power_average_consumed_sensors = meter
-        .f64_gauge("hw.power_control.average")
-        .with_description("Average Power Consumed for this host")
-        .with_unit("Watts")
-        .build();
-    let power_min_consumed_sensors = meter
-        .f64_gauge("hw.power_control.min")
-        .with_description("Min Power Consumed for this host")
-        .with_unit("Watts")
-        .build();
-    let power_max_consumed_sensors = meter
-        .f64_gauge("hw.power_control.max")
-        .with_description("Max Power Consumed for this host")
-        .with_unit("Watts")
-        .build();
-    for power_ctrl in power_control {
-        if power_ctrl.member_id != "0" {
-            continue;
-        }
-        if let Some(watts) = power_ctrl.power_capacity_watts.as_ref() {
-            power_capacity_sensors.record(
-                *watts,
-                &[
-                    KeyValue::new("hw.id", "power_capacity_watts".to_string()),
-                    KeyValue::new("hw.host.id", machine_id.to_string()),
-                ],
-            );
-        }
-        if let Some(watts) = power_ctrl.power_consumed_watts.as_ref() {
-            power_acinput_sensors.record(
-                *watts,
-                &[
-                    KeyValue::new("hw.id", "power_consumed_watts".to_string()),
-                    KeyValue::new("hw.host.id", machine_id.to_string()),
-                ],
-            );
-        }
-        if power_ctrl.power_metrics.is_some() {
-            power_average_consumed_sensors.record(
-                power_ctrl
-                    .power_metrics
-                    .clone()
-                    .unwrap()
-                    .average_consumed_watts
-                    .unwrap_or(0) as f64,
-                &[
-                    KeyValue::new("hw.id", "average_consumed_watts".to_string()),
-                    KeyValue::new("hw.host.id", machine_id.to_string()),
-                ],
-            );
-            power_min_consumed_sensors.record(
-                power_ctrl
-                    .power_metrics
-                    .clone()
-                    .unwrap()
-                    .min_consumed_watts
-                    .unwrap_or(0) as f64,
-                &[
-                    KeyValue::new("hw.id", "min_consumed_watts".to_string()),
-                    KeyValue::new("hw.host.id", machine_id.to_string()),
-                ],
-            );
-            power_max_consumed_sensors.record(
-                power_ctrl
-                    .power_metrics
-                    .clone()
-                    .unwrap()
-                    .max_consumed_watts
-                    .unwrap_or(0) as f64,
-                &[
-                    KeyValue::new("hw.id", "max_consumed_watts".to_string()),
-                    KeyValue::new("hw.host.id", machine_id.to_string()),
-                ],
-            );
-        }
-    }
-    Ok(())
 }
 
-fn export_gpu_sensors(
-    meter: Meter,
-    gpu_sensors: Vec<GPUSensors>,
-    machine_id: &MachineId,
-) -> Result<(), HealthError> {
-    let [mut voltage, mut temp, mut power, mut energy] = [
-        ("voltage", "V"),
-        ("temperature", "Celsius"),
-        ("power", "Watts"),
-        ("energy", "Joules"),
-    ]
-    .map(|(name, unit)| {
-        meter
-            .f64_gauge(format!("hw.gpu.{name}"))
-            .with_description(format!("GPU {name} readings"))
-            .with_unit(unit)
-            .build()
-    });
-    for gpu in gpu_sensors.iter() {
-        for sensor in &gpu.sensors {
-            let (Some(reading), Some(reading_type), Some(name)) = (
-                sensor.reading,
-                sensor.reading_type,
-                sensor.name.as_ref().or(sensor.id.as_ref()),
-            ) else {
-                continue;
-            };
-            let name = name.as_str().replace(' ', "_");
-            match reading_type {
-                ReadingType::Temperature => &mut temp,
-                ReadingType::Power => &mut power,
-                ReadingType::EnergyJoules => &mut energy,
-                ReadingType::Voltage => &mut voltage,
-                _ => continue,
-            }
-            .record(
-                reading,
-                &[
-                    KeyValue::new("hw.id", name),
-                    KeyValue::new("hw.gpu.id", gpu.gpu_id.clone()),
-                    KeyValue::new("hw.host.id", machine_id.to_string()),
-                ],
-            );
-        }
+impl From<&str> for GaugeKey {
+    fn from(s: &str) -> Self {
+        GaugeKey(s.to_string())
     }
-
-    Ok(())
 }
 
-fn export_localstorage(
-    meter: Meter,
-    localstorage: Vec<Drives>,
-    power_state: PowerState,
-    machine_id: &MachineId,
-) -> Result<(), HealthError> {
-    let power_state_value: i64 = match power_state {
-        PowerState::On => 1,
-        _ => 0,
-    };
-    if power_state_value == 0 {
-        return Ok(());
-    }
-    let drive_life_sensors = meter
-        .f64_gauge("hw.localstorage.life")
-        .with_description("Predicted media life remaining of this drive")
-        .with_unit("Pct")
-        .build();
-    for drive in localstorage {
-        if let Some(life) = drive.predicted_media_life_left_percent.as_ref() {
-            drive_life_sensors.record(
-                *life,
-                &[
-                    KeyValue::new("hw.id", drive.id.unwrap_or("".to_string())),
-                    KeyValue::new("hw.host.id", machine_id.to_string()),
-                ],
-            );
-        }
-    }
-    Ok(())
+pub struct GaugeReading {
+    pub key: GaugeKey,
+    pub name: String,
+    pub metric_type: String,
+    pub unit: String,
+    pub value: f64,
+    pub labels: Vec<MetricLabel>,
 }
 
-fn export_otel_logs(
-    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
-    firmwares: Vec<SoftwareInventory>,
-    logs: Vec<LogEntry>,
-    machine_id: &MachineId,
-    description: &str,
-) -> Result<(), HealthError> {
-    let dt = SystemTime::now();
-    let mut log_hdr = logger.create_log_record();
-    log_hdr.set_timestamp(dt);
-    log_hdr.set_observed_timestamp(dt);
-    log_hdr.set_body(AnyValue::from(description.to_string()));
-    log_hdr.add_attributes(vec![
-        (
-            Key::from("machine_id".to_string()),
-            AnyValue::from(machine_id.to_string()),
-        ),
-        (
-            Key::from("type".to_string()),
-            AnyValue::from("description".to_string()),
-        ),
-    ]);
-
-    logger.emit(log_hdr);
-
-    for firmware in firmwares.iter() {
-        if firmware.version.is_none() {
-            continue;
+impl GaugeReading {
+    pub fn new(
+        key: impl Into<GaugeKey>,
+        name: impl Into<String>,
+        metric_type: impl Into<String>,
+        unit: impl Into<String>,
+        value: f64,
+    ) -> Self {
+        Self {
+            key: key.into(),
+            name: name.into(),
+            metric_type: metric_type.into(),
+            unit: unit.into(),
+            value,
+            labels: Vec::new(),
         }
-        let mut log_record = logger.create_log_record();
-        log_record.set_timestamp(dt);
-        log_record.set_observed_timestamp(dt);
-        log_record.set_body(AnyValue::from(
-            format!(
-                "Component: {}, Version: {}\n",
-                firmware.id,
-                firmware.version.clone().unwrap()
-            )
-            .to_string(),
-        ));
-        log_record.add_attributes(vec![
-            (
-                Key::from("machine_id".to_string()),
-                AnyValue::from(machine_id.to_string()),
-            ),
-            (
-                Key::from("type".to_string()),
-                AnyValue::from("firmware".to_string()),
-            ),
-        ]);
-        logger.emit(log_record);
     }
 
-    for sel_entry in logs.iter() {
-        let mut log_record = logger.create_log_record();
-        log_record.set_timestamp(dt);
-        log_record.set_observed_timestamp(dt);
-        log_record.set_body(AnyValue::from(
-            format!(
-                "ID: {}, Created: {}, Severity: {}, Message: {}\n",
-                sel_entry.id, sel_entry.created, sel_entry.severity, sel_entry.message
-            )
-            .to_string(),
-        ));
-        log_record.add_attributes(vec![
-            (
-                Key::from("machine_id".to_string()),
-                AnyValue::from(machine_id.to_string()),
-            ),
-            (
-                Key::from("type".to_string()),
-                AnyValue::from("sel".to_string()),
-            ),
-        ]);
-        logger.emit(log_record);
+    pub fn with_labels(mut self, labels: Vec<MetricLabel>) -> Self {
+        self.labels.extend(labels);
+        self
     }
-    Ok(())
 }
 
-pub struct ExportedHealthMetrics<'a> {
-    pub health: HardwareHealth,
-    pub dpu_health: DpuHealth,
-    pub last_firmware_digest: &'a String,
-    pub last_sel_count: usize,
-    pub last_recorded_ts: i64,
-    pub description: &'a String,
-    pub machine_id: &'a MachineId,
-    pub machine_serial: Option<String>,
+struct GaugeData {
+    name: String,
+    metric_type: String,
+    unit: String,
+    value: f64,
+    labels: Vec<MetricLabel>,
+    generation: u64,
 }
 
-// the attribute keys and values are specified in
-// https://opentelemetry.io/docs/specs/otel/metrics/semantic_conventions/hardware-metrics/
-// in the hw.temperature section.
-// hw.id, hw.type are required.
-// hw.host.id and hw.sensor_location are recommended
-// hw.state and hw.health are custom attributes based on redfish schema
-pub async fn export_metrics(
-    provider: impl opentelemetry::metrics::MeterProvider,
-    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
-    metrics: ExportedHealthMetrics<'_>,
-) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
-    let machine_id = metrics.machine_id;
-    let machine_serial = metrics.machine_serial;
-    // build or get meter for each machine
-    let meter = provider.meter(get_static_machine_id_str(machine_id));
-    let now: DateTime<Utc> = Utc::now();
-    let mut polled_ts: i64 = 0;
-    let mut recorded_ts: i64 = 0;
-    if let Ok(thermal) = metrics.health.thermal {
-        export_temperatures(meter.clone(), thermal.temperatures, machine_id, false)?;
-        if let Some(leak_detectors) = thermal.leak_detectors {
-            export_leak_sensors(meter.clone(), leak_detectors, machine_id, machine_serial)?;
-        }
-        export_fans(meter.clone(), thermal.fans, machine_id)?;
-    }
-    if let (Ok(power), Ok(localstorage), Ok(power_state)) = (
-        metrics.health.power,
-        metrics.health.localstorage,
-        metrics.health.power_state,
-    ) {
-        export_voltages(meter.clone(), power.voltages, machine_id)?;
-        export_power_supplies(meter.clone(), power.power_supplies, power_state, machine_id)?;
-        export_power_control(meter.clone(), power.power_control, power_state, machine_id)?;
-        export_localstorage(meter.clone(), localstorage, power_state, machine_id)?;
-    }
-
-    if let Some(thermal) = metrics.dpu_health.thermal {
-        export_temperatures(meter.clone(), thermal.temperatures, machine_id, true)?;
-    }
-    if let Ok(Some(gpu_sensors)) = metrics.health.gpu_sensors {
-        export_gpu_sensors(meter, gpu_sensors, machine_id)?;
-    }
-
-    let mut firmware_digest = String::new();
-    let mut sel_count = 0;
-    if let (Ok(logs), Ok(firmware)) = (metrics.health.logs, metrics.health.firmware) {
-        sel_count = logs.len();
-        if !firmware.is_empty() {
-            polled_ts = now.timestamp();
-            let mut hasher = Sha256::new();
-            for firmware in firmware.iter() {
-                if firmware.version.is_none() {
-                    continue;
-                }
-                hasher.update(firmware.id.clone());
-                hasher.update(firmware.version.clone().unwrap());
-            }
-            let firmware_digest_bytes = hasher.finalize();
-            firmware_digest = general_purpose::STANDARD_NO_PAD.encode(firmware_digest_bytes);
-        }
-        if (!firmware_digest.is_empty() && firmware_digest != *metrics.last_firmware_digest)
-            || (sel_count > 0 && sel_count != metrics.last_sel_count)
-            || (now.timestamp() - metrics.last_recorded_ts) > (24 * 60 * 60)
-        {
-            export_otel_logs(logger, firmware, logs, machine_id, metrics.description)?;
-            recorded_ts = polled_ts;
-        } else {
-            firmware_digest.clear();
-            sel_count = 0;
-        }
-    }
-
-    Ok((
-        firmware_digest,
-        sel_count,
-        polled_ts,
-        recorded_ts,
-        metrics.dpu_health.reachable,
-        metrics.dpu_health.attempted,
-    ))
+#[derive(Clone)]
+pub struct GaugeMetrics {
+    gauges: Arc<DashMap<GaugeKey, GaugeData>>,
+    current_generation: Arc<AtomicU64>,
+    metric_name_prefix: String,
+    metric_help: String,
+    static_labels: Vec<proto::LabelPair>,
+    desc: Desc,
 }
 
-/// get a single machine's health metrics and export it
-pub async fn scrape_machine_health(
-    client: ForgeApiClient,
-    provider: SdkMeterProvider,
-    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
-    machine_id: &MachineId,
-    machine_serial: Option<String>,
-    health_data: &MutexGuard<'_, HealthHashData>,
-) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
-    let pool = RedfishClientPool::builder().build()?;
-    let endpoint = libredfish::Endpoint {
-        host: health_data.host.clone(),
-        port: match health_data.port {
-            0 => None,
-            x => Some(x),
-        },
-        user: Some(health_data.user.clone()),
-        password: Some(health_data.password.clone()),
-    };
-    let redfish = pool.create_client(endpoint.clone()).await?;
-    let model = redfish.get_system().await?.model.unwrap_or_default();
-    let health = get_metrics(redfish, health_data.last_polled_ts).await;
-
-    // try dpu metrics
-    let mut scrape_dpu = true;
-    if health_data.dpu_error_count > 0 {
-        let now: DateTime<Utc> = Utc::now();
-        if health_data.dpu_error_count < 24 {
-            // try every 30 minutes for 12 hours
-            if (now.timestamp() - health_data.last_dpu_error_ts) < (30 * 60) {
-                scrape_dpu = false;
-            }
-        } else if health_data.dpu_error_count < 36 {
-            // try every 60 minutes for next 12 hours
-            if (now.timestamp() - health_data.last_dpu_error_ts) < (60 * 60) {
-                scrape_dpu = false;
-            }
-        } else {
-            // try once a day
-            if (now.timestamp() - health_data.last_dpu_error_ts) < (24 * 60 * 60) {
-                scrape_dpu = false;
-            }
-        }
-    }
-    let dpu_health = if scrape_dpu {
-        let dpu_endpoint = libredfish::Endpoint {
-            host: health_data.dpu.clone(),
-            port: match health_data.dpu_port {
-                0 => None,
-                x => Some(x),
-            },
-            user: Some(health_data.dpu_user.clone()),
-            password: Some(health_data.dpu_password.clone()),
-        };
-
-        let dpu_redfish = pool.create_client(dpu_endpoint.clone()).await?;
-        match get_dpu_metrics(dpu_redfish).await {
-            Ok(x) => DpuHealth {
-                thermal: Some(x),
-                reachable: true,
-                attempted: true,
-            },
-            Err(_e) => DpuHealth {
-                thermal: None,
-                reachable: false,
-                attempted: true, // increase dpu error count in hash and backoff
-            },
-        }
-    } else {
-        DpuHealth {
-            thermal: None,
-            reachable: false,
-            attempted: false,
-        }
-    };
-
-    export_health_report(client, &health, machine_id, model).await?;
-
-    export_metrics(
-        provider.clone(),
-        logger,
-        ExportedHealthMetrics {
-            health,
-            dpu_health,
-            last_firmware_digest: &health_data.firmware_digest,
-            last_sel_count: health_data.sel_count,
-            last_recorded_ts: health_data.last_recorded_ts,
-            description: &health_data.description,
-            machine_id,
-            machine_serial,
-        },
-    )
-    .await
-}
-
-async fn export_health_report(
-    client: ForgeApiClient,
-    health: &HardwareHealth,
-    machine_id: &MachineId,
-    model: String,
-) -> Result<(), HealthError> {
-    let mut report = HealthReport {
-        source: "hardware-health".to_string(),
-        observed_at: None,
-        successes: vec![],
-        alerts: vec![],
-    };
-
-    match health.thermal {
-        Ok(ref thermal) => {
-            report_resources(
-                &mut report,
-                thermal
-                    .fans
-                    .iter()
-                    // This model is equipped with only 4 fans, but the Redfish API
-                    // incorrectly reports Fans 5 and 6 as "critical" and "absent"
-                    .filter(|r| {
-                        if model.contains("ThinkSystem SR655 V3 OVX") {
-                            r.fan_name.as_deref() != Some("Fan 5 Tach")
-                                && r.fan_name.as_deref() != Some("Fan 6 Tach")
-                        } else {
-                            true
-                        }
-                    })
-                    .map(|r| (r.name.as_ref().or(r.fan_name.as_ref()), r.status)),
-                HealthCheck::FanSpeed,
-            );
-            report_resources(
-                &mut report,
-                thermal
-                    .temperatures
-                    .iter()
-                    .map(|r| (Some(&r.name), r.status)),
-                HealthCheck::Temperature,
-            );
-            if let Some(leak_detectors) = &thermal.leak_detectors {
-                report_resources(
-                    &mut report,
-                    leak_detectors.iter().map(|r| (Some(&r.name), r.status)),
-                    HealthCheck::Leak,
-                );
-            }
-        }
-        Err(ref e) => report.alerts.push(HealthProbeAlert {
-            id: HealthCheck::Thermal.to_stable_id(),
-            in_alert_since: None,
-            message: format!("{}: {e}", HealthCheck::Thermal.get_message()),
-            tenant_message: None,
-            classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
-            target: None,
-        }),
-    }
-
-    match &health.power_state {
-        Ok(power_state) => {
-            if *power_state != libredfish::PowerState::On {
-                report.alerts.push(HealthProbeAlert {
-                    id: HealthCheck::PoweredOff.to_stable_id(),
-                    target: None,
-                    in_alert_since: None,
-                    message: format!("System power state is {power_state}"),
-                    tenant_message: None,
-                    classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
+impl GaugeMetrics {
+    pub fn new(
+        id: String,
+        registry: &Registry,
+        metric_name_prefix: impl Into<String>,
+        metric_help: impl Into<String>,
+        static_labels: Vec<(impl Into<String>, impl Into<String>)>,
+    ) -> Result<Self, prometheus::Error> {
+        let desc = Desc::new(id.clone(), id, Vec::new(), HashMap::new())?;
+        let metrics = Self {
+            gauges: Arc::new(DashMap::new()),
+            current_generation: Arc::new(AtomicU64::new(0)),
+            metric_name_prefix: metric_name_prefix.into(),
+            metric_help: metric_help.into(),
+            static_labels: static_labels
+                .into_iter()
+                .map(|(name, value)| {
+                    let mut label = LabelPair::new();
+                    label.set_name(name.into());
+                    label.set_value(value.into());
+                    label
                 })
-            }
-        }
-        Err(e) => report.alerts.push(HealthProbeAlert {
-            id: HealthCheck::PoweredOff.to_stable_id(),
-            in_alert_since: None,
-            message: format!("Can not read power state: {e}"),
-            tenant_message: None,
-            classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
-            target: None,
-        }),
+                .collect(),
+            desc,
+        };
+
+        registry.register(Box::new(metrics.clone()))?;
+        Ok(metrics)
     }
 
-    match health.power {
-        Ok(ref power) => {
-            if let Some(voltages) = &power.voltages {
-                report_resources(
-                    &mut report,
-                    voltages.iter().map(|r| (Some(&r.name), r.status)),
-                    HealthCheck::Voltage,
+    pub fn begin_update(&self) {
+        self.current_generation.fetch_add(1, Ordering::Release);
+    }
+
+    pub fn record(&self, reading: GaugeReading) {
+        let generation = self.current_generation.load(Ordering::Acquire);
+
+        self.gauges.insert(
+            reading.key,
+            GaugeData {
+                name: reading.name,
+                metric_type: reading.metric_type,
+                unit: reading.unit,
+                value: reading.value,
+                labels: reading.labels,
+                generation,
+            },
+        );
+    }
+
+    pub fn sweep_stale(&self) {
+        let current_gen = self.current_generation.load(Ordering::Acquire);
+        self.gauges.retain(|_, data| data.generation == current_gen);
+    }
+}
+
+impl Collector for GaugeMetrics {
+    fn desc(&self) -> Vec<&Desc> {
+        vec![&self.desc]
+    }
+
+    fn collect(&self) -> Vec<proto::MetricFamily> {
+        let mut families: HashMap<(String, String, String), proto::MetricFamily> = HashMap::new();
+
+        for gauge_ref in self.gauges.iter() {
+            let data = gauge_ref.value();
+            let family_key = (
+                data.name.clone(),
+                data.metric_type.clone(),
+                data.unit.clone(),
+            );
+
+            let family = families.entry(family_key.clone()).or_insert_with(|| {
+                let metric_name = format!(
+                    "{}_{}_{}_{}",
+                    self.metric_name_prefix, family_key.0, family_key.1, family_key.2
                 );
+                let mut mf = proto::MetricFamily::default();
+                mf.set_name(metric_name);
+                mf.set_help(self.metric_help.clone());
+                mf.set_field_type(proto::MetricType::GAUGE);
+                mf
+            });
+
+            let mut labels: Vec<proto::LabelPair> = self.static_labels.clone();
+
+            for (name, value) in &data.labels {
+                let mut label = proto::LabelPair::new();
+                label.set_name(name.clone());
+                label.set_value(value.clone());
+                labels.push(label);
             }
 
-            if let Some(power_supplies) = &power.power_supplies {
-                let health_check = HealthCheck::PowerSupply;
-                let id = health_check.to_stable_id();
-                for power_supply in power_supplies {
-                    let Some(state) = power_supply.status.state else {
-                        continue;
-                    };
-                    let target = Some(power_supply.name.clone());
-                    match state {
-                        ResourceState::Enabled => report.successes.push(HealthProbeSuccess {
-                            id: id.clone(),
-                            target,
-                        }),
-                        state => report.alerts.push(HealthProbeAlert {
-                            id: id.clone(),
-                            target,
-                            in_alert_since: None,
-                            message: format!("{}: {}", state, health_check.get_message()),
-                            tenant_message: None,
-                            classifications: vec![
-                                HealthAlertClassification::from_str("Hardware").unwrap(),
-                            ],
-                        }),
-                    }
-                }
-            }
+            let mut gauge = proto::Gauge::new();
+            gauge.set_value(data.value);
+
+            let mut metric = proto::Metric::new();
+            metric.set_label(labels.into());
+            metric.set_gauge(gauge);
+
+            family.mut_metric().push(metric);
         }
-        Err(ref e) => report.alerts.push(HealthProbeAlert {
-            id: HealthCheck::Power.to_stable_id(),
-            in_alert_since: None,
-            message: format!("{}: {e}", HealthCheck::Power.get_message()),
-            tenant_message: None,
-            classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
-            target: None,
-        }),
-    }
 
-    let request = rpc::forge::HardwareHealthReport {
-        machine_id: Some(*machine_id),
-        report: Some(report.into()),
+        families.into_values().collect()
+    }
+}
+
+pub async fn run_metrics_server(
+    metrics_endpoint: std::net::SocketAddr,
+    metrics_manager: Arc<MetricsManager>,
+) -> Result<(), BoxedErr> {
+    let listener = TcpListener::bind(metrics_endpoint)
+        .await
+        .map_err(|e| Box::new(e) as BoxedErr)?;
+
+    tracing::info!("Metrics server listening on {}", metrics_endpoint);
+
+    loop {
+        let (stream, _) = listener
+            .accept()
+            .await
+            .map_err(|e| Box::new(e) as BoxedErr)?;
+
+        let io = TokioIo::new(stream);
+        let metrics_manager = metrics_manager.clone();
+
+        tokio::spawn(async move {
+            let service = service_fn(move |req| {
+                let metrics_manager = metrics_manager.clone();
+                async move { serve_metrics(req, metrics_manager) }
+            });
+
+            if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
+                tracing::error!(error=?e, "metrics server connection error");
+            }
+        });
+    }
+}
+
+fn serve_metrics(
+    _req: Request<Incoming>,
+    metrics_manager: Arc<MetricsManager>,
+) -> Result<Response<String>, hyper::Error> {
+    let encoder = TextEncoder::new();
+    let body = match metrics_manager.export_all() {
+        Ok(body) => body,
+        Err(e) => {
+            tracing::error!(error=?e, "error exporting metrics");
+            return Ok(Response::builder()
+                .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                .body("error exporting metrics, see logs".to_string())
+                .expect("BUG: Response::builder error"));
+        }
     };
 
-    client
-        .record_hardware_health_report(request)
-        .await
-        .map_err(HealthError::ApiInvocationError)?;
-
-    Ok(())
+    let response = Response::builder()
+        .status(200)
+        .header(CONTENT_TYPE, encoder.format_type())
+        .body(body)
+        .expect("BUG: Response::builder error");
+    Ok(response)
 }
 
-fn report_resources<'a>(
-    report: &mut HealthReport,
-    resources: impl Iterator<Item = (Option<&'a String>, ResourceStatus)>,
-    health_check: HealthCheck,
-) {
-    for resource in resources {
-        let classification = match (resource.1.health, resource.1.state) {
-            (Some(ResourceHealth::Warning), Some(ResourceState::Enabled)) => Some("Warning"),
-            (Some(ResourceHealth::Critical), Some(ResourceState::Enabled)) => Some("Critical"),
-            (Some(ResourceHealth::Critical), _) => Some("SensorFailure"),
-            _ => None,
-        };
-        if let Some(c) = classification {
-            report.alerts.push(HealthProbeAlert {
-                id: health_check.to_stable_id(),
-                in_alert_since: None,
-                message: health_check.get_message().to_string(),
-                tenant_message: None,
-                classifications: vec![
-                    HealthAlertClassification::from_str("Hardware").unwrap(),
-                    HealthAlertClassification::from_str(c).unwrap(),
-                ],
-                target: resource.0.cloned(),
+pub fn sanitize_unit(unit: &str) -> String {
+    match unit.to_lowercase().as_str() {
+        "%" => "percent".to_string(),
+        "°c" | "c" | "cel" => "celsius".to_string(),
+        "°f" | "f" => "fahrenheit".to_string(),
+        "v" => "volts".to_string(),
+        "a" | "amps" => "amperes".to_string(),
+        "w" => "watts".to_string(),
+        "hz" => "hertz".to_string(),
+        _ => unit
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
             })
-        } else {
-            report.successes.push(HealthProbeSuccess {
-                id: health_check.to_stable_id(),
-                target: resource.0.cloned(),
-            });
-        }
-    }
-}
-
-mod report {
-    use std::str::FromStr;
-
-    use health_report::HealthProbeId;
-    use serde::Serialize;
-
-    // The things we check on to ensure a machine is in good health
-    #[derive(Debug, Serialize, PartialEq)]
-    pub enum HealthCheck {
-        Thermal,
-        Power,
-        Voltage,
-        Temperature,
-        FanSpeed,
-        PowerSupply,
-        PoweredOff,
-        Leak,
-    }
-
-    impl HealthCheck {
-        pub fn to_stable_id(&self) -> HealthProbeId {
-            HealthProbeId::from_str(match self {
-                Self::Thermal => "Thermal",
-                Self::Power => "Power",
-                Self::Voltage => "Voltage",
-                Self::Temperature => "Temperature",
-                Self::FanSpeed => "FanSpeed",
-                Self::PowerSupply => "PowerSupply",
-                Self::PoweredOff => "PoweredOff",
-                Self::Leak => "Leak",
-            })
-            .unwrap()
-        }
-
-        pub fn get_message(&self) -> &'static str {
-            match self {
-                Self::Thermal => "Missing thermal readings",
-                Self::Power => "Missing power readings",
-                Self::Voltage => "Voltage out of bounds",
-                Self::Temperature => "Temperature out of bounds",
-                Self::FanSpeed => "Fan speed out of bounds",
-                Self::PowerSupply => "Power supply issue",
-                Self::PoweredOff => "System is powered off",
-                Self::Leak => "Leak detected",
-            }
-        }
+            .collect(),
     }
 }

@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ::db::DatabaseError;
+use ::db::work_lock_manager::{WorkLock, WorkLockManagerHandle};
 use chrono::{DateTime, Utc};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use sqlx::postgres::PgRow;
@@ -46,6 +47,12 @@ pub struct ControllerIteration {
     /// When the iteration started
     #[allow(dead_code)]
     pub started_at: DateTime<Utc>,
+}
+
+pub struct LockedControllerIteration {
+    pub iteration_data: ControllerIteration,
+    /// The lock for the work done in this iteration.
+    pub _work_lock: WorkLock,
 }
 
 impl<'r> FromRow<'r, PgRow> for ControllerIteration {
@@ -90,9 +97,10 @@ impl<'r> FromRow<'r, PgRow> for QueuedObject {
 pub struct StateController<IO: StateControllerIO> {
     /// A database connection pool that can be used for additional queries
     pool: sqlx::PgPool,
+    work_lock_manager_handle: WorkLockManagerHandle,
     handler_services: Arc<<IO::ContextObjects as StateHandlerContextObjects>::Services>,
     io: Arc<IO>,
-    lock_query: String,
+    work_key: &'static str,
     state_handler: Arc<
         dyn StateHandler<
                 State = IO::State,
@@ -260,32 +268,33 @@ impl<IO: StateControllerIO> StateController<IO> {
         iteration_result
     }
 
-    #[allow(txn_held_across_await)]
     async fn lock_and_handle_iteration(
         &mut self,
         iteration_metrics: &mut IterationMetrics<IO>,
     ) -> Result<(), IterationError> {
-        let mut txn = self.pool.begin().await?;
+        let _lock = match self
+            .work_lock_manager_handle
+            .acquire_lock_or_wait(self.work_key.into())
+            .await
+        {
+            Ok(lock) => {
+                tracing::Span::current().record("skipped_iteration", false);
+                tracing::trace!(lock = IO::DB_WORK_KEY, "State controller acquired the lock");
+                lock
+            }
+            Err(e) => {
+                tracing::Span::current().record("skipped_iteration", true);
+                tracing::info!(
+                    lock = IO::DB_WORK_KEY,
+                    "State controller was not able to obtain the lock: {e}",
+                );
+                return Err(IterationError::LockError);
+            }
+        };
 
-        let locked: bool = sqlx::query_scalar(&self.lock_query)
-            .fetch_one(&mut *txn)
-            .await?;
-        tracing::Span::current().record("skipped_iteration", !locked);
-
-        if !locked {
-            tracing::info!(
-                lock = IO::DB_LOCK_NAME,
-                "State controller was not able to obtain the lock",
-            );
-            return Err(IterationError::LockError);
-        }
-        tracing::trace!(
-            lock = IO::DB_LOCK_NAME,
-            "State controller acquired the lock",
-        );
-
-        let iteration_data = match db::lock_iteration_table_and_start_iteration(
-            &mut txn,
+        let locked_controller_iteration = match db::lock_and_start_iteration(
+            &self.pool,
+            &self.work_lock_manager_handle,
             IO::DB_ITERATION_ID_TABLE_NAME,
         )
         .await
@@ -301,16 +310,16 @@ impl<IO: StateControllerIO> StateController<IO> {
             }
         };
 
-        tracing::trace!(iteration_data = ?iteration_data, "Starting iteration with ID ");
-        iteration_metrics.common.iteration_id = Some(iteration_data.id);
+        tracing::trace!(iteration_data = ?locked_controller_iteration.iteration_data, "Starting iteration with ID ");
+        iteration_metrics.common.iteration_id = Some(locked_controller_iteration.iteration_data.id);
 
-        self.enqueue_objects(iteration_metrics, iteration_data.id)
-            .await?;
+        self.enqueue_objects(
+            iteration_metrics,
+            locked_controller_iteration.iteration_data.id,
+        )
+        .await?;
 
         self.process_enqueued_objects(iteration_metrics).await?;
-
-        // Drops the run lock which controls concurrency
-        txn.commit().await?;
 
         Ok(())
     }
@@ -344,6 +353,7 @@ impl<IO: StateControllerIO> StateController<IO> {
 
     /// Executes the state handling function for all objects for which it has
     /// been enqueued
+    #[allow(txn_held_across_await)]
     async fn process_enqueued_objects(
         &mut self,
         iteration_metrics: &mut IterationMetrics<IO>,
@@ -424,6 +434,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                             let controller_state = io
                                 .load_controller_state(&mut txn, &object_id, &snapshot)
                                 .await?;
+
                             metrics.common.initial_state = Some(controller_state.value.clone());
                             // Unwrap uses a very large duration as default to show something is wrong
                             metrics.common.time_in_state = chrono::Utc::now()

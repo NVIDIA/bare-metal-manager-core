@@ -78,7 +78,7 @@ impl Default for IBFabricConfig {
 
 #[async_trait]
 pub trait IBFabricManager: Send + Sync {
-    async fn connect(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError>;
+    async fn new_client(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError>;
     fn get_config(&self) -> IBFabricManagerConfig;
 }
 

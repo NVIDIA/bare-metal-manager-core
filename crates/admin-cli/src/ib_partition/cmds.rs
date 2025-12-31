@@ -17,10 +17,10 @@ use ::rpc::forge as forgerpc;
 use carbide_uuid::infiniband::IBPartitionId;
 use prettytable::{Table, row};
 
-use super::cfg::cli_options::ShowIbPartition;
+use super::args::ShowIbPartition;
 use crate::rpc::ApiClient;
 
-pub async fn handle_show(
+pub async fn show(
     args: ShowIbPartition,
     output_format: OutputFormat,
     api_client: &ApiClient,

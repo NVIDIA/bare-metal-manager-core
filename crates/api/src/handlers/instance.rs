@@ -819,7 +819,7 @@ pub(crate) async fn invoke_power(
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     // Lenovo does not yet provide a BMC lockdown so a user could
-    // change the boot order which we set in `libredfish::forge_setup`.
+    // change the boot order which we set in `libredfish::machine_setup`.
     // We also can't call `boot_first` for other vendors because lockdown
     // prevents it.
     // We use `boot_first` instead of `boot_once` for two reasons:
@@ -1100,6 +1100,11 @@ pub(crate) async fn update_instance_config(
     )
     .await?;
 
+    tracing::debug!(
+        "Updating instance {} with NVLink config {:?}",
+        instance.id,
+        config.nvlink
+    );
     update_instance_nvlink_config(&mh_snapshot, &instance, &config.nvlink, &mut txn).await?;
 
     db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
@@ -1332,7 +1337,7 @@ pub async fn force_delete_instance(
         .to_owned();
 
     let ib_fabric = ib_fabric_manager
-        .connect(model::ib::DEFAULT_IB_FABRIC_NAME)
+        .new_client(model::ib::DEFAULT_IB_FABRIC_NAME)
         .await?;
 
     // Collect the ib partition and ib ports information about this machine

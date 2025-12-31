@@ -33,6 +33,7 @@ impl StateHandler for IBPartitionStateHandler {
     type ControllerState = IBPartitionControllerState;
     type ContextObjects = IBPartitionStateHandlerContextObjects;
 
+    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         partition_id: &IBPartitionId,
@@ -44,7 +45,7 @@ impl StateHandler for IBPartitionStateHandler {
         let ib_fabric = ctx
             .services
             .ib_fabric_manager
-            .connect(DEFAULT_IB_FABRIC_NAME)
+            .new_client(DEFAULT_IB_FABRIC_NAME)
             .await
             .map_err(|e| StateHandlerError::IBFabricError {
                 operation: "connect".to_string(),

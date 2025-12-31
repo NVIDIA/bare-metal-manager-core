@@ -44,7 +44,9 @@ use carbide_uuid::vpc::VpcId;
 use carbide_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
-use crate::cfg::cli_options::{self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate};
+use crate::cfg::cli_options;
+use crate::instance::args::AllocateInstance;
+use crate::machine::{ForceDeleteMachineQuery, MachineAutoupdate};
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
 /// methods.
@@ -1016,7 +1018,7 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    // Given an DPA inteface ID, fetch it from Carbide and return it
+    // Given an DPA interface ID, fetch it from Carbide and return it
     pub async fn get_one_dpa(
         &self,
         dpa_id: DpaInterfaceId,
@@ -1040,12 +1042,13 @@ impl ApiClient {
             .await?
             .vpc_ids;
 
-        let vpcs = self
-            .0
-            .find_vpcs_by_ids(VpcsByIdsRequest { vpc_ids })
-            .await?;
-
-        Ok(vpcs)
+        Ok(if vpc_ids.is_empty() {
+            rpc::VpcList { vpcs: vec![] }
+        } else {
+            self.0
+                .find_vpcs_by_ids(VpcsByIdsRequest { vpc_ids })
+                .await?
+        })
     }
 
     pub async fn create_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
@@ -1372,7 +1375,7 @@ impl ApiClient {
 
             let Some(interfaces) = machine.discovery_info.map(|di| di.network_interfaces) else {
                 return Err(CarbideCliError::GenericError(format!(
-                    "no inteface information for machine: {}",
+                    "no interface information for machine: {}",
                     machine.id.unwrap_or_default()
                 )));
             };
@@ -1938,13 +1941,17 @@ impl ApiClient {
         id: Option<String>,
         tenant_organization_id: String,
         metadata: rpc::Metadata,
+        stateful_egress: bool,
         rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
     ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
         let request = CreateNetworkSecurityGroupRequest {
             id,
             tenant_organization_id,
             metadata: Some(metadata),
-            network_security_group_attributes: Some(NetworkSecurityGroupAttributes { rules }),
+            network_security_group_attributes: Some(NetworkSecurityGroupAttributes {
+                stateful_egress,
+                rules,
+            }),
         };
 
         let response = self.0.create_network_security_group(request).await?;
@@ -2044,6 +2051,7 @@ impl ApiClient {
         tenant_organization_id: String,
         metadata: rpc::Metadata,
         if_version_match: Option<String>,
+        stateful_egress: bool,
         rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
     ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
         let request = UpdateNetworkSecurityGroupRequest {
@@ -2051,7 +2059,10 @@ impl ApiClient {
             tenant_organization_id,
             metadata: Some(metadata),
             if_version_match,
-            network_security_group_attributes: Some(NetworkSecurityGroupAttributes { rules }),
+            network_security_group_attributes: Some(NetworkSecurityGroupAttributes {
+                stateful_egress,
+                rules,
+            }),
         };
 
         let response = self.0.update_network_security_group(request).await?;
@@ -2537,6 +2548,7 @@ impl ApiClient {
         description: Option<String>,
         data: String,
         credential: Option<rpc::DpuExtensionServiceCredential>,
+        observability: Vec<rpc::DpuExtensionServiceObservabilityConfig>,
     ) -> CarbideCliResult<rpc::DpuExtensionService> {
         let request = rpc::CreateDpuExtensionServiceRequest {
             service_id,
@@ -2546,11 +2558,15 @@ impl ApiClient {
             data,
             description,
             credential,
+            observability: Some(rpc::DpuExtensionServiceObservability {
+                configs: observability,
+            }),
         };
 
         Ok(self.0.create_dpu_extension_service(request).await?)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_extension_service(
         &self,
         service_id: String,
@@ -2558,6 +2574,7 @@ impl ApiClient {
         description: Option<String>,
         data: String,
         credential: Option<rpc::DpuExtensionServiceCredential>,
+        observability: Vec<rpc::DpuExtensionServiceObservabilityConfig>,
         if_version_ctr_match: Option<i32>,
     ) -> CarbideCliResult<rpc::DpuExtensionService> {
         let request = rpc::UpdateDpuExtensionServiceRequest {
@@ -2567,6 +2584,9 @@ impl ApiClient {
             data,
             credential,
             if_version_ctr_match,
+            observability: Some(rpc::DpuExtensionServiceObservability {
+                configs: observability,
+            }),
         };
 
         Ok(self.0.update_dpu_extension_service(request).await?)

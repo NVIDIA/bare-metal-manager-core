@@ -80,6 +80,13 @@ pub struct CreateNetworkSecurityGroup {
     pub labels: Option<String>,
 
     #[clap(
+        short = 's',
+        long,
+        help = "Optional, whether egress rules are stateful"
+    )]
+    pub stateful_egress: bool,
+
+    #[clap(
         short = 'r',
         long,
         help = "Optional, JSON array containing a defined set of network security group rules"
@@ -130,6 +137,13 @@ pub struct UpdateNetworkSecurityGroup {
         help = "JSON map of simple key:value pairs to be applied as labels to the network security group - will COMPLETELY overwrite any existing labels"
     )]
     pub labels: Option<String>,
+
+    #[clap(
+        short = 's',
+        long,
+        help = "Optional, whether egress rules are stateful"
+    )]
+    pub stateful_egress: Option<bool>,
 
     #[clap(
         short = 'r',

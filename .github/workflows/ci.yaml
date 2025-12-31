@@ -6,6 +6,7 @@ on:
       - main
       - release/*
       - "pull-request/[0-9]+"
+      - "for-review/test-version"
     tags:
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
       - "v[0-9].[0-9].[0-9]*"
@@ -38,9 +39,12 @@ jobs:
       build_artifacts_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_version }}
       build_artifacts_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_run }}
       build_artifacts_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version }}
+      runtime_container_aarch64_run: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_run }}
+      runtime_container_aarch64_version: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_version }}
       powerdns_container_run: ${{ steps.base-container-gate.outputs.powerdns_container_run }}
       proto_files_changed: ${{ steps.base-container-gate.outputs.proto_files_changed }}
       release_build_args: ${{ steps.release-metadata.outputs.build_args }}
+      release_build_args_aarch64: ${{ steps.release-metadata.outputs.build_args_aarch64 }}
       sbom_container_run: ${{ steps.base-container-gate.outputs.sbom_container_run }}
     steps:
       - name: Checkout code
@@ -57,6 +61,8 @@ jobs:
               - 'dev/docker/Dockerfile.build-container-x86_64'
             runtime_container:
               - 'dev/docker/Dockerfile.runtime-container-x86_64'
+            runtime_container_aarch64:
+              - 'dev/docker/Dockerfile.runtime-container-aarch64'
             build_container_aarch64:
               - 'dev/docker/Dockerfile.build-container-aarch64'
             build_artifacts_x86_64:
@@ -108,6 +114,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container }}
           RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container }}
+          RUNTIME_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container_aarch64 }}
           BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container_aarch64 }}
           BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
           BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
@@ -117,6 +124,7 @@ jobs:
           build_container_x86_64_run=false
           runtime_container_x86_64_run=false
           build_container_aarch64_run=false
+          runtime_container_aarch64_run=false
           build_artifacts_container_x86_64_run=false
           build_artifacts_container_aarch64_run=false
           powerdns_container_run=false
@@ -126,6 +134,7 @@ jobs:
             build_container_x86_64_run=true
             runtime_container_x86_64_run=true
             build_container_aarch64_run=true
+            runtime_container_aarch64_run=true
             build_artifacts_container_x86_64_run=true
             build_artifacts_container_aarch64_run=true
           elif [[ "${BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
@@ -148,6 +157,10 @@ jobs:
             runtime_container_x86_64_run=true
           fi
 
+          if [[ "${RUNTIME_CONTAINER_AARCH64_DOCKERFILE_CHANGED}" == "true" ]]; then
+            runtime_container_aarch64_run=true
+          fi
+
           if [[ "${BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED}" == "true" ]]; then
             build_container_aarch64_run=true
           fi
@@ -167,6 +180,7 @@ jobs:
           echo "build_container_x86_64_run=${build_container_x86_64_run}" >> "$GITHUB_OUTPUT"
           echo "runtime_container_x86_64_run=${runtime_container_x86_64_run}" >> "$GITHUB_OUTPUT"
           echo "build_container_aarch64_run=${build_container_aarch64_run}" >> "$GITHUB_OUTPUT"
+          echo "runtime_container_aarch64_run=${runtime_container_aarch64_run}" >> "$GITHUB_OUTPUT"
           echo "build_artifacts_container_x86_64_run=${build_artifacts_container_x86_64_run}" >> "$GITHUB_OUTPUT"
           echo "build_artifacts_container_aarch64_run=${build_artifacts_container_aarch64_run}" >> "$GITHUB_OUTPUT"
           echo "powerdns_container_run=${powerdns_container_run}" >> "$GITHUB_OUTPUT"
@@ -189,6 +203,12 @@ jobs:
             echo "build_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "$runtime_container_aarch64_run" == "true" ]]; then
+            echo "runtime_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "runtime_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_artifacts_container_x86_64_run" == "true" ]]; then
@@ -227,9 +247,12 @@ jobs:
           SHORT_SHA: ${{ steps.version.outputs.short_sha }}
           BUILD_VERSION: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
           RUNTIME_VERSION: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
+          BUILD_VERSION_AARCH64: ${{ steps.base-container-gate.outputs.build_container_aarch64_version }}
+          RUNTIME_VERSION_AARCH64: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_version }}
         run: |
           set -euo pipefail
 
+          # x86_64 build args
           BUILD_REF="nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:${BUILD_VERSION}"
           RUNTIME_REF="nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${RUNTIME_VERSION}"
 
@@ -241,6 +264,19 @@ jobs:
             '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME}')
 
           echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
+
+          # aarch64 build args
+          BUILD_REF_AARCH64="nvcr.io/0837451325059433/carbide-dev/build-container-aarch64:${BUILD_VERSION_AARCH64}"
+          RUNTIME_REF_AARCH64="nvcr.io/0837451325059433/carbide-dev/runtime-container-aarch64:${RUNTIME_VERSION_AARCH64}"
+
+          BUILD_ARGS_AARCH64=$(jq -n -c \
+            --arg VERSION "$VERSION" \
+            --arg SHORT_SHA "$SHORT_SHA" \
+            --arg BUILD "$BUILD_REF_AARCH64" \
+            --arg RUNTIME "$RUNTIME_REF_AARCH64" \
+            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_AARCH64: $BUILD, CONTAINER_RUNTIME_AARCH64: $RUNTIME}')
+
+          echo "build_args_aarch64=${BUILD_ARGS_AARCH64}" >> "$GITHUB_OUTPUT"
 
   # ============================================================================
   # BUILD STAGE - Base Containers
@@ -291,6 +327,22 @@ jobs:
       runner: linux-amd64-cpu4
       push: true
       load: true
+      tag_latest: ${{ github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  build-runtime-container-aarch64:
+    if: needs.prepare.outputs.runtime_container_aarch64_run == 'true'
+    needs:
+      - prepare
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.runtime-container-aarch64
+      image_name: nvcr.io/0837451325059433/carbide-dev/runtime-container-aarch64
+      image_tag: ${{ needs.prepare.outputs.runtime_container_aarch64_version }}
+      platforms: linux/arm64
+      runner: linux-arm64-cpu4
+      push: true
+      load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
 
@@ -346,6 +398,26 @@ jobs:
       runner: linux-amd64-cpu16
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
+      tag_latest: false
+    secrets: inherit
+
+  build-release-container-aarch64:
+    if: ${{ always() && github.event_name != 'schedule' }}
+    needs:
+      - prepare
+      - build-container-aarch64
+      - build-runtime-container-aarch64
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: dev/docker/Dockerfile.release-container-aarch64
+      context_path: .
+      build_args: ${{ needs.prepare.outputs.release_build_args_aarch64 }}
+      image_name: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-aarch64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/arm64
+      runner: linux-arm64-cpu16
+      push: ${{ !contains(github.ref, 'pull-request/') }}
+      load: false
       tag_latest: false
     secrets: inherit
 
@@ -758,9 +830,11 @@ jobs:
       - build-container-x86_64
       - build-container-aarch64
       - build-runtime-container-x86_64
+      - build-runtime-container-aarch64
       - build-artifacts-container-x86_64
       - build-artifacts-container-aarch64
       - build-release-container-x86_64
+      - build-release-container-aarch64
       - build-boot-artifacts-x86
       - build-boot-artifacts-bfb
       - build-boot-artifacts-ephemeral-image-x86-host
@@ -813,9 +887,11 @@ jobs:
       - build-container-x86_64
       - build-container-aarch64
       - build-runtime-container-x86_64
+      - build-runtime-container-aarch64
       - build-artifacts-container-x86_64
       - build-artifacts-container-aarch64
       - build-release-container-x86_64
+      - build-release-container-aarch64
       - build-boot-artifacts-x86
       - build-boot-artifacts-bfb
       - build-boot-artifacts-ephemeral-image-x86-host

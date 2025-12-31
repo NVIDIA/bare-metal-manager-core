@@ -17,6 +17,7 @@ use super::service_handler::{
     CredentialType, ExtensionServiceHandler, ServiceConfig, UsernamePassword,
 };
 use crate::containerd::container;
+use crate::extension_services::dpu_extension_service_observability;
 
 // For writing the pod spec to the kubelet managed directory
 const KUBERNETES_POD_DIR: &str = "/etc/kubelet.d";
@@ -38,6 +39,10 @@ const KUBELET_SYSTEMD_OVERRIDE_FILE: &str =
 // Path for configuring the socks proxy for containerd
 const CONTAINERD_OVERRIDE_DIR: &str = "/etc/systemd/system/containerd@mgmt.service.d";
 const CONTAINERD_PROXY_FILE: &str = "/etc/systemd/system/containerd@mgmt.service.d/http_proxy.conf";
+
+// Path for extension services OTEL config files
+const OTEL_CONTRIB_DPU_EXT_PATH: &str = "/etc/otelcol-contrib/config-fragments";
+const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
 
 /// Handler for KUBERNETES_POD extension services
 #[derive(Default)]
@@ -696,7 +701,7 @@ JSON
     }
 
     /// Write kubelet systemd override configuration to enable image credential provider
-    async fn write_kubelet_override_conf(&self) -> Result<()> {
+    fn write_kubelet_override_conf(&self) -> Result<()> {
         // Create systemd override directory if it doesn't exist
         std::fs::create_dir_all(Path::new(KUBELET_SYSTEMD_OVERRIDE_DIR))
             .wrap_err("Failed to create kubelet systemd override directory")?;
@@ -936,7 +941,7 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
             );
 
             // Write kubelet systemd override to configure image credential provider
-            self.write_kubelet_override_conf().await?;
+            self.write_kubelet_override_conf()?;
 
             // Generate credential provider script
             let script_content = self.generate_credential_provider_script(&credential_list)?;
@@ -968,6 +973,106 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
         Ok(())
     }
 
+    // Reconcile the DPU OTEL metrics collection config based, adding/updating config
+    // for new/existing services and removing config for inactive services.
+    // If no config is provided for a service, any existing metrics config will be removed.
+    async fn reconcile_observability(&mut self, services: &[ServiceConfig]) -> Result<()> {
+        let mut changed = false;
+
+        // Loop through the items in services.
+        for service in services {
+            let config_path =
+                PathBuf::from(format!("{OTEL_CONTRIB_DPU_EXT_PATH}/{}.yaml", service.id));
+            let tmp_path = config_path.with_extension("TMP");
+
+            if let Some(observability) = service.observability.as_ref() {
+                // Check if the service is marked removed or has no metrics config
+                if service.removed.is_some() || observability.configs.is_empty() {
+                    // Check if a config file exists
+                    if std::fs::exists(config_path.clone())? {
+                        // If so, flag that we're changing something and remove the file.
+                        changed = true;
+                        std::fs::remove_file(config_path)?;
+                    }
+                } else if observability.configs.len() > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
+                    tracing::error!(
+                        "number of observability configs for service `{}` exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
+                        service.id
+                    );
+
+                    // We protect against this case in the API layer, so this case,
+                    // _should_ never be hit, but we need to do whatever we can to
+                    // prevent user-config from blocking the rest of our DPU loop.
+                    // Config count that exceeds our imposed limit isn't a systemic
+                    // failure (nothing is wrong with the DPU), so we should log and
+                    // remove the config.  The user will then need to fix their config
+                    // to get their metrics again.
+                    changed = true;
+                    std::fs::remove_file(config_path)?;
+                } else {
+                    // If the service is active and has metrics config, loop through
+                    // and generate a tmp config file.
+                    let contents = dpu_extension_service_observability::build(
+                        service.id,
+                        service.name.to_owned(),
+                        observability,
+                    )?;
+
+                    std::fs::write(&tmp_path, contents.clone())
+                        .wrap_err_with(|| format!("fs::write {}", tmp_path.display()))?;
+
+                    // If no config file already exists, move temp to active and mark changed.
+                    if !std::fs::exists(config_path.clone())? {
+                        std::fs::rename(tmp_path, config_path).wrap_err("rename")?;
+                        changed = true;
+                    } else {
+                        // Read in the current config
+                        let current = std::fs::read_to_string(config_path.clone())
+                            .wrap_err("read current config")?;
+                        // If there was no change, nothing to do so just clean-up.
+                        if contents == current {
+                            std::fs::remove_file(&tmp_path)
+                                .wrap_err("remove temp metrics config")?;
+                        } else {
+                            // If there was a change, move tmp to current
+                            std::fs::rename(tmp_path, config_path).wrap_err("rename")?;
+                            changed = true;
+                        }
+                    }
+                }
+            } else {
+                // Check if a config file exists
+                if std::fs::exists(config_path.clone())? {
+                    // If so, flag that we're changing something and remove the file.
+                    changed = true;
+                    std::fs::remove_file(config_path)?;
+                }
+            }
+        }
+
+        // If there were changes, restart the otel service.
+        if changed {
+            // We intentionally turn validation failure into a non-fatal
+            // event and continue on to give users a strong signal (their
+            // metrics break) in the event that they've crafted config
+            // that passes the validation at our API layer but managed
+            // to be rejected by otel.
+            // The otel service wrapper itself will validate the combined
+            // config (base + config fragments) and ignore all extension
+            // config if validation fails.
+            // We'll still get _our_ base metrics if the user submited bad
+            // config, but the user will lose theirs until they fix their
+            // config.
+            if !dpu_extension_service_observability::validate().await? {
+                tracing::error!("extension service observability configs failed validation")
+            }
+
+            self.systemctl_restart("otelcol-contrib.service").await?;
+        }
+
+        Ok(())
+    }
+
     /// Update the services in the kubelet directory, then configure the credential provider to
     /// contain the credentials for the new services' images
     async fn update_services(&mut self, services: &[ServiceConfig]) -> Result<()> {
@@ -994,6 +1099,11 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
         self.reconcile_credential_provider(&active_services)
             .await
             .map_err(|e| eyre::eyre!("Failed to reconcile credential provider: {}", e))?;
+
+        // Reconcile metrics collection config
+        self.reconcile_observability(services)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to reconcile metrics collection: {}", e))?;
 
         Ok(())
     }
@@ -1033,7 +1143,20 @@ impl ExtensionServiceHandler for KubernetesPodServicesHandler {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::*;
+    use crate::extension_services::dpu_extension_service_observability::{
+        DpuExtensionServiceObservability, DpuExtensionServiceObservabilityConfig,
+        DpuExtensionServiceObservabilityConfigType,
+        DpuExtensionServiceObservabilityConfigTypeLogging,
+        DpuExtensionServiceObservabilityConfigTypePrometheus,
+    };
+
+    const OBVS_ERR_FILE: &str = "/tmp/extensions_service_observability.err";
+
+    const OBVS_GOLDEN_FILE_CONTENTS: &str =
+        include_str!("../../templates/tests/dpu_extension_service_observability.expected");
 
     #[test]
     fn test_k8s_pod_handler_get_pod_spec_path() {
@@ -1312,5 +1435,71 @@ spec:
             status,
             rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
         );
+    }
+
+    #[test]
+    fn test_observability_config() {
+        let configs = DpuExtensionServiceObservability {
+            configs: vec![
+                // The first two should be de-duped.
+                DpuExtensionServiceObservabilityConfig {
+                    name: None,
+                    config: DpuExtensionServiceObservabilityConfigType::Prometheus(
+                        DpuExtensionServiceObservabilityConfigTypePrometheus {
+                            endpoint: "https://localhost:9999".to_string(),
+                            scrape_interval_seconds: 1,
+                        },
+                    ),
+                },
+                DpuExtensionServiceObservabilityConfig {
+                    name: None,
+                    config: DpuExtensionServiceObservabilityConfigType::Prometheus(
+                        DpuExtensionServiceObservabilityConfigTypePrometheus {
+                            endpoint: "https://localhost:9999".to_string(),
+                            scrape_interval_seconds: 1,
+                        },
+                    ),
+                },
+                // The next two should be seen as unique and both show in the final config.
+                DpuExtensionServiceObservabilityConfig {
+                    name: Some("logging_uniq1".to_string()),
+                    config: DpuExtensionServiceObservabilityConfigType::Logging(
+                        DpuExtensionServiceObservabilityConfigTypeLogging {
+                            path: "/var/log/someservicelog".to_string(),
+                        },
+                    ),
+                },
+                DpuExtensionServiceObservabilityConfig {
+                    name: Some("logging_uniq2".to_string()),
+                    config: DpuExtensionServiceObservabilityConfigType::Logging(
+                        DpuExtensionServiceObservabilityConfigTypeLogging {
+                            path: "/var/log/anotherservicelog".to_string(),
+                        },
+                    ),
+                },
+            ],
+        };
+
+        let content = dpu_extension_service_observability::build(
+            Uuid::new_v4(),
+            "test_service".to_string(),
+            &configs,
+        );
+
+        let content = content.unwrap();
+
+        let _yaml_obj: serde_yaml::Value = serde_yaml::from_str(&content)
+            .inspect_err(|_| {
+                std::fs::write(OBVS_ERR_FILE, content.clone()).unwrap();
+                println!("YAML parser error. Output written to {OBVS_ERR_FILE}");
+            })
+            .unwrap();
+
+        let r = crate::util::compare_lines(&content, OBVS_GOLDEN_FILE_CONTENTS, None);
+        eprint!(
+            "Content does not match expectations. Diff output:\n{}",
+            r.report()
+        );
+        assert!(r.is_identical());
     }
 }

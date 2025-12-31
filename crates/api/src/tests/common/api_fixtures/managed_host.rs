@@ -314,7 +314,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             machine_id: None,
             versions: Default::default(),
             model: None,
-            forge_setup_status: None,
+            machine_setup_status: None,
             secure_boot_status: None,
             lockdown_status: None,
             power_shelf_id: None,

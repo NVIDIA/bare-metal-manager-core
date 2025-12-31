@@ -131,6 +131,13 @@ pub mod test_support {
             todo!()
         }
 
+        async fn raw_get(
+            &self,
+            _api: &str,
+        ) -> Result<libnmxm::nmxm_model::RawResponse, NmxmApiError> {
+            todo!()
+        }
+
         async fn get_chassis(
             &self,
             _id: String,

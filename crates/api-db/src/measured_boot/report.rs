@@ -29,7 +29,7 @@ use measured_boot::records::{
     MeasurementReportRecord, MeasurementReportValueRecord,
 };
 use measured_boot::report::MeasurementReport;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgTransaction};
 
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::pcr_register_values_to_map;
@@ -46,7 +46,9 @@ use crate::measured_boot::machine::bundle_state_to_machine_state;
 use crate::{DatabaseError, DatabaseResult};
 
 pub async fn new_with_txn(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
 ) -> DatabaseResult<MeasurementReport> {
@@ -94,7 +96,9 @@ pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementRe
 }
 
 pub async fn create_active_bundle_with_txn(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     report: &MeasurementReport,
     pcr_set: &Option<PcrSet>,
 ) -> DatabaseResult<MeasurementBundle> {
@@ -102,7 +106,9 @@ pub async fn create_active_bundle_with_txn(
 }
 
 pub async fn create_revoked_bundle_with_txn(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     report: &MeasurementReport,
     pcr_set: &Option<PcrSet>,
 ) -> DatabaseResult<MeasurementBundle> {
@@ -112,7 +118,9 @@ pub async fn create_revoked_bundle_with_txn(
 /// create_measurement_report handles the work of creating a new
 /// measurement report as well as all associated value records.
 pub async fn create_measurement_report(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
 ) -> DatabaseResult<MeasurementReport> {
@@ -282,7 +290,9 @@ struct JournalData {
 
 impl JournalData {
     pub async fn new_from_values(
-        txn: &mut PgConnection,
+        // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+        // which must happen in a transaction.
+        txn: &mut PgTransaction<'_>,
         machine_id: MachineId,
         values: &[PcrRegisterValue],
     ) -> DatabaseResult<Self> {
@@ -326,7 +336,9 @@ impl JournalData {
 /// It's worth mentioning that this in and of itself will create an additional
 /// journal entry, should a new bundle be created.
 async fn maybe_auto_approve_machine(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     report: &MeasurementReport,
 ) -> DatabaseResult<bool> {
     match get_approval_for_machine_id(txn, TrustedMachineId::MachineId(report.machine_id)).await? {
@@ -377,7 +389,9 @@ async fn maybe_auto_approve_machine(
 /// It's worth mentioning that this in and of itself will create an additional
 /// journal entry, should a new bundle be created.
 async fn maybe_auto_approve_profile(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     journal: &MeasurementJournal,
     report: &MeasurementReport,
 ) -> DatabaseResult<bool> {
@@ -409,7 +423,9 @@ async fn maybe_auto_approve_profile(
 /// create a new bundle with registers 0-6).
 ////////////////////////////////////////////////////////////
 pub async fn create_bundle_with_state(
-    txn: &mut PgConnection,
+    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
+    // which must happen in a transaction.
+    txn: &mut PgTransaction<'_>,
     report: &MeasurementReport,
     state: MeasurementBundleState,
     pcr_set: &Option<PcrSet>,

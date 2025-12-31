@@ -869,6 +869,7 @@ async fn debug_failed_machine_status_update(
 }
 
 #[cfg(not(test))]
+#[allow(clippy::unused_async)]
 async fn debug_failed_machine_status_update(
     _txn: &mut PgConnection,
     _machine_id: &MachineId,
@@ -2205,9 +2206,9 @@ impl<'r> FromRow<'r, PgRow> for _HealthReportWrapper {
     }
 }
 
-pub async fn count_healthy_unhealthy_host_machines(
+pub fn count_healthy_unhealthy_host_machines(
     all_machines: &HashMap<MachineId, model::machine::ManagedHostStateSnapshot>,
-) -> Result<(i32, i32), DatabaseError> {
+) -> (i32, i32) {
     let without_fault_count = all_machines
         .iter()
         .filter(|(_, x)| {
@@ -2218,10 +2219,10 @@ pub async fn count_healthy_unhealthy_host_machines(
         })
         .count();
 
-    Ok((
+    (
         all_machines.len() as i32,
         (all_machines.len() - without_fault_count) as i32,
-    ))
+    )
 }
 
 #[cfg(test)]

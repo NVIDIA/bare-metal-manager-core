@@ -18,6 +18,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
@@ -26,6 +27,7 @@ use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
+use db::work_lock_manager;
 use dpu::DpuConfig;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
@@ -35,6 +37,7 @@ use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use measured_boot::pcr::PcrRegisterValue;
+use model::attestation::spdm::Verifier;
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::hardware_info::TpmEkCertificate;
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
@@ -48,6 +51,10 @@ use model::network_security_group;
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
+use nras::{
+    DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
+    VerifierClient,
+};
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
@@ -70,9 +77,9 @@ use crate::cfg::file::{
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
     MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
-    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig,
-    StateControllerConfig, SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy,
-    default_max_find_by_ids,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig, SpdmConfig,
+    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
+    VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
@@ -92,13 +99,15 @@ use crate::state_controller::controller::StateController;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
 use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
 use crate::state_controller::machine::handler::{
-    MachineStateHandler, MachineStateHandlerBuilder, ReachabilityParams,
+    MachineStateHandler, MachineStateHandlerBuilder, PowerOptionConfig, ReachabilityParams,
 };
 use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use crate::state_controller::network_segment::io::NetworkSegmentStateControllerIO;
 use crate::state_controller::power_shelf::handler::PowerShelfStateHandler;
 use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
+use crate::state_controller::spdm::handler::SpdmAttestationStateHandler;
+use crate::state_controller::spdm::io::SpdmStateControllerIO;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -221,6 +230,8 @@ pub struct TestEnvOverrides {
     pub create_network_segments: Option<bool>,
     pub dpu_agent_version_staleness_threshold: Option<chrono::Duration>,
     pub prevent_allocations_on_stale_dpu_agent_version: Option<bool>,
+    pub network_segments_drain_period: Option<chrono::Duration>,
+    pub power_manager_enabled: Option<bool>,
 }
 
 impl TestEnvOverrides {
@@ -237,6 +248,11 @@ impl TestEnvOverrides {
             ..Default::default()
         }
     }
+
+    pub fn enable_power_manager(mut self) -> Self {
+        self.power_manager_enabled = Some(true);
+        self
+    }
 }
 
 pub struct TestEnv {
@@ -249,6 +265,7 @@ pub struct TestEnv {
     pub ib_fabric_manager: Arc<IBFabricManagerImpl>,
     pub ipmi_tool: Arc<IPMIToolTestImpl>,
     machine_state_controller: Arc<Mutex<StateController<MachineStateControllerIO>>>,
+    spdm_state_controller: Arc<Mutex<StateController<SpdmStateControllerIO>>>,
     pub machine_state_handler: SwapHandler<MachineStateHandler>,
     network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
@@ -459,6 +476,17 @@ impl TestEnv {
     /// in this test environment
     pub async fn run_network_segment_controller_iteration(&self) {
         self.network_segment_controller
+            .lock()
+            .await
+            .run_single_iteration()
+            .boxed()
+            .await;
+    }
+
+    /// Runs one iteration of the network state controller handler with the services
+    /// in this test environment
+    pub async fn run_spdm_controller_iteration(&self) {
+        self.spdm_state_controller
             .lock()
             .await
             .run_single_iteration()
@@ -951,7 +979,6 @@ pub fn get_config() -> CarbideConfig {
             dpu_up_threshold: Duration::weeks(52),
             controller: StateControllerConfig::default(),
             scout_reporting_timeout: Duration::weeks(52),
-            skip_polling_checks: false,
         },
         network_segment_state_controller: NetworkSegmentStateControllerConfig {
             network_segment_drain_time: Duration::seconds(2),
@@ -1015,7 +1042,7 @@ pub fn get_config() -> CarbideConfig {
             hb_interval: Duration::minutes(2),
         }),
         power_manager_options: PowerManagerOptions {
-            enabled: true,
+            enabled: false,
             ..PowerManagerOptions::default()
         },
         auto_machine_repair_plugin: Default::default(),
@@ -1031,6 +1058,13 @@ pub fn get_config() -> CarbideConfig {
         rack_management_enabled: false,
         force_dpu_nic_mode: false,
         rms_api_url: Some("https://localhost".to_string()),
+        spdm_state_controller: SpdmStateControllerConfig {
+            controller: StateControllerConfig::default(),
+        },
+        spdm: SpdmConfig {
+            enabled: true,
+            nras_config: Some(nras::Config::default()),
+        },
     }
 }
 
@@ -1061,11 +1095,61 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
 
 /// Creates an environment for unit-testing
 ///
-/// This retuns the `Api` object instance which can be used to simulate calls against
+/// This returns the `Api` object instance which can be used to simulate calls against
 /// the Forge site controller, as well as mocks for dependent services that
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     create_test_env_with_overrides(db_pool, Default::default()).await
+}
+
+#[derive(Debug, Default)]
+pub struct VerifierSimImpl {}
+
+#[async_trait::async_trait]
+impl Verifier for VerifierSimImpl {
+    fn client(&self, _nras_config: nras::Config) -> Box<dyn nras::VerifierClient> {
+        Box::new(VerifierClientSim::default())
+    }
+    async fn parse_attestation_outcome(
+        &self,
+        _nras_config: &nras::Config,
+        _state: &RawAttestationOutcome,
+    ) -> Result<ProcessedAttestationOutcome, NrasError> {
+        Ok(ProcessedAttestationOutcome {
+            attestation_passed: true,
+            devices: HashMap::new(),
+        })
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct VerifierClientSim {}
+
+#[async_trait]
+impl VerifierClient for VerifierClientSim {
+    async fn attest_gpu(
+        &self,
+        _device_attestation_info: &DeviceAttestationInfo,
+    ) -> Result<RawAttestationOutcome, NrasError> {
+        let verifier_response = RawAttestationOutcome {
+            overall_outcome: ("JWT".to_string(), "All_good".to_string()),
+            devices_outcome: HashMap::new(),
+        };
+        Ok(verifier_response)
+    }
+
+    async fn attest_dpu(
+        &self,
+        _device_attestation_info: &DeviceAttestationInfo,
+    ) -> Result<RawAttestationOutcome, NrasError> {
+        Err(NrasError::NotImplemented)
+    }
+    async fn attest_cx7(
+        &self,
+        _device_attestation_info: &DeviceAttestationInfo,
+    ) -> Result<RawAttestationOutcome, NrasError> {
+        Err(NrasError::NotImplemented)
+    }
 }
 
 pub async fn create_test_env_with_overrides(
@@ -1073,6 +1157,12 @@ pub async fn create_test_env_with_overrides(
     overrides: TestEnvOverrides,
 ) -> TestEnv {
     let db_pool = create_pool(db_pool).await;
+    let work_lock_manager_handle = work_lock_manager::start(
+        db_pool.clone(),
+        work_lock_manager::KeepaliveConfig::default(),
+    )
+    .await
+    .expect("work_lock_manager failed to start: no availble connections?");
     let test_meter = TestMeter::default();
     let credential_provider = Arc::new(TestCredentialProvider::default());
     populate_default_credentials(credential_provider.as_ref()).await;
@@ -1128,14 +1218,16 @@ pub async fn create_test_env_with_overrides(
         test_meter.meter(),
         ib_fabric_manager.clone(),
         config.clone(),
+        work_lock_manager_handle.clone(),
     );
 
     let nvl_partition_monitor = NvlPartitionMonitor::new(
         db_pool.clone(),
         nmxm_sim.clone(),
-        // test_meter.meter(),
+        test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
         config.host_health,
+        work_lock_manager_handle.clone(),
     );
 
     let site_fabric_networks = overrides
@@ -1215,10 +1307,15 @@ pub async fn create_test_env_with_overrides(
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
         rms_client,
         nmxm_pool: nmxm_sim.clone(),
+        work_lock_manager_handle: work_lock_manager_handle.clone(),
     });
 
     let attestation_enabled = config.attestation_enabled;
     let ipmi_tool = Arc::new(IPMIToolTestImpl {});
+    let mut power_options: PowerOptionConfig = config.power_manager_options.clone().into();
+    if let Some(v) = overrides.power_manager_enabled {
+        power_options.enabled = v;
+    }
 
     let machine_swap = SwapHandler {
         inner: Arc::new(Mutex::new(
@@ -1238,8 +1335,16 @@ pub async fn create_test_env_with_overrides(
                 .instance_autoreboot_period(
                     config.machine_updater.instance_autoreboot_period.clone(),
                 )
+                .power_options_config(power_options)
                 .build(),
         )),
+    };
+
+    let spdm_swap = SwapHandler {
+        inner: Arc::new(Mutex::new(SpdmAttestationStateHandler::new(
+            Arc::new(VerifierSimImpl::default()),
+            nras::Config::default(),
+        ))),
     };
 
     let handler_services = Arc::new(CommonStateHandlerServices {
@@ -1253,7 +1358,7 @@ pub async fn create_test_env_with_overrides(
     });
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(machine_swap.clone()))
@@ -1263,12 +1368,21 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations()
         .expect("Unable to build state controller");
 
+    let spdm_controller = StateController::<SpdmStateControllerIO>::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("spdm", test_meter.meter())
+        .services(handler_services.clone())
+        .state_handler(Arc::new(spdm_swap.clone()))
+        .io(Arc::new(SpdmStateControllerIO {}))
+        .build_for_manual_iterations()
+        .expect("Unable to build spdm state controller");
+
     let ib_swap = SwapHandler {
         inner: Arc::new(Mutex::new(IBPartitionStateHandler::default())),
     };
 
     let ib_controller = StateController::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(ib_swap.clone()))
@@ -1277,14 +1391,16 @@ pub async fn create_test_env_with_overrides(
 
     let network_swap = SwapHandler {
         inner: Arc::new(Mutex::new(NetworkSegmentStateHandler::new(
-            chrono::Duration::milliseconds(500),
+            overrides
+                .network_segments_drain_period
+                .unwrap_or(chrono::Duration::milliseconds(500)),
             common_pools.ethernet.pool_vlan_id.clone(),
             common_pools.ethernet.pool_vni.clone(),
         ))),
     };
 
     let mut network_controller = StateController::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(network_swap.clone()))
@@ -1292,7 +1408,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build state controller");
 
     let power_shelf_controller = StateController::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
@@ -1300,7 +1416,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build PowerShelfStateController");
 
     let switch_controller = StateController::builder()
-        .database(db_pool.clone())
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_switches", test_meter.meter())
         .services(handler_services.clone())
         .state_handler(Arc::new(SwitchStateHandler::default()))
@@ -1343,6 +1459,7 @@ pub async fn create_test_env_with_overrides(
         Arc::new(fake_endpoint_explorer.clone()),
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
+        work_lock_manager_handle.clone(),
     );
 
     // Create some instance types
@@ -1415,6 +1532,7 @@ pub async fn create_test_env_with_overrides(
         ib_fabric_manager,
         ipmi_tool,
         machine_state_controller: Arc::new(Mutex::new(machine_controller)),
+        spdm_state_controller: Arc::new(Mutex::new(spdm_controller)),
         machine_state_handler: machine_swap,
         ib_fabric_monitor: Arc::new(ib_fabric_monitor),
         ib_partition_controller: Arc::new(Mutex::new(ib_controller)),
@@ -1528,9 +1646,10 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
 
     let tenant_org = default_tenant_org.parse::<TenantOrganizationId>().unwrap();
 
-    let _it = create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, &rules)
-        .await
-        .unwrap();
+    let _it =
+        create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, false, &rules)
+            .await
+            .unwrap();
 
     // Create one more NSG with a different name.
     // The rules can be the same.
@@ -1543,9 +1662,10 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
     };
     let id = uid.parse().unwrap();
 
-    let _it = create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, &rules)
-        .await
-        .unwrap();
+    let _it =
+        create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, false, &rules)
+            .await
+            .unwrap();
 
     // One more for the second tenant
     let uid = "ddfcabc4-92dc-41e2-874e-2c7eeb9fa156";
@@ -1562,6 +1682,7 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
         &tenant_org2.parse::<TenantOrganizationId>().unwrap(),
         None,
         &metadata,
+        false,
         &rules,
     )
     .await

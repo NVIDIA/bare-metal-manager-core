@@ -199,7 +199,7 @@ async fn single_fetch(
         Ok(resp) => {
             state.netconf.store(Some(Arc::new(resp.clone())));
 
-            match instance_metadata_from_instance(resp.instance, state.sitename.clone()).await {
+            match instance_metadata_from_instance(resp.instance, state.sitename.clone()) {
                 Ok(Some(config)) => {
                     state.instmeta.store(Some(Arc::new(config)));
                 }
@@ -243,7 +243,7 @@ pub async fn fetch(
     get_periodic_dpu_config(&mut client, dpu_machine_id).await
 }
 
-pub async fn instance_metadata_from_instance(
+pub fn instance_metadata_from_instance(
     instance: Option<Instance>,
     sitename: Option<String>,
 ) -> Result<Option<InstanceMetadata>, eyre::Error> {

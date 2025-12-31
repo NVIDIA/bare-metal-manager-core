@@ -21,6 +21,16 @@ carbide_api_db_span_query_time_milliseconds_bucket{operation="network_segments_c
 carbide_api_db_span_query_time_milliseconds_bucket{operation="network_segments_controller",le="+Inf"} 2
 carbide_api_db_span_query_time_milliseconds_sum{operation="network_segments_controller"} 0
 carbide_api_db_span_query_time_milliseconds_count{operation="network_segments_controller"} 2
+# HELP carbide_nvlink_partition_monitor_nmxm_changes_applied_total Number of changes requested to Nmx-M
+# TYPE carbide_nvlink_partition_monitor_nmxm_changes_applied_total counter
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="create",status="false"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="create",status="true"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="pending",status="false"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="pending",status="true"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="remove",status="false"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="remove",status="true"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="update",status="false"} 0
+carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="update",status="true"} 0
 # HELP forge_available_ips_count The total number of available ips in the Forge site
 # TYPE forge_available_ips_count gauge
 forge_available_ips_count{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 253

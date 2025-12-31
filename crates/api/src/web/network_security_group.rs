@@ -100,6 +100,7 @@ struct NetworkSecurityGroupDetailDisplay {
     created: String,
     created_by: String,
     updated_by: String,
+    stateful_egress: bool,
     labels: String,
     rules: String,
     attachments: forgerpc::NetworkSecurityGroupAttachments,
@@ -282,7 +283,9 @@ pub async fn show_detail(
     let created_by = nsg.created_by().to_string();
     let updated_by = nsg.updated_by().to_string();
 
-    let rules = match serde_json::to_string_pretty(&nsg.attributes.unwrap_or_default().rules) {
+    let attrs = nsg.attributes.unwrap_or_default();
+
+    let rules = match serde_json::to_string_pretty(&attrs.rules) {
         Ok(r) => r,
         Err(e) => {
             return (
@@ -385,6 +388,7 @@ pub async fn show_detail(
         description: metadata.description,
         labels,
         rules,
+        stateful_egress: attrs.stateful_egress,
         version: nsg.version,
         created,
         created_by,
@@ -404,6 +408,7 @@ pub struct CreateNetworkSecurityGroupForm {
     id: String,
     tenant_organization_id: String,
     name: String,
+    stateful_egress: Option<bool>,
     description: String,
     labels: String,
     rules: String,
@@ -428,6 +433,7 @@ pub async fn create(
         None
     } else {
         Some(forgerpc::NetworkSecurityGroupAttributes {
+            stateful_egress: form.stateful_egress.unwrap_or_default(),
             rules: match serde_json::from_str(&form.rules) {
                 Ok(r) => r,
                 Err(e) => {
@@ -493,6 +499,8 @@ pub async fn create(
 pub struct UpdateNetworkSecurityGroupForm {
     tenant_organization_id: String,
     name: String,
+    stateful_egress: Option<bool>,
+
     description: String,
     labels: String,
     rules: String,
@@ -515,6 +523,8 @@ pub async fn update(
         None
     } else {
         Some(forgerpc::NetworkSecurityGroupAttributes {
+            stateful_egress: form.stateful_egress.unwrap_or_default(),
+
             rules: match serde_json::from_str(&form.rules) {
                 Ok(r) => r,
                 Err(e) => {

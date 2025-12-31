@@ -102,7 +102,10 @@ impl InternalRBACRules {
         x.perm("UpdateInstanceOperatingSystem", vec![SiteAgent]);
         x.perm("UpdateInstanceConfig", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstanceIds", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("FindInstancesByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindInstancesByIds",
+            vec![ForgeAdminCLI, SiteAgent, Ssh, SshRs],
+        );
         x.perm(
             "FindInstanceByMachineID",
             vec![ForgeAdminCLI, Agent, SiteAgent],
@@ -345,7 +348,7 @@ impl InternalRBACRules {
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI, Rla]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
-        x.perm("ForgeSetup", vec![ForgeAdminCLI]);
+        x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
         x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);
@@ -409,6 +412,7 @@ impl InternalRBACRules {
         );
         x.perm("RedfishBrowse", vec![ForgeAdminCLI]);
         x.perm("UfmBrowse", vec![ForgeAdminCLI]);
+        x.perm("NmxmBrowse", vec![ForgeAdminCLI]);
         x.perm("UpdateMachineMetadata", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateNetworkSecurityGroup", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(

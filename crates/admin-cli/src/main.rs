@@ -12,7 +12,6 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
-use std::collections::{HashSet, VecDeque};
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, Write};
@@ -21,22 +20,16 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge::ConfigSetting;
-use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::{CredentialType, forge as forgerpc};
-use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
-use cfg::cli_options::DpuAction::{AgentUpgradePolicy, Reprovision, Versions};
 use cfg::cli_options::{
-    AgentUpgrade, AgentUpgradePolicyChoice, BmcAction, BootOverrideAction, CliCommand, CliOptions,
-    CredentialAction, DpuAction, DpuReprovision, ExpectedMachineJson, HostAction, HostReprovision,
-    IbPartitionOptions, Instance, IpAction, LogicalPartitionOptions, Machine, MachineHardwareInfo,
-    MachineHardwareInfoCommand, MachineInterfaces, MachineMetadataCommand, MaintenanceAction,
-    ManagedHost, NetworkCommand, NetworkSegment, NvlPartitionOptions, RedfishCommand, SetAction,
-    Shell, SiteExplorer, TenantKeySetOptions, UriInfo,
+    BmcAction, BootOverrideAction, CliCommand, CliOptions, CredentialAction, ExpectedMachineJson,
+    HostAction, HostReprovision, IpAction, LogicalPartitionOptions, MachineInterfaces,
+    NetworkSegment, NvlPartitionOptions, RedfishCommand, SetAction, Shell, UriInfo,
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
@@ -52,14 +45,12 @@ use forge_tls::client_config::{
     get_proxy_info,
 };
 use mac_address::MacAddress;
-use machine::{handle_show_machine_hardware_info, handle_update_machine_hardware_info_gpus};
 use serde::{Deserialize, Serialize};
-use site_explorer::show_site_explorer_discovered_managed_host;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
-use crate::cfg::cli_options::{AdminPowerControlAction, QuarantineAction};
+use crate::cfg::cli_options::AdminPowerControlAction;
 use crate::cfg::storage::OsImageActions;
 use crate::rpc::ApiClient;
 
@@ -209,491 +200,30 @@ async fn main() -> color_eyre::Result<()> {
             version::dispatch(&version, &api_client, config.format).await?
         }
         CliCommand::Mlx(cmd) => mlx::dispatch(cmd, &api_client, &config.format).await?,
-        CliCommand::Machine(machine) => match machine {
-            Machine::Show(machine) => {
-                machine::handle_show(
-                    machine,
-                    &config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                    &config.sort_by,
-                )
-                .await?
-            }
-            Machine::Metadata(metadata_command) => match metadata_command {
-                MachineMetadataCommand::Show(cmd) => {
-                    let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine])
-                        .await?
-                        .machines;
-                    let Some(machine) = machines.pop() else {
-                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
-                    };
-                    machine::handle_metadata_show(
-                        &mut output_file,
-                        &config.format,
-                        config.extended,
-                        machine,
-                    )
-                    .await?;
-                }
-                MachineMetadataCommand::Set(cmd) => {
-                    let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine])
-                        .await?
-                        .machines;
-                    if machines.len() != 1 {
-                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
-                    }
-                    let machine = machines.remove(0);
-
-                    let mut metadata = machine.metadata.ok_or_else(|| {
-                        eyre::eyre!("Machine does not carry Metadata that can be patched")
-                    })?;
-                    if let Some(name) = cmd.name {
-                        metadata.name = name;
-                    }
-                    if let Some(description) = cmd.description {
-                        metadata.description = description;
-                    }
-
-                    api_client
-                        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
-                        .await?;
-                }
-                MachineMetadataCommand::FromExpectedMachine(cmd) => {
-                    let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine])
-                        .await?
-                        .machines;
-                    if machines.len() != 1 {
-                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
-                    }
-                    let machine = machines.remove(0);
-                    let bmc_mac = machine
-                        .bmc_info
-                        .as_ref()
-                        .and_then(|bmc_info| bmc_info.mac.clone())
-                        .ok_or_else(|| {
-                            eyre::eyre!(
-                                "No BMC MAC address found for Machine with ID {}",
-                                cmd.machine
-                            )
-                        })?
-                        .to_ascii_lowercase();
-
-                    let mut metadata = machine.metadata.ok_or_else(|| {
-                        eyre::eyre!("Machine does not carry Metadata that can be patched")
-                    })?;
-
-                    let expected_machines = api_client
-                        .0
-                        .get_all_expected_machines()
-                        .await?
-                        .expected_machines;
-                    let expected_machine =
-                        expected_machines
-                        .iter()
-                        .find(|em| em.bmc_mac_address.to_ascii_lowercase() == bmc_mac)
-                        .ok_or_else(|| eyre::eyre!("No expected Machine found for Machine with ID {} and BMC Mac address {}",
-                            cmd.machine, bmc_mac))?;
-                    let expected_machine_metadata =
-                        expected_machine.metadata.clone()
-                        .ok_or_else(|| eyre::eyre!("No expected Machine Metadata found for Machine with ID {} and BMC Mac address {}", cmd.machine, bmc_mac))?;
-
-                    if cmd.replace_all {
-                        // Configure the Machines metadata in the same way as if the Machine was freshly ingested
-                        metadata.name = if expected_machine_metadata.name.is_empty() {
-                            machine.id.unwrap().to_string()
-                        } else {
-                            expected_machine_metadata.name
-                        };
-                        metadata.description = expected_machine_metadata.description;
-                        metadata.labels = expected_machine_metadata.labels;
-                    } else {
-                        // Add new data from expected-machines, but current values that might have been the
-                        // result of previous changed to the Machine.
-                        // This operation is lossless for existing Metadata.
-                        if !expected_machine_metadata.name.is_empty()
-                            && (metadata.name.is_empty()
-                                || metadata.name == cmd.machine.to_string())
-                        {
-                            metadata.name = expected_machine_metadata.name;
-                        };
-                        if !expected_machine_metadata.description.is_empty()
-                            && metadata.description.is_empty()
-                        {
-                            metadata.description = expected_machine_metadata.description;
-                        };
-                        for label in expected_machine_metadata.labels {
-                            if !metadata.labels.iter().any(|l| l.key == label.key) {
-                                metadata.labels.push(label);
-                            }
-                        }
-                    }
-
-                    api_client
-                        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
-                        .await?;
-                }
-                MachineMetadataCommand::AddLabel(cmd) => {
-                    let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine])
-                        .await?
-                        .machines;
-                    if machines.len() != 1 {
-                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
-                    }
-                    let machine = machines.remove(0);
-
-                    let mut metadata = machine.metadata.ok_or_else(|| {
-                        eyre::eyre!("Machine does not carry Metadata that can be patched")
-                    })?;
-                    metadata.labels.retain_mut(|l| l.key != cmd.key);
-                    metadata.labels.push(::rpc::forge::Label {
-                        key: cmd.key,
-                        value: cmd.value,
-                    });
-
-                    api_client
-                        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
-                        .await?;
-                }
-                MachineMetadataCommand::RemoveLabels(cmd) => {
-                    let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine])
-                        .await?
-                        .machines;
-                    if machines.len() != 1 {
-                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
-                    }
-                    let machine = machines.remove(0);
-
-                    let mut metadata = machine.metadata.ok_or_else(|| {
-                        eyre::eyre!("Machine does not carry Metadata that can be patched")
-                    })?;
-
-                    // Retain everything that isn't specified as removed
-                    let removed_labels: HashSet<String> = cmd.keys.into_iter().collect();
-                    metadata.labels.retain(|l| !removed_labels.contains(&l.key));
-
-                    api_client
-                        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
-                        .await?;
-                }
-            },
-            Machine::DpuSshCredentials(query) => {
-                let cred = api_client
-                    .0
-                    .get_dpu_ssh_credential(query.query.to_string())
-                    .await?;
-                if config.format == OutputFormat::Json {
-                    println!("{}", serde_json::to_string_pretty(&cred)?);
-                } else {
-                    println!("{}:{}", cred.username, cred.password);
-                }
-            }
-            Machine::Network(cmd) => match cmd {
-                NetworkCommand::Status => {
-                    println!(
-                        "Deprecated: Use dpu network, instead machine network. machine network will be removed in future."
-                    );
-                    dpu::show_dpu_status(&api_client, &mut output_file).await?;
-                }
-                NetworkCommand::Config(query) => {
-                    println!(
-                        "Deprecated: Use dpu network, instead of machine network. machine network will be removed in future."
-                    );
-                    let network_config = api_client
-                        .0
-                        .get_managed_host_network_config(query.machine_id)
-                        .await?;
-                    if config.format == OutputFormat::Json {
-                        println!("{}", serde_json::ser::to_string_pretty(&network_config)?);
-                    } else {
-                        // someone might be parsing this output
-                        println!("{network_config:?}");
-                    }
-                }
-            },
-            Machine::HealthOverride(command) => {
-                machine::handle_override(command, config.format, &api_client).await?;
-            }
-            Machine::Reboot(c) => {
-                let res = api_client
-                    .admin_power_control(
-                        None,
-                        Some(c.machine),
-                        ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart,
-                    )
-                    .await?;
-
-                if let Some(msg) = res.msg {
-                    println!("{msg}");
-                }
-            }
-            Machine::ForceDelete(query) => machine::force_delete(query, &api_client).await?,
-            Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, &api_client).await?,
-            Machine::HardwareInfo(hardware_info_command) => match hardware_info_command {
-                MachineHardwareInfoCommand::Show(show_command) => {
-                    handle_show_machine_hardware_info(
-                        &api_client,
-                        &mut output_file,
-                        &config.format,
-                        show_command.machine,
-                    )
-                    .await?
-                }
-                MachineHardwareInfoCommand::Update(capability) => match capability {
-                    MachineHardwareInfo::Gpus(gpus) => {
-                        // Handle the gRPC to update GPUs
-                        handle_update_machine_hardware_info_gpus(&api_client, gpus).await?
-                    }
-                },
-            },
-        },
-        CliCommand::Instance(instance) => match instance {
-            Instance::Show(instance) => {
-                instance::handle_show(
-                    instance,
-                    &mut output_file,
-                    &config.format,
-                    &api_client,
-                    config.internal_page_size,
-                    &config.sort_by,
-                )
-                .await?
-            }
-            Instance::Reboot(reboot_request) => {
-                instance::handle_reboot(reboot_request, &api_client).await?
-            }
-            Instance::Release(release_request) => {
-                if config.cloud_unsafe_op.is_none() {
-                    return Err(CarbideCliError::GenericError(
-                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
-                    )
-                    .into());
-                }
-
-                let mut instance_ids: Vec<InstanceId> = Vec::new();
-
-                match (
-                    release_request.instance,
-                    release_request.machine,
-                    release_request.label_key,
-                ) {
-                    (Some(instance_id), _, _) => {
-                        instance_ids.push(uuid::Uuid::parse_str(&instance_id)?.into())
-                    }
-                    (_, Some(machine_id), _) => {
-                        let instances =
-                            api_client.0.find_instance_by_machine_id(machine_id).await?;
-                        if instances.instances.is_empty() {
-                            color_eyre::eyre::bail!("No instances assigned to that machine");
-                        }
-                        instance_ids.push(instances.instances[0].id.unwrap());
-                    }
-                    (_, _, Some(key)) => {
-                        let instances = api_client
-                            .get_all_instances(
-                                None,
-                                None,
-                                Some(key),
-                                release_request.label_value,
-                                None,
-                                config.internal_page_size,
-                            )
-                            .await?;
-                        if instances.instances.is_empty() {
-                            color_eyre::eyre::bail!("No instances with the passed label.key exist");
-                        }
-                        instance_ids = instances
-                            .instances
-                            .iter()
-                            .filter_map(|instance| instance.id)
-                            .collect();
-                    }
-                    _ => {}
-                };
-                api_client.release_instances(instance_ids).await?
-            }
-            Instance::Allocate(allocate_request) => {
-                if config.cloud_unsafe_op.is_none() {
-                    return Err(CarbideCliError::GenericError(
-                        "Operation not allowed due to potential inconsistencies with cloud database."
-                            .to_owned(),
-                    )
-                    .into());
-                }
-
-                let number = allocate_request.number.unwrap_or(1);
-
-                // Validate: --transactional requires --number > 1
-                if allocate_request.transactional && number <= 1 {
-                    return Err(CarbideCliError::GenericError(
-                        "--transactional requires --number > 1".to_owned(),
-                    )
-                    .into());
-                }
-
-                let mut machine_ids: VecDeque<_> = if !allocate_request.machine_id.is_empty() {
-                    allocate_request.machine_id.clone().into()
-                } else {
-                    api_client
-                        .0
-                        .find_machine_ids(::rpc::forge::MachineSearchConfig {
-                            include_predicted_host: true,
-                            ..Default::default()
-                        })
-                        .await?
-                        .machine_ids
-                        .into()
-                };
-
-                let min_interface_count = if !allocate_request.vpc_prefix_id.is_empty() {
-                    allocate_request.vpc_prefix_id.len()
-                } else {
-                    allocate_request.subnet.len()
-                };
-
-                if allocate_request.transactional {
-                    // Batch mode: all-or-nothing
-                    let mut requests = Vec::new();
-                    for i in 0..number {
-                        let Some(machine) = machine::get_next_free_machine(
-                            &api_client,
-                            &mut machine_ids,
-                            min_interface_count,
-                        )
-                        .await
-                        else {
-                            return Err(CarbideCliError::GenericError(format!(
-                                "Need {} machines but only {} available.",
-                                number, i
-                            ))
-                            .into());
-                        };
-
-                        let request = api_client
-                            .build_instance_request(
-                                machine,
-                                &allocate_request,
-                                &format!("{}_{}", allocate_request.prefix_name, i),
-                                config.cloud_unsafe_op.clone(),
-                            )
-                            .await?;
-                        requests.push(request);
-                    }
-
-                    match api_client.allocate_instances(requests).await {
-                        Ok(instances) => {
-                            tracing::info!(
-                                "Batch allocate was successful. Created {} instances.",
-                                instances.len()
-                            );
-                            for instance in instances {
-                                tracing::info!("  Created: {:?}", instance);
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("Batch allocate failed: {}", e);
-                        }
-                    }
-                } else {
-                    // Sequential mode: partial success allowed
-                    for i in 0..number {
-                        let Some(machine) = machine::get_next_free_machine(
-                            &api_client,
-                            &mut machine_ids,
-                            min_interface_count,
-                        )
-                        .await
-                        else {
-                            tracing::error!("No available machines.");
-                            break;
-                        };
-
-                        match api_client
-                            .allocate_instance(
-                                machine,
-                                &allocate_request,
-                                &format!("{}_{}", allocate_request.prefix_name, i),
-                                config.cloud_unsafe_op.clone(),
-                            )
-                            .await
-                        {
-                            Ok(i) => {
-                                tracing::info!(
-                                    "allocate was successful. Created instance: {:?} ",
-                                    i
-                                );
-                            }
-                            Err(e) => {
-                                tracing::info!("allocate failed with {} ", e);
-                            }
-                        };
-                    }
-                }
-            }
-            Instance::UpdateOS(update_request) => {
-                if config.cloud_unsafe_op.is_none() {
-                    return Err(CarbideCliError::GenericError(
-                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
-                    )
-                    .into());
-                }
-
-                match api_client
-                    .update_instance_config_with(
-                        update_request.instance,
-                        |config| {
-                            config.os = Some(update_request.os);
-                        },
-                        |_metadata| {},
-                        config.cloud_unsafe_op,
-                    )
-                    .await
-                {
-                    Ok(i) => {
-                        tracing::info!("update-os was successful. Updated instance: {:?}", i);
-                    }
-                    Err(e) => {
-                        tracing::info!("update-os failed with {} ", e);
-                    }
-                };
-            }
-            Instance::UpdateIbConfig(update_request) => {
-                if config.cloud_unsafe_op.is_none() {
-                    return Err(CarbideCliError::GenericError(
-                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
-                    )
-                    .into());
-                }
-
-                match api_client
-                    .update_instance_config_with(
-                        update_request.instance,
-                        |config| {
-                            config.infiniband = Some(update_request.config);
-                        },
-                        |_metadata| {},
-                        config.cloud_unsafe_op,
-                    )
-                    .await
-                {
-                    Ok(i) => {
-                        tracing::info!(
-                            "update-ib-config was successful. Updated instance: {:?}",
-                            i
-                        );
-                    }
-                    Err(e) => {
-                        tracing::info!("update-ib-config failed with {} ", e);
-                    }
-                };
-            }
-        },
+        CliCommand::Machine(cmd) => {
+            machine::dispatch(
+                cmd,
+                &mut output_file,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                &config.sort_by,
+                config.extended,
+            )
+            .await?
+        }
+        CliCommand::Instance(cmd) => {
+            instance::dispatch(
+                cmd,
+                &mut output_file,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                &config.sort_by,
+                config.cloud_unsafe_op,
+            )
+            .await?
+        }
         CliCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {
                 network::handle_show(
@@ -717,103 +247,17 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CliCommand::Domain(cmd) => domain::dispatch(&cmd, &api_client, config.format).await?,
-        CliCommand::ManagedHost(managed_host) => match managed_host {
-            ManagedHost::Show(managed_host) => {
-                managed_host::handle_show(
-                    &mut output_file,
-                    managed_host,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                    config.sort_by,
-                )
-                .await?
-            }
-            ManagedHost::Maintenance(maint) => match maint {
-                MaintenanceAction::On(maint_on) => {
-                    let req = forgerpc::MaintenanceRequest {
-                        operation: forgerpc::MaintenanceOperation::Enable.into(),
-                        host_id: Some(maint_on.host),
-                        reference: Some(maint_on.reference),
-                    };
-                    api_client.0.set_maintenance(req).await?;
-                }
-                MaintenanceAction::Off(maint_off) => {
-                    let req = forgerpc::MaintenanceRequest {
-                        operation: forgerpc::MaintenanceOperation::Disable.into(),
-                        host_id: Some(maint_off.host),
-                        reference: None,
-                    };
-                    api_client.0.set_maintenance(req).await?;
-                }
-            },
-            ManagedHost::Quarantine(quarantine_action) => match quarantine_action {
-                QuarantineAction::On(quarantine_on) => {
-                    let host = quarantine_on.host;
-                    let req = forgerpc::SetManagedHostQuarantineStateRequest {
-                        machine_id: Some(quarantine_on.host),
-                        quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
-                            mode: forgerpc::ManagedHostQuarantineMode::BlockAllTraffic as i32,
-                            reason: Some(quarantine_on.reason),
-                        }),
-                    };
-                    let prior_state = api_client.0.set_managed_host_quarantine_state(req).await?;
-                    println!(
-                        "quarantine set for host {}, prior state: {:?}",
-                        host, prior_state.prior_quarantine_state
-                    );
-                }
-                QuarantineAction::Off(quarantine_off) => {
-                    let host = quarantine_off.host;
-                    let req = forgerpc::ClearManagedHostQuarantineStateRequest {
-                        machine_id: Some(host),
-                    };
-                    let prior_state = api_client
-                        .0
-                        .clear_managed_host_quarantine_state(req)
-                        .await?;
-                    println!(
-                        "quarantine set for host {}, prior state: {:?}",
-                        host, prior_state.prior_quarantine_state
-                    );
-                }
-            },
-            ManagedHost::ResetHostReprovisioning(machine_id) => {
-                api_client
-                    .0
-                    .reset_host_reprovisioning(machine_id.machine)
-                    .await?;
-            }
-            ManagedHost::PowerOptions(options) => match options {
-                cfg::cli_options::PowerOptions::Show(show_power_options) => {
-                    managed_host::handle_power_options_show(
-                        show_power_options,
-                        config.format,
-                        &api_client,
-                    )
-                    .await?;
-                }
-                cfg::cli_options::PowerOptions::Update(update_power_options) => {
-                    managed_host::update_power_option(update_power_options, &api_client).await?;
-                }
-            },
-            ManagedHost::StartUpdates(options) => {
-                firmware::cmds::start_updates(&api_client, options).await?
-            }
-            ManagedHost::DebugBundle(debug_bundle) => {
-                debug_bundle::handle_debug_bundle(debug_bundle, &api_client).await?;
-            }
-            ManagedHost::SetPrimaryDpu(set_primary_args) => {
-                api_client
-                    .0
-                    .set_primary_dpu(forgerpc::SetPrimaryDpuRequest {
-                        host_machine_id: Some(set_primary_args.host_machine_id),
-                        dpu_machine_id: Some(set_primary_args.dpu_machine_id),
-                        reboot: set_primary_args.reboot,
-                    })
-                    .await?;
-            }
-        },
+        CliCommand::ManagedHost(cmd) => {
+            managed_host::dispatch(
+                cmd,
+                &mut output_file,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                config.sort_by,
+            )
+            .await?
+        }
         CliCommand::Measurement(cmd) => {
             let args = cfg::measurement::GlobalOptions {
                 format: config.format,
@@ -845,83 +289,16 @@ async fn main() -> color_eyre::Result<()> {
                 network_devices::show(config.format, args, &api_client).await?;
             }
         },
-        CliCommand::Dpu(dpu_action) => match dpu_action {
-            Reprovision(reprov) => match reprov {
-                DpuReprovision::Set(data) => {
-                    dpu::trigger_reprovisioning(
-                        data.id,
-                        Mode::Set,
-                        data.update_firmware,
-                        &api_client,
-                        data.update_message,
-                    )
-                    .await?
-                }
-                DpuReprovision::Clear(data) => {
-                    dpu::trigger_reprovisioning(
-                        data.id,
-                        Mode::Clear,
-                        data.update_firmware,
-                        &api_client,
-                        None,
-                    )
-                    .await?
-                }
-                DpuReprovision::List => dpu::list_dpus_pending(&api_client).await?,
-                DpuReprovision::Restart(data) => {
-                    dpu::trigger_reprovisioning(
-                        data.id,
-                        Mode::Restart,
-                        data.update_firmware,
-                        &api_client,
-                        None,
-                    )
-                    .await?
-                }
-            },
-            AgentUpgradePolicy(AgentUpgrade { set }) => {
-                let rpc_choice = set.map(|cmd_line_policy| match cmd_line_policy {
-                    AgentUpgradePolicyChoice::Off => forgerpc::AgentUpgradePolicy::Off,
-                    AgentUpgradePolicyChoice::UpOnly => forgerpc::AgentUpgradePolicy::UpOnly,
-                    AgentUpgradePolicyChoice::UpDown => forgerpc::AgentUpgradePolicy::UpDown,
-                });
-                dpu::handle_agent_upgrade_policy(&api_client, rpc_choice).await?
-            }
-            Versions(options) => {
-                dpu::handle_dpu_versions(
-                    &mut output_file,
-                    config.format,
-                    &api_client,
-                    options.updates_only,
-                    config.internal_page_size,
-                )
-                .await?
-            }
-            DpuAction::Status => {
-                dpu::handle_dpu_status(
-                    &mut output_file,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?
-            }
-
-            DpuAction::Network(network) => match network {
-                NetworkCommand::Config(query) => {
-                    dpu::show_dpu_network_config(
-                        &api_client,
-                        &mut output_file,
-                        query.machine_id,
-                        config.format,
-                    )
-                    .await?;
-                }
-                NetworkCommand::Status => {
-                    dpu::show_dpu_status(&api_client, &mut output_file).await?;
-                }
-            },
-        },
+        CliCommand::Dpu(cmd) => {
+            dpu::dispatch(
+                cmd,
+                &mut output_file,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+            )
+            .await?
+        }
         CliCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {
                 uefi::cmds::set_password(&query, &api_client).await?;
@@ -1118,7 +495,7 @@ async fn main() -> color_eyre::Result<()> {
         }
         CliCommand::Credential(credential_action) => match credential_action {
             CredentialAction::AddUFM(c) => {
-                let username = url_validator(c.url.clone()).await?;
+                let username = url_validator(c.url.clone())?;
                 let password = c.token.clone();
                 let req = forgerpc::CredentialCreationRequest {
                     credential_type: CredentialType::Ufm.into(),
@@ -1130,7 +507,7 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.0.create_credential(req).await?;
             }
             CredentialAction::DeleteUFM(c) => {
-                let username = url_validator(c.url.clone()).await?;
+                let username = url_validator(c.url.clone())?;
                 let req = forgerpc::CredentialDeletionRequest {
                     credential_type: CredentialType::Ufm.into(),
                     username: Some(username),
@@ -1149,7 +526,7 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddBMC(c) => {
-                let password = password_validator(c.password.clone()).await?;
+                let password = password_validator(c.password.clone())?;
                 let req = forgerpc::CredentialCreationRequest {
                     credential_type: CredentialType::from(c.kind).into(),
                     username: c.username,
@@ -1168,7 +545,7 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.0.delete_credential(req).await?;
             }
             CredentialAction::AddUefi(c) => {
-                let mut password = password_validator(c.password.clone()).await?;
+                let mut password = password_validator(c.password.clone())?;
                 if c.password.is_empty() {
                     password = Credentials::generate_password_no_special_char();
                 }
@@ -1224,128 +601,15 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::RouteServer(cmd) => {
             route_server::dispatch(&cmd, &api_client, config.format).await?
         }
-        CliCommand::SiteExplorer(action) => {
-            match action {
-                SiteExplorer::GetReport(mode) => {
-                    show_site_explorer_discovered_managed_host(
-                        &api_client,
-                        &mut output_file,
-                        config.format,
-                        config.internal_page_size,
-                        mode,
-                    )
-                    .await?;
-                }
-                SiteExplorer::Explore(opts) => {
-                    let report = api_client.explore(&opts.address, opts.mac).await?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                }
-                SiteExplorer::ReExplore(opts) => {
-                    api_client.re_explore_endpoint(&opts.address).await?;
-                }
-                SiteExplorer::ClearError(opts) => {
-                    api_client
-                        .0
-                        .clear_site_exploration_error(opts.address)
-                        .await?;
-                }
-                SiteExplorer::Delete(opts) => {
-                    let response = api_client.0.delete_explored_endpoint(opts.address).await?;
-
-                    if response.deleted {
-                        println!(
-                            "{}",
-                            response
-                                .message
-                                .unwrap_or_else(|| "Endpoint deleted successfully.".to_string())
-                        );
-                    } else {
-                        eprintln!(
-                            "{}",
-                            response
-                                .message
-                                .unwrap_or_else(|| "Failed to delete endpoint.".to_string())
-                        );
-                    }
-                }
-                SiteExplorer::Remediation(opts) => {
-                    if opts.pause {
-                        api_client
-                            .pause_explored_endpoint_remediation(&opts.address, true)
-                            .await?;
-                        println!("Remediation paused for endpoint {}", opts.address);
-                    } else if opts.resume {
-                        api_client
-                            .pause_explored_endpoint_remediation(&opts.address, false)
-                            .await?;
-                        println!("Remediation resumed for endpoint {}", opts.address);
-                    } else {
-                        return Err(CarbideCliError::GenericError(
-                            "Must specify either --pause or --resume".to_owned(),
-                        )
-                        .into());
-                    }
-                }
-                SiteExplorer::IsBmcInManagedHost(opts) => {
-                    let is_bmc_in_managed_host = api_client
-                        .is_bmc_in_managed_host(&opts.address, opts.mac)
-                        .await?;
-                    println!(
-                        "Is {} in a managed host?: {}",
-                        opts.address, is_bmc_in_managed_host.in_managed_host
-                    );
-                }
-                SiteExplorer::HaveCredentials(opts) => {
-                    let have_credentials = api_client
-                        .bmc_credential_status(&opts.address, opts.mac)
-                        .await?;
-                    println!("{}", have_credentials.have_credentials);
-                }
-                SiteExplorer::CopyBfbToDpuRshim(args) => {
-                    // Power cycle host if requested
-                    if let Some(host_ip) = &args.host_bmc_ip {
-                        tracing::info!(
-                            "Power cycling host at {} to ensure the DPU has rshim control",
-                            host_ip
-                        );
-
-                        // Power off
-                        tracing::info!("Powering off host...");
-                        api_client
-                            .admin_power_control(
-                                Some(::rpc::forge::BmcEndpointRequest {
-                                    ip_address: host_ip.clone(),
-                                    mac_address: None,
-                                }),
-                                None,
-                                ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff,
-                            )
-                            .await?;
-
-                        // Wait for power off
-                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-                        // Power on
-                        tracing::info!("Powering on host");
-                        api_client
-                            .admin_power_control(
-                                Some(::rpc::forge::BmcEndpointRequest {
-                                    ip_address: host_ip.clone(),
-                                    mac_address: None,
-                                }),
-                                None,
-                                ::rpc::forge::admin_power_control_request::SystemPowerControl::On,
-                            )
-                            .await?;
-                    }
-
-                    tracing::info!("Follow SCP progress in the carbide-api logs...");
-
-                    api_client
-                        .copy_bfb_to_dpu_rshim(args.address, args.mac)
-                        .await?;
-                }
-            }
+        CliCommand::SiteExplorer(cmd) => {
+            site_explorer::dispatch(
+                cmd,
+                &mut output_file,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+            )
+            .await?
         }
         CliCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {
@@ -1580,34 +844,20 @@ async fn main() -> color_eyre::Result<()> {
             vpc_prefix::dispatch(&cmd, &api_client, config.format, config.internal_page_size)
                 .await?
         }
-        CliCommand::IbPartition(ibp) => match ibp {
-            IbPartitionOptions::Show(ibp) => {
-                ib_partition::handle_show(
-                    ibp,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
+        CliCommand::IbPartition(cmd) => {
+            ib_partition::dispatch(cmd, &api_client, config.format, config.internal_page_size)
                 .await?
-            }
-        },
-        CliCommand::TenantKeySet(tks) => match tks {
-            TenantKeySetOptions::Show(tks) => {
-                tenant_keyset::handle_show(
-                    tks,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
+        }
+        CliCommand::TenantKeySet(cmd) => {
+            tenant_keyset::dispatch(cmd, &api_client, config.format, config.internal_page_size)
                 .await?
-            }
-        },
+        }
         CliCommand::Jump(j) => {
             // Is it a machine ID?
             // Grab the machine details.
             if let Ok(machine_id) = j.id.parse::<MachineId>() {
                 machine::handle_show(
-                    cfg::cli_options::ShowMachine {
+                    machine::ShowMachine {
                         machine: Some(machine_id),
                         help: None,
                         hosts: false,
@@ -1655,8 +905,8 @@ async fn main() -> color_eyre::Result<()> {
                         RouteServerFromConfigFile => tracing::info!("Route Server from Carbide config"),
                         RouteServerFromAdminApi => tracing::info!("Route Server from Admin API"),
                         InstanceAddress => {
-                            instance::handle_show(
-                                cfg::cli_options::ShowInstance {
+                            instance::cmds::handle_show(
+                                instance::args::ShowInstance {
                                     id: m.owner_id.ok_or(CarbideCliError::GenericError(
                                         "failed to unwrap owner_id after finding instance for IP".to_string(),
                                     ))?,
@@ -1677,7 +927,7 @@ async fn main() -> color_eyre::Result<()> {
                         }
                         MachineAddress | BmcIp | LoopbackIp => {
                             machine::handle_show(
-                                cfg::cli_options::ShowMachine {
+                                machine::ShowMachine {
                                     machine: Some(m.owner_id.and_then(|id| id.parse::<MachineId>().ok()).ok_or(CarbideCliError::GenericError(
                                         "failed to unwrap owner_id after finding machine for IP".to_string(),
                                     ))?),
@@ -1703,7 +953,7 @@ async fn main() -> color_eyre::Result<()> {
                                 &mut output_file,
                                 config_format,
                                 config.internal_page_size,
-                                cfg::cli_options::GetReportMode::Endpoint(cfg::cli_options::EndpointInfo{
+                                site_explorer::args::GetReportMode::Endpoint(site_explorer::args::EndpointInfo{
                                     address: if m.owner_id.is_some() { m.owner_id } else {
                                         color_eyre::eyre::bail!(CarbideCliError::GenericError("IP type is explored-endpoint but returned owner_id is empty".to_string()))
                                     },
@@ -1759,8 +1009,8 @@ async fn main() -> color_eyre::Result<()> {
                             .await?
                         }
                         forgerpc::UuidType::Instance => {
-                            instance::handle_show(
-                                cfg::cli_options::ShowInstance {
+                            instance::cmds::handle_show(
+                                instance::args::ShowInstance {
                                     id: j.id,
                                     extrainfo: true,
                                     tenant_org_id: None,
@@ -1875,7 +1125,7 @@ async fn main() -> color_eyre::Result<()> {
             // Grab the machine ID and look-up the machine.
             if let Ok(machine_id) = api_client.identify_serial(j.id, false).await {
                 machine::handle_show(
-                    cfg::cli_options::ShowMachine {
+                    machine::ShowMachine {
                         machine: Some(machine_id),
                         help: None,
                         hosts: false,
@@ -1899,97 +1149,16 @@ async fn main() -> color_eyre::Result<()> {
             color_eyre::eyre::bail!("Unable to determine ID type");
         }
 
-        CliCommand::MachineValidation(command) => match command {
-            cfg::cli_options::MachineValidationCommand::ExternalConfig(config_command) => {
-                match config_command {
-                    cfg::cli_options::MachineValidationExternalConfigCommand::Show(opts) => {
-                        machine_validation::external_config_show(
-                            &api_client,
-                            opts.name,
-                            config.extended,
-                            config.format,
-                        )
-                        .await?;
-                    }
-                    cfg::cli_options::MachineValidationExternalConfigCommand::AddUpdate(opts) => {
-                        machine_validation::external_config_add_update(
-                            &api_client,
-                            opts.name,
-                            opts.file_name,
-                            opts.description,
-                        )
-                        .await?;
-                    }
-                    cfg::cli_options::MachineValidationExternalConfigCommand::Remove(opts) => {
-                        machine_validation::remove_external_config(&api_client, opts.name).await?;
-                    }
-                }
-            }
-            cfg::cli_options::MachineValidationCommand::Results(cmd) => match cmd {
-                cfg::cli_options::MachineValidationResultsCommand::Show(options) => {
-                    machine_validation::handle_results_show(
-                        options,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                        config.extended,
-                    )
-                    .await?;
-                }
-            },
-            cfg::cli_options::MachineValidationCommand::Runs(cmd) => match cmd {
-                cfg::cli_options::MachineValidationRunsCommand::Show(options) => {
-                    machine_validation::handle_runs_show(
-                        options,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                    )
-                    .await?;
-                }
-            },
-            cfg::cli_options::MachineValidationCommand::OnDemand(on_demand_command) => {
-                match on_demand_command {
-                    cfg::cli_options::MachineValidationOnDemandCommand::Start(options) => {
-                        machine_validation::on_demand_machine_validation(&api_client, options)
-                            .await?;
-                    }
-                }
-            }
-            cfg::cli_options::MachineValidationCommand::Tests(machine_validation_tests_command) => {
-                match *machine_validation_tests_command {
-                    cfg::cli_options::MachineValidationTestsCommand::Show(options) => {
-                        machine_validation::show_tests(
-                            &api_client,
-                            options,
-                            config.format,
-                            config.extended,
-                        )
-                        .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Verify(options) => {
-                        machine_validation::machine_validation_test_verfied(&api_client, options)
-                            .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Enable(options) => {
-                        machine_validation::machine_validation_test_enable(&api_client, options)
-                            .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Disable(options) => {
-                        machine_validation::machine_validation_test_disable(&api_client, options)
-                            .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Add(options) => {
-                        machine_validation::machine_validation_test_add(&api_client, options)
-                            .await?;
-                    }
-                    cfg::cli_options::MachineValidationTestsCommand::Update(options) => {
-                        machine_validation::machine_validation_test_update(&api_client, options)
-                            .await?;
-                    }
-                }
-            }
-        },
+        CliCommand::MachineValidation(cmd) => {
+            machine_validation::dispatch(
+                cmd,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                config.extended,
+            )
+            .await?
+        }
         CliCommand::OsImage(os_image) => match os_image {
             OsImageActions::Show(os_image) => {
                 storage::os_image_show(
@@ -2305,13 +1474,13 @@ async fn main() -> color_eyre::Result<()> {
     Ok(())
 }
 
-pub async fn url_validator(url: String) -> Result<String, CarbideCliError> {
+pub fn url_validator(url: String) -> Result<String, CarbideCliError> {
     let addr = tonic::transport::Uri::try_from(&url)
         .map_err(|_| CarbideCliError::GenericError("invalid url".to_string()))?;
     Ok(addr.to_string())
 }
 
-pub async fn password_validator(s: String) -> Result<String, CarbideCliError> {
+pub fn password_validator(s: String) -> Result<String, CarbideCliError> {
     // TODO: check password according BMC pwd rule.
     if s.is_empty() {
         return Err(CarbideCliError::GenericError("invalid input".to_string()));

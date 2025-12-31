@@ -9,6 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-mod command_line;
 
-pub(crate) use command_line::{ConcurrencyOption, Options};
+use crate::state_controller::common_services::CommonStateHandlerServices;
+use crate::state_controller::spdm::metrics::AttestationMetrics;
+use crate::state_controller::state_handler::StateHandlerContextObjects;
+
+pub struct SpdmStateHandlerContextObjects {}
+
+impl StateHandlerContextObjects for SpdmStateHandlerContextObjects {
+    type Services = CommonStateHandlerServices;
+    type ObjectMetrics = AttestationMetrics;
+}

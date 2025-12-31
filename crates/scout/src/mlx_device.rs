@@ -111,7 +111,7 @@ pub fn device_lockdown_status(device_address: &str) -> MlxResult<LockStatus> {
     Ok(status)
 }
 
-pub async fn handle_profile_sync(
+pub fn handle_profile_sync(
     request: mlx_device_pb::MlxDeviceProfileSyncRequest,
 ) -> mlx_device_pb::MlxDeviceProfileSyncResponse {
     tracing::info!(
@@ -204,7 +204,7 @@ pub async fn handle_profile_sync(
     }
 }
 
-pub async fn handle_profile_compare(
+pub fn handle_profile_compare(
     request: mlx_device_pb::MlxDeviceProfileCompareRequest,
 ) -> mlx_device_pb::MlxDeviceProfileCompareResponse {
     tracing::info!(
@@ -298,7 +298,7 @@ pub async fn handle_profile_compare(
 }
 
 // handle_lockdown_lock locks a device.
-pub async fn handle_lockdown_lock(
+pub fn handle_lockdown_lock(
     request: mlx_device_pb::MlxDeviceLockdownLockRequest,
 ) -> mlx_device_pb::MlxDeviceLockdownResponse {
     tracing::info!(
@@ -354,7 +354,7 @@ pub async fn handle_lockdown_lock(
 }
 
 // handle_lockdown_unlock unlocks a device.
-pub async fn handle_lockdown_unlock(
+pub fn handle_lockdown_unlock(
     request: mlx_device_pb::MlxDeviceLockdownUnlockRequest,
 ) -> mlx_device_pb::MlxDeviceLockdownResponse {
     tracing::info!(
@@ -410,7 +410,7 @@ pub async fn handle_lockdown_unlock(
 }
 
 // handle_lockdown_status gets the lockdown status of a device.
-pub async fn handle_lockdown_status(
+pub fn handle_lockdown_status(
     request: mlx_device_pb::MlxDeviceLockdownStatusRequest,
 ) -> mlx_device_pb::MlxDeviceLockdownResponse {
     tracing::info!(
@@ -465,7 +465,7 @@ pub async fn handle_lockdown_status(
     }
 }
 
-pub async fn handle_info_device(
+pub fn handle_info_device(
     request: mlx_device_pb::MlxDeviceInfoDeviceRequest,
 ) -> mlx_device_pb::MlxDeviceInfoDeviceResponse {
     tracing::info!(
@@ -506,7 +506,7 @@ pub async fn handle_info_device(
     }
 }
 
-pub async fn handle_info_report(
+pub fn handle_info_report(
     request: mlx_device_pb::MlxDeviceInfoReportRequest,
 ) -> mlx_device_pb::MlxDeviceInfoReportResponse {
     tracing::info!("[scout_stream::mlx_device] device report requested");
@@ -565,7 +565,7 @@ pub async fn handle_info_report(
 }
 
 // handle_registry_list lists all available variable registries.
-pub async fn handle_registry_list(
+pub fn handle_registry_list(
     _request: mlx_device_pb::MlxDeviceRegistryListRequest,
 ) -> mlx_device_pb::MlxDeviceRegistryListResponse {
     tracing::info!("[scout_stream::mlx_device] variable registry listing requested");
@@ -581,7 +581,7 @@ pub async fn handle_registry_list(
 }
 
 // handle_registry_show returns a specific registry as JSON.
-pub async fn handle_registry_show(
+pub fn handle_registry_show(
     request: mlx_device_pb::MlxDeviceRegistryShowRequest,
 ) -> mlx_device_pb::MlxDeviceRegistryShowResponse {
     tracing::info!(
@@ -625,7 +625,7 @@ pub async fn handle_registry_show(
 
 // handle_config_query queries one or more device variables against
 // a given variable registry.
-pub async fn handle_config_query(
+pub fn handle_config_query(
     request: mlx_device_pb::MlxDeviceConfigQueryRequest,
 ) -> mlx_device_pb::MlxDeviceConfigQueryResponse {
     tracing::info!(
@@ -732,7 +732,7 @@ pub async fn handle_config_query(
 }
 
 // handle_config_set sets device variables.
-pub async fn handle_config_set(
+pub fn handle_config_set(
     request: mlx_device_pb::MlxDeviceConfigSetRequest,
 ) -> mlx_device_pb::MlxDeviceConfigSetResponse {
     tracing::info!(
@@ -815,7 +815,7 @@ pub async fn handle_config_set(
 
 // handle_config_sync syncs device variables, only changing variables
 // that differ from the observed values.
-pub async fn handle_config_sync(
+pub fn handle_config_sync(
     request: mlx_device_pb::MlxDeviceConfigSyncRequest,
 ) -> mlx_device_pb::MlxDeviceConfigSyncResponse {
     tracing::info!(
@@ -924,7 +924,7 @@ pub async fn handle_config_sync(
 
 // handle_config_compare compares requested variable assignments
 // against the current assignments on the device.
-pub async fn handle_config_compare(
+pub fn handle_config_compare(
     request: mlx_device_pb::MlxDeviceConfigCompareRequest,
 ) -> mlx_device_pb::MlxDeviceConfigCompareResponse {
     tracing::info!(

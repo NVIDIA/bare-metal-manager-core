@@ -22,7 +22,7 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
 use rpc::site_explorer::{
-    ExploredEndpoint, ForgeSetupStatus, InternalLockdownStatus, LockdownStatus, SecureBootStatus,
+    ExploredEndpoint, InternalLockdownStatus, LockdownStatus, MachineSetupStatus, SecureBootStatus,
     SiteExplorationReport,
 };
 use serde::Deserialize;
@@ -365,7 +365,7 @@ struct ExploredEndpointDetail {
     endpoint: ExploredEndpoint,
     has_exploration_error: bool,
     last_exploration_error: String,
-    forge_setup_status: String,
+    machine_setup_status: String,
     credentials_set: String,
     has_machine: bool,
     secure_boot_status: String,
@@ -405,8 +405,8 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             has_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.as_ref())
                 .is_some(),
-            forge_setup_status: forge_setup_status_to_string(
-                report_ref.and_then(|report| report.forge_setup_status.as_ref()),
+            machine_setup_status: machine_setup_status_to_string(
+                report_ref.and_then(|report| report.machine_setup_status.as_ref()),
             ),
             secure_boot_status: secure_boot_status_to_string(
                 report_ref.and_then(|report| report.secure_boot_status.as_ref()),
@@ -730,7 +730,7 @@ pub struct BmcResetEndpointAction {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct ForgeSetupAction {
+pub struct MachineSetupAction {
     boot_interface_mac: Option<String>,
 }
 
@@ -869,10 +869,10 @@ pub async fn enable_lockdown(
     Redirect::to(&view_url).into_response()
 }
 
-pub async fn forge_setup(
+pub async fn machine_setup(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
-    Form(form): Form<ForgeSetupAction>,
+    Form(form): Form<MachineSetupAction>,
 ) -> Response {
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
@@ -895,7 +895,7 @@ pub async fn forge_setup(
     }
 
     if let Err(err) = state
-        .forge_setup(tonic::Request::new(rpc::forge::ForgeSetupRequest {
+        .machine_setup(tonic::Request::new(rpc::forge::MachineSetupRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
@@ -906,7 +906,7 @@ pub async fn forge_setup(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, "bmc_forge_setup");
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, "bmc_machine_setup");
         return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
     }
 
@@ -991,9 +991,9 @@ pub async fn delete_endpoint(
     Redirect::to(list_url).into_response()
 }
 
-fn forge_setup_status_to_string(status: Option<&ForgeSetupStatus>) -> String {
+fn machine_setup_status_to_string(status: Option<&MachineSetupStatus>) -> String {
     match status {
-        None => "Unable to fetch Forge Setup Status".to_string(),
+        None => "Unable to fetch Machine Setup Status".to_string(),
         Some(s) if s.is_done => "OK".to_string(),
         Some(s) => {
             let diffs_string = s

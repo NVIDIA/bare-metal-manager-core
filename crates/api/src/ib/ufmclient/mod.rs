@@ -289,7 +289,7 @@ pub struct UFMConfig {
     pub cert: Option<UFMCert>,
 }
 
-pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
+pub fn new_client(conf: UFMConfig) -> Result<Ufm, UFMError> {
     let addr = Url::parse(&conf.address)
         .map_err(|_| UFMError::InvalidConfig(format!("invalid UFM url: {}", conf.address)))?;
     let address = addr.host_str().ok_or(UFMError::InvalidConfig(format!(

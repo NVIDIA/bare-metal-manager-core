@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -14,9 +14,13 @@ use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
+use mac_address::MacAddress;
 use prettytable::{Cell, Row, Table, format, row};
 
-use crate::cfg::cli_options::GetReportMode;
+use super::args::{
+    CopyBfbToDpuRshimArgs, DeleteExploredEndpointOptions, GetReportMode, ReExploreOptions,
+    RemediationOptions,
+};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
 
@@ -179,7 +183,7 @@ async fn get_exploration_report_for_bmc_address(
     })
 }
 
-pub async fn show_site_explorer_discovered_managed_host(
+pub async fn show_discovered_managed_host(
     api_client: &ApiClient,
     output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: OutputFormat,
@@ -662,5 +666,140 @@ async fn display_endpoint(
         async_write!(output_file, "{}", table)?;
     }
 
+    Ok(())
+}
+
+pub async fn explore(
+    api_client: &ApiClient,
+    address: &str,
+    mac: Option<MacAddress>,
+) -> CarbideCliResult<()> {
+    let report = api_client.explore(address, mac).await?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+pub async fn re_explore(api_client: &ApiClient, opts: ReExploreOptions) -> CarbideCliResult<()> {
+    api_client.re_explore_endpoint(&opts.address).await?;
+    Ok(())
+}
+
+pub async fn clear_error(api_client: &ApiClient, address: String) -> CarbideCliResult<()> {
+    api_client.0.clear_site_exploration_error(address).await?;
+    Ok(())
+}
+
+pub async fn delete_endpoint(
+    api_client: &ApiClient,
+    opts: DeleteExploredEndpointOptions,
+) -> CarbideCliResult<()> {
+    let response = api_client.0.delete_explored_endpoint(opts.address).await?;
+
+    if response.deleted {
+        println!(
+            "{}",
+            response
+                .message
+                .unwrap_or_else(|| "Endpoint deleted successfully.".to_string())
+        );
+    } else {
+        eprintln!(
+            "{}",
+            response
+                .message
+                .unwrap_or_else(|| "Failed to delete endpoint.".to_string())
+        );
+    }
+    Ok(())
+}
+
+pub async fn remediation(api_client: &ApiClient, opts: RemediationOptions) -> CarbideCliResult<()> {
+    if opts.pause {
+        api_client
+            .pause_explored_endpoint_remediation(&opts.address, true)
+            .await?;
+        println!("Remediation paused for endpoint {}", opts.address);
+    } else if opts.resume {
+        api_client
+            .pause_explored_endpoint_remediation(&opts.address, false)
+            .await?;
+        println!("Remediation resumed for endpoint {}", opts.address);
+    } else {
+        return Err(CarbideCliError::GenericError(
+            "Must specify either --pause or --resume".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+pub async fn is_bmc_in_managed_host(
+    api_client: &ApiClient,
+    address: &str,
+    mac: Option<MacAddress>,
+) -> CarbideCliResult<()> {
+    let is_bmc_in_managed_host = api_client.is_bmc_in_managed_host(address, mac).await?;
+    println!(
+        "Is {} in a managed host?: {}",
+        address, is_bmc_in_managed_host.in_managed_host
+    );
+    Ok(())
+}
+
+pub async fn have_credentials(
+    api_client: &ApiClient,
+    address: &str,
+    mac: Option<MacAddress>,
+) -> CarbideCliResult<()> {
+    let have_credentials = api_client.bmc_credential_status(address, mac).await?;
+    println!("{}", have_credentials.have_credentials);
+    Ok(())
+}
+
+pub async fn copy_bfb_to_dpu_rshim(
+    api_client: &ApiClient,
+    args: CopyBfbToDpuRshimArgs,
+) -> CarbideCliResult<()> {
+    // Power cycle host if requested
+    if let Some(host_ip) = &args.host_bmc_ip {
+        tracing::info!(
+            "Power cycling host at {} to ensure the DPU has rshim control",
+            host_ip
+        );
+
+        // Power off
+        tracing::info!("Powering off host...");
+        api_client
+            .admin_power_control(
+                Some(::rpc::forge::BmcEndpointRequest {
+                    ip_address: host_ip.clone(),
+                    mac_address: None,
+                }),
+                None,
+                ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff,
+            )
+            .await?;
+
+        // Wait for power off
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // Power on
+        tracing::info!("Powering on host");
+        api_client
+            .admin_power_control(
+                Some(::rpc::forge::BmcEndpointRequest {
+                    ip_address: host_ip.clone(),
+                    mac_address: None,
+                }),
+                None,
+                ::rpc::forge::admin_power_control_request::SystemPowerControl::On,
+            )
+            .await?;
+    }
+
+    tracing::info!("Follow SCP progress in the carbide-api logs...");
+
+    api_client
+        .copy_bfb_to_dpu_rshim(args.address, args.mac)
+        .await?;
     Ok(())
 }

@@ -15,7 +15,8 @@ use std::collections::HashMap;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
 use model::extension_service::{
-    ExtensionService, ExtensionServiceSnapshot, ExtensionServiceType, ExtensionServiceVersionInfo,
+    ExtensionService, ExtensionServiceObservability, ExtensionServiceSnapshot,
+    ExtensionServiceType, ExtensionServiceVersionInfo,
 };
 use model::tenant::TenantOrganizationId;
 use sqlx::PgConnection;
@@ -31,6 +32,7 @@ use crate::{DatabaseError, DatabaseResult};
 /// * `service_name`           - The name of the extension service
 /// * `description`            - The description of the extension service
 /// * `data`                   - Data of the initial version of the extension service
+/// * `observability`          - Observability config for the extension service
 /// * `has_credential`         - Whether the initial extension service version has a credential
 ///   stored in the vault
 ///
@@ -43,6 +45,7 @@ pub async fn create(
     tenant_organization_id: &TenantOrganizationId,
     description: Option<&str>,
     data: &str,
+    observability: Option<ExtensionServiceObservability>,
     has_credential: bool,
 ) -> Result<(ExtensionService, ExtensionServiceVersionInfo), DatabaseError> {
     let initial_version_ctr = 1;
@@ -81,14 +84,15 @@ pub async fn create(
     let service_id = service.id;
 
     let version_query = "INSERT INTO extension_service_versions 
-            (service_id, version, data, has_credential)
-            VALUES ($1, $2, $3, $4)
-            RETURNING service_id, version, data, has_credential, created, deleted";
+            (service_id, version, data, observability, has_credential)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING service_id, version, data, observability, has_credential, created, deleted";
 
     let version = sqlx::query_as::<_, ExtensionServiceVersionInfo>(version_query)
         .bind(service_id)
         .bind(initial_version.to_string())
         .bind(data)
+        .bind(observability.map(sqlx::types::Json))
         .bind(has_credential)
         .fetch_one(&mut *txn)
         .await
@@ -109,6 +113,7 @@ pub async fn create(
 /// * `service_name`           - Optional new name of the extension service, must be unique within the tenant organization
 /// * `description`            - Optional new description of the extension service
 /// * `data`                   - Data of the new version of the extension service
+/// * `observability`          - Observability config for the extension service
 /// * `has_credential`         - Whether the new extension service version has a credential stored
 ///   in vault
 ///
@@ -118,6 +123,7 @@ pub async fn update(
     service_name: Option<&str>,
     description: Option<&str>,
     data: &str,
+    observability: Option<ExtensionServiceObservability>,
     has_credential: bool,
 ) -> Result<(ExtensionService, ExtensionServiceVersionInfo), DatabaseError> {
     // Update the "updated" timestamp of the extension service, and optionally update any provided
@@ -171,14 +177,15 @@ pub async fn update(
     // Since all updates will first take the extension service row for update, we do not need to worry
     // about concurrent update issue here.
     let version_query =
-        "INSERT INTO extension_service_versions (service_id, version, data, has_credential)
-         VALUES ($1, $2, $3, $4)
-         RETURNING service_id, version, data, has_credential, created, deleted";
+        "INSERT INTO extension_service_versions (service_id, version, data, observability, has_credential)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING service_id, version, data, observability, has_credential, created, deleted";
 
     let new_version = sqlx::query_as::<_, ExtensionServiceVersionInfo>(version_query)
         .bind(service_id)
         .bind(new_version)
         .bind(data)
+        .bind(observability.map(sqlx::types::Json))
         .bind(has_credential)
         .fetch_one(&mut *txn)
         .await
@@ -281,7 +288,7 @@ pub async fn find_snapshots_by_ids(
     // We order the active versions using the version number in descending order
     let query = "WITH versions AS (
         SELECT 
-            service_id, version, data, has_credential, created,
+            service_id, version, data, observability, has_credential, created,
             (split_part(split_part(version, '-', 1), 'V', 2))::integer AS version_nr
         FROM extension_service_versions
         WHERE deleted IS NULL AND service_id = ANY($1)
@@ -306,6 +313,7 @@ pub async fn find_snapshots_by_ids(
         a.active_versions AS active_versions,
         a.latest_version AS latest_version,
         v.data as latest_data,
+        v.observability as latest_observability,
         v.has_credential as latest_has_credential,
         v.created as latest_created
     FROM extension_services s
@@ -353,7 +361,7 @@ pub async fn find_version_info(
 
     // Build the version lookup query.
     let mut builder = sqlx::QueryBuilder::new(
-        "SELECT service_id, version, data, has_credential, created, deleted \
+        "SELECT service_id, version, data, observability, has_credential, created, deleted \
          FROM extension_service_versions \
          WHERE deleted IS NULL AND service_id = ",
     );
@@ -400,7 +408,7 @@ pub async fn find_versions_info(
 ) -> DatabaseResult<Vec<ExtensionServiceVersionInfo>> {
     // Build the version lookup query.
     let mut builder = sqlx::QueryBuilder::new(
-        "SELECT service_id, version, data, has_credential, created, deleted \
+        "SELECT service_id, version, data, observability, has_credential, created, deleted \
      FROM extension_service_versions \
      WHERE deleted IS NULL AND service_id = ",
     );

@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Start carbide-pxe version {}", carbide_version::version!());
-    let prometheus_handle = metrics::setup_prometheus().await;
+    let prometheus_handle = metrics::setup_prometheus();
 
     let runtime_config =
         config::RuntimeConfig::from_env().expect("unable to build runtime config?");

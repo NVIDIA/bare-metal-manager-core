@@ -19,15 +19,16 @@ use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Redfish, RedfishError};
+use mac_address::MacAddress;
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
-    ForgeSetupDiff, ForgeSetupStatus, InternalLockdownStatus, Inventory, LockdownStatus, Manager,
-    NetworkAdapter, PCIeDevice, SecureBootStatus, Service, UefiDevicePath,
+    InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
+    Manager, NetworkAdapter, PCIeDevice, SecureBootStatus, Service, UefiDevicePath,
 };
 use regex::Regex;
 
-use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password};
 
 const NOT_FOUND: u16 = 404;
 
@@ -117,8 +118,8 @@ impl RedfishClient {
         current_bmc_root_credentials: Credentials,
         new_password: String,
     ) -> Result<(), EndpointExplorationError> {
-        let curr_user = match &current_bmc_root_credentials {
-            Credentials::UsernamePassword { username, .. } => username,
+        let (curr_user, curr_password) = match &current_bmc_root_credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
         };
         let mut client = self
             .create_direct_redfish_client(
@@ -143,6 +144,8 @@ impl RedfishClient {
                 client
                     .change_password_by_id("1", new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::NvidiaDpu
@@ -158,6 +161,8 @@ impl RedfishClient {
                 client
                     .change_password_by_id(curr_user.as_str(), new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             // Handle Vikings
@@ -171,24 +176,32 @@ impl RedfishClient {
                 client
                     .change_password_by_id("2", new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Supermicro => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Dell => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Hpe => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await
+                    .map_err(|err| redact_password(err, new_password.as_str()))
+                    .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Unknown => {
@@ -222,6 +235,7 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
+        boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, credentials)
@@ -245,9 +259,9 @@ impl RedfishClient {
         let service = fetch_service(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-        let forge_setup_status = fetch_forge_setup_status(client.as_ref(), None)
+        let machine_setup_status = fetch_machine_setup_status(client.as_ref(), boot_interface_mac)
             .await
-            .inspect_err(|error| tracing::warn!(%error, "Failed to fetch forge setup status."))
+            .inspect_err(|error| tracing::warn!(%error, "Failed to fetch machine setup status."))
             .ok();
 
         let secure_boot_status = fetch_secure_boot_status(client.as_ref())
@@ -280,7 +294,7 @@ impl RedfishClient {
             model: None,
             power_shelf_id: None,
             switch_id: None,
-            forge_setup_status,
+            machine_setup_status,
             secure_boot_status,
             lockdown_status,
         })
@@ -401,7 +415,7 @@ impl RedfishClient {
             .map_err(map_redfish_error)
     }
 
-    pub async fn forge_setup(
+    pub async fn machine_setup(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
@@ -955,22 +969,24 @@ async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishErro
     Ok(service)
 }
 
-async fn fetch_forge_setup_status(
+async fn fetch_machine_setup_status(
     client: &dyn Redfish,
-    boot_interface_mac: Option<&str>,
-) -> Result<ForgeSetupStatus, RedfishError> {
-    let status = client.machine_setup_status(boot_interface_mac).await?;
-    let mut diffs: Vec<ForgeSetupDiff> = Vec::new();
+    boot_interface_mac: Option<MacAddress>,
+) -> Result<MachineSetupStatus, RedfishError> {
+    let status = client
+        .machine_setup_status(boot_interface_mac.map(|mac| mac.to_string()).as_deref())
+        .await?;
+    let mut diffs: Vec<MachineSetupDiff> = Vec::new();
 
     for diff in status.diffs {
-        diffs.push(ForgeSetupDiff {
+        diffs.push(MachineSetupDiff {
             key: diff.key,
             expected: diff.expected,
             actual: diff.actual,
         });
     }
 
-    Ok(ForgeSetupStatus {
+    Ok(MachineSetupStatus {
         is_done: status.is_done,
         diffs,
     })

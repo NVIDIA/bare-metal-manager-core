@@ -53,12 +53,12 @@ impl FirmwareDownloader {
     /// available will return true if the given file is present, otherwise it will return false after starting a download in the background.
     /// Anything trying to check the same file while it is downloading will get the exact same result, but will not start a new download.
     /// It provides no guarantee that the checksum matches other than on the initial download.
-    pub async fn available(&self, filename: &Path, url: &str, checksum: &str) -> bool {
-        self.available_actual(filename, url, checksum, None).await
+    pub fn available(&self, filename: &Path, url: &str, checksum: &str) -> bool {
+        self.available_actual(filename, url, checksum, None)
     }
 
     // Actual implementation, made visible to unit tests only
-    async fn available_actual(
+    fn available_actual(
         &self,
         filename: &Path,
         url: &str,
@@ -257,18 +257,18 @@ mod tests {
         let downloader = FirmwareDownloader::new();
 
         for _ in 0..9 {
-            if downloader
-                .available_actual(filename, &url, "", Some(std::time::Duration::from_secs(1)))
-                .await
-            {
+            if downloader.available_actual(
+                filename,
+                &url,
+                "",
+                Some(std::time::Duration::from_secs(1)),
+            ) {
                 panic!("Should not have had something");
             }
         }
 
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        if !downloader
-            .available_actual(filename, &url, "", Some(std::time::Duration::from_secs(1)))
-            .await
+        if !downloader.available_actual(filename, &url, "", Some(std::time::Duration::from_secs(1)))
         {
             panic!("Should have succeeded");
         }
@@ -291,10 +291,7 @@ mod tests {
 
         let mut count = 0;
         loop {
-            if !downloader
-                .available(filename, &url, "a08232ef8a758330f8698442550157f7")
-                .await
-            {
+            if !downloader.available(filename, &url, "a08232ef8a758330f8698442550157f7") {
                 tokio::time::sleep(Duration::from_millis(10)).await;
                 count += 1;
                 if count >= 1000 {

@@ -1,0 +1,354 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::future::Future;
+use std::net::IpAddr;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use carbide_uuid::machine::MachineId;
+use forge_tls::client_config::ClientCert;
+use rpc::forge::{BmcRequestType, MachineSearchConfig, UserRoles};
+use rpc::forge_api_client::ForgeApiClient;
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use url::Url;
+
+use crate::HealthError;
+use crate::config::StaticBmcEndpoint;
+
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+#[derive(Clone)]
+pub struct BmcEndpoint {
+    pub addr: BmcAddr,
+    pub credentials: BmcCredentials,
+    pub machine: Option<MachineData>,
+}
+
+#[derive(Clone)]
+pub struct MachineData {
+    pub machine_id: MachineId,
+    pub machine_serial: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct BmcCredentials {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct BmcAddr {
+    pub ip: IpAddr,
+    pub port: Option<u16>,
+    pub mac: String,
+}
+
+impl BmcAddr {
+    pub fn hash_key(&self) -> &str {
+        &self.mac
+    }
+
+    pub fn to_url(&self) -> Result<Url, url::ParseError> {
+        let scheme = if self.port.is_some_and(|v| v == 80) {
+            "http"
+        } else {
+            "https"
+        };
+        let mut url = Url::parse(&format!("{}://{}", scheme, self.ip))?;
+        let _ = url.set_port(self.port);
+        Ok(url)
+    }
+}
+
+impl From<BmcCredentials> for nv_redfish_bmc_http::BmcCredentials {
+    fn from(value: BmcCredentials) -> Self {
+        nv_redfish_bmc_http::BmcCredentials::new(value.username, value.password)
+    }
+}
+
+pub trait EndpointSource: Send + Sync {
+    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<BmcEndpoint>, HealthError>>;
+}
+
+pub trait HealthReportSink: Send + Sync {
+    fn submit_health_report<'a>(
+        &'a self,
+        machine_id: &'a MachineId,
+        report: health_report::HealthReport,
+    ) -> BoxFuture<'a, Result<(), HealthError>>;
+}
+
+pub struct CompositeHealthReportSink {
+    sinks: Vec<Arc<dyn HealthReportSink>>,
+}
+
+impl CompositeHealthReportSink {
+    pub fn new(sinks: Vec<Arc<dyn HealthReportSink>>) -> Self {
+        Self { sinks }
+    }
+}
+
+impl HealthReportSink for CompositeHealthReportSink {
+    fn submit_health_report<'a>(
+        &'a self,
+        machine_id: &'a MachineId,
+        report: health_report::HealthReport,
+    ) -> BoxFuture<'a, Result<(), HealthError>> {
+        Box::pin(async move {
+            for sink in &self.sinks {
+                if let Err(e) = sink.submit_health_report(machine_id, report.clone()).await {
+                    tracing::warn!(error=?e, "health report sink failed");
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct ApiClientWrapper {
+    client: ForgeApiClient,
+}
+
+impl ApiClientWrapper {
+    pub fn new(root_ca: String, client_cert: String, client_key: String, api_url: &Url) -> Self {
+        let client_config = ForgeClientConfig::new(
+            root_ca,
+            Some(ClientCert {
+                cert_path: client_cert,
+                key_path: client_key,
+            }),
+        );
+        let api_config = ApiConfig::new(api_url.as_str(), &client_config);
+
+        let client = ForgeApiClient::new(&api_config);
+
+        Self { client }
+    }
+
+    pub async fn fetch_bmc_hosts(&self) -> Result<Vec<BmcEndpoint>, HealthError> {
+        let machine_ids = self
+            .client
+            .find_machine_ids(MachineSearchConfig {
+                include_dpus: true,
+                ..Default::default()
+            })
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        tracing::info!("Found {} machines", machine_ids.machine_ids.len(),);
+
+        let mut endpoints = Vec::new();
+
+        for ids_chunk in machine_ids.machine_ids.chunks(100) {
+            let request = ::rpc::forge::MachinesByIdsRequest {
+                machine_ids: Vec::from(ids_chunk),
+                ..Default::default()
+            };
+            let machines = self
+                .client
+                .find_machines_by_ids(request)
+                .await
+                .map_err(HealthError::ApiInvocationError)?;
+            tracing::debug!(
+                "Fetched details for {} machines with chunk size of 100",
+                machines.machines.len(),
+            );
+
+            for machine in machines.machines {
+                if let Some(endpoint) = self.extract_bmc_endpoint(&machine).await {
+                    endpoints.push(endpoint);
+                }
+            }
+        }
+
+        tracing::info!("Prepared total {} endpoints", endpoints.len());
+
+        Ok(endpoints)
+    }
+
+    async fn extract_bmc_endpoint(&self, machine: &rpc::forge::Machine) -> Option<BmcEndpoint> {
+        let bmc_info = machine.bmc_info.as_ref()?;
+        let ip_str = bmc_info.ip.as_ref()?;
+        let ip = ip_str.parse::<IpAddr>().ok()?;
+        let mac = bmc_info.mac.as_ref()?.clone();
+        let port = bmc_info.port.map(|v| v.try_into().unwrap_or(443));
+
+        let addr = BmcAddr { ip, port, mac };
+        let credentials = self.get_bmc_credentials(&addr).await.ok()?;
+
+        Some(BmcEndpoint {
+            addr,
+            credentials,
+            machine: machine
+                .id
+                .zip(machine.discovery_info.clone())
+                .map(|(machine_id, info)| MachineData {
+                    machine_id,
+                    machine_serial: info.dmi_data.map(|dmi| dmi.chassis_serial),
+                }),
+        })
+    }
+
+    async fn get_bmc_credentials(&self, endpoint: &BmcAddr) -> Result<BmcCredentials, HealthError> {
+        let request = rpc::forge::BmcMetaDataGetRequest {
+            machine_id: None,
+            bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
+                ip_address: endpoint.ip.to_string(),
+                mac_address: Some(endpoint.mac.clone()),
+            }),
+            role: UserRoles::Administrator.into(),
+            request_type: BmcRequestType::Redfish.into(),
+        };
+
+        let response = self
+            .client
+            .get_bmc_meta_data(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(BmcCredentials {
+            username: response.user,
+            password: response.password,
+        })
+    }
+
+    pub async fn submit_health_report(
+        &self,
+        machine_id: &carbide_uuid::machine::MachineId,
+        report: health_report::HealthReport,
+    ) -> Result<(), HealthError> {
+        let request = rpc::forge::HardwareHealthReport {
+            machine_id: Some(*machine_id),
+            report: Some(report.into()),
+        };
+
+        self.client
+            .record_hardware_health_report(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(())
+    }
+}
+
+impl EndpointSource for ApiClientWrapper {
+    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<BmcEndpoint>, HealthError>> {
+        Box::pin(self.fetch_bmc_hosts())
+    }
+}
+
+impl HealthReportSink for ApiClientWrapper {
+    fn submit_health_report<'a>(
+        &'a self,
+        machine_id: &'a MachineId,
+        report: health_report::HealthReport,
+    ) -> BoxFuture<'a, Result<(), HealthError>> {
+        Box::pin(self.submit_health_report(machine_id, report))
+    }
+}
+
+pub struct ConsleHealthSink {}
+
+impl HealthReportSink for ConsleHealthSink {
+    fn submit_health_report<'a>(
+        &'a self,
+        machine_id: &'a MachineId,
+        report: health_report::HealthReport,
+    ) -> BoxFuture<'a, Result<(), HealthError>> {
+        tracing::info!(
+            "Health report for machine {machine_id:?} has {} success and {} alerts",
+            report.successes.len(),
+            report.alerts.len()
+        );
+        for alert in report.alerts {
+            tracing::warn!(machine_id=?machine_id, alert=?alert, "Health report alert");
+        }
+        Box::pin(async { Ok(()) })
+    }
+}
+
+pub struct StaticEndpointSource {
+    endpoints: Vec<BmcEndpoint>,
+}
+
+impl StaticEndpointSource {
+    pub fn new(endpoints: Vec<BmcEndpoint>) -> Self {
+        Self { endpoints }
+    }
+
+    pub fn from_config(configs: &[StaticBmcEndpoint]) -> Self {
+        let endpoints = configs
+            .iter()
+            .filter_map(|cfg| {
+                let ip = match cfg.ip.parse() {
+                    Ok(ip) => ip,
+                    Err(e) => {
+                        tracing::warn!(error=?e, ip=?cfg.ip, "Invalid IP in static endpoint config");
+                        return None;
+                    }
+                };
+
+                Some(BmcEndpoint {
+                    addr: BmcAddr {
+                        ip,
+                        port: cfg.port,
+                        mac: cfg.mac.clone(),
+                    },
+                    credentials: BmcCredentials {
+                        username: cfg.username.clone(),
+                        password: cfg.password.clone(),
+                    },
+                    machine: None,
+                })
+            })
+            .collect();
+
+        Self { endpoints }
+    }
+}
+
+impl EndpointSource for StaticEndpointSource {
+    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<BmcEndpoint>, HealthError>> {
+        Box::pin(async move { Ok(self.endpoints.clone()) })
+    }
+}
+
+pub struct CompositeEndpointSource {
+    sources: Vec<Arc<dyn EndpointSource>>,
+}
+
+impl CompositeEndpointSource {
+    pub fn new(sources: Vec<Arc<dyn EndpointSource>>) -> Self {
+        Self { sources }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sources.is_empty()
+    }
+}
+
+impl EndpointSource for CompositeEndpointSource {
+    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<BmcEndpoint>, HealthError>> {
+        Box::pin(async move {
+            let mut all = Vec::new();
+
+            for src in &self.sources {
+                let mut endpoints = src.fetch_bmc_hosts().await?;
+                all.append(&mut endpoints);
+            }
+
+            Ok(all)
+        })
+    }
+}

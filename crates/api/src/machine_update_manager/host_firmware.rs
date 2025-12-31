@@ -46,6 +46,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         Ok(current_updating_machines.iter().map(|m| m.id).collect())
     }
 
+    #[allow(txn_held_across_await)]
     async fn start_updates(
         &self,
         txn: &mut PgConnection,
