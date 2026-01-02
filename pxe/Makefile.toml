@@ -43,13 +43,11 @@ IPXE_BANNER_VERSION = { script = [
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
 # Detect sudo/doas elevation command from env
-ELEVATE = { script = [
-  '''
+ELEVATE = { script = ['''
   command -v sudo >/dev/null 2>&1 && echo sudo && exit 0
   command -v doas >/dev/null 2>&1 && echo doas && exit 0
   echo ""
-  '''
-] }
+  '''] }
 
 [tasks.save-bfb-for-preingestion]
 description = "Copy the vanilla BFB file to the static blobs directory"
@@ -170,10 +168,7 @@ run_task = "internal-bfb-aarch64-sa"
 [tasks.ipxe-aarch64-sa]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) for SA builds"
-dependencies = [
-  "ipxe-build-efi-aarch64",
-  "ipxe-install-efi-aarch64",
-]
+dependencies = ["ipxe-build-efi-aarch64", "ipxe-install-efi-aarch64"]
 
 
 [tasks.build-boot-artifacts-bfb]
@@ -432,7 +427,11 @@ args = [
 category = "Ephemeral Image"
 description = "Remove zypper from the debian-tools image, as it's been removed from the repo"
 command = "sed"
-args = ["-i", "/zypper/d", "${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-ubuntu/mkosi.conf"]
+args = [
+  "-i",
+  "/zypper/d",
+  "${REPO_ROOT}/pxe/mkosi/mkosi/resources/mkosi-tools/mkosi.conf.d/10-debian-ubuntu/mkosi.conf",
+]
 
 [tasks.mkosi-generate-build-tmpdir]
 category = "Ephemeral Image"
@@ -751,14 +750,22 @@ cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
 run_task = [
-  { name = "internal-bfb-aarch64-ci", condition = { env_not_set = ["SA_ENABLEMENT"] } },
-  { name = "internal-bfb-aarch64-sa", condition = { env_true = ["SA_ENABLEMENT"] } },
+  { name = "internal-bfb-aarch64-ci", condition = { env_not_set = [
+    "SA_ENABLEMENT",
+  ] } },
+  { name = "internal-bfb-aarch64-sa", condition = { env_true = [
+    "SA_ENABLEMENT",
+  ] } },
 ]
 
 [tasks.bfb-aarch64]
 run_task = [
-  { name = "internal-bfb-aarch64", condition = { env_not_set = ["SA_ENABLEMENT"] } },
-  { name = "internal-bfb-aarch64-sa", condition = { env_true = ["SA_ENABLEMENT"] } },
+  { name = "internal-bfb-aarch64", condition = { env_not_set = [
+    "SA_ENABLEMENT",
+  ] } },
+  { name = "internal-bfb-aarch64-sa", condition = { env_true = [
+    "SA_ENABLEMENT",
+  ] } },
 ]
 
 [tasks.internal-bfb-aarch64-sa]
@@ -780,7 +787,7 @@ dependencies = [
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
-  "download-hbn-installer-to-bfb-sa",  # put doca_container_configs.zip in /tmp
+  "download-hbn-installer-to-bfb-sa",                                      # put doca_container_configs.zip in /tmp
   "mkdir-hbn-folder-in-bfb",
   "unzip-hbn-folder-in-bfb",
   "mv-hbn-configs-to-bfb",
@@ -1032,7 +1039,6 @@ script = '''
   set -e
   # NOTE: This `temp` directory workaround can be removed after the
   # `mv-hbn-configs-to-bfb` and `mv-hbn-scripts-to-bfb` tasks are updated
-  ${ELEVATE} apt-get -y install xxd
   mkdir -p temp
   cd temp || exit 1
   files=$(curl -s "$DOCA_HBN_CONFIG_URL")
@@ -1047,7 +1053,7 @@ script = '''
     while IFS= read -r obj; do
       url=$(printf '%s\n' "$obj" | jq -r '.url')
       path=$(printf '%s\n' "$obj" | jq -r '.filepath')
-      sha=$(printf '%s\n' "$obj" | jq -r '.sha256_base64' | base64 -d -w0 | xxd -ps -c32)
+      sha=$(printf '%s\n' "$obj" | jq -r '.sha256_base64' | base64 -d | od -An -vtx1 | tr -d ' \n')
       mkdir -p "$(dirname "$path")"
       curl -sSL "$url" -o "$path"
       printf '%s  %s\n' "$sha" "$path" | sha256sum -c --status || exit 1
@@ -1285,5 +1291,15 @@ args = ["${REPO_ROOT}/pxe/bfpxe", "${BUILD_LOCATION}/usr/bin/bfpxe"]
 category = "iPXE Kernel"
 description = "Get secure boot pk from BFB and convert to pem"
 command = "openssl"
-args = ["x509", "-inform", "der", "-in", "/tmp/bfb-dump/initramfs-tmp/lib/firmware/mellanox/boot/capsule/certs/prod/pk.cer", "-outform", "pem", "-out", "static/blobs/internal/aarch64/secure-boot-pk.pem"]
+args = [
+  "x509",
+  "-inform",
+  "der",
+  "-in",
+  "/tmp/bfb-dump/initramfs-tmp/lib/firmware/mellanox/boot/capsule/certs/prod/pk.cer",
+  "-outform",
+  "pem",
+  "-out",
+  "static/blobs/internal/aarch64/secure-boot-pk.pem",
+]
 dependencies = ["bfb-rebuild-rootfs"]
