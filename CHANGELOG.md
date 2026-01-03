@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased (v2025.01.02-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.19-rc2-0...trunk)
+## [Unreleased (v2025.01.16-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.02-rc2-0...trunk)
 
 ### Added
 
@@ -11,6 +11,33 @@
 ### Removed
 
 ### Internal Changes
+
+## [Unreleased (v2025.01.02-rc2-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.19-rc2-0...v2025.01.02-rc2-0)
+
+### Added in v2025.01.02-rc2-0
+
+- [MR-5040](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5040): Added the ability to build carbide container images for ARM.
+- [MR-5043](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5043): Added the ability to use the carbide-web, nmxm browser, and metrics, along with other minor enhancements and cleanup in nvlink.
+
+### Changed in v2025.01.02-rc2-0
+
+- [MR-5016](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5016): Changed the behavior of the Serial Console Logs link to point to the new Rust version of the serial console logs dashboard.
+
+### Fixed in v2025.01.02-rc2-0
+
+- [FORGE-7593](https://jirasw.nvidia.com/browse/FORGE-7593),[MR-5056](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5056): Fixed an issue where power control and BMC reset forms did not redirect back to the original page in carbide-web but always the machine endpoint page.
+
+### Internal Changes in v2025.01.02-rc2-0
+
+- [MR-5054](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5054): Internal change where hardware bug injection capability was added to mock BMC to simulate misbehaving hardware that loses all DPUs in NetworkAdapters and PCIeDevice, enabling reproduction of stuck machine states.
+- [MR-5055](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5055): Internal change where machine-a-tron machines are started in off state and powered on by carbide.
+- [MR-5053](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5053): Internal change where Bios/Dell attribute settings support was added to bmc-mock to enable integration test verification of PollingBiosSetup and PollingLockdownStatus states, and the skip_polling_checks configuration flag was removed.
+- [MR-5052](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5052): Internal change where power manager is disabled in tests by adding plumbing from config to test state controller.
+- [MR-5047](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5047): Internal change where drain timeout was increased from 500ms to 10s to fix flaky tests related to network segments metric.
+- [MR-5045](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5045): Internal change where power manager is disabled for tests to prevent flakes from interference with state controller transitions.
+- [MR-5057](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5057): Internal change where we fixed an issue where a Dockerfile was missing and the sa_enablement condition on GitHub Actions was incorrect.
+- [5763330](https://nvbugspro.nvidia.com/bug/5763330), [MR-5050](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5050): Internal change where we fixed an issue where the `file` tool was missing for building aarch64 boot artifacts.
+- [CDEVS-1246](https://jirasw.nvidia.com/browse/CDEVS-1246), [MR-5033](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5033): Internal change where the `SA_ENABLEMENT` environment variable was added to the Github action to separate build for the OSS branch of carbide.
 
 ## [v2025.12.19-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.05-rc2-0..v2025.12.19-rc2-0)
 
@@ -43,7 +70,7 @@
 - [FORGE-7491](https://jirasw.nvidia.com/browse/FORGE-7491),[MR-5025](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5025): Fixed an issue where passwords were leaked in libredfish error messages when changing BMC or UEFI passwords.
 - [MR-5032](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5032): Fixed an issue where transactions were not allowed to be held across await points for SPDM.
 - [MR-5024](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5024): Fixed an issue where the boot order fix mechanism during tenant deletion did not cover SMCs, Vikings, and GB200s.
-- [MR-5028](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5028): Revert "fix: ipxe for arm64 - exclude non snp drivers since they cause issues during device init"
+- [MR-5028](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5028): Revert "fix: ipxe for arm64 - exclude non snp drivers since they cause issues during device init".
 - [MR-4990](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4990): Fixed an issue where building the BMC HTTP client while a transaction was open could block due to additional database connections and Vault calls.
 - [MR-5002](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5002): Fixed an issue where `api-integration-tests` failed to compile when built individually because the `linux-build` feature was not added to a dependency.
 - [FORGE-7484](https://jirasw.nvidia.com/browse/FORGE-7484),[MR-4995](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4995): Fixed an issue where the UEFI firmware version was missing from the default DPU config, preventing site-explorer from updating the known version of DPU BMC firmware and bios version.
@@ -116,7 +143,7 @@
 - [MR-4923](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4923): Fixed an issue where the default JSON value for the `nvlink_config` column in the instances table did not match the Rust struct name causing missing defaults for the column.
 - [MR-4966](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4966): Fixes behaviour of the runners to make docker pruning more thorough.
 - [FORGE-7016](https://jirasw.nvidia.com/browse/FORGE-7016): Change permissions to allow Site Agent to query NVLink status.
-- [FORGE-7401](https://jirasw.nvidia.com/browse/FORGE-7401): Add missing dcmgi file to the scout image for aarch64
+- [FORGE-7401](https://jirasw.nvidia.com/browse/FORGE-7401): Add missing dcmgi file to the scout image for aarch64.
 
 ### Internal Changes in v2025.12.05-rc2-0
 
