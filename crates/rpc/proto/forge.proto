@@ -301,6 +301,10 @@ service Forge {
   rpc DeleteAllExpectedMachines(google.protobuf.Empty) returns (google.protobuf.Empty);
   // Expected machines connected to Explored Endpoints and Machines
   rpc GetAllExpectedMachinesLinked(google.protobuf.Empty) returns (LinkedExpectedMachineList);
+  // Batch create expected machines
+  rpc CreateExpectedMachines(BatchExpectedMachineOperationRequest) returns (BatchExpectedMachineOperationResponse);
+  // Batch update expected machines
+  rpc UpdateExpectedMachines(BatchExpectedMachineOperationRequest) returns (BatchExpectedMachineOperationResponse);
 
   // Expected Power Shelf Management
   // Add expected power shelf
@@ -4412,6 +4416,30 @@ message LinkedExpectedMachine {
   optional string interface_id = 3;
   optional string explored_endpoint_address = 4;
   optional common.MachineId machine_id = 5;
+  optional common.UUID expected_machine_id = 6;
+}
+
+message BatchExpectedMachineOperationRequest {
+  // The list of expected machines to create or update
+  ExpectedMachineList expected_machines = 1;
+  // Whether to accept partial results (continue processing even if some operations fail)
+  bool accept_partial_results = 2;
+}
+
+message ExpectedMachineOperationResult {
+  // The ID of the ExpectedMachine this result is for
+  common.UUID id = 1;
+  // Whether the operation succeeded
+  bool success = 2;
+  // Error message if the operation failed
+  optional string error_message = 3;
+  // on success, return the complete ExpectedMachine
+  optional ExpectedMachine expected_machine = 4;
+}
+
+message BatchExpectedMachineOperationResponse {
+  // Individual results for each ExpectedMachine
+  repeated ExpectedMachineOperationResult results = 1;
 }
 
 message MachineRebootCompletedResponse {
