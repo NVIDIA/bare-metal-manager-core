@@ -301,6 +301,311 @@ pub(crate) async fn delete_all(
     Ok(tonic::Response::new(()))
 }
 
+/// Helper function to sanitize expected machine and return parsed IDs (ID+MAC)
+fn sanitize_expected_machine_and_get_ids(
+    _api: &Api,
+    request: rpc::ExpectedMachine,
+    _is_update: bool,
+) -> Result<(Uuid, MacAddress), CarbideError> {
+    // Validate id is present
+    let id = match &request.id {
+        Some(uuid_val) => Uuid::parse_str(&uuid_val.value).map_err(|_| {
+            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+        })?,
+        None => {
+            return Err(CarbideError::InvalidArgument(
+                "id is mandatory for batch operations".to_string(),
+            ));
+        }
+    };
+
+    // Validate bmc_mac_address is present and parseable
+    if request.bmc_mac_address.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "bmc_mac_address is mandatory".to_string(),
+        ));
+    }
+
+    let parsed_mac: MacAddress = request
+        .bmc_mac_address
+        .parse::<MacAddress>()
+        .map_err(CarbideError::from)?;
+
+    // Validate duplicates in fallback DPU serial numbers
+    if utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+        return Err(CarbideError::InvalidArgument(
+            "duplicate dpu serial number found".to_string(),
+        ));
+    }
+
+    // Validate chassis serial format
+    if !CHASSIS_SERIAL_REGEX.is_match(&request.chassis_serial_number) {
+        return Err(CarbideError::InvalidArgument(format!(
+            "chassis serial is not formatted properly {}",
+            request.chassis_serial_number
+        )));
+    }
+
+    Ok((id, parsed_mac))
+}
+
+/// Helper function to process rack association
+async fn process_rack_association(
+    txn: &mut sqlx::PgConnection,
+    rack_id: &str,
+    parsed_mac: MacAddress,
+) -> Result<(), CarbideError> {
+    match db_rack::get(txn, rack_id).await {
+        Ok(rack) => {
+            let mut config = rack.config.clone();
+            if !config.expected_compute_trays.contains(&parsed_mac) {
+                config.expected_compute_trays.push(parsed_mac);
+                db_rack::update(txn, rack_id, &config)
+                    .await
+                    .map_err(CarbideError::from)?;
+            }
+        }
+        Err(_) => {
+            let expected_compute_trays = vec![parsed_mac];
+            let _rack = db_rack::create(txn, rack_id, expected_compute_trays, vec![], vec![])
+                .await
+                .map_err(CarbideError::from)?;
+        }
+    }
+    Ok(())
+}
+
+/// Helper function to create a single expected machine within a transaction
+async fn create_expected_machine(
+    txn: &mut sqlx::PgConnection,
+    machine: rpc::ExpectedMachine,
+    id: Uuid,
+    parsed_mac: MacAddress,
+) -> Result<(), CarbideError> {
+    let request_rack_id = machine.rack_id.clone();
+    let mut db_data: ExpectedMachineData = machine.try_into()?;
+    db_data.override_id = Some(id);
+
+    db::expected_machine::create(txn, parsed_mac, db_data).await?;
+
+    // Handle rack association
+    if let Some(rack_id) = request_rack_id.as_ref() {
+        process_rack_association(txn, rack_id, parsed_mac).await?;
+    }
+
+    Ok(())
+}
+
+/// Helper function to update a single expected machine within a transaction
+async fn update_expected_machine(
+    txn: &mut sqlx::PgConnection,
+    machine: rpc::ExpectedMachine,
+    id: Uuid,
+    parsed_mac: MacAddress,
+) -> Result<(), CarbideError> {
+    let request_rack_id = machine.rack_id.clone();
+    let data: ExpectedMachineData = machine.try_into()?;
+
+    db::expected_machine::update_by_id(txn, id, data).await?;
+
+    // Handle rack association
+    if let Some(rack_id) = request_rack_id.as_ref() {
+        process_rack_association(txn, rack_id, parsed_mac).await?;
+    }
+
+    Ok(())
+}
+
+#[derive(Copy, Clone)]
+enum BatchOperation {
+    Create,
+    Update,
+}
+
+impl BatchOperation {
+    fn is_update(&self) -> bool {
+        matches!(self, BatchOperation::Update)
+    }
+}
+
+fn build_success_result(machine: rpc::ExpectedMachine) -> rpc::ExpectedMachineOperationResult {
+    // Ensure the id is set in the returned machine payload.
+    let id = machine
+        .id
+        .as_ref()
+        .and_then(|u| Uuid::parse_str(&u.value).ok());
+
+    rpc::ExpectedMachineOperationResult {
+        id: id.map(|value| ::rpc::common::Uuid {
+            value: value.to_string(),
+        }),
+        success: true,
+        error_message: None,
+        expected_machine: Some(machine),
+    }
+}
+
+fn build_failure_result(id: Uuid, error_message: String) -> rpc::ExpectedMachineOperationResult {
+    rpc::ExpectedMachineOperationResult {
+        id: Some(::rpc::common::Uuid {
+            value: id.to_string(),
+        }),
+        success: false,
+        error_message: Some(error_message),
+        expected_machine: None,
+    }
+}
+
+async fn apply_operation(
+    op: BatchOperation,
+    txn: &mut sqlx::PgConnection,
+    machine: rpc::ExpectedMachine,
+    id: Uuid,
+    parsed_mac: MacAddress,
+) -> Result<(), CarbideError> {
+    match op {
+        BatchOperation::Create => create_expected_machine(txn, machine, id, parsed_mac).await,
+        BatchOperation::Update => update_expected_machine(txn, machine, id, parsed_mac).await,
+    }
+}
+
+async fn process_batch_operations(
+    api: &Api,
+    machines: Vec<rpc::ExpectedMachine>,
+    accept_partial: bool,
+    op: BatchOperation,
+) -> Result<Vec<rpc::ExpectedMachineOperationResult>, CarbideError> {
+    let mut results = Vec::new();
+
+    if accept_partial {
+        let mut txn: Option<db::Transaction<'_>> = None;
+
+        for machine in machines {
+            debug_assert!(txn.is_none());
+            let request_id = machine
+                .id
+                .as_ref()
+                .and_then(|u| Uuid::parse_str(&u.value).ok())
+                .unwrap_or_else(Uuid::nil);
+
+            let (id, parsed_mac) =
+                match sanitize_expected_machine_and_get_ids(api, machine.clone(), op.is_update()) {
+                    Ok(ids) => ids,
+                    Err(e) => {
+                        results.push(build_failure_result(
+                            request_id,
+                            format!("Validation failed: {}", e),
+                        ));
+                        continue;
+                    }
+                };
+
+            let mut machine_for_result = machine.clone();
+            machine_for_result.id = Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            });
+
+            txn = match api.txn_begin().await {
+                Ok(txn) => Some(txn),
+                Err(e) => {
+                    results.push(build_failure_result(
+                        id,
+                        format!("Failed to begin transaction: {}", e),
+                    ));
+                    continue;
+                }
+            };
+
+            let mut txn = txn
+                .take()
+                .expect("transaction should be present when beginning per-machine work");
+
+            match apply_operation(op, txn.as_pgconn(), machine, id, parsed_mac).await {
+                Ok(_) => match txn.commit().await {
+                    Ok(_) => results.push(build_success_result(machine_for_result)),
+                    Err(e) => {
+                        results.push(build_failure_result(id, format!("Failed to commit: {}", e)))
+                    }
+                },
+                Err(e) => {
+                    let _ = txn.rollback().await;
+                    results.push(build_failure_result(id, format!("Operation failed: {}", e)));
+                }
+            }
+        }
+
+        return Ok(results);
+    }
+
+    let mut prepared = Vec::with_capacity(machines.len());
+    for machine in machines {
+        let (id, parsed_mac) =
+            sanitize_expected_machine_and_get_ids(api, machine.clone(), op.is_update())?;
+        prepared.push((machine, id, parsed_mac));
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    for (machine, id, parsed_mac) in prepared {
+        let mut machine_for_result = machine.clone();
+        machine_for_result.id = Some(::rpc::common::Uuid {
+            value: id.to_string(),
+        });
+
+        if let Err(e) = apply_operation(op, txn.as_pgconn(), machine, id, parsed_mac).await {
+            let _ = txn.rollback().await;
+            return Err(e);
+        }
+        results.push(build_success_result(machine_for_result));
+    }
+
+    txn.commit().await?;
+
+    Ok(results)
+}
+
+pub(crate) async fn create_expected_machines(
+    api: &Api,
+    request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,
+) -> Result<tonic::Response<rpc::BatchExpectedMachineOperationResponse>, tonic::Status> {
+    log_request_data(&request);
+
+    let request = request.into_inner();
+    let accept_partial = request.accept_partial_results;
+    let machines = request
+        .expected_machines
+        .ok_or_else(|| CarbideError::InvalidArgument("expected_machines is required".to_string()))?
+        .expected_machines;
+
+    let results =
+        process_batch_operations(api, machines, accept_partial, BatchOperation::Create).await?;
+
+    Ok(tonic::Response::new(
+        rpc::BatchExpectedMachineOperationResponse { results },
+    ))
+}
+
+pub(crate) async fn update_expected_machines(
+    api: &Api,
+    request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,
+) -> Result<tonic::Response<rpc::BatchExpectedMachineOperationResponse>, tonic::Status> {
+    log_request_data(&request);
+
+    let request = request.into_inner();
+    let accept_partial = request.accept_partial_results;
+    let machines = request
+        .expected_machines
+        .ok_or_else(|| CarbideError::InvalidArgument("expected_machines is required".to_string()))?
+        .expected_machines;
+
+    let results =
+        process_batch_operations(api, machines, accept_partial, BatchOperation::Update).await?;
+
+    Ok(tonic::Response::new(
+        rpc::BatchExpectedMachineOperationResponse { results },
+    ))
+}
+
 // Utility method called by `explore`. Not a grpc handler.
 pub(crate) async fn query(
     api: &Api,
