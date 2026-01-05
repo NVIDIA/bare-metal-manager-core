@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -46,6 +47,10 @@ const NETWORK_SECURITY_GROUP_RULE_PRIORITY_START: u32 = 2000;
 /// We want a limit small enough to protect us but big enough that we
 /// don't have to remember to keep bumping this up as we decide nvue
 /// can handle more rules.
+///
+/// *_NOTE: This is a limit per unique NSG.  Multiple interfaces could
+/// each have a unique NSG associated, either directly or via different VPC
+/// associations per interface._*
 const NETWORK_SECURITY_GROUP_RULE_COUNT_MAX: usize = 10000;
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
@@ -56,28 +61,114 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         ));
     }
 
-    let mut l3_domains = Vec::with_capacity(conf.l3_domains.len());
-    for d in conf.l3_domains {
-        l3_domains.push(TmplL3Domain {
-            L3DomainName: d.l3_domain_name,
-            Services: d.services.clone(),
+    let host_interfaces: Vec<TmplHostInterfaces> = conf
+        .ct_access_vlans
+        .into_iter()
+        .map(|vl| TmplHostInterfaces {
+            ID: vl.vlan_id,
+            HostIP: vl.ip,
+            HostRoute: vl.network,
+        })
+        .collect();
+
+    // This assumes that the routing profile is expected to be same for
+    // all VPCs of a tenant _and_ for all VPCs that an instance might span.
+    // That should be ok for now, and a smaller MR later that moves
+    // profiles into FlatInterfaceConfig could change that.
+    // For now, we clone later so that we can put this into each TmplVpc
+    // and make a later transition easier.
+    let routing_profile = conf
+        .ct_routing_profile
+        .as_ref()
+        .map(|rt| TmplRoutingProfile {
+            RouteTargetImports: rt
+                .route_target_imports
+                .iter()
+                .map(|rt| TmplRouteTargetConfig {
+                    ASN: rt.asn,
+                    VNI: rt.vni,
+                })
+                .collect(),
+            RouteTargetsOnExports: rt
+                .route_targets_on_exports
+                .iter()
+                .map(|rt| TmplRouteTargetConfig {
+                    ASN: rt.asn,
+                    VNI: rt.vni,
+                })
+                .collect(),
+        });
+
+    // There are two assumptions about pre-FNN...
+    // 1 - ManagedHostNetworkConfigResponse only has rules inherited either from VPC or Instance,
+    //     and VPC-spanning per-interface isn't possible.
+    // 2 - There is only one DPU.
+    //
+    // Both of these are valid assumptions right now because L3 EVPN and multi-DPU are only possible with FNN,
+    // We probably shouldn't warn anymore, but we probably should drop info for now.
+
+    if conf.network_security_groups.len() > 1 {
+        tracing::info!(
+            "Found more than one interface with network security group applied in ManagedHostNetworkConfigResponse, so rules will be merged when FNN is not in use.",
+        );
+    }
+
+    let mut nsg_id_index_map = HashMap::<String, u16>::new();
+    let mut network_security_groups =
+        Vec::<TmplNetworkSecurityGroup>::with_capacity(conf.network_security_groups.len());
+
+    // Pre-FNN will still expect a merged/flattened version.
+    let mut merged_ingress_ipv4_nsg_rules = vec![];
+    let mut merged_ingress_ipv6_nsg_rules = vec![];
+    let mut merged_egress_ipv4_nsg_rules = vec![];
+    let mut merged_egress_ipv6_nsg_rules = vec![];
+
+    let has_network_security_group = !conf.network_security_groups.is_empty();
+
+    for (i, nsg) in conf.network_security_groups.into_iter().enumerate() {
+        let idx = i.try_into().wrap_err(format!(
+            "number of unique network security groups exceeds {} limit",
+            u16::MAX
+        ))?;
+
+        nsg_id_index_map.insert(nsg.id, idx);
+
+        let (ingress_ipv4_rules, egress_ipv4_rules, ingress_ipv6_rules, egress_ipv6_rules) =
+            prepare_network_security_group_rules(nsg.rules)?;
+
+        merged_ingress_ipv4_nsg_rules.extend_from_slice(&ingress_ipv4_rules);
+        merged_ingress_ipv6_nsg_rules.extend_from_slice(&ingress_ipv6_rules);
+        merged_egress_ipv4_nsg_rules.extend_from_slice(&egress_ipv4_rules);
+        merged_egress_ipv6_nsg_rules.extend_from_slice(&egress_ipv6_rules);
+
+        network_security_groups.push(TmplNetworkSecurityGroup {
+            Index: idx,
+            StatefulEgress: nsg.stateful_egress,
+            IngressNetworkSecurityGroupRulesIpv4: ingress_ipv4_rules,
+            IngressNetworkSecurityGroupRulesIpv6: ingress_ipv6_rules,
+            EgressNetworkSecurityGroupRulesIpv4: egress_ipv4_rules,
+            EgressNetworkSecurityGroupRulesIpv6: egress_ipv6_rules,
         });
     }
-    let infra = vec![TmplInfra {
-        L3Domains: l3_domains,
-    }];
 
     let mut port_configs = Vec::with_capacity(conf.ct_port_configs.len());
+    let mut vpc_configs = HashMap::<u32, TmplVpc>::new();
 
     let mut has_vpc_peer_prefixes = false;
     let mut vpc_peer_prefixes = vec![];
     let mut has_vpc_peer_vnis = false;
     let mut vpc_peer_vnis = vec![];
     for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
-        // We makes assumption here that there is only one tenant interfaces with
-        // but we should beaware this might change in the future.
+        // If the instance is NOT in an FNN VPC, We make an assumption
+        // here that there is only one tenant interface or at least
+        // the same VPC for all interfaces if there are multiple
+        // interfaces.
+        // Log if multiple interfaces are seen.
+        // This could be removed if we stop supporting non-FNN sites.
         if has_vpc_peer_prefixes {
-            tracing::warn!("Found more than one tenant interface");
+            tracing::info!(
+                "Found more than one tenant interface, so VPC peering details of only the first found will be used when FNN is not in use."
+            );
         }
         if !has_vpc_peer_prefixes && !network.vpc_peer_prefixes.is_empty() {
             has_vpc_peer_prefixes = true;
@@ -101,7 +192,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         }
 
         let svi_mac = vni_to_svi_mac(network.vni.unwrap_or(0))?.to_string();
-        port_configs.push(TmplConfigPort {
+        let port = TmplConfigPort {
             InterfaceName: network.interface_name.clone(),
             Index: format!("{}", (base_i + 1) * 10),
             VlanID: network.vlan,
@@ -111,6 +202,9 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
             SviMAC: svi_mac,
             VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
+            VrfName: format!("vpc_{}", network.l3_vni.unwrap_or_default()),
+            HasVpcPeerPrefixes: !network.vpc_peer_prefixes.is_empty(),
+            HasVpcPrefixes: !network.vpc_prefixes.is_empty(),
             VpcPrefixes: network
                 .vpc_prefixes
                 .iter()
@@ -122,7 +216,56 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 .collect(),
             IsL2Segment: network.is_l2_segment,
             StorageTarget: false, // XXX (Classic, L3)
-        });
+            HasNetworkSecurityGroup: network.network_security_group_id.is_some(),
+            NetworkSecurityGroupIndex: network
+                .network_security_group_id
+                .as_ref()
+                .map(|nid| {
+                    nsg_id_index_map
+                    .get(nid)
+                    .copied()
+                    .ok_or_else(|| {
+                    eyre::eyre!(
+                        "BUG: PortConfig references network security group ID that does not exist",
+                    )
+                    })
+                })
+                .transpose()?,
+        };
+
+        vpc_configs
+            .entry(network.l3_vni.unwrap_or_default())
+            .and_modify(|v| v.PortPrefixes.extend_from_slice(&port.VpcPrefixes))
+            .or_insert_with(|| TmplVpc {
+                VrfName: port.VrfName.clone(),
+                L3VNI: network.l3_vni.unwrap_or_default(),
+                VrfLoopback: port.VrfLoopback.clone(),
+                // TODO: This is wasteful because it should be specific to a VPC.
+                // Otherwise, all VPCs will have a BGP peer config for each
+                // interface, regardless of whether the interface is owned by
+                // that VPC.
+                HostInterfaces: host_interfaces.clone(),
+                HasVpcPeerPrefixes: !network.vpc_peer_prefixes.is_empty(),
+                VpcPeerPrefixes: network
+                    .vpc_peer_prefixes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, prefix)| Prefix {
+                        Index: format!("{}", i + 1),
+                        Prefix: prefix.to_string(),
+                    })
+                    .collect(),
+                HasVpcPeerVnis: !network.vpc_peer_vnis.is_empty(),
+                VpcPeerVnis: network
+                    .vpc_peer_vnis
+                    .iter()
+                    .map(|vni| TmplVni { Vni: *vni })
+                    .collect(),
+                RoutingProfile: routing_profile.clone(),
+                PortPrefixes: port.VpcPrefixes.clone(),
+            });
+
+        port_configs.push(port);
     }
 
     if port_configs.is_empty() {
@@ -134,15 +277,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let vrf_loopback = port_configs[0].VrfLoopback.clone();
     let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
 
-    let has_network_security_group = conf.ct_network_security_group_rules.is_some();
-
-    let (ingress_ipv4_rules, egress_ipv4_rules, ingress_ipv6_rules, egress_ipv6_rules) =
-        if let Some(rules) = conf.ct_network_security_group_rules {
-            prepare_network_security_group_rules(rules)?
-        } else {
-            (vec![], vec![], vec![], vec![])
-        };
-
     let (
         ingress_ipv4_override_rules,
         egress_ipv4_override_rules,
@@ -150,13 +284,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         egress_ipv6_override_rules,
     ) = prepare_network_security_group_rules(conf.network_security_policy_override_rules)?;
 
-    tracing::info!(
-        "nvue::build incoming network security group expanded rule counts are ingress_ipv4_rules={}, egress_ipv4_rules={}, ingress_ipv6_rules={}, egress_ipv6_rules={}",
-        ingress_ipv4_rules.len(),
-        egress_ipv4_rules.len(),
-        ingress_ipv6_rules.len(),
-        egress_ipv6_rules.len()
-    );
     // The original VPC isolation would add site fabric prefixes to deny prefixes,
     // with site_fabric_prefixes coming first.
     // This is just an easy way to maintain the ordering of the original behavior.
@@ -220,6 +347,9 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             0,
         )
     };
+
+    let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
+    vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
 
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
@@ -295,60 +425,30 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         Ipv4EgressNetworkSecurityPolicyOverrideRules: egress_ipv4_override_rules,
         Ipv6IngressNetworkSecurityPolicyOverrideRules: ingress_ipv6_override_rules,
         Ipv6EgressNetworkSecurityPolicyOverrideRules: egress_ipv6_override_rules,
-        Infrastructure: infra,
         HbnVersion: conf.hbn_version,
         Tenant: TmplComputeTenant {
-            RoutingProfile: conf
-                .ct_routing_profile
-                .as_ref()
-                .map(|rt| TmplRoutingProfile {
-                    RouteTargetImports: rt
-                        .route_target_imports
-                        .iter()
-                        .map(|rt| TmplRouteTargetConfig {
-                            ASN: rt.asn,
-                            VNI: rt.vni,
-                        })
-                        .collect(),
-                    RouteTargetsOnExports: rt
-                        .route_targets_on_exports
-                        .iter()
-                        .map(|rt| TmplRouteTargetConfig {
-                            ASN: rt.asn,
-                            VNI: rt.vni,
-                        })
-                        .collect(),
-                }),
+            RoutingProfile: routing_profile,
+            Vpcs: vpcs,
             VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
-            l3vniVLAN: 0, // unused -- TODO(chet): unique per DPU within a VPC
             VrfLoopback: vrf_loopback,
             PortConfigs: port_configs,
-            ExternalAccess: conf.ct_external_access,
-            HostInterfaces: conf
-                .ct_access_vlans
-                .into_iter()
-                .map(|vl| TmplHostInterfaces {
-                    ID: vl.vlan_id,
-                    HostIP: vl.ip,
-                    HostRoute: vl.network,
-                })
-                .collect(),
+            HostInterfaces: host_interfaces,
+            NetworkSecurityGroups: network_security_groups,
             HasNetworkSecurityGroup: has_network_security_group,
-            HasIpv4IngressSecurityGroupRules: !ingress_ipv4_rules.is_empty(),
-            HasIpv4EgressSecurityGroupRules: !egress_ipv4_rules.is_empty(),
-            HasIpv6IngressSecurityGroupRules: !ingress_ipv6_rules.is_empty(),
-            HasIpv6EgressSecurityGroupRules: !egress_ipv6_rules.is_empty(),
-            IngressNetworkSecurityGroupRulesIpv4: ingress_ipv4_rules,
-            EgressNetworkSecurityGroupRulesIpv4: egress_ipv4_rules,
-            IngressNetworkSecurityGroupRulesIpv6: ingress_ipv6_rules,
-            EgressNetworkSecurityGroupRulesIpv6: egress_ipv6_rules,
+            HasIpv4IngressSecurityGroupRules: !merged_ingress_ipv4_nsg_rules.is_empty(),
+            HasIpv4EgressSecurityGroupRules: !merged_egress_ipv4_nsg_rules.is_empty(),
+            HasIpv6IngressSecurityGroupRules: !merged_ingress_ipv6_nsg_rules.is_empty(),
+            HasIpv6EgressSecurityGroupRules: !merged_egress_ipv6_nsg_rules.is_empty(),
+            IngressNetworkSecurityGroupRulesIpv4: merged_ingress_ipv4_nsg_rules,
+            EgressNetworkSecurityGroupRulesIpv4: merged_egress_ipv4_nsg_rules,
+            IngressNetworkSecurityGroupRulesIpv6: merged_ingress_ipv6_nsg_rules,
+            EgressNetworkSecurityGroupRulesIpv6: merged_egress_ipv6_nsg_rules,
             HasVpcPeerPrefixes: has_vpc_peer_prefixes,
             VpcPeerPrefixes: vpc_peer_prefixes,
             HasVpcPeerVnis: has_vpc_peer_vnis,
             VpcPeerVnis: vpc_peer_vnis,
         },
-        InternetL3VNI: conf.ct_internet_l3_vni.unwrap_or_default(),
         // XXX: Unused placeholders for later.
         IsStorageClient: false,                   // XXX (Classic, L3)
         StorageDpuIP: "127.9.9.9".to_string(),    // XXX (Classic, L3)
@@ -755,6 +855,8 @@ pub struct NvueConfig {
     pub use_vpc_isolation: bool,
     pub stateful_acls_enabled: bool,
 
+    pub network_security_groups: Vec<NetworkSecurityGroup>,
+
     pub network_security_policy_override_rules: Vec<NetworkSecurityGroupRule>,
 
     // Currently we have a single tenant, hence the single ct_ prefix.
@@ -770,10 +872,7 @@ pub struct NvueConfig {
     pub ct_l3_vni: Option<u32>,
     pub ct_vrf_loopback: String,
     pub ct_port_configs: Vec<PortConfig>,
-    pub ct_external_access: Vec<String>,
     pub ct_access_vlans: Vec<VlanConfig>,
-    pub ct_internet_l3_vni: Option<u32>,
-    pub ct_network_security_group_rules: Option<Vec<NetworkSecurityGroupRule>>,
     pub ct_routing_profile: Option<RoutingProfile>,
 }
 
@@ -781,6 +880,13 @@ pub struct NvueConfig {
 pub struct RoutingProfile {
     pub route_target_imports: Vec<RouteTargetConfig>,
     pub route_targets_on_exports: Vec<RouteTargetConfig>,
+}
+
+#[derive(Clone, Deserialize, Debug)]
+pub struct NetworkSecurityGroup {
+    pub id: String,
+    pub stateful_egress: bool,
+    pub rules: Vec<NetworkSecurityGroupRule>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -857,8 +963,8 @@ pub struct L3Domain {
 pub struct PortConfig {
     pub interface_name: String,
     pub vlan: u16,
-    pub vni: Option<u32>,    // admin network doesn't have one
-    pub l3_vni: Option<u32>, // admin network doesn't have one
+    pub vni: Option<u32>, // In FNN, admin network has both an l2vni and an l3vni
+    pub l3_vni: Option<u32>,
     pub gateway_cidr: String,
     pub vpc_prefixes: Vec<String>,
     pub vpc_peer_prefixes: Vec<String>,
@@ -867,6 +973,7 @@ pub struct PortConfig {
     pub tenant_vrf_loopback_ip: Option<String>,
     pub is_l2_segment: bool,
     pub is_phy: bool,
+    pub network_security_group_id: Option<String>,
 }
 
 //
@@ -931,10 +1038,6 @@ struct TmplNvue {
 
     HbnVersion: Option<String>,
 
-    // A structure to hold infra wide information to be used in the configuration. It would need
-    // to hold multiple levels.
-    Infrastructure: Vec<TmplInfra>,
-
     /// Whether stateful ACLs are possible and we
     /// should perform any extra config to prepare
     /// for them.
@@ -953,12 +1056,6 @@ struct TmplNvue {
 
     /// For when we have more than one tenant
     Tenant: TmplComputeTenant,
-
-    // InternetL3VNI is the side-wide GNI-supplied VNI to use so VPCs
-    // can access the Internet. This is sent down via the internet_l3_vni
-    // field from the ManagedHostNetworkConfigResponse as an optional
-    // value, and defaults to 0 if unset.
-    InternetL3VNI: u32,
 
     // XXX: These are unused placeholders for later.
     // StorageDpuIP is an interface that should exist on
@@ -1016,6 +1113,13 @@ struct TmplRoutingProfile {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplComputeTenant {
+    Vpcs: Vec<TmplVpc>,
+    PortConfigs: Vec<TmplConfigPort>,
+    NetworkSecurityGroups: Vec<TmplNetworkSecurityGroup>,
+
+    // TODO:  Everything thing from here down should remain for pre-FNN purposes,
+    //        but they now live in the Vecs above to support multiple VPCs per DPU.
+    //
     /// Tenant name/id with a max of 15 chars, because it's also used for the interface name.
     /// Linux is limited to 15 chars for interface names.
     VrfName: String,
@@ -1028,25 +1132,22 @@ struct TmplComputeTenant {
     // TODO(chet): Does this need to be a string?
     L3VNI: String,
 
-    /// XXX: unused placeholder for later. In the template, this
-    /// will go right within an `evpn` block next to the `vni`
-    /// config as `vlan: {{ .l3vniVLAN }}`.
-    l3vniVLAN: u32,
-
     /// VrfLoopback is the tenant loopback IP assigned to each DPU.
-    /// It was originall expected to be allocated from the interface-specific
-    /// /30 (it's the first IP in the allocation), but it's actually allocated
-    /// from a dedicated resource-pool, and interfaces get /31s.
+    /// It was originally expected to be allocated from an interface-specific
+    /// /30 (as the first IP in the allocation), but it's actually allocated
+    /// from a dedicated resource-pool, handed out as un-related /32s, and
+    /// interfaces in FNN get /31s.
     VrfLoopback: String, // XXX: This is in the Classic template -- where does the IP come from?
 
-    PortConfigs: Vec<TmplConfigPort>,
-
-    /// Per tenant access to external networks needs to be defined. Based on this route leaking
-    /// will occur to the specific tenant VRFs.
-    /// Format: Slice with strings equal to {{ .L3domain }}
-    ExternalAccess: Vec<String>,
-
     HostInterfaces: Vec<TmplHostInterfaces>,
+
+    HasVpcPeerPrefixes: bool,
+    VpcPeerPrefixes: Vec<Prefix>,
+
+    HasVpcPeerVnis: bool,
+    VpcPeerVnis: Vec<TmplVni>,
+
+    RoutingProfile: Option<TmplRoutingProfile>,
 
     HasNetworkSecurityGroup: bool,
     IngressNetworkSecurityGroupRulesIpv4: Vec<TmplNetworkSecurityGroupRule>,
@@ -1057,9 +1158,49 @@ struct TmplComputeTenant {
     HasIpv4EgressSecurityGroupRules: bool,
     HasIpv6IngressSecurityGroupRules: bool,
     HasIpv6EgressSecurityGroupRules: bool,
+    // /////////////
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug)]
+struct TmplNetworkSecurityGroup {
+    Index: u16,
+    StatefulEgress: bool,
+    IngressNetworkSecurityGroupRulesIpv4: Vec<TmplNetworkSecurityGroupRule>,
+    IngressNetworkSecurityGroupRulesIpv6: Vec<TmplNetworkSecurityGroupRule>,
+    EgressNetworkSecurityGroupRulesIpv4: Vec<TmplNetworkSecurityGroupRule>,
+    EgressNetworkSecurityGroupRulesIpv6: Vec<TmplNetworkSecurityGroupRule>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug)]
+struct TmplVpc {
+    /// Tenant name/id with a max of 15 chars, because it's also used for the interface name.
+    /// Linux is limited to 15 chars for interface names.
+    VrfName: String,
+
+    /// VPC-specifc VNI, which must be unique within a given site but
+    /// not necessarily globally unique.
+    L3VNI: u32,
+
+    // VrfLoopback is the tenant loopback IP assigned to each DPU.
+    // It was originally expected to be allocated from an interface-specific
+    // /30 (as the first IP in the allocation), but it's actually allocated
+    // from a dedicated resource-pool, handed out as un-related /32s, and
+    // interfaces in FNN get /31s.
+    /// The tenant loopback IP assigned to each DPU.
+    VrfLoopback: String,
+
+    HostInterfaces: Vec<TmplHostInterfaces>,
 
     HasVpcPeerPrefixes: bool,
     VpcPeerPrefixes: Vec<Prefix>,
+
+    // The relationship between interface:VPC is 1:1 but VPC:interface is 1:M.
+    // So, a single VPC could have multiple, per-port, VpcPrefixes.  We can
+    // accumulate these and pass them into the template for ease-of-use.
+    /// The list of prefixes for all ports/interfaces that belong to this VPC.
+    PortPrefixes: Vec<Prefix>,
 
     HasVpcPeerVnis: bool,
     VpcPeerVnis: Vec<TmplVni>,
@@ -1076,7 +1217,7 @@ struct TmplHostInterfaces {
     // HostRoute in the context of FNN-L3 is the /30 prefix allocation.
     // This used to be populated as the HostIP + "/32", but then with
     // the advent of interface prefix allocations (where ETV is just a /32,
-    // and FNN-L3 is a /30), HostRoute became the allocation (which was
+    // and FNN-L3 is a /31), HostRoute became the allocation (which was
     // a drop-in replacement for ETV/Classic environments).
     HostRoute: String,
 }
@@ -1115,6 +1256,11 @@ struct TmplConfigPort {
 
     VrfLoopback: String,
 
+    /// The name of the VRF this interface belongs to.
+    VrfName: String,
+
+    HasVpcPrefixes: bool,
+
     /// Tenant VPCs we should allow them to access
     VpcPrefixes: Vec<Prefix>,
 
@@ -1126,20 +1272,11 @@ struct TmplConfigPort {
     IsL2Segment: bool,
 
     IsPhy: bool,
-}
 
-#[allow(non_snake_case)]
-#[derive(Clone, Gtmpl, Debug)]
-struct TmplInfra {
-    /// Information to configure L3VNIs and the details of it
-    L3Domains: Vec<TmplL3Domain>,
-}
+    HasVpcPeerPrefixes: bool,
 
-#[allow(non_snake_case)]
-#[derive(Clone, Gtmpl, Debug)]
-struct TmplL3Domain {
-    L3DomainName: String,
-    Services: Vec<String>,
+    HasNetworkSecurityGroup: bool,
+    NetworkSecurityGroupIndex: Option<u16>,
 }
 
 #[allow(non_snake_case)]

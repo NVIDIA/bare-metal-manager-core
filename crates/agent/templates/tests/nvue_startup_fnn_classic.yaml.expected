@@ -16,7 +16,7 @@
         ip:
           address:
             169.254.169.253/30: {}
-          vrf: vpc_0
+          vrf: vpc_1025186
       pf0dpu5_if:
         ip:
           address:
@@ -32,11 +32,11 @@
             inbound: {}
           p0004_security_policy_override_ipv4_host_ingress:
             outbound: {}
-          p0009_vpc_peer_egress_from_host:
+          p0009_vpc_1025197_peer_egress_from_host:
             inbound: {}
-          p0009_vpc_peer_ingress_to_host:
+          p0009_vpc_1025197_peer_ingress_to_host:
             outbound: {}
-          p0010_vpc_isolation_ipv4:
+          p0010_vpc_1025197_isolation_ipv4:
             inbound: {}
           dhcp_flood_prevention:
             inbound: {} 
@@ -50,7 +50,7 @@
         ip:
           address:
             10.217.5.172/24: {} 
-          vrf: vpc_0 
+          vrf: vpc_1025197 
           vrr:
             address:
               10.217.5.169/29: {} 
@@ -65,16 +65,16 @@
             inbound: {}
           p0004_security_policy_override_ipv4_host_ingress:
             outbound: {}
-          p0009_vpc_peer_egress_from_host:
+          p0009_vpc_1025186_peer_egress_from_host:
             inbound: {}
-          p0009_vpc_peer_ingress_to_host:
+          p0009_vpc_1025186_peer_ingress_to_host:
             outbound: {}
-          p0010_vpc_isolation_ipv4:
+          p0010_vpc_1025186_isolation_ipv4:
             inbound: {} 
         ip:
           address:
             10.217.5.161/30: {} 
-          vrf: vpc_0 
+          vrf: vpc_1025186 
     nve:
       vxlan:
         arp-nd-suppress: on
@@ -96,6 +96,12 @@
                 action: permit
                 community:
                   65100:01: {}
+        as-path-list:
+          DPU_TO_EVPN_AS_PATH_DROP_LIST:
+            rule:
+              '10':
+                action: permit
+                aspath-exp: "^.+$"
         prefix-list:
           ALLOW_TO_UNDERLAY_PREFIX_LIST:
             rule:
@@ -129,17 +135,33 @@
               '10':
                 action: permit
                 match:
+                  10.217.5.125/32: {}
                   10.217.5.124/32: {}
         route-map:
           dpu_to_evpn:
             rule:
-              '65534':
+              '10':
                 action:
                   deny: {}
                 match:
                   type: ipv4
                   evpn-route-type: ip-prefix
                   ip-prefix-list: DPU_TO_EVPN_DROP_PREFIX_LIST
+              '11':
+                action:
+                  permit: {}
+                match:
+                  tag: 65100
+              '12':
+                action:
+                  permit: {}
+                match:
+                  tag: 65101
+              '13':
+                action:
+                  deny: {}
+                match:
+                  as-path-list: DPU_TO_EVPN_AS_PATH_DROP_LIST
               '65535':
                 action:
                   permit: {}
@@ -191,6 +213,7 @@
                   type: ipv4
                   ip-prefix-list: DPU_FROM_TRAFFIC_INTERCEPT_PEER_PREFIX_LIST
                 set:
+                  tag: 65101
                   community:
                     none: {}
                   large-community:
@@ -220,6 +243,7 @@
                   type: ipv4
                   ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST
                 set:
+                  tag: 65101
                   community:
                       none: {}
                   large-community:
@@ -299,12 +323,92 @@
                   ipv4-unicast:
                     policy:
                       outbound:
-                        route-map: leak_to_underlay
-      vpc_0: 
+                        route-map: leak_to_underlay  
+
+
+      vpc_1025186: 
         evpn:
           enable: on
           vni:
-            '0': {} 
+            '1025186': {} 
+        loopback:
+          ip:
+            address:
+              10.217.5.125/32: {} 
+        router:
+          bgp:
+            address-family:
+              ipv4-unicast:
+                enable: on
+                redistribute:
+                  connected:
+                    enable: on
+                route-export:
+                  to-evpn:
+                    enable: on
+            enable: on
+            neighbor:
+              10.217.5.170:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
+              10.217.5.162:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
+              10.10.10.3:
+                passive-mode: on
+                peer-group: traffic_intercept_gw_peer
+                type: numbered
+            peer-group:
+              traffic_intercept_gw_peer:
+                address-family:
+                  ipv4-unicast:
+                    policy:
+                      inbound:
+                        route-map: dpu_from_traffic_intercept_gw_peer
+                      outbound:
+                        route-map: dpu_to_traffic_intercept_gw_peer
+                nexthop-connected-check: off
+                remote-as: external
+                timers:
+                  connection-retry: 10
+                  hold: 9
+                  keepalive: 3
+                  route-advertisement: none
+              tenant:
+                address-family:
+                  ipv4-unicast:
+                    policy:
+                      inbound:
+                        route-map: dpu_from_instance
+                      outbound:
+                        route-map: dpu_to_instance
+                nexthop-connected-check: off
+                remote-as: external
+                timers:
+                  connection-retry: 10
+                  hold: 9
+                  keepalive: 3
+                  route-advertisement: none
+            route-export:
+              to-evpn:
+                route-target:
+                  11414:1025186: {}
+                  11415:200: {} 
+                  77415:800: {}
+            route-import:
+              from-evpn:
+                route-target:
+                  11414:1025186: {}
+                  44444:55555: {}
+                  11111:22222: {}
+                  auto: {}
+      vpc_1025197: 
+        evpn:
+          enable: on
+          vni:
+            '1025197': {} 
         loopback:
           ip:
             address:
@@ -368,18 +472,19 @@
             route-export:
               to-evpn:
                 route-target:
-                  11414:0: {}
+                  11414:1025197: {}
                   11415:200: {} 
                   77415:800: {}
             route-import:
               from-evpn:
                 route-target:
-                  11414:0: {}
-                  11414:1025186: {} 
-                  11414:1025187: {} 
+                  11414:1025197: {}
+                  11414:1025186: {}
+                  11414:1025187: {}
                   44444:55555: {}
                   11111:22222: {}
                   auto: {}
+
     acl:
       dhcp_flood_prevention:
         rule: 
@@ -399,30 +504,6 @@
       p0000_deny_prefixes_ipv4:
         type: ipv4
         rule:
-          '10':
-            action:
-              permit: {}
-            match:
-              ip:
-                dest-ip: 10.217.5.160/30
-          '11':
-            action:
-              permit: {}
-            match:
-              ip:
-                dest-ip: 10.217.5.168/29
-          '20':
-            action:
-              permit: {}
-            match:
-              ip:
-                dest-ip: 10.217.5.160/30
-          '21':
-            action:
-              permit: {}
-            match:
-              ip:
-                dest-ip: 10.217.5.168/29
           '1001':
             action:
               deny: {}
@@ -435,7 +516,9 @@
             match:
               ip:
                 dest-ip: 198.51.100.0/24
-      p0009_vpc_peer_egress_from_host:
+
+
+      p0009_vpc_1025186_peer_egress_from_host:
         type: ipv4
         rule:
           '1':
@@ -444,7 +527,7 @@
             match:
               ip:
                 dest-ip: 10.217.6.176/29
-      p0009_vpc_peer_ingress_to_host:
+      p0009_vpc_1025186_peer_ingress_to_host:
         type: ipv4
         rule:
           '1':
@@ -453,21 +536,9 @@
             match:
               ip:
                 source-ip: 10.217.6.176/29
-      p0010_vpc_isolation_ipv4:
+      p0010_vpc_1025186_isolation_ipv4:
         type: ipv4
         rule:
-          '10':
-            action:
-              permit: {}
-            match:
-              ip:
-                dest-ip: 10.217.5.160/30
-          '11':
-            action:
-              permit: {}
-            match:
-              ip:
-                dest-ip: 10.217.5.168/29
           '20':
             action:
               permit: {}
@@ -486,6 +557,48 @@
             match:
               ip:
                 dest-ip: 10.217.0.0/16
+      p0009_vpc_1025197_peer_egress_from_host:
+        type: ipv4
+        rule:
+          '1':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.6.176/29
+      p0009_vpc_1025197_peer_ingress_to_host:
+        type: ipv4
+        rule:
+          '1':
+            action:
+              permit: {}
+            match:
+              ip:
+                source-ip: 10.217.6.176/29
+      p0010_vpc_1025197_isolation_ipv4:
+        type: ipv4
+        rule:
+          '10':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.5.160/30
+          '11':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.5.168/29
+          '1000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 10.217.0.0/16
+
+
+
       p0004_security_policy_override_ipv4_host_ingress:
         type: ipv4
         rule:

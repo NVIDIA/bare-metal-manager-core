@@ -209,6 +209,9 @@ pub async fn update_nvue(
         access_vlans
     };
 
+    let (has_stateful_nsg, network_security_groups) =
+        build_network_security_group_rules(&nc.tenant_interfaces)?;
+
     let physical_name = hbn_device_names.reps[0].to_string();
     let networks = if nc.use_admin_network {
         let admin_interface = nc
@@ -236,6 +239,7 @@ pub async fn update_nvue(
             vpc_peer_vnis: admin_interface.vpc_peer_vnis.clone(),
             svi_ip: admin_interface.svi_ip.clone(),
             tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip.clone(),
+            network_security_group_id: None, // NSGs are not applied on the admin network.
             is_l2_segment: if nc.network_virtualization_type()
                 == ::rpc::forge::VpcVirtualizationType::Fnn
             {
@@ -271,6 +275,10 @@ pub async fn update_nvue(
                 vpc_peer_vnis: net.vpc_peer_vnis.clone(),
                 svi_ip: net.svi_ip.clone(),
                 tenant_vrf_loopback_ip: net.tenant_vrf_loopback_ip.clone(),
+                network_security_group_id: net
+                    .network_security_group
+                    .as_ref()
+                    .map(|n| n.id.clone()),
                 is_l2_segment: net.is_l2_segment,
             });
         }
@@ -283,27 +291,16 @@ pub async fn update_nvue(
         .as_ref()
         .is_some_and(|c| c.quarantine_state.is_some());
 
-    let (has_network_security_group, has_stateful_nsg, network_security_group_rules) =
-        if is_quarantined {
-            tracing::info!("managed host is quarantined! Disabling network access via nvue");
-            (
-                true,
-                false,
-                build_quarantined_network_security_group_rules(),
-            )
-        } else {
-            build_network_security_group_rules(&nc.tenant_interfaces)?
-        };
+    let network_security_policy_override_rules = if is_quarantined {
+        tracing::info!("managed host is quarantined! Disabling network access via nvue");
 
-    let network_security_policy_override_rules =
-        if is_quarantined || nc.network_security_policy_overrides.is_empty() {
-            vec![]
-        } else {
-            nc.network_security_policy_overrides
-                .iter()
-                .map(|r| r.try_into())
-                .collect::<Result<Vec<NetworkSecurityGroupRule>, eyre::Error>>()?
-        };
+        build_quarantined_network_security_group_rules()
+    } else {
+        nc.network_security_policy_overrides
+            .iter()
+            .map(|r| r.try_into())
+            .collect::<Result<Vec<NetworkSecurityGroupRule>, eyre::Error>>()?
+    };
 
     let hostname = hostname().wrap_err("gethostname error")?;
     let conf = nvue::NvueConfig {
@@ -386,16 +383,10 @@ pub async fn update_nvue(
         },
 
         network_security_policy_override_rules,
+        network_security_groups,
         ct_l3_vni: nc.vpc_vni,
         ct_vrf_loopback: "FNN".to_string(),
-        ct_external_access: vec![],
         l3_domains: vec![],
-        ct_internet_l3_vni: nc.internet_l3_vni,
-        ct_network_security_group_rules: if has_network_security_group {
-            Some(network_security_group_rules)
-        } else {
-            None
-        },
         ct_routing_profile: if nc.network_virtualization_type()
             == ::rpc::forge::VpcVirtualizationType::Fnn
             && nc.routing_profile.is_none()
@@ -565,38 +556,31 @@ pub async fn update_traffic_intercept_bridging(
 
 fn build_network_security_group_rules(
     interfaces: &[FlatInterfaceConfig],
-) -> eyre::Result<(bool, bool, Vec<nvue::NetworkSecurityGroupRule>)> {
-    // This chunk of code is combining all rules it finds.
-    // There are two assumptions here...
-    // 1 - ManagedHostNetworkConfigResponse only has rules on physical interfaces.
-    // 2 - There is only one DPU.
-    // Both of these are valid assumptions right now because the endpoint that returns
-    // the data doesn't have support for a secondary DPU, but we should log warnings
-    // if we notice that either of those assumptions is no longer valid.
-    let mut has_network_security_group = false;
-    let mut network_security_group_rules = vec![];
+) -> eyre::Result<(bool, Vec<nvue::NetworkSecurityGroup>)> {
+    let mut network_security_groups = HashMap::<String, nvue::NetworkSecurityGroup>::new();
     let mut has_stateful = false;
     for iface in interfaces {
         if let Some(ref nsg) = iface.network_security_group {
-            if has_network_security_group {
-                tracing::warn!(
-                    "Found more than one interface with network security group applied in ManagedHostNetworkConfigResponse",
-                );
-            }
+            let rules = nsg
+                .rules
+                .iter()
+                .map(NetworkSecurityGroupRule::try_from)
+                .collect::<Result<Vec<NetworkSecurityGroupRule>, _>>()?;
 
             has_stateful |= nsg.stateful_egress;
 
-            has_network_security_group = true;
-
-            for resolved_rule in &nsg.rules {
-                network_security_group_rules.push(resolved_rule.try_into()?);
-            }
+            network_security_groups
+                .entry(nsg.id.clone())
+                .or_insert_with(|| nvue::NetworkSecurityGroup {
+                    id: nsg.id.clone(),
+                    rules,
+                    stateful_egress: nsg.stateful_egress,
+                });
         }
     }
     Ok((
-        has_network_security_group,
         has_stateful,
-        network_security_group_rules,
+        network_security_groups.into_values().collect(),
     ))
 }
 
@@ -2229,7 +2213,7 @@ mod tests {
                 )
                 .unwrap()
                 .map(|ip| ip.to_string()),
-                tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
+                tenant_vrf_loopback_ip: Some("10.217.5.125".to_string()),
                 is_l2_segment: false,
                 network_security_group: if !include_network_security_group {
                     None
@@ -2456,10 +2440,6 @@ mod tests {
             // For NetworkMonitor
             dpu_network_pinger_type: None,
 
-            // For FNN:
-            // vpc_vni: Some(2024500),
-            // route_servers: vec![],
-
             // For ETV:
             network_virtualization_type: None,
             vpc_vni: None,
@@ -2541,7 +2521,30 @@ mod tests {
 
     fn test_nvue_is_yaml_inner(is_fnn: bool) -> Result<(), Box<dyn std::error::Error>> {
         let vpc_virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+
+        let network_security_groups = vec![nvue::NetworkSecurityGroup {
+            id: "7777f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
+            stateful_egress: true,
+            rules: vec![nvue::NetworkSecurityGroupRule {
+                id: "6313f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
+                ingress: true,
+                ipv6: true,
+                priority: 1001,
+                can_match_any_protocol: false,
+                can_be_stateful: true,
+                protocol: "TCP".to_string(),
+                src_prefixes: vec!["2.2.2.2/24".to_string()],
+                dst_prefixes: vec!["3.3.3.3/24".to_string()],
+                src_port_start: Some(5),
+                src_port_end: Some(50),
+                dst_port_start: Some(8),
+                dst_port_end: Some(80),
+                action: "PERMIT".to_string(),
+            }],
+        }];
+
         let networks = vec![nvue::PortConfig {
+            network_security_group_id: Some(network_security_groups[0].id.clone()),
             interface_name: HBNDeviceNames::hbn_23().reps[0].to_string(),
             is_phy: true,
             vlan: 123u16,
@@ -2619,7 +2622,7 @@ mod tests {
             }),
 
             network_security_policy_override_rules: vec![nvue::NetworkSecurityGroupRule {
-                id: "6313f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
+                id: "5553f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
                 ingress: true,
                 ipv6: false,
                 priority: 1,
@@ -2635,28 +2638,10 @@ mod tests {
                 action: "DENY".to_string(),
             }],
 
-            // FNN only, not used yet
             ct_l3_vni: Some(vpc_vni),
             ct_vrf_loopback: "FNN".to_string(),
-            ct_external_access: vec![],
             l3_domains: vec![],
-            ct_internet_l3_vni: Some(1337),
-            ct_network_security_group_rules: Some(vec![nvue::NetworkSecurityGroupRule {
-                id: "6313f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
-                ingress: true,
-                ipv6: true,
-                priority: 1001,
-                can_match_any_protocol: false,
-                can_be_stateful: true,
-                protocol: "TCP".to_string(),
-                src_prefixes: vec!["2.2.2.2/24".to_string()],
-                dst_prefixes: vec!["3.3.3.3/24".to_string()],
-                src_port_start: Some(5),
-                src_port_end: Some(50),
-                dst_port_start: Some(8),
-                dst_port_end: Some(80),
-                action: "PERMIT".to_string(),
-            }]),
+            network_security_groups,
         };
         let startup_yaml = nvue::build(conf)?;
 

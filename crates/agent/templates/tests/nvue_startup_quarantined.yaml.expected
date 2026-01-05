@@ -45,6 +45,14 @@
             inbound: {}
           drop_dhcp_flood_over_overlay:
             inbound: {}
+          p0004_security_policy_override_ipv4_host_egress:          
+            inbound: {}
+          p0004_security_policy_override_ipv6_host_egress:
+            inbound: {}
+          p0004_security_policy_override_ipv4_host_ingress:
+            outbound: {}
+          p0004_security_policy_override_ipv6_host_ingress:
+            outbound: {}
           p0005_security_group_ipv4_in: 
             inbound: {}
           p0005_security_group_ipv6_in:
@@ -74,6 +82,14 @@
             inbound: {}
           drop_dhcp_flood_over_overlay:
             inbound: {}
+          p0004_security_policy_override_ipv4_host_egress:          
+            inbound: {}
+          p0004_security_policy_override_ipv6_host_egress:
+            inbound: {}
+          p0004_security_policy_override_ipv4_host_ingress:
+            outbound: {}
+          p0004_security_policy_override_ipv6_host_ingress:
+            outbound: {}
           p0005_security_group_ipv4_in: 
             inbound: {}
           p0005_security_group_ipv6_in:
@@ -143,6 +159,9 @@
               '10':
                 action:
                   deny: {}
+    system:
+      reflexive-acl:
+        enable: on
     vrf:
       default:
         router:
@@ -272,9 +291,62 @@
             action:
               deny: {}
             match:
+              conntrack:
+                new: {}
+                established: {}
               ip:
-                dest-ip: 0.0.0.0/0
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '80': {} 
+                protocol: tcp
                 source-ip: 0.0.0.0/0
+                source-port:
+                  '80': {}
+          '2001':
+            action:
+              deny: {}
+            match:
+              conntrack:
+                new: {}
+                established: {}
+              ip:
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '80': {}
+          '2002':
+            action:
+              deny: {}
+            match:
+              conntrack:
+                new: {}
+                established: {}
+              ip:
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '81': {}
+          '2003':
+            action:
+              deny: {}
+            match:
+              conntrack:
+                new: {}
+                established: {}
+              ip:
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '81': {}
           '65535':
             action:
               deny: {}
@@ -286,8 +358,49 @@
               deny: {}
             match:
               ip:
-                dest-ip: ::/0
-                source-ip: ::/0
+                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
+                source-port:
+                  '80': {}
+          '2001':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
+                source-port:
+                  '80': {}
+          '2002':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
+                source-port:
+                  '81': {}
+          '2003':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
+                source-port:
+                  '81': {}
           '65535':
             action:
               deny: {}
@@ -299,8 +412,73 @@
               deny: {}
             match:
               ip:
-                dest-ip: 0.0.0.0/0
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '80': {} 
+                protocol: tcp
                 source-ip: 0.0.0.0/0
+                source-port:
+                  '80': {}
+          '2001':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '80': {}
+          '2002':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '81': {}
+          '2003':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '81': {}
+          '65532':
+            action:
+              permit: {}
+            match:
+              ip:
+                protocol: tcp
+              conntrack:
+                established: {}
+          '65533':
+            action:
+              permit: {}
+            match:
+              ip:
+                protocol: udp
+              conntrack:
+                established: {}
+          '65534':
+            action:
+              permit: {}
+            match:
+              ip:
+                protocol: icmp
+              conntrack:
+                established: {}
           '65535':
             action:
               deny: {}
@@ -313,8 +491,49 @@
               deny: {}
             match:
               ip:
-                dest-ip: ::/0
-                source-ip: ::/0
+                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
+                source-port:
+                  '80': {}
+          '2001':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
+                source-port:
+                  '80': {}
+          '2002':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
+                source-port:
+                  '81': {}
+          '2003':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
+                source-port:
+                  '81': {}
           '65535':
             action:
               deny: {}
@@ -351,3 +570,43 @@
                 source-port:
                   '68': {}
         type: ipv4
+      p0004_security_policy_override_ipv4_host_egress:
+        type: ipv4
+        rule:
+          '2000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 0.0.0.0/0
+                source-ip: 0.0.0.0/0
+      p0004_security_policy_override_ipv6_host_egress:
+        type: ipv6
+        rule:
+          '2000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: ::/0
+                source-ip: ::/0
+      p0004_security_policy_override_ipv4_host_ingress:
+        type: ipv4
+        rule:
+          '2000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 0.0.0.0/0
+                source-ip: 0.0.0.0/0
+      p0004_security_policy_override_ipv6_host_ingress:
+        type: ipv6
+        rule:
+          '2000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: ::/0
+                source-ip: ::/0

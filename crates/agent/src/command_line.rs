@@ -150,12 +150,6 @@ pub struct NvueOptions {
 
     #[clap(
         long,
-        help = "Full JSON representation of a NetworkSecurityGroupRule (see nvue.rs). Repeats with multiple --ct_network_security_group_rule."
-    )]
-    pub ct_network_security_group_rule: Vec<String>,
-
-    #[clap(
-        long,
         help = "Whether stateful ACLs are allowed and the DPU should adjust config to handle them.",
         default_value_t = false
     )]
@@ -190,11 +184,18 @@ pub struct NvueOptions {
         help = "The SF used for routing intercepted VF traffic to the HBN pod."
     )]
     pub vf_intercept_bridge_sf: Option<String>,
+
     #[clap(
         long,
         help = "Full JSON representation of a NetworkSecurityGroupRule (see nvue.rs) that will be evaluated before any tenant-defined rules. Repeats with multiple --network_security_policy_override_rule."
     )]
     pub network_security_policy_override_rule: Vec<String>,
+
+    #[clap(
+        long,
+        help = "Full JSON representation of a NetworkSecurityGroup (see nvue.rs). Repeats with multiple --network_security_group"
+    )]
+    pub network_security_group: Vec<String>,
 
     #[clap(
         long,

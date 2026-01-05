@@ -14,7 +14,7 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::vpc::{self};
 use db::vpc_peering::get_prefixes_by_vpcs;
-use db::{self, ObjectColumnFilter};
+use db::{self, ObjectColumnFilter, network_security_group};
 use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
@@ -248,6 +248,7 @@ pub async fn tenant_network(
     loopback_ip: Option<String>,
     nvue_enabled: bool,
     network_virtualization_type: VpcVirtualizationType,
+    suppress_tenant_security_groups: bool,
     network_security_group_details: Option<(i32, NetworkSecurityGroup)>,
     segment: &NetworkSegment,
     vpc_peering_policy_on_existing: Option<VpcPeeringPolicy>,
@@ -359,20 +360,19 @@ pub async fn tenant_network(
         }
     }
 
-    let vpc_vni = match segment.vpc_id {
+    let vpc = match segment.vpc_id {
         Some(vpc_id) => {
-            let vpcs =
+            let mut vpcs =
                 db::vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
             if vpcs.is_empty() {
                 return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
             }
-            match vpcs[0].vni {
-                Some(vpc_vni) => vpc_vni as u32,
-                None => 0,
-            }
+            vpcs.pop()
         }
-        None => 0,
+        None => None,
     };
+
+    let vpc_vni = vpc.as_ref().and_then(|v| v.vni).unwrap_or_default() as u32;
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     let svi_ip = get_svi_ip(
@@ -387,6 +387,53 @@ pub async fn tenant_network(
         ))
     })?
     .map(|ip| ip.to_string());
+
+    let network_security_group_details = match (
+        suppress_tenant_security_groups,
+        network_security_group_details,
+        vpc.as_ref(),
+    ) {
+        // If NSGs aren't being suppressed, and there are no
+        // details coming from the parent instance,
+        // see if there's an associated VPC (there should be),
+        // and see if the VPC has an NSG attached.
+        (false, None, Some(v)) => {
+            match v.network_security_group_id.as_ref() {
+                None => None,
+                Some(vpc_nsg_id) => {
+                    // Make our DB query for the IDs to get our NetworkSecurityGroup
+                    let network_security_group = network_security_group::find_by_ids(
+                        txn,
+                        &[vpc_nsg_id.to_owned()],
+                        Some(
+                            &v.tenant_organization_id
+                                .parse()
+                                .map_err(|_| Status::internal("invalid tenant org in VPC data"))?,
+                        ),
+                        false,
+                    )
+                    .await?
+                    .pop()
+                    .ok_or(CarbideError::NotFoundError {
+                        kind: "NetworkSecurityGroup",
+                        id: v.tenant_organization_id.clone(),
+                    })?;
+
+                    Some((
+                        i32::from(rpc::NetworkSecurityGroupSource::NsgSourceVpc),
+                        network_security_group,
+                    ))
+                }
+            }
+        }
+
+        // If NSGs aren't being suppressed and details are already coming from
+        // the parent instance, use those.
+        (false, d, _) => d,
+
+        // Otherwise, we either have no details or we want no details.
+        _ => None,
+    };
 
     Ok(rpc::FlatInterfaceConfig {
         function_type: rpc_ft.into(),
