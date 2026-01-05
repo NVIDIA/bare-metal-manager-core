@@ -18,6 +18,7 @@ use ::rpc::forge as rpc;
 use hyper::server::conn::{http1, http2};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
+use model::ConfigValidationError;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 use rustls::server::WebPkiClientVerifier;
@@ -35,6 +36,7 @@ use crate::api::Api;
 use crate::auth;
 use crate::auth::forge_spiffe::ForgeSpiffeContext;
 use crate::cfg::file::AuthConfig;
+use crate::errors::CarbideError;
 use crate::logging::api_logs::LogLayer;
 
 pub enum ApiListenMode {
@@ -205,14 +207,22 @@ pub async fn listen_and_serve(
         None
     };
 
-    // Get cert trust config from the config file, falling back on production defaults in case it's not configured.
+    // Get cert trust config from the config file
     let spiffe_context = auth_config
         .as_ref()
         .and_then(|c| c.trust.as_ref())
         .cloned()
+        .inspect(|trust_config| {
+            tracing::info!("TrustConfig rendered from config: {trust_config:?}")
+        })
         .map(ForgeSpiffeContext::try_from)
         .transpose()?
-        .unwrap_or_else(ForgeSpiffeContext::deprecated_production_defaults);
+        .ok_or(CarbideError::InvalidConfiguration(
+            ConfigValidationError::InvalidValue(
+                "could not parse trust config from auth config in carbide api config toml file"
+                    .to_string(),
+            ),
+        ))?;
 
     let cert_description_layer =
         auth::middleware::CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context);

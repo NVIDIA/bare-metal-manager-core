@@ -844,20 +844,6 @@ pub mod forge_spiffe {
                 ))),
             }
         }
-
-        /// TODO(OSS): drop this once we enforce this via the config file
-        pub fn deprecated_production_defaults() -> ForgeSpiffeContext {
-            ForgeSpiffeContext {
-                trust_domain: spiffe_id::TrustDomain::new("forge.local").unwrap(),
-                service_base_paths: vec![
-                    String::from("/forge-system/sa/"),
-                    String::from("/default/sa/"),
-                    String::from("/elektra-site-agent/sa/"),
-                ],
-                machine_base_path: String::from("/forge-system/machine/"),
-                additional_issuer_cns: ["pki-k8s-usercert-ca.ngc.nvidia.com".to_string()].into(),
-            }
-        }
     }
 
     impl TryFrom<cfg::file::TrustConfig> for ForgeSpiffeContext {

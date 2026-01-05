@@ -103,6 +103,12 @@ pub async fn start(
         permissive_mode = true
         casbin_policy_file = "{root_dir_str}/crates/api/casbin-policy.csv"
 
+        [auth.trust]
+        spiffe_trust_domain="nothing_will_read_from_this_during_integration_tests"
+        spiffe_service_base_paths=["/nothing_will_read_from_this_during_integration_tests"]
+        spiffe_machine_base_path="nothing_will_read_from_this_during_integration_tests"
+        additional_issuer_cns=["nothing_will_read_from_this_during_integration_tests"]
+
         [pools.vpc-vni]
         type = "integer"
 
