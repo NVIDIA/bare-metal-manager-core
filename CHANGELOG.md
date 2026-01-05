@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased (v2025.01.16-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.02-rc2-0...trunk)
+## [Unreleased (v2026.01.16-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.02-rc2-0...trunk)
 
 ### Added
 
@@ -12,22 +12,22 @@
 
 ### Internal Changes
 
-## [Unreleased (v2025.01.02-rc2-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.19-rc2-0...v2025.01.02-rc2-0)
+## [v2026.01.02-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.12.19-rc2-0...v2026.01.02-rc2-0)
 
-### Added in v2025.01.02-rc2-0
+### Added in v2026.01.02-rc2-0
 
 - [MR-5040](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5040): Added the ability to build carbide container images for ARM.
 - [MR-5043](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5043): Added the ability to use the carbide-web, nmxm browser, and metrics, along with other minor enhancements and cleanup in nvlink.
 
-### Changed in v2025.01.02-rc2-0
+### Changed in v2026.01.02-rc2-0
 
 - [MR-5016](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5016): Changed the behavior of the Serial Console Logs link to point to the new Rust version of the serial console logs dashboard.
 
-### Fixed in v2025.01.02-rc2-0
+### Fixed in v2026.01.02-rc2-0
 
 - [FORGE-7593](https://jirasw.nvidia.com/browse/FORGE-7593),[MR-5056](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5056): Fixed an issue where power control and BMC reset forms did not redirect back to the original page in carbide-web but always the machine endpoint page.
 
-### Internal Changes in v2025.01.02-rc2-0
+### Internal Changes in v2026.01.02-rc2-0
 
 - [MR-5054](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5054): Internal change where hardware bug injection capability was added to mock BMC to simulate misbehaving hardware that loses all DPUs in NetworkAdapters and PCIeDevice, enabling reproduction of stuck machine states.
 - [MR-5055](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/5055): Internal change where machine-a-tron machines are started in off state and powered on by carbide.
