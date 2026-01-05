@@ -16,7 +16,7 @@
         ip:
           address:
             169.254.169.253/30: {}
-          vrf: vpc_0
+          vrf: vpc_10101
       pf0dpu5_if:
         ip:
           address:
@@ -38,18 +38,12 @@
             outbound: {}
           p0004_security_policy_override_ipv6_host_ingress:
             outbound: {}
-          p0005_security_group_ipv4_in: 
-            inbound: {}
-          p0005_security_group_ipv6_in:
-            inbound: {}
-          p0005_security_group_ipv4_out: 
-            outbound: {}
-          p0005_security_group_ipv6_out: 
-            outbound: {} 
+          p0010_vpc_10101_isolation_ipv4:
+            inbound: {} 
         ip:
           address:
             192.168.0.0/16: {} 
-          vrf: vpc_0 
+          vrf: vpc_10101 
     nve:
       vxlan:
         arp-nd-suppress: on
@@ -71,6 +65,12 @@
                 action: permit
                 community:
                   65100:01: {}
+        as-path-list:
+          DPU_TO_EVPN_AS_PATH_DROP_LIST:
+            rule:
+              '10':
+                action: permit
+                aspath-exp: "^.+$"
         prefix-list:
           ALLOW_TO_UNDERLAY_PREFIX_LIST:
             rule:
@@ -108,13 +108,28 @@
         route-map:
           dpu_to_evpn:
             rule:
-              '65534':
+              '10':
                 action:
                   deny: {}
                 match:
                   type: ipv4
                   evpn-route-type: ip-prefix
                   ip-prefix-list: DPU_TO_EVPN_DROP_PREFIX_LIST
+              '11':
+                action:
+                  permit: {}
+                match:
+                  tag: 65100
+              '12':
+                action:
+                  permit: {}
+                match:
+                  tag: 65101
+              '13':
+                action:
+                  deny: {}
+                match:
+                  as-path-list: DPU_TO_EVPN_AS_PATH_DROP_LIST
               '65535':
                 action:
                   permit: {}
@@ -166,6 +181,7 @@
                   type: ipv4
                   ip-prefix-list: DPU_FROM_TRAFFIC_INTERCEPT_PEER_PREFIX_LIST
                 set:
+                  tag: 65101
                   community:
                     none: {}
                   large-community:
@@ -195,6 +211,7 @@
                   type: ipv4
                   ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST
                 set:
+                  tag: 65101
                   community:
                       none: {}
                   large-community:
@@ -276,12 +293,14 @@
                     enable: on
                     policy:
                       outbound:
-                        route-map: dpu_to_evpn
-      vpc_0: 
+                        route-map: dpu_to_evpn  
+
+
+      vpc_10101: 
         evpn:
           enable: on
           vni:
-            '0': {} 
+            '10101': {} 
         loopback:
           ip:
             address:
@@ -349,18 +368,19 @@
             route-export:
               to-evpn:
                 route-target:
-                  11414:0: {}
+                  11414:10101: {}
                   11415:200: {} 
                   77415:800: {}
             route-import:
               from-evpn:
                 route-target:
-                  11414:0: {}
-                  11414:1025186: {} 
-                  11414:1025197: {} 
+                  11414:10101: {}
+                  11414:1025186: {}
+                  11414:1025197: {}
                   44444:55555: {}
                   11111:22222: {}
                   auto: {}
+
     acl:
       dhcp_flood_prevention:
         rule: 
@@ -386,7 +406,20 @@
             match:
               ip:
                 dest-ip: 1.1.1.1/32
-      p0005_security_group_ipv4_in: 
+
+
+      p0010_vpc_10101_isolation_ipv4:
+        type: ipv4
+        rule:
+          '1000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 2.2.2.2/32
+
+
+      p0005_0_security_group_ipv4_host_egress: 
         rule:
           '2000':
             action:
@@ -452,7 +485,7 @@
             action:
               deny: {}
         type: ipv4
-      p0005_security_group_ipv6_in: 
+      p0005_0_security_group_ipv6_host_egress: 
         rule:
           '2000':
             action:
@@ -506,7 +539,7 @@
             action:
               deny: {}
         type: ipv6
-      p0005_security_group_ipv4_out: 
+      p0005_0_security_group_ipv4_host_ingress: 
         rule:
           '2000':
             action:
@@ -584,7 +617,7 @@
             action:
               deny: {}
         type: ipv4
-      p0005_security_group_ipv6_out: 
+      p0005_0_security_group_ipv6_host_ingress: 
         rule:
           '2000':
             action:
@@ -638,6 +671,7 @@
             action:
               deny: {}
         type: ipv6
+
       p0004_security_policy_override_ipv4_host_egress:
         type: ipv4
         rule:

@@ -328,17 +328,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     port_configs.push(c);
                 }
 
-                let nsg_rules = if opts.ct_network_security_group_rule.is_empty() {
-                    None
-                } else {
-                    Some(
-                        opts.ct_network_security_group_rule
-                            .into_iter()
-                            .map(|r| serde_json::from_str::<nvue::NetworkSecurityGroupRule>(&r))
-                            .collect::<Result<Vec<nvue::NetworkSecurityGroupRule>, _>>()?,
-                    )
-                };
-
                 let network_security_policy_override_rules = opts
                     .network_security_policy_override_rule
                     .into_iter()
@@ -350,6 +339,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     .into_iter()
                     .map(|r| serde_json::from_str::<nvue::RouteTargetConfig>(&r))
                     .collect::<Result<Vec<nvue::RouteTargetConfig>, _>>()?;
+
+                let network_security_groups = opts
+                    .network_security_group
+                    .into_iter()
+                    .map(|r| serde_json::from_str::<nvue::NetworkSecurityGroup>(&r))
+                    .collect::<Result<Vec<nvue::NetworkSecurityGroup>, _>>()?;
 
                 let access_vlans = opts
                     .vlan
@@ -400,14 +395,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     ct_l3_vni: opts.ct_l3vni,
                     ct_vrf_loopback: opts.ct_vrf_loopback,
                     ct_port_configs: port_configs,
-                    ct_external_access: opts.ct_external_access,
                     ct_access_vlans: access_vlans,
-                    ct_internet_l3_vni: opts.ct_internet_l3_vni,
-                    ct_network_security_group_rules: nsg_rules,
                     ct_routing_profile: opts
                         .ct_routing_profile
                         .map(|r| serde_json::from_str::<nvue::RoutingProfile>(&r))
                         .transpose()?,
+                    network_security_groups,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;

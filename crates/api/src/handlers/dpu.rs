@@ -202,6 +202,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let vpc = db::vpc::find_by_segment(txn, network_segment_id)
                 .await?;
 
+                // We probably shouldn't allow multiple interfaces that are in different VPCs with
+                // different routing-profiles.  Even in the case of something like a GW instance,
+                // We should probably require that all tenants/vpcs being serviced have a routing profile
+                // that matches the GW instance.
+                // However, if we decide to allow total mixing-and-matching, then this would need to move into
+                // tenant_network() and the profile details would have to move into the flattened interface details.
             let routing_profile =  if vpc.network_virtualization_type == VpcVirtualizationType::Fnn {
                 api
                     .runtime_config
@@ -260,63 +266,30 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 _ => false,
             };
 
-            let network_security_group_details = match (snapshot.instance.as_ref(), suppress_tenant_security_groups) {
-                (None, _) => None,
-                (_, true) => None,
-                (Some(i), false) => {
-                    match i.config.network_security_group_id {
-                        // If the instance doesn't have an NSG configured directly,
-                        // we'll see if we the associated VPC does.
-                        None => match vpc.network_security_group_id {
-                            None => None,
-                            Some(vpc_nsg_id) => {
-                                // Make our DB query for the IDs to get our NetworkSecurityGroup
-                                let network_security_group =
-                                    network_security_group::find_by_ids(
-                                        txn,
-                                        &[vpc_nsg_id],
-                                        Some(&i.config.tenant.tenant_organization_id),
-                                        false,
-                                    )
-                                    .await?
-                                    .pop()
-                                    .ok_or(CarbideError::NotFoundError {
-                                        kind: "NetworkSecurityGroup",
-                                        id: i.config.tenant.tenant_organization_id.to_string(),
-                                    })?;
+            // Check if there's an NSG on the instance.
+            let network_security_group_details = if !suppress_tenant_security_groups
+                && let Some((tenant_id, Some(nsg_id))) = snapshot.instance.as_ref().map(|i| {
+                    (
+                        &i.config.tenant.tenant_organization_id,
+                        i.config.network_security_group_id.as_ref(),
+                    )
+                }) {
+                // Make our DB query for the IDs to get our NetworkSecurityGroup
+                let network_security_group =
+                    network_security_group::find_by_ids(txn, &[nsg_id.to_owned()], Some(tenant_id), false)
+                        .await?
+                        .pop()
+                        .ok_or(CarbideError::NotFoundError {
+                            kind: "NetworkSecurityGroup",
+                            id: tenant_id.to_string(),
+                        })?;
 
-                                Some((
-                                    i32::from(rpc::NetworkSecurityGroupSource::NsgSourceVpc),
-                                    network_security_group,
-                                ))
-                            }
-                        },
-                        Some(ref nsg_id) => {
-
-                            // Make our DB query for the IDs to get our NetworkSecurityGroup
-                            let network_security_group  =
-                                network_security_group::find_by_ids(
-                                    txn,
-                                    &[nsg_id.to_owned()],
-                                    Some(&i.config.tenant.tenant_organization_id),
-                                    false,
-                                )
-                                .await?
-                                .pop()
-                                .ok_or(CarbideError::NotFoundError {
-                                    kind: "NetworkSecurityGroup",
-                                    id: i.config.tenant.tenant_organization_id.to_string(),
-                                })?;
-
-                            Some((
-                                i32::from(
-                                    rpc::NetworkSecurityGroupSource::NsgSourceInstance,
-                                ),
-                                network_security_group,
-                            ))
-                        }
-                    }
-                }
+                Some((
+                    i32::from(rpc::NetworkSecurityGroupSource::NsgSourceInstance),
+                    network_security_group,
+                ))
+            } else {
+                None
             };
 
             let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
@@ -432,6 +405,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                         tenant_loopback_ip.clone(),
                         api.runtime_config.nvue_enabled,
                         network_virtualization_type,
+                        suppress_tenant_security_groups,
                         network_security_group_details.clone(),
                         segment,
                         match api.runtime_config.vpc_peering_policy_on_existing {
@@ -627,7 +601,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         is_primary_dpu,
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
         dpu_network_pinger_type: api.runtime_config.dpu_network_monitor_pinger_type.clone(),
-        internet_l3_vni: Some(api.runtime_config.internet_l3_vni),
+        internet_l3_vni: Some(api.runtime_config.internet_l3_vni), // Deprecated.  Remove when all agents and controllers are on a version that doesn't expect this.
         common_internal_route_target: api.runtime_config.fnn.as_ref().and_then(|c| {
             c.common_internal_route_target
                 .as_ref()
