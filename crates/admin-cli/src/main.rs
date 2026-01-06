@@ -29,7 +29,7 @@ use carbide_uuid::machine::MachineId;
 use cfg::cli_options::{
     BmcAction, BootOverrideAction, CliCommand, CliOptions, CredentialAction, ExpectedMachineJson,
     HostAction, HostReprovision, IpAction, LogicalPartitionOptions, MachineInterfaces,
-    NetworkSegment, NvlPartitionOptions, RedfishCommand, SetAction, Shell, UriInfo,
+    NetworkSegment, NvlPartitionOptions, SetAction, Shell,
 };
 use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
@@ -155,7 +155,7 @@ async fn main() -> color_eyre::Result<()> {
 
     if let Some(CliCommand::Redfish(ref ra)) = config.commands {
         match ra.command {
-            RedfishCommand::Browse(_) => {}
+            redfish::Cmd::Browse(_) => {}
             _ => {
                 return redfish::action(ra.clone()).await;
             }
@@ -333,7 +333,7 @@ async fn main() -> color_eyre::Result<()> {
             },
         },
         CliCommand::Redfish(action) => {
-            if let RedfishCommand::Browse(UriInfo { uri }) = &action.command {
+            if let redfish::Cmd::Browse(redfish::UriInfo { uri }) = &action.command {
                 return redfish::handle_browse_command(&api_client, uri).await;
             }
 
