@@ -1,4 +1,5 @@
 **/target
+**/node_modules
 bluefield/forge-dpu*.deb
 bluefield/forge-dpu*/
 public/

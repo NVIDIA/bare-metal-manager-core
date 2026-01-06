@@ -21,7 +21,7 @@ carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
-carbide-api-model = { path = "../api-model" }
+carbide-api-model = { path = "../api-model", default-features = false }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
@@ -70,6 +70,7 @@ linux-build = [
     "tss-esapi",
     "carbide-sqlx-testing/linux-build",
     "carbide-host-support/linux-build",
+    "carbide-api-model/linux-build",
 ]
 
 [build-dependencies]

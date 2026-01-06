@@ -35,8 +35,8 @@ carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 carbide-mlxconfig-device = { path = "../mlxconfig-device" }
 carbide-mlxconfig-profile = { path = "../mlxconfig-profile" }
 carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
-carbide-api-model = { path = "../api-model" }
-carbide-api-db = { path = "../api-db" }
+carbide-api-model = { path = "../api-model", default-features = false }
+carbide-api-db = { path = "../api-db", default-features = false }
 spancounter = { path = "../spancounter" }
 nras = { path = "../nras" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
@@ -157,6 +157,8 @@ linux-build = [
   "tss-esapi",
   "carbide-sqlx-testing/linux-build",
   "carbide-host-support/linux-build",
+  "carbide-api-model/linux-build",
+  "carbide-api-db/linux-build",
 ]
 
 [build-dependencies]
