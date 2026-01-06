@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -30,8 +30,7 @@ use prettytable::{Table, row};
 use serde::Serialize;
 use tracing::warn;
 
-use super::cfg::cli_options::RedfishCommand;
-use crate::cfg::cli_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort};
+use super::args::{Cmd, DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort};
 use crate::rpc::ApiClient;
 
 pub async fn handle_browse_command(api_client: &ApiClient, uri: &str) -> color_eyre::Result<()> {
@@ -78,7 +77,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         .or_else(|| std::env::var("HTTP_PROXY").ok())
         .or_else(|| std::env::var("HTTPS_PROXY").ok());
 
-    use RedfishCommand::*;
+    use Cmd::*;
     let pool = libredfish::RedfishClientPool::builder()
         .proxy(proxy)
         .build()?;
