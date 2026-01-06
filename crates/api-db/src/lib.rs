@@ -67,6 +67,7 @@ pub mod redfish_actions;
 pub mod resource_pool;
 pub mod resource_record;
 pub mod route_servers;
+pub mod safe_pg_pool;
 pub mod site_exploration_report;
 pub mod sku;
 pub mod switch;
@@ -575,16 +576,14 @@ impl<'a> Transaction<'a> {
     // https://github.com/rust-lang/rust/issues/110011 will be
     // implemented
     #[track_caller]
-    pub fn begin(
-        pool: &'a sqlx::PgPool,
-    ) -> Pin<Box<dyn Future<Output = Result<Self, DatabaseError>> + Send + 'a>> {
+    pub fn begin(pool: &'a sqlx::PgPool) -> impl Future<Output = Result<Self, DatabaseError>> {
         let loc = Location::caller();
-        Box::pin(async move {
+        async move {
             pool.begin()
                 .await
                 .map_err(|e| DatabaseError::txn_begin(e, loc))
                 .map(|inner| Self { inner })
-        })
+        }
     }
 
     pub async fn begin_with_location(

@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use db::safe_pg_pool::SafePgPool;
 use model::resource_pool::common::IbPools;
 use mqttea::MqtteaClient;
 
@@ -21,9 +22,10 @@ use crate::ipmitool::IPMITool;
 use crate::redfish::RedfishClientPool;
 
 /// Services that are accessible to all statehandlers within carbide-core
+#[derive(Clone)]
 pub struct CommonStateHandlerServices {
     /// Postgres database pool
-    pub db_pool: sqlx::PgPool,
+    pub db_pool: SafePgPool,
 
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,

@@ -25,7 +25,7 @@ use crate::redfish::RedfishClientCreationError;
 pub trait StateHandlerContextObjects: Send + Sync + 'static {
     /// The type of services accessible on the state handler context object
     /// via [`StateHandlerContext::services`]
-    type Services: Send + Sync + 'static;
+    type Services: Clone + Send + Sync + 'static;
 
     /// The type that can hold metrics specific to a single object.
     ///
@@ -39,7 +39,7 @@ pub trait StateHandlerContextObjects: Send + Sync + 'static {
 /// Context parameter passed to `StateHandler`
 pub struct StateHandlerContext<'a, T: StateHandlerContextObjects> {
     /// Services that are available to the `StateHandler`
-    pub services: &'a T::Services,
+    pub services: &'a mut T::Services,
     /// Metrics that are produced as a result of acting on an object
     pub metrics: &'a mut T::ObjectMetrics,
 }

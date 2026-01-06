@@ -100,7 +100,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     const TEST_TIME: Duration = Duration::from_secs(5);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
+        db_pool: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -158,7 +158,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     const TEST_TIME: Duration = Duration::from_secs(2);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
+        db_pool: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -236,7 +236,7 @@ async fn test_rack_error_state_handling(
     const TEST_TIME: Duration = Duration::from_secs(5);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
+        db_pool: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -337,7 +337,7 @@ async fn test_rack_deletion_with_state_controller(
     const TEST_TIME: Duration = Duration::from_secs(2);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
+        db_pool: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),

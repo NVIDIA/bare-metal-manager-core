@@ -27,6 +27,8 @@ use model::tenant::TenantError;
 use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
 
+use crate::redfish::RedfishClientCreationError;
+
 /// Represents various Errors that can occur throughout the system.
 ///
 /// CarbideError is a way to represent and enrich lower-level errors with specific business logic
@@ -145,6 +147,12 @@ pub enum CarbideError {
 
     #[error("Error in libredfish: {0}")]
     RedfishError(#[from] libredfish::RedfishError),
+
+    #[error("Could not create connection to Redfish API to {machine_id}, check logs")]
+    RedfishClientCreation {
+        inner: Box<RedfishClientCreationError>,
+        machine_id: MachineId,
+    },
 
     #[error("Resource pool error: {0}")]
     ResourcePoolError(#[from] resource_pool::ResourcePoolError),
