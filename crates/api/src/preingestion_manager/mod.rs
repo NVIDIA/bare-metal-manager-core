@@ -12,16 +12,17 @@
 
 use std::collections::HashMap;
 use std::default::Default;
-use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use db::DatabaseError;
+use db::safe_pg_pool::SafePgPool;
 use db::work_lock_manager::WorkLockManagerHandle;
-use db::{DatabaseError, Transaction};
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
+use futures_util::FutureExt;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, RedfishError, SystemPowerControl};
@@ -30,7 +31,7 @@ use model::site_explorer::{
     ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState,
 };
 use opentelemetry::metrics::Meter;
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgPool;
 use tokio::fs::File;
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::{Semaphore, oneshot};
@@ -49,11 +50,12 @@ const NOT_FOUND: u16 = 404;
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
     metric_holder: Arc<metrics::MetricHolder>,
+    database_connection: PgPool,
 }
 
+#[derive(Clone)]
 struct PreingestionManagerStatic {
     run_interval: Duration,
-    database_connection: PgPool,
     firmware_global: FirmwareGlobal,
     host_info: FirmwareConfig,
     redfish_client_pool: Arc<dyn RedfishClientPool>,
@@ -99,7 +101,6 @@ impl PreingestionManager {
                     .run_interval
                     .to_std()
                     .unwrap_or(Duration::from_secs(30)),
-                database_connection,
                 firmware_global: config.firmware_global.clone(),
                 host_info: config.get_firmware_config(),
                 redfish_client_pool,
@@ -116,6 +117,7 @@ impl PreingestionManager {
                 work_lock_manager_handle,
             }),
             metric_holder,
+            database_connection,
         }
     }
 
@@ -151,7 +153,7 @@ impl PreingestionManager {
     /// Returns true if we stopped early due to a timeout.
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = PreingestionMetrics::new();
-        let db = &self.static_info.database_connection;
+        let mut db = SafePgPool::from(self.database_connection.clone());
 
         let _work_lock = match self
             .static_info
@@ -171,13 +173,11 @@ impl PreingestionManager {
             }
         };
 
-        let items = db::explored_endpoints::find_preingest_not_waiting_not_error(
-            db.acquire()
-                .await
-                .map_err(DatabaseError::acquire)?
-                .deref_mut(),
-        )
-        .await?;
+        let items = db
+            .with_txn(|txn| {
+                db::explored_endpoints::find_preingest_not_waiting_not_error(txn).boxed()
+            })
+            .await??;
 
         if !items.is_empty() && items.len() < 3 {
             // Show states if a modest amount, just count otherwise
@@ -202,12 +202,13 @@ impl PreingestionManager {
         for endpoint in items.into_iter() {
             let permit = limit_sem.clone().acquire_owned().await.unwrap();
             let static_info = self.static_info.clone();
+            let mut db = db.clone();
             let _abort_handle = task_set
                 .build_task()
                 .name(&format!("preingestion {}", endpoint.address))
                 .spawn(async move {
                     let _permit = permit; // retain semaphore until we're done
-                    one_endpoint(static_info, &endpoint).await
+                    one_endpoint(&mut db, &endpoint, static_info).await
                 });
         }
 
@@ -229,7 +230,7 @@ impl PreingestionManager {
             }
         }
 
-        let mut conn = db.acquire().await.map_err(DatabaseError::acquire)?;
+        let mut conn = db.acquire().await?;
 
         metrics.machines_in_preingestion =
             db::explored_endpoints::find_preingest_not_waiting_not_error(&mut conn)
@@ -257,33 +258,32 @@ struct EndpointResult {
 }
 
 async fn one_endpoint(
-    static_info: Arc<PreingestionManagerStatic>,
+    db: &mut SafePgPool,
     endpoint: &ExploredEndpoint,
+    static_info: Arc<PreingestionManagerStatic>,
 ) -> CarbideResult<EndpointResult> {
-    let mut txn = Transaction::begin(&static_info.database_connection).await?;
-
     tracing::debug!("Preingestion on endpoint {:?}", endpoint);
 
     // Main state machine match.
     let delayed_upgrade = match &endpoint.preingestion_state {
         PreingestionState::Initial => {
             static_info
-                .check_firmware_versions_below_preingestion(&mut txn, endpoint)
+                .check_firmware_versions_below_preingestion(db, endpoint)
                 .await?
         }
         PreingestionState::RecheckVersionsAfterFailure { .. } => {
             static_info
-                .start_firmware_uploads_or_continue(&mut txn, endpoint, true)
+                .start_firmware_uploads_or_continue(db, endpoint, true)
                 .await?
         }
         PreingestionState::RecheckVersions => {
             static_info
-                .start_firmware_uploads_or_continue(&mut txn, endpoint, true)
+                .start_firmware_uploads_or_continue(db, endpoint, true)
                 .await?
         }
         PreingestionState::InitialReset { phase, last_time } => {
             static_info
-                .pre_update_resets(&mut txn, endpoint, Some(phase), Some(last_time))
+                .pre_update_resets(db, endpoint, Some(phase), Some(last_time))
                 .await?;
             false
         }
@@ -296,7 +296,7 @@ async fn one_endpoint(
         } => {
             static_info
                 .in_upgrade_firmware_wait(
-                    &mut txn,
+                    db,
                     &InUpgradeFirmwareWaitArgs {
                         endpoint,
                         task_id,
@@ -311,7 +311,7 @@ async fn one_endpoint(
         }
         details @ PreingestionState::ResetForNewFirmware { .. } => {
             static_info
-                .in_reset_for_new_firmware(&mut txn, endpoint, details)
+                .in_reset_for_new_firmware(db, endpoint, details)
                 .await?;
             false
         }
@@ -322,7 +322,7 @@ async fn one_endpoint(
         } => {
             static_info
                 .in_new_firmware_reported_wait(
-                    &mut txn,
+                    db,
                     endpoint,
                     final_version,
                     upgrade_type,
@@ -332,7 +332,7 @@ async fn one_endpoint(
             false
         }
         PreingestionState::ScriptRunning => {
-            static_info.waiting_for_script(&mut txn, endpoint).await?;
+            static_info.waiting_for_script(db, endpoint).await?;
             false
         }
         PreingestionState::Complete => {
@@ -347,8 +347,6 @@ async fn one_endpoint(
             false
         }
     };
-
-    txn.commit().await?;
 
     Ok(EndpointResult { delayed_upgrade })
 }
@@ -372,7 +370,7 @@ impl PreingestionManagerStatic {
     /// ingestion can happen, and either kick them off if so otherwise move on.
     async fn check_firmware_versions_below_preingestion(
         &self,
-        txn: &mut PgConnection,
+        db: &mut SafePgPool,
         endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
@@ -384,7 +382,10 @@ impl PreingestionManagerStatic {
                 );
                 // No desired firmware description found for this host, nothing to do.
                 // This is the expected path for DPUs.
-                db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).boxed()
+                })
+                .await??;
                 return Ok(false);
             }
             Some(fw_info) => fw_info,
@@ -407,7 +408,7 @@ impl PreingestionManagerStatic {
                     );
                     // One or both of the versions are low enough to absolutely need upgrades first - do them both while we're at it.
                     let delayed_upgrade = self
-                        .start_firmware_uploads_or_continue(txn, endpoint, false)
+                        .start_firmware_uploads_or_continue(db, endpoint, false)
                         .await?;
                     return Ok(delayed_upgrade);
                 } else {
@@ -424,7 +425,10 @@ impl PreingestionManagerStatic {
             endpoint.address
         );
         // Good enough for now at least, proceed with ingestion.
-        db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
+        db.with_txn(|txn| {
+            db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).boxed()
+        })
+        .await??;
         Ok(false)
     }
 
@@ -434,7 +438,7 @@ impl PreingestionManagerStatic {
     /// would make a significant difference, as we're limited by our own upload bandwidth.
     async fn start_firmware_uploads_or_continue(
         &self,
-        txn: &mut PgConnection,
+        db: &mut SafePgPool,
         endpoint: &ExploredEndpoint,
         repeat: bool,
     ) -> CarbideResult<bool> {
@@ -454,7 +458,10 @@ impl PreingestionManagerStatic {
                 "start_firmware_uploads_or_continue {}: Auto updates disabled",
                 endpoint.address
             );
-            db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).boxed()
+            })
+            .await??;
             return Ok(false);
         }
 
@@ -479,7 +486,7 @@ impl PreingestionManagerStatic {
         }
         for upgrade_type in ordering {
             let (done, delayed_upgrade) = self
-                .start_upgrade_if_needed(endpoint, &fw_info, upgrade_type, repeat, txn)
+                .start_upgrade_if_needed(db, endpoint, &fw_info, upgrade_type, repeat)
                 .await?;
 
             if done {
@@ -495,7 +502,10 @@ impl PreingestionManagerStatic {
         );
 
         // Nothing needed to be updated, we're complete.
-        db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
+        db.with_txn(|txn| {
+            db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).boxed()
+        })
+        .await??;
 
         Ok(false)
     }
@@ -503,11 +513,11 @@ impl PreingestionManagerStatic {
     /// First bool is true if started an upgrade, or for some other reason shouldn't check for updating other firmwares.  Second is if we delayed the update.
     async fn start_upgrade_if_needed(
         &self,
+        db: &mut SafePgPool,
         endpoint: &ExploredEndpoint,
         fw_info: &Firmware,
         fw_type: FirmwareComponentType,
         repeat: bool,
-        txn: &mut PgConnection,
     ) -> Result<(bool, bool), DatabaseError> {
         {
             match need_upgrade(endpoint, fw_info, fw_type) {
@@ -520,7 +530,7 @@ impl PreingestionManagerStatic {
                 }
                 Some(to_install) => {
                     if to_install.script.is_some() {
-                        self.by_script(endpoint.address, &to_install, txn).await?;
+                        self.by_script(db, endpoint.address, &to_install).await?;
                         return Ok((true, false));
                     }
                     let Ok(_active) = self.upload_limiter.try_acquire() else {
@@ -533,20 +543,20 @@ impl PreingestionManagerStatic {
                     };
 
                     if !repeat && to_install.pre_update_resets {
-                        self.pre_update_resets(txn, endpoint, None, None).await?;
+                        self.pre_update_resets(db, endpoint, None, None).await?;
                         return Ok((true, false));
                     }
 
                     tracing::info!("Installing {:?} on {}", to_install, endpoint.address);
 
                     initiate_update(
-                        txn,
                         endpoint,
                         &self.redfish_client_pool,
                         &to_install,
                         &fw_type,
                         &self.downloader,
                         0,
+                        db,
                     )
                     .await?;
 
@@ -563,10 +573,9 @@ impl PreingestionManagerStatic {
     }
 
     /// in_upgrade_firmware_wait triggers when we are waiting for installation of firmware after an upload.
-    #[allow(txn_held_across_await)]
     async fn in_upgrade_firmware_wait(
         &self,
-        txn: &mut PgConnection,
+        db: &mut SafePgPool,
         args: &InUpgradeFirmwareWaitArgs<'_>,
     ) -> CarbideResult<()> {
         let (endpoint, task_id, final_version, upgrade_type, power_drains_needed, firmware_number) = (
@@ -580,7 +589,7 @@ impl PreingestionManagerStatic {
 
         let redfish_client = match self
             .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, None, txn)
+            .create_client_for_ingested_host(endpoint.address, None, db)
             .await
             .map_err(|e| match e {
                 RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
@@ -628,13 +637,13 @@ impl PreingestionManagerStatic {
                                 );
 
                                 initiate_update(
-                                    txn,
                                     endpoint,
                                     &self.redfish_client_pool,
                                     selected_firmware,
                                     upgrade_type,
                                     &self.downloader,
                                     firmware_number,
+                                    db,
                                 )
                                 .await?;
                                 return Ok(());
@@ -644,20 +653,23 @@ impl PreingestionManagerStatic {
                             "Marking completion of Redfish task of firmware upgrade for {}",
                             &endpoint.address
                         );
-                        db::explored_endpoints::set_preingestion_reset_for_new_firmware(
-                            endpoint.address,
-                            final_version,
-                            upgrade_type,
-                            *power_drains_needed,
-                            None,
-                            None,
-                            txn,
-                        )
-                        .await?;
+                        db.with_txn(|txn| {
+                            db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                                endpoint.address,
+                                final_version,
+                                upgrade_type,
+                                *power_drains_needed,
+                                None,
+                                None,
+                                txn,
+                            )
+                            .boxed()
+                        })
+                        .await??;
                         // Can immediately process as that new state
                         return self
                             .in_reset_for_new_firmware(
-                                txn,
+                                db,
                                 endpoint,
                                 &PreingestionState::ResetForNewFirmware {
                                     final_version: final_version.to_string(),
@@ -684,27 +696,34 @@ impl PreingestionManagerStatic {
                         );
                         tracing::warn!(msg);
 
-                        // Wait for site explorer to refresh it then try again after that.
-                        // Someday, we should generate metrics for visiblity if something fails multiple times.
-                        db::explored_endpoints::set_preingestion_recheck_versions_reason(
-                            endpoint.address,
-                            msg,
-                            txn,
-                        )
-                        .await?;
-                        db::explored_endpoints::re_explore_if_version_matches(
-                            endpoint.address,
-                            endpoint.report_version,
-                            txn,
-                        )
-                        .await?;
+                        db.with_txn(|txn| {
+                            async move {
+                                // Wait for site explorer to refresh it then try again after that.
+                                // Someday, we should generate metrics for visiblity if something fails multiple times.
+                                db::explored_endpoints::set_preingestion_recheck_versions_reason(
+                                    endpoint.address,
+                                    msg,
+                                    txn,
+                                )
+                                .await?;
+                                db::explored_endpoints::re_explore_if_version_matches(
+                                    endpoint.address,
+                                    endpoint.report_version,
+                                    txn,
+                                )
+                                .await?;
 
-                        // We need site explorer to requery the version
-                        db::explored_endpoints::set_waiting_for_explorer_refresh(
-                            endpoint.address,
-                            txn,
-                        )
-                        .await?;
+                                // We need site explorer to requery the version
+                                db::explored_endpoints::set_waiting_for_explorer_refresh(
+                                    endpoint.address,
+                                    txn,
+                                )
+                                .await?;
+                                Ok::<_, DatabaseError>(())
+                            }
+                            .boxed()
+                        })
+                        .await??;
                     }
                     _ => {
                         // Unexpected state
@@ -729,11 +748,14 @@ impl PreingestionManagerStatic {
                                 "Marking completion of Redfish task of firmware upgrade for {} with missing task",
                                 &endpoint.address
                             );
-                            db::explored_endpoints::set_preingestion_recheck_versions(
-                                endpoint.address,
-                                txn,
-                            )
-                            .await?;
+                            db.with_txn(|txn| {
+                                db::explored_endpoints::set_preingestion_recheck_versions(
+                                    endpoint.address,
+                                    txn,
+                                )
+                                .boxed()
+                            })
+                            .await??;
                         }
                     }
                 }
@@ -745,10 +767,9 @@ impl PreingestionManagerStatic {
         Ok(())
     }
 
-    #[allow(txn_held_across_await)]
     async fn in_reset_for_new_firmware(
         &self,
-        txn: &mut PgConnection,
+        db: &mut SafePgPool,
         endpoint: &ExploredEndpoint,
         state: &PreingestionState,
     ) -> CarbideResult<()> {
@@ -781,7 +802,7 @@ impl PreingestionManagerStatic {
 
         let redfish_client = match self
             .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, None, txn)
+            .create_client_for_ingested_host(endpoint.address, None, db)
             .await
             .map_err(|e| match e {
                 RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
@@ -834,16 +855,19 @@ impl PreingestionManagerStatic {
                         } else {
                             time::Duration::seconds(0)
                         };
-                        db::explored_endpoints::set_preingestion_reset_for_new_firmware(
-                            endpoint.address,
-                            final_version,
-                            upgrade_type,
-                            Some(*power_drains_needed),
-                            Some(delay),
-                            Some(PowerDrainState::Off),
-                            txn,
-                        )
-                        .await?;
+                        db.with_txn(|txn| {
+                            db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                                endpoint.address,
+                                final_version,
+                                upgrade_type,
+                                Some(*power_drains_needed),
+                                Some(delay),
+                                Some(PowerDrainState::Off),
+                                txn,
+                            )
+                            .boxed()
+                        })
+                        .await??;
                         return Ok(());
                     }
                 }
@@ -861,16 +885,19 @@ impl PreingestionManagerStatic {
                     } else {
                         time::Duration::seconds(0)
                     };
-                    db::explored_endpoints::set_preingestion_reset_for_new_firmware(
-                        endpoint.address,
-                        final_version,
-                        upgrade_type,
-                        Some(*power_drains_needed),
-                        Some(delay),
-                        Some(PowerDrainState::Powercycle),
-                        txn,
-                    )
-                    .await?;
+                    db.with_txn(|txn| {
+                        db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                            endpoint.address,
+                            final_version,
+                            upgrade_type,
+                            Some(*power_drains_needed),
+                            Some(delay),
+                            Some(PowerDrainState::Powercycle),
+                            txn,
+                        )
+                        .boxed()
+                    })
+                    .await??;
                     return Ok(());
                 }
                 Some(PowerDrainState::Powercycle) => {
@@ -884,16 +911,19 @@ impl PreingestionManagerStatic {
                     } else {
                         time::Duration::seconds(0)
                     };
-                    db::explored_endpoints::set_preingestion_reset_for_new_firmware(
-                        endpoint.address,
-                        final_version,
-                        upgrade_type,
-                        Some(*power_drains_needed - 1),
-                        Some(delay),
-                        Some(PowerDrainState::On),
-                        txn,
-                    )
-                    .await?;
+                    db.with_txn(|txn| {
+                        db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                            endpoint.address,
+                            final_version,
+                            upgrade_type,
+                            Some(*power_drains_needed - 1),
+                            Some(delay),
+                            Some(PowerDrainState::On),
+                            txn,
+                        )
+                        .boxed()
+                    })
+                    .await??;
                     return Ok(());
                 }
             };
@@ -906,13 +936,16 @@ impl PreingestionManagerStatic {
                 tracing::error!("Failed to reboot {}: {e}", &endpoint.address);
                 return Ok(());
             }
-            db::explored_endpoints::set_preingestion_new_reported_wait(
-                endpoint.address,
-                final_version,
-                upgrade_type,
-                txn,
-            )
-            .await?;
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_new_reported_wait(
+                    endpoint.address,
+                    final_version,
+                    upgrade_type,
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
 
             need_wait = true;
         }
@@ -930,13 +963,16 @@ impl PreingestionManagerStatic {
                 tracing::error!("Failed to reboot {}: {e}", &endpoint.address);
                 return Ok(());
             }
-            db::explored_endpoints::set_preingestion_new_reported_wait(
-                endpoint.address,
-                final_version,
-                upgrade_type,
-                txn,
-            )
-            .await?;
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_new_reported_wait(
+                    endpoint.address,
+                    final_version,
+                    upgrade_type,
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
             // Will not be reporting the new version yet, we need to wait.
             need_wait = true;
         }
@@ -963,7 +999,11 @@ impl PreingestionManagerStatic {
         }
 
         if need_wait {
-            db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
+                    .boxed()
+            })
+            .await??;
             return Ok(());
         } else if *upgrade_type == FirmwareComponentType::Cec {
             match redfish_client
@@ -983,22 +1023,24 @@ impl PreingestionManagerStatic {
             }
         }
         // No need for resets or reboots, go right to waiting for the new version to show up, and we might as well check right away.
-        db::explored_endpoints::set_preingestion_new_reported_wait(
-            endpoint.address,
-            final_version,
-            upgrade_type,
-            txn,
-        )
-        .await?;
+        db.with_txn(|txn| {
+            db::explored_endpoints::set_preingestion_new_reported_wait(
+                endpoint.address,
+                final_version,
+                upgrade_type,
+                txn,
+            )
+            .boxed()
+        })
+        .await??;
 
-        self.in_new_firmware_reported_wait(txn, endpoint, final_version, upgrade_type, &None)
+        self.in_new_firmware_reported_wait(db, endpoint, final_version, upgrade_type, &None)
             .await
     }
 
-    #[allow(txn_held_across_await)]
     async fn in_new_firmware_reported_wait(
         &self,
-        txn: &mut PgConnection,
+        db: &mut SafePgPool,
         endpoint: &ExploredEndpoint,
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
@@ -1024,11 +1066,16 @@ impl PreingestionManagerStatic {
                             delay_until: None,
                             last_power_drain_operation: None,
                         };
-                        return Box::pin(self.in_reset_for_new_firmware(txn, endpoint, state))
-                            .await;
+                        return Box::pin(self.in_reset_for_new_firmware(db, endpoint, state)).await;
                     }
-                    db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
-                        .await?;
+                    db.with_txn(|txn| {
+                        db::explored_endpoints::set_waiting_for_explorer_refresh(
+                            endpoint.address,
+                            txn,
+                        )
+                        .boxed()
+                    })
+                    .await??;
                     tracing::info!(
                         "Upgrade {} task has completed for {} but still reports version {current_version} (expected version: {final_version})",
                         upgrade_type,
@@ -1049,8 +1096,11 @@ impl PreingestionManagerStatic {
                     *upgrade_type
                 );
                 // Make sure we wait for the new version
-                db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
-                    .await?;
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
+                        .boxed()
+                })
+                .await??;
             }
         } else {
             // This path should only happen if something strange happened with the version definitions
@@ -1061,26 +1111,32 @@ impl PreingestionManagerStatic {
                 endpoint.report.systems
             );
             // Make sure we wait for the new version
-            db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
+                    .boxed()
+            })
+            .await??;
         }
 
         // Go back to checking versions as there may be other things that need upgrading
-        db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn).await?;
+        db.with_txn(|txn| {
+            db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn).boxed()
+        })
+        .await??;
 
         Ok(())
     }
 
-    #[allow(txn_held_across_await)]
     async fn pre_update_resets(
         &self,
-        txn: &mut PgConnection,
+        db: &mut SafePgPool,
         endpoint: &ExploredEndpoint,
         phase: Option<&InitialResetPhase>,
         last_time: Option<&DateTime<Utc>>,
     ) -> Result<(), DatabaseError> {
         let redfish_client = match self
             .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, None, txn)
+            .create_client_for_ingested_host(endpoint.address, None, db)
             .await
         {
             Ok(redfish_client) => redfish_client,
@@ -1113,12 +1169,15 @@ impl PreingestionManagerStatic {
                 };
 
                 tracing::info!("{} initial reset BMC reset intiated", endpoint.address);
-                db::explored_endpoints::set_preingestion_initial_reset(
-                    endpoint.address,
-                    InitialResetPhase::BMCWasReset,
-                    txn,
-                )
-                .await?;
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_initial_reset(
+                        endpoint.address,
+                        InitialResetPhase::BMCWasReset,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
                 Ok(())
             }
             InitialResetPhase::BMCWasReset => {
@@ -1148,12 +1207,15 @@ impl PreingestionManagerStatic {
                     "{} initial reset BMC reset complete, started host reset",
                     endpoint.address
                 );
-                db::explored_endpoints::set_preingestion_initial_reset(
-                    endpoint.address,
-                    InitialResetPhase::WaitHostBoot,
-                    txn,
-                )
-                .await?;
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_initial_reset(
+                        endpoint.address,
+                        InitialResetPhase::WaitHostBoot,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
                 Ok(())
             }
             InitialResetPhase::WaitHostBoot => {
@@ -1165,30 +1227,33 @@ impl PreingestionManagerStatic {
                 }
                 // Now we can actually proceed with the upgrade.  Go back to checking firmware so we don't have to store all of that info.
                 tracing::info!("{} initial reset complete", endpoint.address);
-                db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
-                    .await?;
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
+                        .boxed()
+                })
+                .await??;
                 Ok(())
             }
         }
     }
 
-    #[allow(txn_held_across_await)]
     async fn by_script(
         &self,
+        db: &mut SafePgPool,
         endpoint_address: std::net::IpAddr,
         to_install: &FirmwareEntry,
-        txn: &mut PgConnection,
     ) -> Result<(), DatabaseError> {
         self.upgrade_script_state
-            .started(endpoint_address.to_string())
-            .await;
+            .started(endpoint_address.to_string());
 
         let address = endpoint_address.to_string();
         let script = to_install.script.clone().unwrap_or("/bin/false".into()); // Should always be Some at this point
         let upgrade_script_state = self.upgrade_script_state.clone();
         let (username, password) = if let Some(credential_provider) = &self.credential_provider {
             // We need to backtrack from the IP address to get the MAC address, which is what the credentials database is keyed on
-            let interface = db::machine_interface::find_by_ip(txn, endpoint_address).await?;
+            let interface = db
+                .with_txn(|txn| db::machine_interface::find_by_ip(txn, endpoint_address).boxed())
+                .await??;
             let Some(interface) = interface else {
                 tracing::warn!(
                     "Unable to run update script for {address}: MAC address not retrievable"
@@ -1233,7 +1298,7 @@ impl PreingestionManagerStatic {
                 Ok(cmd) => cmd,
                 Err(e) => {
                     tracing::error!("Upgrade script {address} command creation failed: {e}");
-                    upgrade_script_state.completed(address, false).await;
+                    upgrade_script_state.completed(address, false);
                     return;
                 }
             };
@@ -1242,7 +1307,7 @@ impl PreingestionManagerStatic {
                 tracing::error!("Upgrade script {address} STDOUT creation failed");
                 let _ = cmd.kill().await;
                 let _ = cmd.wait().await;
-                upgrade_script_state.completed(address, false).await;
+                upgrade_script_state.completed(address, false);
                 return;
             };
             let stdout = tokio::io::BufReader::new(stdout);
@@ -1251,7 +1316,7 @@ impl PreingestionManagerStatic {
                 tracing::error!("Upgrade script {address} STDERR creation failed");
                 let _ = cmd.kill().await;
                 let _ = cmd.wait().await;
-                upgrade_script_state.completed(address, false).await;
+                upgrade_script_state.completed(address, false);
                 return;
             };
             let stderr = tokio::io::BufReader::new(stderr);
@@ -1273,75 +1338,79 @@ impl PreingestionManagerStatic {
             match cmd.wait().await {
                 Err(e) => {
                     tracing::info!("Upgrade script {address} FAILED: Wait failure {e}");
-                    upgrade_script_state.completed(address, false).await;
+                    upgrade_script_state.completed(address, false);
                 }
                 Ok(errorcode) => {
                     if errorcode.success() {
                         tracing::info!("Upgrade script {address} completed successfully");
-                        upgrade_script_state.completed(address, true).await;
+                        upgrade_script_state.completed(address, true);
                     } else {
                         tracing::warn!("Upgrade script {address} FAILED: Exited with {errorcode}");
-                        upgrade_script_state.completed(address, false).await;
+                        upgrade_script_state.completed(address, false);
                     }
                 }
             }
         });
 
-        db::explored_endpoints::set_preingestion_script_running(endpoint_address, txn).await?;
+        db.with_txn(|txn| {
+            db::explored_endpoints::set_preingestion_script_running(endpoint_address, txn).boxed()
+        })
+        .await??;
         Ok(())
     }
 
-    #[allow(txn_held_across_await)]
     async fn waiting_for_script(
         &self,
-        txn: &mut PgConnection,
+        db: &mut SafePgPool,
         endpoint: &ExploredEndpoint,
     ) -> Result<(), DatabaseError> {
-        let address = endpoint.address.to_string();
-        let Some(success) = self.upgrade_script_state.state(&address).await else {
-            // Not yet completed, or we restarted (which specifically needs a manual restart of interrupted scripts)
-            return Ok(());
-        };
+        db.with_txn(|txn| async move {
+            let address = endpoint.address.to_string();
+            let Some(success) = self.upgrade_script_state.state(&address) else {
+                // Not yet completed, or we restarted (which specifically needs a manual restart of interrupted scripts)
+                return Ok(());
+            };
 
-        self.upgrade_script_state.clear(&address).await;
+            self.upgrade_script_state.clear(&address);
 
-        if success {
-            db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
-                .await?;
-            Ok(())
-        } else {
-            db::explored_endpoints::set_preingestion_failed(endpoint.address,format!(
+            if success {
+                db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
+                    .await?;
+                Ok(())
+            } else {
+                db::explored_endpoints::set_preingestion_failed(endpoint.address,format!(
                     "The upgrade script failed.  Search the log for \"Upgrade script {}\" for script output.  Force delete the explored endpoint to retry.",
                     endpoint.address
                 ), txn).await?;
-            Ok(())
-        }
+                Ok(())
+            }
+        }.boxed()).await?
     }
 }
 
 #[derive(Debug, Default)]
 struct UpdateScriptManager {
-    active: tokio::sync::Mutex<HashMap<String, Option<bool>>>,
+    active: std::sync::Mutex<HashMap<String, Option<bool>>>,
 }
 
 impl UpdateScriptManager {
-    async fn started(&self, id: String) {
-        let mut hashmap = self.active.lock().await;
+    fn started(&self, id: String) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
         hashmap.insert(id, None);
     }
 
-    async fn completed(&self, id: String, success: bool) {
-        let mut hashmap = self.active.lock().await;
+    fn completed(&self, id: String, success: bool) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
         hashmap.insert(id, Some(success));
     }
 
-    async fn clear(&self, id: &String) {
-        let mut hashmap = self.active.lock().await;
+    fn clear(&self, id: &String) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
         hashmap.remove(id);
     }
 
-    async fn state(&self, id: &String) -> Option<bool> {
-        let hashmap = self.active.lock().await;
+    fn state(&self, id: &String) -> Option<bool> {
+        let hashmap = self.active.lock().expect("lock poisoned");
         *hashmap.get(id).unwrap_or(&None)
     }
 }
@@ -1391,15 +1460,14 @@ fn need_upgrade(
 /// downloaded; if that happens it also returns success, but has not modified the state.  On Redfish
 ///  errors, we return Ok but leave the state as it was, with the intention that we will retry
 ///  on the next go.
-#[allow(txn_held_across_await)]
 async fn initiate_update(
-    txn: &mut PgConnection,
     endpoint_clone: &ExploredEndpoint,
     redfish_client_pool: &Arc<dyn RedfishClientPool>,
     to_install: &FirmwareEntry,
     firmware_type: &FirmwareComponentType,
     downloader: &FirmwareDownloader,
     firmware_number: u32,
+    db_pool: &mut SafePgPool,
 ) -> Result<(), DatabaseError> {
     if !to_install.get_filename(firmware_number).ends_with("bfb")
         && !downloader.available(
@@ -1419,7 +1487,7 @@ async fn initiate_update(
 
     // Setup the Redfish connection
     let redfish_client = match redfish_client_pool
-        .create_client_for_ingested_host(endpoint_clone.address, None, txn)
+        .create_client_for_ingested_host(endpoint_clone.address, None, db_pool)
         .await
     {
         Ok(redfish_client) => redfish_client,
@@ -1521,16 +1589,19 @@ async fn initiate_update(
         endpoint_clone.address
     );
 
-    db::explored_endpoints::set_preingestion_waittask(
-        endpoint_clone.address,
-        task,
-        &to_install.version,
-        firmware_type,
-        to_install.power_drains_needed,
-        firmware_number,
-        txn,
-    )
-    .await?;
+    db_pool
+        .with_txn(|txn| {
+            Box::pin(db::explored_endpoints::set_preingestion_waittask(
+                endpoint_clone.address,
+                task,
+                &to_install.version,
+                firmware_type,
+                to_install.power_drains_needed,
+                firmware_number,
+                txn,
+            ))
+        })
+        .await??;
 
     Ok(())
 }

@@ -390,7 +390,7 @@ impl<IO: StateControllerIO> StateController<IO> {
         for object_id in object_ids.iter() {
             let object_id = object_id.clone();
             let pool = self.pool.clone();
-            let services = self.handler_services.clone();
+            let mut services = self.handler_services.as_ref().clone();
             let io = self.io.clone();
             let handler = self.state_handler.clone();
             let concurrency_limiter = concurrency_limiter.clone();
@@ -447,7 +447,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 state_sla.time_in_state_above_sla;
 
                             let mut ctx = StateHandlerContext {
-                                services: services.as_ref(),
+                                services: &mut services,
                                 metrics: &mut metrics.specific,
                             };
 

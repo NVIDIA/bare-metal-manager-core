@@ -1995,9 +1995,7 @@ impl StateHandler for MachineStateHandler {
         if let Some(power_options) = power_options {
             let mut txn = ctx.services.db_pool.begin().await?;
             db::power_options::persist(&power_options, &mut txn).await?;
-            txn.commit()
-                .await
-                .map_err(StateHandlerError::TransactionError)?;
+            txn.commit().await.map_err(StateHandlerError::DBError)?;
         }
 
         result

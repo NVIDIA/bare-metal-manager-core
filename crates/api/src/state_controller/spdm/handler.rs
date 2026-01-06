@@ -170,8 +170,7 @@ fn get_sync_sub_state(
 
 async fn redfish_client(
     bmc_info: &BmcInfo,
-    ctx: &StateHandlerContext<'_, SpdmStateHandlerContextObjects>,
-    txn: &mut PgConnection,
+    ctx: &mut StateHandlerContext<'_, SpdmStateHandlerContextObjects>,
 ) -> Result<Box<dyn Redfish>, StateHandlerError> {
     ctx.services
         .redfish_client_pool
@@ -180,7 +179,7 @@ async fn redfish_client(
                 .ip_addr()
                 .map_err(StateHandlerError::GenericError)?,
             bmc_info.port,
-            txn,
+            &mut ctx.services.db_pool,
         )
         .await
         .map_err(StateHandlerError::from)
@@ -238,7 +237,7 @@ impl StateHandler for SpdmAttestationStateHandler {
         let machine_id = object_id.0;
         match controller_state.machine_state {
             AttestationState::CheckIfAttestationSupported => {
-                let redfish_client = redfish_client(&state.bmc_info, ctx, txn).await?;
+                let redfish_client = redfish_client(&state.bmc_info, ctx).await?;
                 let root = redfish_client.get_service_root().await.map_err(|error| {
                     StateHandlerError::RedfishError {
                         operation: "fetch system root",
@@ -271,7 +270,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                 })
             }
             AttestationState::FetchAttestationTargetsAndUpdateDb => {
-                let redfish_client = redfish_client(&state.bmc_info, ctx, txn).await?;
+                let redfish_client = redfish_client(&state.bmc_info, ctx).await?;
                 let component_integrities = redfish_client
                     .get_component_integrities()
                     .await
@@ -426,7 +425,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                 match fetch_measurement_device_states {
                     FetchDataDeviceStates::FetchMetadata => {
                         // Right now only metadata needed is firmware version.
-                        let redfish_client = redfish_client(&state.bmc_info, ctx, txn).await?;
+                        let redfish_client = redfish_client(&state.bmc_info, ctx).await?;
                         let firmware_version = match redfish_client
                             .get_firmware_for_component(device_id)
                             .await
@@ -467,7 +466,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                         )))
                     }
                     FetchDataDeviceStates::FetchCertificate => {
-                        let redfish_client = redfish_client(&state.bmc_info, ctx, txn).await?;
+                        let redfish_client = redfish_client(&state.bmc_info, ctx).await?;
                         let Some(url) = &device.ca_certificate_link else {
                             // This is an unrecoverable error due to db discrepancy.
                             return Ok(StateHandlerOutcome::transition(attestation_complete(
@@ -506,7 +505,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                     FetchDataDeviceStates::Trigger { retry_count } => {
                         // firmware version and certificate are collected. Let's trigger the
                         // measurement collection now.
-                        let redfish_client = redfish_client(&state.bmc_info, ctx, txn).await?;
+                        let redfish_client = redfish_client(&state.bmc_info, ctx).await?;
                         let Some(url) = &device.evidence_target else {
                             // This is an unrecoverable error due to db discrepancy.
                             return Ok(StateHandlerOutcome::transition(attestation_complete(
@@ -543,7 +542,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                         task_id,
                         retry_count,
                     } => {
-                        let redfish_client = redfish_client(&state.bmc_info, ctx, txn).await?;
+                        let redfish_client = redfish_client(&state.bmc_info, ctx).await?;
                         let task = redfish_client.get_task(task_id).await.map_err(|e| {
                             StateHandlerError::RedfishError {
                                 operation: "get_task_state",
@@ -611,7 +610,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                                 },
                             )));
                         };
-                        let redfish_client = redfish_client(&state.bmc_info, ctx, txn).await?;
+                        let redfish_client = redfish_client(&state.bmc_info, ctx).await?;
                         let evidence = redfish_client.get_evidence(url).await.map_err(|e| {
                             StateHandlerError::RedfishError {
                                 operation: "get_task_state",

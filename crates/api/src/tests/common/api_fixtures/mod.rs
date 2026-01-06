@@ -282,7 +282,7 @@ pub struct TestEnv {
     pub admin_segment: Option<NetworkSegmentId>,
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
-    pub nvl_partition_monitor: Arc<NvlPartitionMonitor>,
+    pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
 }
 
 impl TestEnv {
@@ -290,7 +290,7 @@ impl TestEnv {
     /// test environment
     pub fn state_handler_services(&self) -> CommonStateHandlerServices {
         CommonStateHandlerServices {
-            db_pool: self.pool.clone(),
+            db_pool: self.pool.clone().into(),
             redfish_client_pool: self.redfish_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             ib_pools: self.common_pools.infiniband.clone(),
@@ -810,6 +810,8 @@ impl TestEnv {
 
     pub async fn run_nvl_partition_monitor_iteration(&self) {
         self.nvl_partition_monitor
+            .lock()
+            .await
             .run_single_iteration()
             .boxed()
             .await
@@ -1348,7 +1350,7 @@ pub async fn create_test_env_with_overrides(
     };
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: db_pool.clone(),
+        db_pool: db_pool.clone().into(),
         redfish_client_pool: redfish_sim.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),
@@ -1550,7 +1552,7 @@ pub async fn create_test_env_with_overrides(
         admin_segment,
         underlay_segment,
         domain,
-        nvl_partition_monitor: Arc::new(nvl_partition_monitor),
+        nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
     }
 }
 
