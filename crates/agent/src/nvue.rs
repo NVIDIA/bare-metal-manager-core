@@ -923,12 +923,23 @@ impl TryFrom<&rpc::ResolvedNetworkSecurityGroupRule> for NetworkSecurityGroupRul
                 == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
             can_match_any_protocol: rule.protocol()
                 == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
-            can_be_stateful: matches!(
-                rule.protocol(),
-                rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
-                    | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
-                    | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
-            ),
+            // We'll only automatically handle stateful tracking for egress rules
+            // that specify TCP/UDP, a dst port, and NO src port because it becomes
+            // extremely difficult for users to get rule combinations for common
+            // use-cases if the stateful option isn't narrowly implemented.
+            // ICMP is _technically_ documented as valid for stateful tracking,
+            // but it's not throroughly tested/validated, and the user would have
+            // no way to achieve non-stateful ICMP if stateful is enabled for the
+            // NSG, so it's being left out.
+            can_be_stateful: rule.direction()
+                == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                && matches!(
+                    rule.protocol(),
+                    rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
+                        | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
+                )
+                && rule.dst_port_start.is_some()
+                && rule.src_port_start.is_none(),
             ipv6: rule.ipv6,
             priority: rule.priority,
             src_port_start: rule.src_port_start,

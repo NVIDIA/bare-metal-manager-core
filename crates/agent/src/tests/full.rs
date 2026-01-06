@@ -564,6 +564,33 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 }),
             },
             rpc::forge::ResolvedNetworkSecurityGroupRule {
+                src_prefixes: vec!["0.0.0.0/0".to_string()],
+                dst_prefixes: vec!["1.0.0.0/0".to_string()],
+                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                    id: Some("anything".to_string()),
+                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                        .into(),
+                    ipv6: false,
+                    src_port_start: None,
+                    src_port_end: None,
+                    dst_port_start: Some(8080),
+                    dst_port_end: Some(8080),
+                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    priority: 9001,
+                    source_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                            "1.0.0.0/0".to_string(),
+                        ),
+                    ),
+                    destination_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                            "1.0.0.0/0".to_string(),
+                        ),
+                    ),
+                }),
+            },
+            rpc::forge::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
                 dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
                 rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
