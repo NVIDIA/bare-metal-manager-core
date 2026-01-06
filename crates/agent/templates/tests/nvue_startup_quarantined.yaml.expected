@@ -291,9 +291,6 @@
             action:
               deny: {}
             match:
-              conntrack:
-                new: {}
-                established: {}
               ip:
                 dest-ip: 1.0.0.0/0
                 dest-port:
@@ -306,9 +303,6 @@
             action:
               deny: {}
             match:
-              conntrack:
-                new: {}
-                established: {}
               ip:
                 dest-ip: 1.0.0.0/0
                 dest-port:
@@ -321,9 +315,6 @@
             action:
               deny: {}
             match:
-              conntrack:
-                new: {}
-                established: {}
               ip:
                 dest-ip: 1.0.0.0/0
                 dest-port:
@@ -336,9 +327,6 @@
             action:
               deny: {}
             match:
-              conntrack:
-                new: {}
-                established: {}
               ip:
                 dest-ip: 1.0.0.0/0
                 dest-port:
@@ -347,6 +335,19 @@
                 source-ip: 0.0.0.0/0
                 source-port:
                   '81': {}
+          '2004':
+            action:
+              deny: {}
+            match:
+              conntrack:
+                new: {}
+                established: {}
+              ip:
+                dest-ip: 1.0.0.0/0
+                dest-port:
+                  '8080': {} 
+                protocol: tcp
+                source-ip: 0.0.0.0/0
           '65535':
             action:
               deny: {}
