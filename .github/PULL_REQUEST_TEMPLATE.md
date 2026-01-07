@@ -9,10 +9,8 @@
 - [ ] **Remove** - Removed features or deprecated functionality
 - [ ] **Internal** - Internal changes (refactoring, tests, docs, etc.)
 
-## Related Tickets (Optional)
-<!-- If applicable, provide JIRA or/and NVBugs ticket. If none, the PR itself will be referenced in changelog -->
-JIRA: <!-- e.g., [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234) or leave blank -->
-NVBugs: <!-- e.g., [NVBugs-12345](https://nvbugspro.nvidia.com/bug/12345) or leave blank -->
+## Related Issues (Optional)
+<!-- If applicable, provide GitHub Issue. -->
 
 ## Breaking Changes
 - [ ] This PR contains breaking changes
