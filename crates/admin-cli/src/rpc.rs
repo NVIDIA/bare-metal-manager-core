@@ -44,7 +44,7 @@ use carbide_uuid::vpc::VpcId;
 use carbide_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
-use crate::cfg::cli_options;
+use crate::expected_machines::args::ExpectedMachineJson;
 use crate::instance::args::AllocateInstance;
 use crate::machine::{ForceDeleteMachineQuery, MachineAutoupdate};
 
@@ -901,7 +901,7 @@ impl ApiClient {
 
     pub async fn replace_all_expected_machines(
         &self,
-        expected_machine_list: Vec<cli_options::ExpectedMachineJson>,
+        expected_machine_list: Vec<ExpectedMachineJson>,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedMachineList {
             expected_machines: expected_machine_list

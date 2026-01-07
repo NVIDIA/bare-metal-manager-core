@@ -18,7 +18,7 @@ pub use args::Cmd;
 
 use crate::rpc::ApiClient;
 
-/// dispatch routes network_security_group commands.
+// dispatch routes network_security_group commands.
 pub async fn dispatch(
     cmd: Cmd,
     api_client: &ApiClient,

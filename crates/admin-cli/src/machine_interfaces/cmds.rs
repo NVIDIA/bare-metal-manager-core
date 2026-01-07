@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -19,8 +19,7 @@ use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use prettytable::{Cell, Row, Table};
 use tracing::warn;
 
-use super::cfg::cli_options::ShowMachineInterfaces;
-use crate::cfg::cli_options::DeleteMachineInterfaces;
+use super::args::{DeleteMachineInterfaces, ShowMachineInterfaces};
 use crate::rpc::ApiClient;
 
 pub async fn handle_show(

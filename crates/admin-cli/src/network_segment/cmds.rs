@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -19,7 +19,7 @@ use carbide_uuid::network::NetworkSegmentId;
 use prettytable::{Table, row};
 use serde::Deserialize;
 
-use super::cfg::cli_options::ShowNetwork;
+use super::args::ShowNetworkSegment;
 use crate::rpc::ApiClient;
 
 #[derive(Deserialize)]
@@ -246,7 +246,7 @@ async fn show_network_information(
 }
 
 pub async fn handle_show(
-    args: ShowNetwork,
+    args: ShowNetworkSegment,
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,

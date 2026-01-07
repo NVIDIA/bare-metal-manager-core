@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -15,8 +15,8 @@ use std::pin::Pin;
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use prettytable::{Table, row};
 
+use super::args::ShowExpectedMachineQuery;
 use crate::async_write;
-use crate::cfg::cli_options::ShowExpectedMachineQuery;
 use crate::rpc::ApiClient;
 
 pub async fn show_expected_machines(

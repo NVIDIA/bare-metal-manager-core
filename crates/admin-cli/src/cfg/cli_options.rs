@@ -9,26 +9,23 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::network::NetworkSegmentId;
 use clap::builder::BoolishValueParser;
-use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
+use clap::{Parser, ValueEnum, ValueHint};
 use mac_address::MacAddress;
 use rpc::admin_cli::OutputFormat;
 use rpc::forge::RouteServerSourceType;
-use serde::{Deserialize, Serialize};
-use utils::has_duplicates;
 
 use crate::cfg::measurement;
 use crate::cfg::storage::OsImageActions;
 use crate::machine::MachineQuery;
 use crate::{
-    domain, dpa, dpu, expected_power_shelf, expected_switch, firmware, ib_partition, instance,
-    instance_type, machine, machine_validation, managed_host, mlx, network_security_group, ping,
+    domain, dpa, dpu, dpu_remediation, expected_machines, expected_power_shelf, expected_switch,
+    extension_service, firmware, ib_partition, instance, instance_type, machine,
+    machine_interfaces, machine_validation, managed_host, mlx, network_devices,
+    network_security_group, network_segment, nvl_logical_partition, nvl_partition, ping,
     power_shelf, rack, redfish, resource_pool, scout_stream, site_explorer, sku, switch, tenant,
     tenant_keyset, tpm_ca, version, vpc, vpc_peering, vpc_prefix,
 };
@@ -133,7 +130,7 @@ pub enum CliCommand {
         subcommand,
         visible_alias = "ns"
     )]
-    NetworkSegment(NetworkSegment),
+    NetworkSegment(network_segment::Cmd),
     #[clap(about = "Domain related handling", subcommand, visible_alias = "d")]
     Domain(domain::Cmd),
     #[clap(
@@ -153,7 +150,7 @@ pub enum CliCommand {
     #[clap(about = "Redfish BMC actions", visible_alias = "rf")]
     Redfish(redfish::RedfishAction),
     #[clap(about = "Network Devices handling", subcommand)]
-    NetworkDevice(NetworkDeviceAction),
+    NetworkDevice(network_devices::Cmd),
     #[clap(about = "IP address handling", subcommand)]
     Ip(IpAction),
     #[clap(about = "DPU specific handling", subcommand)]
@@ -181,7 +178,7 @@ pub enum CliCommand {
         subcommand,
         visible_alias = "mi"
     )]
-    MachineInterfaces(MachineInterfaces),
+    MachineInterfaces(machine_interfaces::Cmd),
     #[clap(
         about = "Generate shell autocomplete. Source the output of this command: `source <(forge-admin-cli generate-shell-complete bash)`"
     )]
@@ -193,7 +190,7 @@ pub enum CliCommand {
     #[clap(about = "Set carbide-api dynamic features", subcommand)]
     Set(SetAction),
     #[clap(about = "Expected machine handling", subcommand, visible_alias = "em")]
-    ExpectedMachine(ExpectedMachineAction),
+    ExpectedMachine(expected_machines::Cmd),
     #[clap(
         about = "Expected power shelf handling",
         subcommand,
@@ -275,13 +272,13 @@ pub enum CliCommand {
     #[clap(about = "Trim DB tables", subcommand)]
     TrimTable(TrimTableTarget),
     #[clap(about = "Dpu Remediation handling", subcommand)]
-    DpuRemediation(DpuRemediation),
+    DpuRemediation(dpu_remediation::Cmd),
     #[clap(
         about = "Extension service management",
         visible_alias = "es",
         subcommand
     )]
-    ExtensionService(ExtensionServiceOptions),
+    ExtensionService(extension_service::Cmd),
     #[clap(about = "Mellanox Device Handling", subcommand)]
     Mlx(mlx::MlxAction),
     #[clap(about = "Scout Stream Connection Handling", subcommand)]
@@ -291,14 +288,14 @@ pub enum CliCommand {
         subcommand,
         visible_alias = "nvp"
     )]
-    NvlPartition(NvlPartitionOptions),
+    NvlPartition(nvl_partition::Cmd),
 
     #[clap(
         about = "Logical partition related handling",
         subcommand,
         visible_alias = "lp"
     )]
-    LogicalPartition(LogicalPartitionOptions),
+    LogicalPartition(nvl_logical_partition::Cmd),
 
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
     Tenant(tenant::Cmd),
@@ -380,358 +377,6 @@ pub struct HostReprovisionClear {
 }
 
 #[derive(Parser, Debug)]
-pub enum ExpectedMachineAction {
-    #[clap(about = "Show expected machine data")]
-    Show(ShowExpectedMachineQuery),
-    #[clap(about = "Add expected machine")]
-    Add(ExpectedMachine),
-    #[clap(about = "Delete expected machine")]
-    Delete(DeleteExpectedMachine),
-    /// Patch expected machine (partial update, preserves unprovided fields).
-    ///
-    /// Only the fields provided in the command will be updated. All other fields remain unchanged.
-    ///
-    /// Examples:
-    ///   # Update only SKU, preserve all other fields including metadata
-    ///   forge-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f --sku-id new_sku
-    ///
-    ///   # Update only labels, preserve name and description
-    ///   forge-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f \
-    ///     --sku-id sku123 --label env:prod --label team:platform
-    #[clap(verbatim_doc_comment)]
-    Patch(PatchExpectedMachine),
-    /// Update expected machine from JSON file (full replacement, consistent with API).
-    ///
-    /// All fields from the JSON file will completely replace the existing record.
-    /// This allows clearing metadata fields by providing empty values.
-    ///
-    /// Example json file:
-    ///    {
-    ///        "bmc_mac_address": "1a:1b:1c:1d:1e:1f",
-    ///        "bmc_username": "user",
-    ///        "bmc_password": "pass",
-    ///        "chassis_serial_number": "sample_serial-1",
-    ///        "fallback_dpu_serial_numbers": ["MT020100000003"],
-    ///        "metadata": {
-    ///            "name": "MyMachine",
-    ///            "description": "My Machine",
-    ///            "labels": [{"key": "ABC", "value": "DEF"}]
-    ///        },
-    ///        "sku_id": "sku_id_123"
-    ///    }
-    ///
-    /// Usage:
-    ///   forge-admin-cli expected-machine update --filename machine.json
-    #[clap(verbatim_doc_comment)]
-    Update(UpdateExpectedMachine),
-    /// Replace all entries in the expected machines table with the entries from an inputted json file.
-    ///
-    /// Example json file:
-    ///    {
-    ///        "expected_machines":
-    ///        [
-    ///            {
-    ///                "bmc_mac_address": "1a:1b:1c:1d:1e:1f",
-    ///                "bmc_username": "user",
-    ///                "bmc_password": "pass",
-    ///                "chassis_serial_number": "sample_serial-1"
-    ///            },
-    ///            {
-    ///                "bmc_mac_address": "2a:2b:2c:2d:2e:2f",
-    ///                "bmc_username": "user",
-    ///                "bmc_password": "pass",
-    ///                "chassis_serial_number": "sample_serial-2",
-    ///                "fallback_dpu_serial_numbers": ["MT020100000003"],
-    ///                "metadata": {
-    ///                    "name": "MyMachine",
-    ///                    "description": "My Machine",
-    ///                    "labels": [{"key": "ABC", "value": "DEF"}]
-    ///                }
-    ///            }
-    ///        ]
-    ///    }
-    #[clap(verbatim_doc_comment)]
-    ReplaceAll(ExpectedMachineReplaceAllRequest),
-    #[clap(about = "Erase all expected machines")]
-    Erase,
-}
-
-#[derive(Parser, Debug, Serialize, Deserialize)]
-pub struct ExpectedMachine {
-    #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
-    pub bmc_mac_address: MacAddress,
-    #[clap(short = 'u', long, help = "BMC username of the expected machine")]
-    pub bmc_username: String,
-    #[clap(short = 'p', long, help = "BMC password of the expected machine")]
-    pub bmc_password: String,
-    #[clap(
-        short = 's',
-        long,
-        help = "Chassis serial number of the expected machine"
-    )]
-    pub chassis_serial_number: String,
-    #[clap(
-        short = 'd',
-        long = "fallback-dpu-serial-number",
-        value_name = "DPU_SERIAL_NUMBER",
-        help = "Serial number of the DPU attached to the expected machine. This option should be used only as a last resort for ingesting those servers whose BMC/Redfish do not report serial number of network devices. This option can be repeated.",
-        action = clap::ArgAction::Append
-    )]
-    pub fallback_dpu_serial_numbers: Option<Vec<String>>,
-
-    #[clap(
-        long = "meta-name",
-        value_name = "META_NAME",
-        help = "The name that should be used as part of the Metadata for newly created Machines. If empty, the MachineId will be used"
-    )]
-    pub meta_name: Option<String>,
-
-    #[clap(
-        long = "meta-description",
-        value_name = "META_DESCRIPTION",
-        help = "The description that should be used as part of the Metadata for newly created Machines"
-    )]
-    pub meta_description: Option<String>,
-
-    #[clap(
-        long = "label",
-        value_name = "LABEL",
-        help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character. E.g. DATACENTER:XYZ",
-        action = clap::ArgAction::Append
-    )]
-    pub labels: Option<Vec<String>>,
-
-    #[clap(
-        long = "sku-id",
-        value_name = "SKU_ID",
-        help = "A SKU ID that will be added for the newly created Machine."
-    )]
-    pub sku_id: Option<String>,
-
-    #[clap(
-        long = "id",
-        value_name = "UUID",
-        help = "Optional unique ID to assign to the ExpectedMachine on create"
-    )]
-    pub id: Option<String>,
-
-    #[clap(
-        long = "host_nics",
-        value_name = "HOST_NICS",
-        help = "Host NICs MAC addresses as JSON",
-        action = clap::ArgAction::Append
-    )]
-    pub host_nics: Option<String>,
-
-    #[clap(
-        long = "rack_id",
-        value_name = "RACK_ID",
-        help = "Rack ID for this machine",
-        action = clap::ArgAction::Append
-    )]
-    pub rack_id: Option<String>,
-}
-
-impl ExpectedMachine {
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExpectedMachineJson {
-    #[serde(default)]
-    pub id: Option<String>,
-    pub bmc_mac_address: MacAddress,
-    pub bmc_username: String,
-    pub bmc_password: String,
-    pub chassis_serial_number: String,
-    pub fallback_dpu_serial_numbers: Option<Vec<String>>,
-    #[serde(default)]
-    pub metadata: Option<rpc::forge::Metadata>,
-    pub sku_id: Option<String>,
-    #[serde(default)]
-    pub host_nics: Vec<rpc::forge::ExpectedHostNic>,
-    pub rack_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct _ExpectedMachineMetadata {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub labels: HashMap<String, Option<String>>,
-}
-
-impl ExpectedMachine {
-    pub fn has_duplicate_dpu_serials(&self) -> bool {
-        match self.fallback_dpu_serial_numbers.clone() {
-            Some(fallback_dpu_serial_numbers) => has_duplicates(fallback_dpu_serial_numbers),
-            None => false,
-        }
-    }
-}
-#[derive(Parser, Debug, Serialize, Deserialize)]
-#[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[
-"bmc_username",
-"bmc_password",
-"chassis_serial_number",
-"fallback_dpu_serial_numbers",
-"sku_id",
-])))]
-pub struct PatchExpectedMachine {
-    #[clap(
-        short = 'a',
-        required = true,
-        long,
-        help = "BMC MAC Address of the expected machine"
-    )]
-    pub bmc_mac_address: MacAddress,
-    #[clap(
-        short = 'u',
-        long,
-        group = "group",
-        requires("bmc_password"),
-        help = "BMC username of the expected machine"
-    )]
-    pub bmc_username: Option<String>,
-    #[clap(
-        short = 'p',
-        long,
-        group = "group",
-        requires("bmc_username"),
-        help = "BMC password of the expected machine"
-    )]
-    pub bmc_password: Option<String>,
-    #[clap(
-        short = 's',
-        long,
-        group = "group",
-        help = "Chassis serial number of the expected machine"
-    )]
-    pub chassis_serial_number: Option<String>,
-    #[clap(
-        short = 'd',
-        long = "fallback-dpu-serial-number",
-        value_name = "DPU_SERIAL_NUMBER",
-        group = "group",
-        help = "Serial number of the DPU attached to the expected machine. This option should be used only as a last resort for ingesting those servers whose BMC/Redfish do not report serial number of network devices. This option can be repeated.",
-        action = clap::ArgAction::Append
-    )]
-    pub fallback_dpu_serial_numbers: Option<Vec<String>>,
-
-    #[clap(
-        long = "meta-name",
-        value_name = "META_NAME",
-        help = "The name that should be used as part of the Metadata for newly created Machines. If empty, the MachineId will be used"
-    )]
-    pub meta_name: Option<String>,
-
-    #[clap(
-        long = "meta-description",
-        value_name = "META_DESCRIPTION",
-        help = "The description that should be used as part of the Metadata for newly created Machines"
-    )]
-    pub meta_description: Option<String>,
-
-    #[clap(
-        long = "label",
-        value_name = "LABEL",
-        help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character",
-        action = clap::ArgAction::Append
-    )]
-    pub labels: Option<Vec<String>>,
-
-    #[clap(
-        long,
-        value_name = "SKU_ID",
-        group = "group",
-        help = "A SKU ID that will be added for the newly created Machine."
-    )]
-    pub sku_id: Option<String>,
-
-    #[clap(
-        long,
-        value_name = "RACK_ID",
-        group = "group",
-        help = "A RACK ID that will be added for the newly created Machine."
-    )]
-    pub rack_id: Option<String>,
-}
-
-impl PatchExpectedMachine {
-    pub fn validate(&self) -> Result<(), String> {
-        // TODO: It is possible to do these checks by clap itself, via arg groups
-        if self.bmc_username.is_none()
-            && self.bmc_password.is_none()
-            && self.chassis_serial_number.is_none()
-            && self.fallback_dpu_serial_numbers.is_none()
-            && self.sku_id.is_none()
-            && self.rack_id.is_none()
-        {
-            return Err("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string());
-        }
-        if let Some(dpu_serials) = self.fallback_dpu_serial_numbers.clone()
-            && has_duplicates(&dpu_serials)
-        {
-            return Err("Duplicate dpu serial numbers found".to_string());
-        }
-        Ok(())
-    }
-}
-
-#[derive(Parser, Debug)]
-pub struct DeleteExpectedMachine {
-    #[clap(help = "BMC MAC address of the expected machine to delete.")]
-    pub bmc_mac_address: MacAddress,
-}
-
-#[derive(Parser, Debug)]
-pub struct UpdateExpectedMachine {
-    #[clap(
-        short,
-        long,
-        help = "Path to JSON file containing the expected machine data"
-    )]
-    pub filename: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowExpectedMachineQuery {
-    #[clap(
-        default_value(None),
-        help = "BMC MAC address of the expected machine to show. Leave unset for all."
-    )]
-    pub bmc_mac_address: Option<MacAddress>,
-}
-
-#[derive(Parser, Debug)]
-pub struct ExpectedMachineReplaceAllRequest {
-    #[clap(short, long)]
-    pub filename: String,
-}
-
-#[derive(Parser, Debug)]
 pub enum BootOverrideAction {
     Get(BootOverride),
     Set(BootOverrideSet),
@@ -750,29 +395,6 @@ pub struct BootOverrideSet {
     pub custom_pxe: Option<String>,
     #[clap(short = 'u', long)]
     pub custom_user_data: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub enum NetworkDeviceAction {
-    Show(NetworkDeviceShow),
-}
-
-#[derive(Parser, Debug)]
-pub struct NetworkDeviceShow {
-    #[clap(
-        short,
-        long,
-        action,
-        conflicts_with = "id",
-        help = "Show all network devices (DEPRECATED)"
-    )]
-    pub all: bool,
-
-    #[clap(
-        default_value(""),
-        help = "Show data for the given network device (e.g. `mac=<mac>`), leave empty for all (default)"
-    )]
-    pub id: String,
 }
 
 #[derive(Parser, Debug)]
@@ -877,35 +499,6 @@ impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::
             }
         }
     }
-}
-
-#[derive(Parser, Debug)]
-pub enum NetworkSegment {
-    #[clap(about = "Display Network Segment information")]
-    Show(ShowNetwork),
-    #[clap(about = "Delete Network Segment")]
-    Delete(DeleteNetworkSegment),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowNetwork {
-    #[clap(
-        default_value(None),
-        help = "The network segment to query, leave empty for all (default)"
-    )]
-    pub network: Option<NetworkSegmentId>,
-
-    #[clap(short, long, help = "The Tenant Org ID to query")]
-    pub tenant_org_id: Option<String>,
-
-    #[clap(short, long, help = "The VPC name to query")]
-    pub name: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct DeleteNetworkSegment {
-    #[clap(long, help = "Id of the network segment")]
-    pub id: NetworkSegmentId,
 }
 
 impl CliOptions {
@@ -1119,41 +712,6 @@ pub struct RouteServerAddresses {
 }
 
 #[derive(Parser, Debug)]
-pub enum MachineInterfaces {
-    #[clap(about = "List of all Machine interfaces")]
-    Show(ShowMachineInterfaces),
-    #[clap(about = "Delete Machine interface.")]
-    Delete(DeleteMachineInterfaces),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowMachineInterfaces {
-    #[clap(
-        short,
-        long,
-        action,
-        conflicts_with = "interface_id",
-        help = "Show all machine interfaces (DEPRECATED)"
-    )]
-    pub all: bool,
-
-    #[clap(
-        default_value(None),
-        help = "The interface ID to query, leave empty for all (default)"
-    )]
-    pub interface_id: Option<MachineInterfaceId>,
-
-    #[clap(long, action)]
-    pub more: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct DeleteMachineInterfaces {
-    #[clap(help = "The interface ID to delete. Redeploy kea after deleting machine interfaces.")]
-    pub interface_id: MachineInterfaceId,
-}
-
-#[derive(Parser, Debug)]
 pub struct CreateBmcUserArgs {
     #[clap(long, short, help = "IP of the BMC where we want to create a new user")]
     pub ip_address: Option<String>,
@@ -1238,63 +796,6 @@ pub struct JumpOptions {
 }
 
 #[derive(Parser, Debug)]
-pub enum NvlPartitionOptions {
-    #[clap(about = "Display NvLink partition information")]
-    Show(ShowNvlPartition),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowNvlPartition {
-    #[clap(
-        default_value(""),
-        help = "The NvLink Partition ID to query, leave empty for all (default)"
-    )]
-    pub id: String,
-
-    #[clap(short, long, help = "The Tenant Org ID to query")]
-    pub tenant_org_id: Option<String>,
-
-    #[clap(short, long, help = "The NvLink Partition name to query")]
-    pub name: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub enum LogicalPartitionOptions {
-    #[clap(about = "Display logical partition information")]
-    Show(ShowLogicalPartition),
-    #[clap(about = "Create logical partition")]
-    Create(CreateLogicalPartition),
-    #[clap(about = "Delete logical partition")]
-    Delete(DeleteLogicalPartition),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowLogicalPartition {
-    #[clap(
-        default_value(""),
-        help = "The partition ID to query, leave empty for all (default)"
-    )]
-    pub id: String,
-
-    #[clap(short, long, help = "The NvLink Partition name to query")]
-    pub name: Option<String>,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct CreateLogicalPartition {
-    #[clap(short = 'n', long, help = "name of the partition")]
-    pub name: String,
-    #[clap(short, long, help = "The Tenant Org ID to create the partition for")]
-    pub tenant_organization_id: String,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct DeleteLogicalPartition {
-    #[clap(short = 'n', long, help = "name of the partition")]
-    pub name: String,
-}
-
-#[derive(Parser, Debug)]
 pub enum DevEnv {
     #[clap(about = "Config related handling", visible_alias = "c", subcommand)]
     Config(DevEnvConfig),
@@ -1374,311 +875,6 @@ pub struct CopyBfbArgs {
 }
 
 #[derive(Parser, Debug)]
-pub enum DpuRemediation {
-    #[clap(about = "Create a remediation")]
-    Create(CreateDpuRemediation),
-    #[clap(about = "Approve a remediation")]
-    Approve(ApproveDpuRemediation),
-    #[clap(about = "Revoke a remediation")]
-    Revoke(RevokeDpuRemediation),
-    #[clap(about = "Enable a remediation")]
-    Enable(EnableDpuRemediation),
-    #[clap(about = "Disable a remediation")]
-    Disable(DisableDpuRemediation),
-    #[clap(about = "Display remediation information")]
-    Show(ShowRemediation),
-    #[clap(about = "Display information about applied remediations")]
-    ListApplied(ListAppliedRemediations),
-}
-
-#[derive(Parser, Debug)]
-pub struct CreateDpuRemediation {
-    #[clap(help = "The filename of the script to run", long)]
-    pub script_filename: String,
-    #[clap(
-        help = "specify the amount of retries for the remediation, defaults to no retries",
-        long
-    )]
-    pub retries: Option<u32>,
-    #[clap(
-        long = "meta-name",
-        value_name = "META_NAME",
-        help = "The name that should be used as part of the Metadata for newly created Remediations.  Completely optional."
-    )]
-    pub meta_name: Option<String>,
-
-    #[clap(
-        long = "meta-description",
-        value_name = "META_DESCRIPTION",
-        help = "The description that should be used as part of the Metadata for newly created Remediations.  Completely optional."
-    )]
-    pub meta_description: Option<String>,
-
-    #[clap(
-        long = "label",
-        value_name = "LABEL",
-        help = "A label that will be added as metadata for the newly created Remediation. The labels key and value must be separated by a : character. E.g. DATACENTER:XYZ.  Completely optional.",
-        action = clap::ArgAction::Append
-    )]
-    pub labels: Option<Vec<String>>,
-}
-
-impl CreateDpuRemediation {
-    pub fn metadata(&self) -> Option<::rpc::forge::Metadata> {
-        if self.labels.is_none() && self.meta_name.is_none() && self.meta_description.is_none() {
-            return None;
-        }
-
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Some(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
-    }
-}
-
-#[derive(Parser, Debug)]
-pub struct ApproveDpuRemediation {
-    #[clap(help = "The id of the remediation to approve", long)]
-    pub id: RemediationId,
-}
-
-#[derive(Parser, Debug)]
-pub struct RevokeDpuRemediation {
-    #[clap(help = "The id of the remediation to revoke", long)]
-    pub id: RemediationId,
-}
-
-#[derive(Parser, Debug)]
-pub struct EnableDpuRemediation {
-    #[clap(help = "The id of the remediation to enable", long)]
-    pub id: RemediationId,
-}
-
-#[derive(Parser, Debug)]
-pub struct DisableDpuRemediation {
-    #[clap(help = "The id of the remediation to disable", long)]
-    pub id: RemediationId,
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowRemediation {
-    #[clap(help = "The remediation id to query, if not provided defaults to all")]
-    pub id: Option<RemediationId>,
-    #[clap(long, action)]
-    pub display_script: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct ListAppliedRemediations {
-    #[clap(
-        help = "The remediation id to query, in case the user wants to see which machines have a specific remediation applied.  Provide both arguments to see all the details for a specific remediation and machine.",
-        long
-    )]
-    pub remediation_id: Option<RemediationId>,
-    #[clap(
-        help = "The machine id to query, in case the user wants to see which remediations have been applied to a specific box.  Provide both arguments to see all the details for a specific remediation and machine.",
-        long
-    )]
-    pub machine_id: Option<MachineId>,
-}
-
-#[derive(Parser, Debug)]
-pub enum ExtensionServiceOptions {
-    #[clap(about = "Create an extension service")]
-    Create(CreateExtensionService),
-    #[clap(about = "Update an extension service")]
-    Update(UpdateExtensionService),
-    #[clap(about = "Delete an extension service")]
-    Delete(DeleteExtensionService),
-    #[clap(about = "Show extension service information")]
-    Show(ShowExtensionService),
-    #[clap(about = "Get extension service version information")]
-    GetVersion(GetExtensionServiceVersionInfo),
-    #[clap(about = "Show instances using an extension service")]
-    ShowInstances(ShowExtensionServiceInstances),
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
-#[value(rename_all = "kebab_case")]
-#[repr(i32)]
-pub enum ExtensionServiceType {
-    #[value(alias = "k8s")]
-    KubernetesPod = 0, // Kubernetes pod service type
-}
-
-impl From<ExtensionServiceType> for i32 {
-    fn from(v: ExtensionServiceType) -> Self {
-        v as i32
-    }
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct CreateExtensionService {
-    #[clap(
-        short = 'i',
-        long = "id",
-        help = "The extension service ID to create (optional)"
-    )]
-    pub service_id: Option<String>,
-
-    #[clap(short = 'n', long = "name", help = "Extension service name")]
-    pub service_name: String,
-
-    #[clap(short = 't', long = "type", help = "Extension service type")]
-    pub service_type: ExtensionServiceType,
-
-    #[clap(long, help = "Extension service description (optional)")]
-    pub description: Option<String>,
-
-    #[clap(long, help = "Tenant organization ID")]
-    pub tenant_organization_id: Option<String>,
-
-    #[clap(short = 'd', long, help = "Extension service data")]
-    pub data: String,
-
-    #[clap(long, help = "Registry URL for the service credential (optional)")]
-    pub registry_url: Option<String>,
-
-    #[clap(long, help = "Username for the service credential (optional)")]
-    pub username: Option<String>,
-
-    #[clap(long, help = "Password for the service credential (optional)")]
-    pub password: Option<String>,
-
-    #[clap(
-        long,
-        help = "JSON array containing a defined set of extension observability configs (optional)"
-    )]
-    pub observability: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct UpdateExtensionService {
-    #[clap(short = 'i', long = "id", help = "The extension service ID to update")]
-    pub service_id: String,
-
-    #[clap(
-        short = 'n',
-        long = "name",
-        help = "New extension service name (optional)"
-    )]
-    pub service_name: Option<String>,
-
-    #[clap(long, help = "New extension service description (optional)")]
-    pub description: Option<String>,
-
-    #[clap(short = 'd', long, help = "New extension service data")]
-    pub data: String,
-
-    #[clap(long, help = "New registry URL for the service credential (optional)")]
-    pub registry_url: Option<String>,
-
-    #[clap(
-        short = 'u',
-        long,
-        help = "New username for the service credential (optional)"
-    )]
-    pub username: Option<String>,
-
-    #[clap(
-        short = 'p',
-        long,
-        help = "New password for the service credential (optional)"
-    )]
-    pub password: Option<String>,
-
-    #[clap(
-        long,
-        help = "Update only if current number of versions matches this number (optional)"
-    )]
-    pub if_version_ctr_match: Option<i32>,
-
-    #[clap(
-        long,
-        help = "JSON array containing a defined set of extension observability configs (optional)"
-    )]
-    pub observability: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct DeleteExtensionService {
-    #[clap(short = 'i', long = "id", help = "The extension service ID to delete")]
-    pub service_id: String,
-
-    #[clap(
-        short = 'v',
-        long,
-        help = "Version strings to delete (optional, leave empty to keep all versions)",
-        value_delimiter = ','
-    )]
-    pub versions: Vec<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowExtensionService {
-    #[clap(
-        short = 'i',
-        long,
-        help = "The extension service ID to show (leave empty to show all)"
-    )]
-    pub id: Option<String>,
-
-    #[clap(short = 't', long = "type", help = "Filter by service type (optional)")]
-    pub service_type: Option<ExtensionServiceType>,
-
-    #[clap(short = 'n', long = "name", help = "Filter by service name (optional)")]
-    pub service_name: Option<String>,
-
-    #[clap(
-        short = 'o',
-        long,
-        help = "Filter by tenant organization ID (optional)"
-    )]
-    pub tenant_organization_id: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct GetExtensionServiceVersionInfo {
-    #[clap(short = 'i', long, help = "The extension service ID")]
-    pub service_id: String,
-
-    #[clap(
-        short = 'v',
-        long,
-        help = "Version strings to get (optional, leave empty to get all versions)",
-        value_delimiter = ','
-    )]
-    pub versions: Vec<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowExtensionServiceInstances {
-    #[clap(short = 'i', long, help = "The extension service ID")]
-    pub service_id: String,
-
-    #[clap(short = 'v', long, help = "Version string to filter by (optional)")]
-    pub version: Option<String>,
-}
-
-#[derive(Parser, Debug)]
 pub enum RmsActions {
     #[clap(about = "Get Full Rms Inventory")]
     Inventory,
@@ -1724,10 +920,11 @@ pub struct AvailableFwImages {
 
 #[cfg(test)]
 mod tests {
-    use ExpectedMachineAction::Patch;
     use clap::Parser;
 
     use super::*;
+    use crate::expected_machines::Cmd::Patch;
+    use crate::expected_machines::args::{ExpectedMachine, PatchExpectedMachine};
 
     #[test]
     fn forge_admin_cli_expected_machine_test() {

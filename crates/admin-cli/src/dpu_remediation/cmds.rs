@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -18,7 +18,7 @@ use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 use rpc::forge::{AppliedRemediationIdList, AppliedRemediationList, Remediation, RemediationList};
 
-use crate::cfg::cli_options::{
+use super::args::{
     ApproveDpuRemediation, CreateDpuRemediation, DisableDpuRemediation, EnableDpuRemediation,
     ListAppliedRemediations, RevokeDpuRemediation, ShowRemediation,
 };

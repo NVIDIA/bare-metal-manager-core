@@ -20,7 +20,7 @@ pub use args::Cmd;
 
 use crate::rpc::ApiClient;
 
-/// dispatch routes sku commands.
+// dispatch routes sku commands.
 pub async fn dispatch(
     cmd: Cmd,
     api_client: &ApiClient,

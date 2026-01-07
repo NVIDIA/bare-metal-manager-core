@@ -18,7 +18,7 @@ pub use args::Cmd;
 
 use crate::rpc::ApiClient;
 
-/// dispatch routes instance_type commands.
+// dispatch routes instance_type commands.
 pub async fn dispatch(
     cmd: Cmd,
     api_client: &ApiClient,

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -17,9 +17,7 @@ use ::rpc::forge as forgerpc;
 use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use prettytable::{Table, row};
 
-use super::cfg::cli_options::{
-    CreateLogicalPartition, DeleteLogicalPartition, ShowLogicalPartition,
-};
+use super::args::{CreateLogicalPartition, DeleteLogicalPartition, ShowLogicalPartition};
 use crate::rpc::ApiClient;
 
 pub async fn handle_show(
