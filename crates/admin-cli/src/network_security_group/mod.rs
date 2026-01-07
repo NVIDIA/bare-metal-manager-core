@@ -13,26 +13,31 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes network_security_group commands.
-pub async fn dispatch(
-    cmd: Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    page_size: usize,
-    verbose: bool,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Create(args) => cmds::create(args, format, api_client).await,
-        Cmd::Show(args) => cmds::show(args, format, api_client, page_size, verbose).await,
-        Cmd::Update(args) => cmds::update(args, format, api_client).await,
-        Cmd::Delete(args) => cmds::delete(args, api_client).await,
-        Cmd::ShowAttachments(args) => cmds::show_attachments(args, format, api_client).await,
-        Cmd::Attach(args) => cmds::attach(args, api_client).await,
-        Cmd::Detach(args) => cmds::detach(args, api_client).await,
+        Cmd::Create(args) => cmds::create(args, ctx.config.format, &ctx.api_client).await,
+        Cmd::Show(args) => {
+            cmds::show(
+                args,
+                ctx.config.format,
+                &ctx.api_client,
+                ctx.config.page_size,
+                ctx.config.extended,
+            )
+            .await
+        }
+        Cmd::Update(args) => cmds::update(args, ctx.config.format, &ctx.api_client).await,
+        Cmd::Delete(args) => cmds::delete(args, &ctx.api_client).await,
+        Cmd::ShowAttachments(args) => {
+            cmds::show_attachments(args, ctx.config.format, &ctx.api_client).await
+        }
+        Cmd::Attach(args) => cmds::attach(args, &ctx.api_client).await,
+        Cmd::Detach(args) => cmds::detach(args, &ctx.api_client).await,
     }
 }

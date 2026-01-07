@@ -16,23 +16,25 @@ pub mod cmds;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use std::pin::Pin;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 pub use args::Cmd;
 use serde::{Deserialize, Serialize};
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes expected_machines commands.
-pub async fn dispatch(
-    cmd: Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Show(query) => cmds::show_expected_machines(&query, api_client, format, output).await,
+        Cmd::Show(query) => {
+            cmds::show_expected_machines(
+                &query,
+                &ctx.api_client,
+                ctx.config.format,
+                &mut ctx.output_file,
+            )
+            .await
+        }
         Cmd::Add(expected_machine_data) => {
             if expected_machine_data.has_duplicate_dpu_serials() {
                 eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
@@ -42,7 +44,7 @@ pub async fn dispatch(
                 .metadata()
                 .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
             let host_nics = Vec::new();
-            api_client
+            ctx.api_client
                 .add_expected_machine(
                     expected_machine_data.bmc_mac_address,
                     expected_machine_data.bmc_username.clone(),
@@ -59,7 +61,7 @@ pub async fn dispatch(
             Ok(())
         }
         Cmd::Delete(query) => {
-            api_client
+            ctx.api_client
                 .0
                 .delete_expected_machine(::rpc::forge::ExpectedMachineRequest {
                     bmc_mac_address: query.bmc_mac_address.to_string(),
@@ -73,7 +75,7 @@ pub async fn dispatch(
                 eprintln!("{e}");
                 return Ok(());
             }
-            api_client
+            ctx.api_client
                 .patch_expected_machine(
                     expected_machine_data.bmc_mac_address,
                     expected_machine_data.bmc_username.clone(),
@@ -97,7 +99,7 @@ pub async fn dispatch(
             let metadata = expected_machine.metadata.unwrap_or_default();
 
             // Use patch API but provide all fields from JSON for full replacement
-            api_client
+            ctx.api_client
                 .patch_expected_machine(
                     expected_machine.bmc_mac_address,
                     Some(expected_machine.bmc_username),
@@ -144,13 +146,13 @@ pub async fn dispatch(
                 );
             }
 
-            api_client
+            ctx.api_client
                 .replace_all_expected_machines(expected_machine_list.expected_machines)
                 .await?;
             Ok(())
         }
         Cmd::Erase => {
-            api_client.0.delete_all_expected_machines().await?;
+            ctx.api_client.0.delete_all_expected_machines().await?;
             Ok(())
         }
     }

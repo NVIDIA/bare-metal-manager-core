@@ -13,19 +13,22 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes dpa commands.
-pub async fn dispatch(
-    cmd: &Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    page_size: usize,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Show(query) => cmds::show(query, format, api_client, page_size).await,
+        Cmd::Show(query) => {
+            cmds::show(
+                &query,
+                ctx.config.format,
+                &ctx.api_client,
+                ctx.config.page_size,
+            )
+            .await
+        }
     }
 }

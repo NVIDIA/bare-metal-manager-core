@@ -13,45 +13,45 @@
 pub mod args;
 pub mod cmds;
 
-use std::pin::Pin;
-
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::cfg::cli_options::SortField;
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 use crate::{debug_bundle, firmware};
 
-pub async fn dispatch(
-    cmd: Cmd,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    page_size: usize,
-    sort_by: SortField,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
         Cmd::Show(args) => {
-            cmds::show(output_file, args, format, api_client, page_size, sort_by).await
+            cmds::show(
+                &mut ctx.output_file,
+                args,
+                ctx.config.format,
+                &ctx.api_client,
+                ctx.config.page_size,
+                ctx.config.sort_by,
+            )
+            .await
         }
-        Cmd::Maintenance(action) => cmds::maintenance(api_client, action).await,
-        Cmd::Quarantine(action) => cmds::quarantine(api_client, action).await,
+        Cmd::Maintenance(action) => cmds::maintenance(&ctx.api_client, action).await,
+        Cmd::Quarantine(action) => cmds::quarantine(&ctx.api_client, action).await,
         Cmd::ResetHostReprovisioning(args) => {
-            cmds::reset_host_reprovisioning(api_client, args).await
+            cmds::reset_host_reprovisioning(&ctx.api_client, args).await
         }
         Cmd::PowerOptions(options) => match options {
             args::PowerOptions::Show(args) => {
-                cmds::power_options_show(args, format, api_client).await
+                cmds::power_options_show(args, ctx.config.format, &ctx.api_client).await
             }
-            args::PowerOptions::Update(args) => cmds::update_power_option(args, api_client).await,
+            args::PowerOptions::Update(args) => {
+                cmds::update_power_option(args, &ctx.api_client).await
+            }
         },
         Cmd::StartUpdates(options) => {
-            firmware::cmds::start_updates(api_client, options)
+            firmware::cmds::start_updates(&ctx.api_client, options)
                 .await
                 .map_err(|e| ::rpc::admin_cli::CarbideCliError::GenericError(e.to_string()))?;
             Ok(())
         }
-        Cmd::DebugBundle(args) => debug_bundle::handle_debug_bundle(args, api_client).await,
-        Cmd::SetPrimaryDpu(args) => cmds::set_primary_dpu(api_client, args).await,
+        Cmd::DebugBundle(args) => debug_bundle::handle_debug_bundle(args, &ctx.api_client).await,
+        Cmd::SetPrimaryDpu(args) => cmds::set_primary_dpu(&ctx.api_client, args).await,
     }
 }

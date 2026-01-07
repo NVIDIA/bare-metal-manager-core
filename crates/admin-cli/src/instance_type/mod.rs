@@ -13,28 +13,31 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes instance_type commands.
-pub async fn dispatch(
-    cmd: Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    page_size: usize,
-    verbose: bool,
-    cloud_unsafe_operation_allowed: bool,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Create(args) => cmds::create(args, format, api_client).await,
-        Cmd::Show(args) => cmds::show(args, format, api_client, page_size, verbose).await,
-        Cmd::Update(args) => cmds::update(args, format, api_client).await,
-        Cmd::Delete(args) => cmds::delete(args, api_client).await,
-        Cmd::Associate(args) => cmds::create_association(args, api_client).await,
+        Cmd::Create(args) => cmds::create(args, ctx.config.format, &ctx.api_client).await,
+        Cmd::Show(args) => {
+            cmds::show(
+                args,
+                ctx.config.format,
+                &ctx.api_client,
+                ctx.config.page_size,
+                ctx.config.extended,
+            )
+            .await
+        }
+        Cmd::Update(args) => cmds::update(args, ctx.config.format, &ctx.api_client).await,
+        Cmd::Delete(args) => cmds::delete(args, &ctx.api_client).await,
+        Cmd::Associate(args) => cmds::create_association(args, &ctx.api_client).await,
         Cmd::Disassociate(args) => {
-            cmds::remove_association(args, cloud_unsafe_operation_allowed, api_client).await
+            cmds::remove_association(args, ctx.config.cloud_unsafe_op_enabled, &ctx.api_client)
+                .await
         }
     }
 }

@@ -13,19 +13,16 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::OutputFormat;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes switch commands.
-pub async fn dispatch(
-    cmd: &Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-) -> color_eyre::Result<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> color_eyre::Result<()> {
     match cmd {
-        Cmd::Show(show_opts) => Ok(cmds::handle_show(show_opts, format, api_client).await?),
-        Cmd::List => cmds::list_switches(api_client).await,
+        Cmd::Show(show_opts) => {
+            Ok(cmds::handle_show(&show_opts, ctx.config.format, &ctx.api_client).await?)
+        }
+        Cmd::List => cmds::list_switches(&ctx.api_client).await,
     }
 }

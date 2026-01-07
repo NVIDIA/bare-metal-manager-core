@@ -13,18 +13,14 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes network_devices commands.
-pub async fn dispatch(
-    cmd: Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Show(args) => cmds::handle_show(format, args, api_client).await,
+        Cmd::Show(args) => cmds::handle_show(ctx.config.format, args, &ctx.api_client).await,
     }
 }

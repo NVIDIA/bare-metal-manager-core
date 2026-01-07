@@ -13,21 +13,24 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes nvl_logical_partition commands.
-pub async fn dispatch(
-    cmd: Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    page_size: usize,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Show(args) => cmds::handle_show(args, format, api_client, page_size).await,
-        Cmd::Create(args) => cmds::handle_create(args, api_client).await,
-        Cmd::Delete(args) => cmds::handle_delete(args, api_client).await,
+        Cmd::Show(args) => {
+            cmds::handle_show(
+                args,
+                ctx.config.format,
+                &ctx.api_client,
+                ctx.config.page_size,
+            )
+            .await
+        }
+        Cmd::Create(args) => cmds::handle_create(args, &ctx.api_client).await,
+        Cmd::Delete(args) => cmds::handle_delete(args, &ctx.api_client).await,
     }
 }

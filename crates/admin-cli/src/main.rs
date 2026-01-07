@@ -45,6 +45,7 @@ use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
 use crate::cfg::cli_options::AdminPowerControlAction;
+use crate::cfg::runtime::{RuntimeConfig, RuntimeContext};
 use crate::cfg::storage::OsImageActions;
 use crate::rpc::ApiClient;
 
@@ -186,75 +187,39 @@ async fn main() -> color_eyre::Result<()> {
     // borrowed by all others.
     let api_client = ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config)));
 
-    let mut output_file = get_output_file_or_stdout(config.output.as_deref()).await?;
+    let output_file = get_output_file_or_stdout(config.output.as_deref()).await?;
+
+    // Build RuntimeContext before the match - ctx is moved into whichever arm executes
+    let mut ctx = RuntimeContext {
+        api_client,
+        config: RuntimeConfig {
+            format: config.format.clone(),
+            page_size: config.internal_page_size,
+            extended: config.extended,
+            cloud_unsafe_op_enabled: config.cloud_unsafe_op.is_some(),
+            sort_by: config.sort_by.clone(),
+        },
+        output_file,
+    };
 
     // Command to talk to Carbide API.
     match command {
-        CliCommand::Version(version) => {
-            version::dispatch(&version, &api_client, config.format).await?
-        }
-        CliCommand::Mlx(cmd) => mlx::dispatch(cmd, &api_client, &config.format).await?,
-        CliCommand::Machine(cmd) => {
-            machine::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                &config.sort_by,
-                config.extended,
-            )
-            .await?
-        }
-        CliCommand::Instance(cmd) => {
-            instance::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                &config.sort_by,
-                config.cloud_unsafe_op,
-            )
-            .await?
-        }
-        CliCommand::NetworkSegment(cmd) => {
-            network_segment::dispatch(
-                cmd,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                config.cloud_unsafe_op.is_some(),
-            )
-            .await?
-        }
-        CliCommand::Domain(cmd) => domain::dispatch(&cmd, &api_client, config.format).await?,
-        CliCommand::ManagedHost(cmd) => {
-            managed_host::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                config.sort_by,
-            )
-            .await?
-        }
-        CliCommand::Measurement(cmd) => {
-            let args = cfg::measurement::GlobalOptions {
-                format: config.format,
-                extended: config.extended,
-            };
-            measurement::dispatch(&cmd, &args, &api_client).await?
-        }
-        CliCommand::ResourcePool(cmd) => resource_pool::dispatch(&cmd, &api_client).await?,
+        CliCommand::Version(cmd) => version::dispatch(cmd, ctx).await?,
+        CliCommand::Mlx(cmd) => mlx::dispatch(cmd, ctx).await?,
+        CliCommand::Machine(cmd) => machine::dispatch(cmd, ctx).await?,
+        CliCommand::Instance(cmd) => instance::dispatch(cmd, ctx).await?,
+        CliCommand::NetworkSegment(cmd) => network_segment::dispatch(cmd, ctx).await?,
+        CliCommand::Domain(cmd) => domain::dispatch(cmd, ctx).await?,
+        CliCommand::ManagedHost(cmd) => managed_host::dispatch(cmd, ctx).await?,
+        CliCommand::Measurement(cmd) => measurement::dispatch(cmd, ctx).await?,
+        CliCommand::ResourcePool(cmd) => resource_pool::dispatch(cmd, ctx).await?,
         CliCommand::Ip(ip_command) => match ip_command {
             IpAction::Find(find) => {
                 let req = forgerpc::FindIpAddressRequest {
                     ip: find.ip.to_string(),
                 };
                 // maybe handle tonic::Status's `.code()` of tonic::Code::NotFound
-                let resp = api_client.0.find_ip_address(req).await?;
+                let resp = ctx.api_client.0.find_ip_address(req).await?;
                 for r in resp.matches {
                     tracing::info!("{}", r.message);
                 }
@@ -266,25 +231,14 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         },
-        CliCommand::NetworkDevice(cmd) => {
-            network_devices::dispatch(cmd, &api_client, config.format).await?
-        }
-        CliCommand::Dpu(cmd) => {
-            dpu::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-            )
-            .await?
-        }
+        CliCommand::NetworkDevice(cmd) => network_devices::dispatch(cmd, ctx).await?,
+        CliCommand::Dpu(cmd) => dpu::dispatch(cmd, ctx).await?,
         CliCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {
-                uefi::cmds::set_password(&query, &api_client).await?;
+                uefi::cmds::set_password(&query, &ctx.api_client).await?;
             }
             HostAction::ClearUefiPassword(query) => {
-                uefi::cmds::clear_password(&query, &api_client).await?;
+                uefi::cmds::clear_password(&query, &ctx.api_client).await?;
             }
             HostAction::GenerateHostUefiPassword => {
                 let password = Credentials::generate_password_no_special_char();
@@ -295,7 +249,7 @@ async fn main() -> color_eyre::Result<()> {
                     host::cmds::trigger_reprovisioning(
                         data.id,
                         ::rpc::forge::host_reprovisioning_request::Mode::Set,
-                        &api_client,
+                        &ctx.api_client,
                         data.update_message,
                     )
                     .await?
@@ -304,28 +258,27 @@ async fn main() -> color_eyre::Result<()> {
                     host::cmds::trigger_reprovisioning(
                         data.id,
                         ::rpc::forge::host_reprovisioning_request::Mode::Clear,
-                        &api_client,
+                        &ctx.api_client,
                         None,
                     )
                     .await?
                 }
-                HostReprovision::List => host::cmds::list_hosts_pending(&api_client).await?,
+                HostReprovision::List => host::cmds::list_hosts_pending(&ctx.api_client).await?,
             },
         },
         CliCommand::Redfish(action) => {
             if let redfish::Cmd::Browse(redfish::UriInfo { uri }) = &action.command {
-                return redfish::handle_browse_command(&api_client, uri).await;
+                return redfish::handle_browse_command(&ctx.api_client, uri).await;
             }
 
             // Handled earlier
             unreachable!();
         }
-        CliCommand::ScoutStream(cmd) => {
-            scout_stream::dispatch(cmd, &api_client, &config.format).await?
-        }
+        CliCommand::ScoutStream(cmd) => scout_stream::dispatch(cmd, ctx).await?,
         CliCommand::BootOverride(boot_override_args) => match boot_override_args {
             BootOverrideAction::Get(boot_override) => {
-                let mbo = api_client
+                let mbo = ctx
+                    .api_client
                     .0
                     .get_machine_boot_override(boot_override.interface_id)
                     .await?;
@@ -349,7 +302,7 @@ async fn main() -> color_eyre::Result<()> {
                 let custom_pxe_path = boot_override_set.custom_pxe.map(PathBuf::from);
                 let custom_user_data_path = boot_override_set.custom_user_data.map(PathBuf::from);
 
-                api_client
+                ctx.api_client
                     .set_boot_override(
                         boot_override_set.interface_id,
                         custom_pxe_path.as_deref(),
@@ -358,7 +311,7 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
             }
             BootOverrideAction::Clear(boot_override) => {
-                api_client
+                ctx.api_client
                     .0
                     .clear_machine_boot_override(boot_override.interface_id)
                     .await?;
@@ -366,17 +319,17 @@ async fn main() -> color_eyre::Result<()> {
         },
         CliCommand::BmcMachine(bmc_machine) => match bmc_machine {
             BmcAction::BmcReset(args) => {
-                api_client
+                ctx.api_client
                     .bmc_reset(None, Some(args.machine), args.use_ipmitool)
                     .await?;
             }
             BmcAction::AdminPowerControl(args) => {
-                api_client
+                ctx.api_client
                     .admin_power_control(None, Some(args.machine), args.action.into())
                     .await?;
             }
             BmcAction::CreateBmcUser(args) => {
-                api_client
+                ctx.api_client
                     .create_bmc_user(
                         args.ip_address,
                         args.mac_address,
@@ -388,7 +341,7 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
             }
             BmcAction::DeleteBmcUser(args) => {
-                api_client
+                ctx.api_client
                     .delete_bmc_user(
                         args.ip_address,
                         args.mac_address,
@@ -399,11 +352,11 @@ async fn main() -> color_eyre::Result<()> {
             }
             BmcAction::EnableInfiniteBoot(args) => {
                 let machine = args.machine;
-                api_client
+                ctx.api_client
                     .enable_infinite_boot(None, Some(machine.clone()))
                     .await?;
                 if args.reboot {
-                    api_client
+                    ctx.api_client
                         .admin_power_control(
                             None,
                             Some(machine),
@@ -413,7 +366,8 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
             BmcAction::IsInfiniteBootEnabled(args) => {
-                let response = api_client
+                let response = ctx
+                    .api_client
                     .is_infinite_boot_enabled(None, Some(args.machine))
                     .await?;
                 match response.is_enabled {
@@ -435,12 +389,12 @@ async fn main() -> color_eyre::Result<()> {
                     .into());
                 };
 
-                api_client.lockdown(None, machine, action).await?;
+                ctx.api_client.lockdown(None, machine, action).await?;
 
                 let action_str = if args.enable { "enabled" } else { "disabled" };
 
                 if args.reboot {
-                    api_client
+                    ctx.api_client
                         .admin_power_control(
                             None,
                             Some(machine.to_string()),
@@ -459,7 +413,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
             BmcAction::LockdownStatus(args) => {
-                let response = api_client.lockdown_status(None, args.machine).await?;
+                let response = ctx.api_client.lockdown_status(None, args.machine).await?;
                 // Convert status enum to string
                 let status_str = match response.status {
                     0 => "Enabled",  // InternalLockdownStatus::ENABLED
@@ -471,7 +425,7 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CliCommand::Inventory(action) => {
-            inventory::print_inventory(&api_client, action, config.internal_page_size).await?
+            inventory::print_inventory(&ctx.api_client, action, ctx.config.page_size).await?
         }
         CliCommand::Credential(credential_action) => match credential_action {
             CredentialAction::AddUFM(c) => {
@@ -484,7 +438,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: None,
                 };
-                api_client.0.create_credential(req).await?;
+                ctx.api_client.0.create_credential(req).await?;
             }
             CredentialAction::DeleteUFM(c) => {
                 let username = url_validator(c.url.clone())?;
@@ -493,7 +447,7 @@ async fn main() -> color_eyre::Result<()> {
                     username: Some(username),
                     mac_address: None,
                 };
-                api_client.0.delete_credential(req).await?;
+                ctx.api_client.0.delete_credential(req).await?;
             }
             CredentialAction::GenerateUFMCert(c) => {
                 let req = forgerpc::CredentialCreationRequest {
@@ -503,7 +457,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: Some(c.fabric),
                 };
-                api_client.0.create_credential(req).await?;
+                ctx.api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddBMC(c) => {
                 let password = password_validator(c.password.clone())?;
@@ -514,7 +468,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: c.mac_address.map(|mac| mac.to_string()),
                     vendor: None,
                 };
-                api_client.0.create_credential(req).await?;
+                ctx.api_client.0.create_credential(req).await?;
             }
             CredentialAction::DeleteBMC(c) => {
                 let req = forgerpc::CredentialDeletionRequest {
@@ -522,7 +476,7 @@ async fn main() -> color_eyre::Result<()> {
                     username: None,
                     mac_address: c.mac_address.map(|mac| mac.to_string()),
                 };
-                api_client.0.delete_credential(req).await?;
+                ctx.api_client.0.delete_credential(req).await?;
             }
             CredentialAction::AddUefi(c) => {
                 let mut password = password_validator(c.password.clone())?;
@@ -537,7 +491,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: None,
                 };
-                api_client.0.create_credential(req).await?;
+                ctx.api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddHostFactoryDefault(c) => {
                 let req = forgerpc::CredentialCreationRequest {
@@ -547,7 +501,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: Some(c.vendor.to_string()),
                 };
-                api_client.0.create_credential(req).await?;
+                ctx.api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddDpuFactoryDefault(c) => {
                 let req = forgerpc::CredentialCreationRequest {
@@ -557,7 +511,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: None,
                 };
-                api_client.0.create_credential(req).await?;
+                ctx.api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddNmxM(c) => {
                 let req = forgerpc::CredentialCreationRequest {
@@ -567,7 +521,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: None,
                 };
-                api_client.0.create_credential(req).await?;
+                ctx.api_client.0.create_credential(req).await?;
             }
             CredentialAction::DeleteNmxM(c) => {
                 let req = forgerpc::CredentialDeletionRequest {
@@ -575,25 +529,12 @@ async fn main() -> color_eyre::Result<()> {
                     username: Some(c.username),
                     mac_address: None,
                 };
-                api_client.0.delete_credential(req).await?;
+                ctx.api_client.0.delete_credential(req).await?;
             }
         },
-        CliCommand::RouteServer(cmd) => {
-            route_server::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::SiteExplorer(cmd) => {
-            site_explorer::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-            )
-            .await?
-        }
-        CliCommand::MachineInterfaces(cmd) => {
-            machine_interfaces::dispatch(cmd, &api_client, config.format).await?
-        }
+        CliCommand::RouteServer(cmd) => route_server::dispatch(cmd, ctx).await?,
+        CliCommand::SiteExplorer(cmd) => site_explorer::dispatch(cmd, ctx).await?,
+        CliCommand::MachineInterfaces(cmd) => machine_interfaces::dispatch(cmd, ctx).await?,
         CliCommand::GenerateShellComplete(shell) => {
             let mut cmd = CliOptions::command();
             match shell.shell {
@@ -627,15 +568,15 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CliCommand::Ping(opts) => ping::dispatch(&opts, &api_client).await?,
+        CliCommand::Ping(cmd) => ping::dispatch(cmd, ctx).await?,
         CliCommand::Set(subcmd) => match subcmd {
             SetAction::LogFilter(opts) => {
-                api_client
+                ctx.api_client
                     .set_dynamic_config(ConfigSetting::LogFilter, opts.filter, Some(opts.expiry))
                     .await?
             }
             SetAction::CreateMachines(opts) => {
-                api_client
+                ctx.api_client
                     .set_dynamic_config(
                         ConfigSetting::CreateMachines,
                         opts.enabled.to_string(),
@@ -645,7 +586,7 @@ async fn main() -> color_eyre::Result<()> {
             }
             SetAction::BmcProxy(opts) => {
                 if opts.enabled {
-                    api_client
+                    ctx.api_client
                         .set_dynamic_config(
                             ConfigSetting::BmcProxy,
                             opts.proxy.unwrap_or("".to_string()),
@@ -653,7 +594,7 @@ async fn main() -> color_eyre::Result<()> {
                         )
                         .await?
                 } else {
-                    api_client
+                    ctx.api_client
                         .set_dynamic_config(ConfigSetting::BmcProxy, "".to_string(), None)
                         .await?
                 }
@@ -661,7 +602,7 @@ async fn main() -> color_eyre::Result<()> {
             SetAction::TracingEnabled {
                 value: tracing_enabled,
             } => {
-                api_client
+                ctx.api_client
                     .set_dynamic_config(
                         ConfigSetting::TracingEnabled,
                         tracing_enabled.to_string(),
@@ -670,36 +611,15 @@ async fn main() -> color_eyre::Result<()> {
                     .await?
             }
         },
-        CliCommand::ExpectedMachine(cmd) => {
-            expected_machines::dispatch(cmd, &api_client, config.format, &mut output_file).await?
-        }
-        CliCommand::ExpectedPowerShelf(cmd) => {
-            expected_power_shelf::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::ExpectedSwitch(cmd) => {
-            expected_switch::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::Vpc(cmd) => {
-            vpc::dispatch(cmd, &api_client, config.format, config.internal_page_size).await?
-        }
-        CliCommand::Dpa(cmd) => {
-            dpa::dispatch(&cmd, &api_client, config.format, config.internal_page_size).await?
-        }
-        CliCommand::VpcPeering(cmd) => {
-            vpc_peering::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::VpcPrefix(cmd) => {
-            vpc_prefix::dispatch(&cmd, &api_client, config.format, config.internal_page_size)
-                .await?
-        }
-        CliCommand::IbPartition(cmd) => {
-            ib_partition::dispatch(cmd, &api_client, config.format, config.internal_page_size)
-                .await?
-        }
-        CliCommand::TenantKeySet(cmd) => {
-            tenant_keyset::dispatch(cmd, &api_client, config.format, config.internal_page_size)
-                .await?
-        }
+        CliCommand::ExpectedMachine(cmd) => expected_machines::dispatch(cmd, ctx).await?,
+        CliCommand::ExpectedPowerShelf(cmd) => expected_power_shelf::dispatch(cmd, ctx).await?,
+        CliCommand::ExpectedSwitch(cmd) => expected_switch::dispatch(cmd, ctx).await?,
+        CliCommand::Vpc(cmd) => vpc::dispatch(cmd, ctx).await?,
+        CliCommand::Dpa(cmd) => dpa::dispatch(cmd, ctx).await?,
+        CliCommand::VpcPeering(cmd) => vpc_peering::dispatch(cmd, ctx).await?,
+        CliCommand::VpcPrefix(cmd) => vpc_prefix::dispatch(cmd, ctx).await?,
+        CliCommand::IbPartition(cmd) => ib_partition::dispatch(cmd, ctx).await?,
+        CliCommand::TenantKeySet(cmd) => tenant_keyset::dispatch(cmd, ctx).await?,
         CliCommand::Jump(j) => {
             // Is it a machine ID?
             // Grab the machine details.
@@ -714,11 +634,11 @@ async fn main() -> color_eyre::Result<()> {
                         instance_type_id: None,
                         history_count: 5,
                     },
-                    &config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                    &config.sort_by,
+                    &ctx.config.format,
+                    &mut ctx.output_file,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                    &ctx.config.sort_by,
                 )
                 .await?;
 
@@ -729,7 +649,7 @@ async fn main() -> color_eyre::Result<()> {
             if IpAddr::from_str(&j.id).is_ok() {
                 let req = forgerpc::FindIpAddressRequest { ip: j.id };
 
-                let resp = api_client.0.find_ip_address(req).await?;
+                let resp = ctx.api_client.0.find_ip_address(req).await?;
 
                 // Go through each object that matched the IP search,
                 // and perform any more specific searches available for
@@ -744,7 +664,7 @@ async fn main() -> color_eyre::Result<()> {
                         }
                     };
 
-                    let config_format = config.format.clone();
+                    let config_format = ctx.config.format.clone();
 
                     use forgerpc::IpType::*;
                     match ip_type {
@@ -765,11 +685,11 @@ async fn main() -> color_eyre::Result<()> {
                                     label_value: None,
                                     instance_type_id: None,
                                 },
-                                &mut output_file,
+                                &mut ctx.output_file,
                                 &config_format,
-                                &api_client,
-                                config.internal_page_size,
-                                &config.sort_by,
+                                &ctx.api_client,
+                                ctx.config.page_size,
+                                &ctx.config.sort_by,
                             )
                             .await?
                         }
@@ -787,20 +707,20 @@ async fn main() -> color_eyre::Result<()> {
                                     history_count: 5
                                 },
                                 &config_format,
-                                &mut output_file,
-                                &api_client,
-                                config.internal_page_size,
-                                &config.sort_by,
+                                &mut ctx.output_file,
+                                &ctx.api_client,
+                                ctx.config.page_size,
+                                &ctx.config.sort_by,
                             )
                             .await?;
                         }
 
                         ExploredEndpoint => {
                             site_explorer::show_site_explorer_discovered_managed_host(
-                                &api_client,
-                                &mut output_file,
+                                &ctx.api_client,
+                                &mut ctx.output_file,
                                 config_format,
-                                config.internal_page_size,
+                                ctx.config.page_size,
                                 site_explorer::args::GetReportMode::Endpoint(site_explorer::args::EndpointInfo{
                                     address: if m.owner_id.is_some() { m.owner_id } else {
                                         color_eyre::eyre::bail!(CarbideCliError::GenericError("IP type is explored-endpoint but returned owner_id is empty".to_string()))
@@ -824,12 +744,12 @@ async fn main() -> color_eyre::Result<()> {
                                     name: None,
                                 },
                                 config_format,
-                                &api_client,
-                                config.internal_page_size,
+                                &ctx.api_client,
+                                ctx.config.page_size,
                             )
                             .await?
                         }
-                        ResourcePool => resource_pool::cmds::list(&api_client).await?,
+                        ResourcePool => resource_pool::cmds::list(&ctx.api_client).await?,
                     };
                 }
 
@@ -841,7 +761,7 @@ async fn main() -> color_eyre::Result<()> {
             // a search for the object's details.  E.g., if it's the
             // UUID of an instance, then get the details of the instance.
             if let Ok(u) = j.id.parse::<uuid::Uuid>() {
-                match api_client.identify_uuid(u).await {
+                match ctx.api_client.identify_uuid(u).await {
                     Ok(o) => match o {
                         forgerpc::UuidType::NetworkSegment => {
                             network_segment::cmds::handle_show(
@@ -850,9 +770,9 @@ async fn main() -> color_eyre::Result<()> {
                                     tenant_org_id: None,
                                     name: None,
                                 },
-                                config.format,
-                                &api_client,
-                                config.internal_page_size,
+                                ctx.config.format.clone(),
+                                &ctx.api_client,
+                                ctx.config.page_size,
                             )
                             .await?
                         }
@@ -867,11 +787,11 @@ async fn main() -> color_eyre::Result<()> {
                                     label_value: None,
                                     instance_type_id: None,
                                 },
-                                &mut output_file,
-                                &config.format,
-                                &api_client,
-                                config.internal_page_size,
-                                &config.sort_by,
+                                &mut ctx.output_file,
+                                &ctx.config.format,
+                                &ctx.api_client,
+                                ctx.config.page_size,
+                                &ctx.config.sort_by,
                             )
                             .await?
                         }
@@ -882,8 +802,8 @@ async fn main() -> color_eyre::Result<()> {
                                     all: false,
                                     more: true,
                                 },
-                                config.format,
-                                &api_client,
+                                ctx.config.format.clone(),
+                                &ctx.api_client,
                             )
                             .await?
                         }
@@ -896,8 +816,8 @@ async fn main() -> color_eyre::Result<()> {
                                     label_key: None,
                                     label_value: None,
                                 },
-                                config.format,
-                                &api_client,
+                                ctx.config.format.clone(),
+                                &ctx.api_client,
                                 1,
                             )
                             .await?
@@ -908,8 +828,8 @@ async fn main() -> color_eyre::Result<()> {
                                     domain: Some(j.id.parse()?),
                                     all: false,
                                 },
-                                config.format,
-                                &api_client,
+                                ctx.config.format.clone(),
+                                &ctx.api_client,
                             )
                             .await?
                         }
@@ -918,8 +838,8 @@ async fn main() -> color_eyre::Result<()> {
                                 &dpa::args::ShowDpa {
                                     id: Some(j.id.parse()?),
                                 },
-                                config.format,
-                                &api_client,
+                                ctx.config.format.clone(),
+                                &ctx.api_client,
                                 1,
                             )
                             .await?
@@ -936,7 +856,7 @@ async fn main() -> color_eyre::Result<()> {
             // Is it a MAC?
             // Grab the details for the interface it's associated with.
             if let Ok(m) = MacAddress::from_str(&j.id) {
-                match api_client.identify_mac(m).await {
+                match ctx.api_client.identify_mac(m).await {
                     Ok((mac_owner, primary_key)) => match mac_owner {
                         forgerpc::MacOwner::MachineInterface => {
                             machine_interfaces::cmds::handle_show(
@@ -945,8 +865,8 @@ async fn main() -> color_eyre::Result<()> {
                                     all: false,
                                     more: true,
                                 },
-                                config.format,
-                                &api_client,
+                                ctx.config.format.clone(),
+                                &ctx.api_client,
                             )
                             .await?
                         }
@@ -971,7 +891,7 @@ async fn main() -> color_eyre::Result<()> {
 
             // Is it a serial number?!??!?!
             // Grab the machine ID and look-up the machine.
-            if let Ok(machine_id) = api_client.identify_serial(j.id, false).await {
+            if let Ok(machine_id) = ctx.api_client.identify_serial(j.id, false).await {
                 machine::handle_show(
                     machine::ShowMachine {
                         machine: Some(machine_id),
@@ -982,11 +902,11 @@ async fn main() -> color_eyre::Result<()> {
                         instance_type_id: None,
                         history_count: 5,
                     },
-                    &config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                    &config.sort_by,
+                    &ctx.config.format,
+                    &mut ctx.output_file,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                    &ctx.config.sort_by,
                 )
                 .await?;
 
@@ -997,75 +917,38 @@ async fn main() -> color_eyre::Result<()> {
             color_eyre::eyre::bail!("Unable to determine ID type");
         }
 
-        CliCommand::MachineValidation(cmd) => {
-            machine_validation::dispatch(
-                cmd,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                config.extended,
-            )
-            .await?
-        }
+        CliCommand::MachineValidation(cmd) => machine_validation::dispatch(cmd, ctx).await?,
         CliCommand::OsImage(os_image) => match os_image {
             OsImageActions::Show(os_image) => {
                 storage::os_image_show(
                     os_image,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
+                    ctx.config.format,
+                    &ctx.api_client,
+                    ctx.config.page_size,
                 )
                 .await?
             }
             OsImageActions::Create(os_image) => {
-                storage::os_image_create(os_image, &api_client).await?
+                storage::os_image_create(os_image, &ctx.api_client).await?
             }
             OsImageActions::Delete(os_image) => {
-                storage::os_image_delete(os_image, &api_client).await?
+                storage::os_image_delete(os_image, &ctx.api_client).await?
             }
             OsImageActions::Update(os_image) => {
-                storage::os_image_update(os_image, &api_client).await?
+                storage::os_image_update(os_image, &ctx.api_client).await?
             }
         },
-        CliCommand::TpmCa(cmd) => tpm_ca::dispatch(&cmd, &api_client).await?,
-        CliCommand::NetworkSecurityGroup(cmd) => {
-            network_security_group::dispatch(
-                cmd,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                config.extended,
-            )
-            .await?
-        }
-        CliCommand::Sku(cmd) => {
-            sku::dispatch(
-                cmd,
-                &api_client,
-                &mut output_file,
-                &config.format,
-                config.extended,
-            )
-            .await?
-        }
+        CliCommand::TpmCa(cmd) => tpm_ca::dispatch(cmd, ctx).await?,
+        CliCommand::NetworkSecurityGroup(cmd) => network_security_group::dispatch(cmd, ctx).await?,
+        CliCommand::Sku(cmd) => sku::dispatch(cmd, ctx).await?,
         CliCommand::DevEnv(command) => match command {
             cfg::cli_options::DevEnv::Config(dev_env_config) => match dev_env_config {
                 cfg::cli_options::DevEnvConfig::Apply(dev_env_config_apply) => {
-                    apply_devenv_config(dev_env_config_apply, &api_client).await?;
+                    apply_devenv_config(dev_env_config_apply, &ctx.api_client).await?;
                 }
             },
         },
-        CliCommand::InstanceType(cmd) => {
-            instance_type::dispatch(
-                cmd,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                config.extended,
-                config.cloud_unsafe_op.is_some(),
-            )
-            .await?
-        }
+        CliCommand::InstanceType(cmd) => instance_type::dispatch(cmd, ctx).await?,
         CliCommand::Ssh(action) => match action {
             cfg::cli_options::SshActions::GetRshimStatus(ssh_args) => {
                 let is_rshim_enabled = is_rshim_enabled(
@@ -1112,40 +995,38 @@ async fn main() -> color_eyre::Result<()> {
                 println!("OBMC Console Log:\n{log}");
             }
         },
-        CliCommand::PowerShelf(cmd) => {
-            power_shelf::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::Switch(cmd) => switch::dispatch(&cmd, &api_client, config.format).await?,
-        CliCommand::Rack(cmd) => rack::dispatch(&cmd, &api_client).await?,
+        CliCommand::PowerShelf(cmd) => power_shelf::dispatch(cmd, ctx).await?,
+        CliCommand::Switch(cmd) => switch::dispatch(cmd, ctx).await?,
+        CliCommand::Rack(cmd) => rack::dispatch(cmd, ctx).await?,
         CliCommand::Rms(action) => match action {
             cfg::cli_options::RmsActions::Inventory => {
-                rack::cmds::get_inventory(&api_client).await?;
+                rack::cmds::get_inventory(&ctx.api_client).await?;
             }
             cfg::cli_options::RmsActions::RemoveNode(remove_node_opts) => {
-                rack::cmds::remove_node(&api_client, &remove_node_opts).await?;
+                rack::cmds::remove_node(&ctx.api_client, &remove_node_opts).await?;
             }
             cfg::cli_options::RmsActions::PoweronOrder => {
-                rack::cmds::get_poweron_order(&api_client).await?;
+                rack::cmds::get_poweron_order(&ctx.api_client).await?;
             }
             cfg::cli_options::RmsActions::PowerState(power_state_opts) => {
-                rack::cmds::get_power_state(&api_client, &power_state_opts).await?;
+                rack::cmds::get_power_state(&ctx.api_client, &power_state_opts).await?;
             }
             cfg::cli_options::RmsActions::FirmwareInventory(firmware_inventory_opts) => {
-                rack::cmds::get_firmware_inventory(&api_client, &firmware_inventory_opts).await?;
+                rack::cmds::get_firmware_inventory(&ctx.api_client, &firmware_inventory_opts)
+                    .await?;
             }
             cfg::cli_options::RmsActions::AvailableFwImages(available_fw_images_opts) => {
-                rack::cmds::get_available_fw_images(&api_client, &available_fw_images_opts).await?;
+                rack::cmds::get_available_fw_images(&ctx.api_client, &available_fw_images_opts)
+                    .await?;
             }
             cfg::cli_options::RmsActions::BkcFiles => {
-                rack::cmds::get_bkc_files(&api_client).await?;
+                rack::cmds::get_bkc_files(&ctx.api_client).await?;
             }
             cfg::cli_options::RmsActions::CheckBkcCompliance => {
-                rack::cmds::check_bkc_compliance(&api_client).await?;
+                rack::cmds::check_bkc_compliance(&ctx.api_client).await?;
             }
         },
-        CliCommand::Firmware(cmd) => {
-            firmware::dispatch(&cmd, &api_client, config.format, &mut output_file).await?
-        }
+        CliCommand::Firmware(cmd) => firmware::dispatch(cmd, ctx).await?,
         CliCommand::TrimTable(target) => {
             match target {
                 cfg::cli_options::TrimTableTarget::MeasuredBoot(keep_entries) => {
@@ -1155,7 +1036,7 @@ async fn main() -> color_eyre::Result<()> {
                         keep_entries: keep_entries.keep_entries,
                     };
 
-                    let response = api_client.0.trim_table(request).await?;
+                    let response = ctx.api_client.0.trim_table(request).await?;
 
                     println!(
                         "Trimmed {} reports from Measured Boot",
@@ -1164,38 +1045,11 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CliCommand::DpuRemediation(cmd) => {
-            dpu_remediation::dispatch(
-                cmd,
-                &api_client,
-                config.format,
-                &mut output_file,
-                config.internal_page_size,
-            )
-            .await?
-        }
-        CliCommand::ExtensionService(cmd) => {
-            extension_service::dispatch(cmd, &api_client, config.format, config.internal_page_size)
-                .await?
-        }
-
-        CliCommand::NvlPartition(cmd) => {
-            nvl_partition::dispatch(cmd, &api_client, config.format, config.internal_page_size)
-                .await?
-        }
-        CliCommand::LogicalPartition(cmd) => {
-            nvl_logical_partition::dispatch(
-                cmd,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-            )
-            .await?
-        }
-
-        CliCommand::Tenant(cmd) => {
-            tenant::dispatch(cmd, &api_client, config.format, config.internal_page_size).await?
-        }
+        CliCommand::DpuRemediation(cmd) => dpu_remediation::dispatch(cmd, ctx).await?,
+        CliCommand::ExtensionService(cmd) => extension_service::dispatch(cmd, ctx).await?,
+        CliCommand::NvlPartition(cmd) => nvl_partition::dispatch(cmd, ctx).await?,
+        CliCommand::LogicalPartition(cmd) => nvl_logical_partition::dispatch(cmd, ctx).await?,
+        CliCommand::Tenant(cmd) => tenant::dispatch(cmd, ctx).await?,
     }
 
     Ok(())

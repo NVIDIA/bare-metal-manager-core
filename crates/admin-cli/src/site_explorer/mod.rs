@@ -13,37 +13,35 @@
 pub mod args;
 pub mod cmds;
 
-use std::pin::Pin;
-
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 pub use cmds::show_discovered_managed_host as show_site_explorer_discovered_managed_host;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
-pub async fn dispatch(
-    cmd: Cmd,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    page_size: usize,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
         Cmd::GetReport(mode) => {
-            cmds::show_discovered_managed_host(api_client, output_file, format, page_size, mode)
-                .await
+            cmds::show_discovered_managed_host(
+                &ctx.api_client,
+                &mut ctx.output_file,
+                ctx.config.format,
+                ctx.config.page_size,
+                mode,
+            )
+            .await
         }
-        Cmd::Explore(opts) => cmds::explore(api_client, &opts.address, opts.mac).await,
-        Cmd::ReExplore(opts) => cmds::re_explore(api_client, opts).await,
-        Cmd::ClearError(opts) => cmds::clear_error(api_client, opts.address).await,
-        Cmd::Delete(opts) => cmds::delete_endpoint(api_client, opts).await,
-        Cmd::Remediation(opts) => cmds::remediation(api_client, opts).await,
+        Cmd::Explore(opts) => cmds::explore(&ctx.api_client, &opts.address, opts.mac).await,
+        Cmd::ReExplore(opts) => cmds::re_explore(&ctx.api_client, opts).await,
+        Cmd::ClearError(opts) => cmds::clear_error(&ctx.api_client, opts.address).await,
+        Cmd::Delete(opts) => cmds::delete_endpoint(&ctx.api_client, opts).await,
+        Cmd::Remediation(opts) => cmds::remediation(&ctx.api_client, opts).await,
         Cmd::IsBmcInManagedHost(opts) => {
-            cmds::is_bmc_in_managed_host(api_client, &opts.address, opts.mac).await
+            cmds::is_bmc_in_managed_host(&ctx.api_client, &opts.address, opts.mac).await
         }
         Cmd::HaveCredentials(opts) => {
-            cmds::have_credentials(api_client, &opts.address, opts.mac).await
+            cmds::have_credentials(&ctx.api_client, &opts.address, opts.mac).await
         }
-        Cmd::CopyBfbToDpuRshim(args) => cmds::copy_bfb_to_dpu_rshim(api_client, args).await,
+        Cmd::CopyBfbToDpuRshim(args) => cmds::copy_bfb_to_dpu_rshim(&ctx.api_client, args).await,
     }
 }
