@@ -143,8 +143,10 @@ run-mac-carbide: run-docker-vault run-docker-postgres
 
   cargo run --package carbide-api --no-default-features migrate || true
 
-  echo "making carbide firmware dir, might ask for password"
-  sudo mkdir /opt/carbide/firmware # carbide expects this directory to exist (even if empty).
+  if [ ! -d /opt/carbide/firmware ]; then
+    echo "making carbide firmware dir, might ask for password"
+    sudo mkdir /opt/carbide/firmware # carbide expects this directory to exist (even if empty).
+    fi
   RUST_BACKTRACE=1 cargo run --package carbide-api --no-default-features -- run --config-path dev/mac-local-dev/carbide-api-config.toml
 
 run-mac-mat:

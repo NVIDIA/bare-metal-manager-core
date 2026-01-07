@@ -1,5 +1,5 @@
 listen = "[::]:1079"
-listen_mode = "tls"
+listen_mode = "plaintext_http2"
 metrics_endpoint = "[::]:1080"
 database_url = "postgresql://postgres:admin@localhost"
 asn = 4294967000
@@ -47,9 +47,14 @@ identity_keyfile_path = "/Users/fchua/repos/carbide/dev/certs/localhost/localhos
 root_cafile_path = "/Users/fchua/repos/carbide/dev/certs/localhost/ca.crt"
 admin_root_cafile_path = "/Users/fchua/repos/carbide/dev/certs/forge_root.pem"
 
-# [auth]
-# permissive_mode=false
-# casbin_policy_file="/etc/forge/carbide-api/casbin-policy.csv"
+[auth]
+permissive_mode = true
+
+[auth.trust]
+spiffe_trust_domain = "forge.local"
+spiffe_service_base_paths = ["/forge-system/sa/", "/default/sa/"]
+spiffe_machine_base_path = "/forge-system/machine/"
+additional_issuer_cns = []
 
 # [machine_state_controller]
 # failure_retry_time = "45m"
