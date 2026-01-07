@@ -32,7 +32,7 @@ use super::args::{
     MachineHardwareInfoGpus, MachineMetadataCommand, MachineMetadataCommandAddLabel,
     MachineMetadataCommandFromExpectedMachine, MachineMetadataCommandRemoveLabels,
     MachineMetadataCommandSet, MachineMetadataCommandShow, MachineQuery, NetworkCommand,
-    OverrideCommand, ShowMachine,
+    OverrideCommand, Positions, ShowMachine,
 };
 use crate::cfg::cli_options::SortField;
 use crate::rpc::ApiClient;
@@ -1066,6 +1066,61 @@ pub async fn metadata_from_expected_machine(
     api_client
         .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
         .await?;
+    Ok(())
+}
+
+pub async fn positions(args: Positions, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let machine_ids = if args.machine.is_empty() {
+        // Query all machines if none specified
+        api_client
+            .0
+            .find_machine_ids(forgerpc::MachineSearchConfig {
+                include_dpus: true,
+                include_predicted_host: true,
+                ..Default::default()
+            })
+            .await?
+            .machine_ids
+    } else {
+        args.machine
+    };
+
+    let req = forgerpc::MachinePositionQuery { machine_ids };
+    let info = api_client.0.get_machine_position_info(req).await?;
+    let mut table = Table::new();
+    table.set_titles(Row::from(vec![
+        "Machine ID",
+        "Physical Slot",
+        "Compute Tray",
+        "Topology",
+        "Revision",
+        "Switch",
+        "Power Shelf",
+    ]));
+    for x in info.machine_position_info {
+        table.add_row(row![
+            x.machine_id.unwrap_or_default(),
+            x.physical_slot_number
+                .map(|x| x.to_string())
+                .unwrap_or("---".to_string()),
+            x.compute_tray_index
+                .map(|x| x.to_string())
+                .unwrap_or("---".to_string()),
+            x.topology_id
+                .map(|x| x.to_string())
+                .unwrap_or("---".to_string()),
+            x.revision_id
+                .map(|x| x.to_string())
+                .unwrap_or("---".to_string()),
+            x.switch_id
+                .map(|id| id.to_string())
+                .unwrap_or("---".to_string()),
+            x.power_shelf_id
+                .map(|id| id.to_string())
+                .unwrap_or("---".to_string()),
+        ]);
+    }
+    table.printstd();
     Ok(())
 }
 

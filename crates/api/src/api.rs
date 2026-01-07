@@ -2879,6 +2879,13 @@ impl Forge for Api {
     ) -> Result<Response<mlx_device_pb::MlxAdminConfigCompareResponse>, Status> {
         crate::handlers::mlx_admin::config_compare(self, request).await
     }
+
+    async fn get_machine_position_info(
+        &self,
+        request: Request<rpc::MachinePositionQuery>,
+    ) -> Result<Response<rpc::MachinePositionInfoList>, Status> {
+        crate::handlers::machine::get_machine_position_info(self, request).await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

@@ -95,6 +95,18 @@ pub struct EndpointExplorationReport {
     pub power_shelf_id: Option<PowerShelfId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub switch_id: Option<SwitchId>,
+    // Merged from multiple chassis entries
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_slot_number: Option<i32>,
+    // Merged from multiple chassis entries
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_tray_index: Option<i32>,
+    // Merged from multiple chassis entries
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology_id: Option<i32>,
+    // Merged from multiple chassis entries
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision_id: Option<i32>,
 }
 
 impl EndpointExplorationReport {
@@ -673,6 +685,10 @@ impl EndpointExplorationReport {
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+            physical_slot_number: None,
+            compute_tray_index: None,
+            topology_id: None,
+            revision_id: None,
         }
     }
 
@@ -977,6 +993,20 @@ impl EndpointExplorationReport {
             }
         }
         not_found
+    }
+
+    /// Extract position info from chassis entries into the report-level fields.
+    ///
+    /// Uses "first wins" strategy: takes the first non-None value found across
+    /// all chassis entries. This is consistent with how `model()` extracts data
+    /// from the chassis array.
+    pub fn parse_position_info(&mut self) {
+        for chassis in &self.chassis {
+            self.physical_slot_number = self.physical_slot_number.or(chassis.physical_slot_number);
+            self.compute_tray_index = self.compute_tray_index.or(chassis.compute_tray_index);
+            self.topology_id = self.topology_id.or(chassis.topology_id);
+            self.revision_id = self.revision_id.or(chassis.revision_id);
+        }
     }
 }
 
@@ -1336,6 +1366,14 @@ pub struct Chassis {
     pub serial_number: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub network_adapters: Vec<NetworkAdapter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_slot_number: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_tray_index: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision_id: Option<i32>,
 }
 
 impl From<Chassis> for rpc::site_explorer::Chassis {
@@ -1857,6 +1895,10 @@ mod tests {
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 part_number: None,
                 network_adapters: vec![],
+                physical_slot_number: None,
+                compute_tray_index: None,
+                topology_id: None,
+                revision_id: None,
             }],
             service: vec![
                 Service {
@@ -1876,6 +1918,11 @@ mod tests {
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+
+            physical_slot_number: None,
+            compute_tray_index: None,
+            revision_id: None,
+            topology_id: None,
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1918,6 +1965,10 @@ mod tests {
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 part_number: None,
                 network_adapters: vec![],
+                physical_slot_number: None,
+                compute_tray_index: None,
+                topology_id: None,
+                revision_id: None,
             }],
             service: vec![
                 Service {
@@ -1937,6 +1988,10 @@ mod tests {
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+            physical_slot_number: None,
+            compute_tray_index: None,
+            revision_id: None,
+            topology_id: None,
         };
         report
             .generate_machine_id(false)
@@ -1976,5 +2031,77 @@ mod tests {
         let path = "PciRoot(0x11)/Pci(0x1,0x0)/Pci(0x0,0xa)/MAC(A088C20C87C6,0x1)";
         let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
         assert_eq!(converted.0, "17.1.0.0.10");
+    }
+
+    #[test]
+    fn test_parse_position_info_first_wins() {
+        // Test that parse_position_info uses "first wins" strategy
+        let mut report = EndpointExplorationReport {
+            chassis: vec![
+                Chassis {
+                    id: "chassis_0".to_string(),
+                    physical_slot_number: Some(1),
+                    compute_tray_index: None,
+                    topology_id: Some(10),
+                    revision_id: None,
+                    ..Default::default()
+                },
+                Chassis {
+                    id: "chassis_1".to_string(),
+                    physical_slot_number: Some(2), // should be ignored (first wins)
+                    compute_tray_index: Some(5),
+                    topology_id: Some(20), // should be ignored (first wins)
+                    revision_id: Some(3),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        report.parse_position_info();
+
+        // First chassis has physical_slot_number=1, so we get 1 (not 2)
+        assert_eq!(report.physical_slot_number, Some(1));
+        // First chassis has no compute_tray_index, second has 5, so we get 5
+        assert_eq!(report.compute_tray_index, Some(5));
+        // First chassis has topology_id=10, so we get 10 (not 20)
+        assert_eq!(report.topology_id, Some(10));
+        // First chassis has no revision_id, second has 3, so we get 3
+        assert_eq!(report.revision_id, Some(3));
+    }
+
+    #[test]
+    fn test_parse_position_info_all_none() {
+        // Test when no chassis has position info
+        let mut report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis_0".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        report.parse_position_info();
+
+        assert_eq!(report.physical_slot_number, None);
+        assert_eq!(report.compute_tray_index, None);
+        assert_eq!(report.topology_id, None);
+        assert_eq!(report.revision_id, None);
+    }
+
+    #[test]
+    fn test_parse_position_info_empty_chassis() {
+        // Test when there are no chassis entries
+        let mut report = EndpointExplorationReport {
+            chassis: vec![],
+            ..Default::default()
+        };
+
+        report.parse_position_info();
+
+        assert_eq!(report.physical_slot_number, None);
+        assert_eq!(report.compute_tray_index, None);
+        assert_eq!(report.topology_id, None);
+        assert_eq!(report.revision_id, None);
     }
 }

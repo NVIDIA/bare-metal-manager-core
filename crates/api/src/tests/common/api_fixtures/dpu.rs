@@ -165,6 +165,10 @@ impl From<DpuConfig> for EndpointExplorationReport {
                 part_number: Some("900-9D3B6-00CV-AA0".to_string()),
                 serial_number: Some(value.serial),
                 network_adapters: vec![],
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             }],
             service: vec![Service {
                 id: "FirmwareInventory".to_string(),
@@ -228,6 +232,10 @@ impl From<DpuConfig> for EndpointExplorationReport {
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
         }
     }
 }

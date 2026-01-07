@@ -637,6 +637,10 @@ impl InternalRBACRules {
             "NVLinkLogicalPartitionsForTenant",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm(
+            "GetMachinePositionInfo",
+            vec![ForgeAdminCLI, SiteAgent, Rla],
+        );
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

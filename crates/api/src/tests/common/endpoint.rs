@@ -94,6 +94,10 @@ fn build_exploration_report(
             part_number: None,
             serial_number: None,
             network_adapters: vec![],
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
         }],
         service: vec![Service {
             id: "".to_string(),
@@ -112,5 +116,9 @@ fn build_exploration_report(
         lockdown_status: None,
         power_shelf_id: None,
         switch_id: None,
+        compute_tray_index: None,
+        physical_slot_number: None,
+        revision_id: None,
+        topology_id: None,
     }
 }

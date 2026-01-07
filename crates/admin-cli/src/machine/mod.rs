@@ -66,5 +66,6 @@ pub async fn dispatch(
                 }
             },
         },
+        Cmd::Positions(args) => cmds::positions(args, api_client).await,
     }
 }

@@ -297,6 +297,10 @@ impl RedfishClient {
             machine_setup_status,
             secure_boot_status,
             lockdown_status,
+            physical_slot_number: None,
+            compute_tray_index: None,
+            topology_id: None,
+            revision_id: None,
         })
     }
 
@@ -875,6 +879,7 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
             desc.serial_number
         };
 
+        let nvidia_oem = desc.oem.as_ref().and_then(|x| x.nvidia.as_ref());
         chassis.push(Chassis {
             id: chassis_id.to_string(),
             manufacturer: desc.manufacturer,
@@ -882,6 +887,10 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
             part_number: desc.part_number,
             serial_number,
             network_adapters: net_adapters,
+            physical_slot_number: nvidia_oem.and_then(|x| x.chassis_physical_slot_number),
+            compute_tray_index: nvidia_oem.and_then(|x| x.compute_tray_index),
+            topology_id: nvidia_oem.and_then(|x| x.topology_id),
+            revision_id: nvidia_oem.and_then(|x| x.revision_id),
         });
     }
 

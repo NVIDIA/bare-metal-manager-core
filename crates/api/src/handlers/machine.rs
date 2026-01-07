@@ -684,3 +684,79 @@ async fn clear_bmc_credentials(api: &Api, machine: &Machine) -> Result<(), Carbi
 
     Ok(())
 }
+
+pub async fn get_machine_position_info(
+    api: &Api,
+    request: Request<rpc::MachinePositionQuery>,
+) -> Result<Response<rpc::MachinePositionInfoList>, Status> {
+    let request = request.into_inner();
+
+    if request.machine_ids.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "At least one machine ID must be specified".to_string(),
+        )
+        .into());
+    }
+    let mut txn = api.txn_begin().await?;
+
+    // Translate the machine IDs to BMC IPs.
+    // Note: Machines without topology records will be silently omitted from the result,
+    // consistent with how find_machines_by_ids handles missing machines.
+    let pairs =
+        db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, request.machine_ids)
+            .await?;
+
+    // Find the explored endpoints for those BMC IPs
+    let explored_endpoints = db::explored_endpoints::find_by_ips(
+        &mut txn,
+        pairs
+            .iter()
+            .filter_map(|(machine_id, ip_opt)| match ip_opt {
+                Some(ip_str) => ip_str.parse().ok().or_else(|| {
+                    tracing::warn!(
+                        "Failed to parse BMC IP '{}' for machine {}",
+                        ip_str,
+                        machine_id
+                    );
+                    None
+                }),
+                None => {
+                    tracing::warn!(
+                        "Machine {} has topology but no BMC IP configured",
+                        machine_id
+                    );
+                    None
+                }
+            })
+            .collect(),
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Redo the explored endpoints into a hashmap based on the IP address
+    let as_hashmap = explored_endpoints
+        .into_iter()
+        .map(|x| (x.address.to_string(), x))
+        .collect::<HashMap<String, model::site_explorer::ExploredEndpoint>>();
+
+    // Build the response, looking up explored endpoints by BMC IP
+    let ret = rpc::MachinePositionInfoList {
+        machine_position_info: pairs
+            .iter()
+            .map(|(machine_id, ip_opt)| {
+                let endpoint = ip_opt.as_ref().and_then(|ip| as_hashmap.get(ip));
+                rpc::MachinePositionInfo {
+                    machine_id: Some(*machine_id),
+                    physical_slot_number: endpoint.and_then(|ep| ep.report.physical_slot_number),
+                    compute_tray_index: endpoint.and_then(|ep| ep.report.compute_tray_index),
+                    topology_id: endpoint.and_then(|ep| ep.report.topology_id),
+                    revision_id: endpoint.and_then(|ep| ep.report.revision_id),
+                    switch_id: endpoint.and_then(|ep| ep.report.switch_id),
+                    power_shelf_id: endpoint.and_then(|ep| ep.report.power_shelf_id),
+                }
+            })
+            .collect(),
+    };
+
+    Ok(Response::new(ret))
+}
