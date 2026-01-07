@@ -93,25 +93,18 @@ const AUTH_CALLBACK_ROOT: &str = "auth-callback";
 
 // Details https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Overview/appId/5ae5fa35-be8e-44cc-be7b-01ff76af5315/isMSAApp~/false
 const OAUTH2_AUTH_ENDPOINT_ENV: &str = "CARBIDE_WEB_OAUTH2_AUTH_ENDPOINT";
-const DEFAULT_OAUTH2_AUTH_ENDPOINT: &str =
-    "https://login.microsoftonline.com/43083d15-7273-40c1-b7db-39efd9ccc17a/oauth2/v2.0/authorize";
 
 const OAUTH2_TOKEN_ENDPOINT_ENV: &str = "CARBIDE_WEB_OAUTH2_TOKEN_ENDPOINT";
-const DEFAULT_OAUTH2_TOKEN_ENDPOINT: &str =
-    "https://login.microsoftonline.com/43083d15-7273-40c1-b7db-39efd9ccc17a/oauth2/v2.0/token";
 
 const CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY_ENV: &str = "CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY";
 const CARBIDE_WEB_HOSTNAME_ENV: &str = "CARBIDE_WEB_HOSTNAME";
 
 const OAUTH2_CLIENT_SECRET_ENV: &str = "CARBIDE_WEB_OAUTH2_CLIENT_SECRET";
 const OAUTH2_CLIENT_ID_ENV: &str = "CARBIDE_WEB_OAUTH2_CLIENT_ID";
-const DEFAULT_OAUTH2_CLIENT_ID: &str = "5ae5fa35-be8e-44cc-be7b-01ff76af5315";
 
 const ALLOWED_ACCESS_GROUPS_LIST_ENV: &str = "CARBIDE_WEB_ALLOWED_ACCESS_GROUPS";
-const DEFAULT_ALLOWED_ACCESS_GROUPS_LIST: &str = "swngc-forge-admins,ngc-forge-sre,swngc-forge-dev";
 
 const ALLOWED_ACCESS_GROUPS_ID_LIST_ENV: &str = "CARBIDE_WEB_ALLOWED_ACCESS_GROUPS_ID_LIST";
-const DEFAULT_ALLOWED_ACCESS_GROUPS_ID_LIST: &str = "1f13d1bb-6d7e-4fa5-9abf-93e24e7b5a4e,80f709a0-77a7-4a15-899d-7abba0ffdc1f,d03b7e2a-673b-4088-9af0-545a2d2f4c5d";
 
 const SORTABLE_JS: &str = include_str!("../../templates/static/sortable.min.js");
 const SORTABLE_CSS: &str = include_str!("../../templates/static/sortable.min.css");
@@ -168,43 +161,43 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )?;
 
             // Grab the details for which groups are allowed to access the web UI.
-            let allowed_groups = env::var(ALLOWED_ACCESS_GROUPS_LIST_ENV)
-                .unwrap_or(DEFAULT_ALLOWED_ACCESS_GROUPS_LIST.to_string());
+            let allowed_groups = env::var(ALLOWED_ACCESS_GROUPS_LIST_ENV).map_err(|e| {
+                CarbideError::internal(format!("{ALLOWED_ACCESS_GROUPS_LIST_ENV}: {e}"))
+            })?;
             let allowed_access_groups_names = allowed_groups.split(",");
             let allowed_access_groups_filter = allowed_access_groups_names
                 .clone()
                 .map(|s| format!("\"displayName:{}\"", s.to_lowercase()))
                 .join(" OR ");
             let allowed_access_groups_ids_to_name = env::var(ALLOWED_ACCESS_GROUPS_ID_LIST_ENV)
-                .unwrap_or(DEFAULT_ALLOWED_ACCESS_GROUPS_ID_LIST.to_string())
+                .map_err(|e| {
+                    CarbideError::internal(format!("{ALLOWED_ACCESS_GROUPS_ID_LIST_ENV}: {e}"))
+                })?
                 .split(",")
                 .map(|s| s.to_lowercase())
                 .zip(allowed_access_groups_names)
                 .map(|(id, name)| (id, name.to_string()))
-                .collect();
+                .collect::<HashMap<String, String>>();
+
+            let client_id = env::var(OAUTH2_CLIENT_ID_ENV)
+                .map_err(|e| CarbideError::internal(format!("{OAUTH2_CLIENT_ID_ENV}: {e}")))?;
+            let client_secret = env::var(OAUTH2_CLIENT_SECRET_ENV)
+                .map_err(|e| CarbideError::internal(format!("{OAUTH2_CLIENT_SECRET_ENV}: {e}")))?;
+            let auth_endpoint = env::var(OAUTH2_AUTH_ENDPOINT_ENV)
+                .map_err(|e| CarbideError::internal(format!("{OAUTH2_AUTH_ENDPOINT_ENV}: {e}")))?;
+            let token_endpoint = env::var(OAUTH2_TOKEN_ENDPOINT_ENV)
+                .map_err(|e| CarbideError::internal(format!("{OAUTH2_TOKEN_ENDPOINT_ENV}: {e}")))?;
 
             // Build the  OAuth2 client.
-            let client = BasicClient::new(ClientId::new(
-                env::var(OAUTH2_CLIENT_ID_ENV).unwrap_or(DEFAULT_OAUTH2_CLIENT_ID.to_string()),
-            ))
-            .set_client_secret(ClientSecret::new(
-                env::var(OAUTH2_CLIENT_SECRET_ENV).map_err(|e| {
-                    CarbideError::internal(format!("{OAUTH2_CLIENT_SECRET_ENV}: {e}"))
-                })?,
-            ))
-            .set_auth_uri(AuthUrl::new(
-                env::var(OAUTH2_AUTH_ENDPOINT_ENV)
-                    .unwrap_or(DEFAULT_OAUTH2_AUTH_ENDPOINT.to_string()),
-            )?)
-            .set_token_uri(TokenUrl::new(
-                env::var(OAUTH2_TOKEN_ENDPOINT_ENV)
-                    .unwrap_or(DEFAULT_OAUTH2_TOKEN_ENDPOINT.to_string()),
-            )?)
-            .set_redirect_uri(RedirectUrl::new(format!(
-                "https://{}/admin/{}",
-                env::var(CARBIDE_WEB_HOSTNAME_ENV).unwrap_or("localhost:1079".to_string()),
-                AUTH_CALLBACK_ROOT,
-            ))?);
+            let client = BasicClient::new(ClientId::new(client_id))
+                .set_client_secret(ClientSecret::new(client_secret))
+                .set_auth_uri(AuthUrl::new(auth_endpoint)?)
+                .set_token_uri(TokenUrl::new(token_endpoint)?)
+                .set_redirect_uri(RedirectUrl::new(format!(
+                    "https://{}/admin/{}",
+                    env::var(CARBIDE_WEB_HOSTNAME_ENV).unwrap_or("localhost:1079".to_string()),
+                    AUTH_CALLBACK_ROOT,
+                ))?);
 
             let http_client = {
                 let builder = reqwest::Client::builder();
