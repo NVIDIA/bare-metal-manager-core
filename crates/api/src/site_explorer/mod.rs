@@ -1821,6 +1821,9 @@ impl SiteExplorer {
                                 report.versions = HashMap::default();
                                 tracing::debug!("Can not find fimware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
                             }
+
+                            // Go through the chassis entries and get what at least one of them says
+                            report.parse_position_info()
                         } else {
                             tracing::info!("Generating MachineId for power shelf");
                             report.versions = HashMap::default();

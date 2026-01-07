@@ -722,6 +722,8 @@ service Forge {
   rpc DeleteNVLinkLogicalPartition(NVLinkLogicalPartitionDeletionRequest) returns (NVLinkLogicalPartitionDeletionResult);
   // Find all Logical partitions under a specified tenant
   rpc NVLinkLogicalPartitionsForTenant(TenantSearchQuery) returns (NVLinkLogicalPartitionList);
+  // Get position related information for machines
+  rpc GetMachinePositionInfo(MachinePositionQuery) returns (MachinePositionInfoList);
 
   rpc NmxmBrowse(NmxmBrowseRequest) returns (NmxmBrowseResponse);
 }
@@ -6187,4 +6189,22 @@ enum RoutingProfileType {
 message RoutingProfile {
   repeated common.RouteTarget route_target_imports     = 1;
   repeated common.RouteTarget route_targets_on_exports = 2;
+}
+
+message MachinePositionQuery {
+  repeated common.MachineId machine_ids = 1;
+}
+
+message MachinePositionInfoList {
+  repeated MachinePositionInfo machine_position_info = 1;
+}
+
+message MachinePositionInfo {
+  common.MachineId machine_id = 1;
+  optional int32 physical_slot_number = 2;
+  optional int32 compute_tray_index = 3;
+  optional int32 topology_id = 4;
+  optional int32 revision_id = 5;
+  optional common.SwitchId switch_id = 6;
+  optional common.PowerShelfId power_shelf_id = 7;
 }

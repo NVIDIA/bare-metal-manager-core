@@ -265,6 +265,10 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             }),
         ),
     ]);
@@ -621,6 +625,10 @@ async fn test_site_explorer_audit_exploration_results(
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             },
         ),
         (
@@ -647,6 +655,10 @@ async fn test_site_explorer_audit_exploration_results(
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             },
         ),
         (
@@ -668,6 +680,10 @@ async fn test_site_explorer_audit_exploration_results(
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             },
         ),
         (
@@ -693,6 +709,10 @@ async fn test_site_explorer_audit_exploration_results(
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             },
         ),
         (
@@ -1475,6 +1495,12 @@ async fn test_site_explorer_creates_managed_host(
     assert!(!machine_interfaces.is_empty());
     let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
     assert!(topologies.contains_key(&dpu_machine.id));
+
+    let pairs =
+        db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, vec![dpu_machine.id])
+            .await?;
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(pairs[0].1, Some("192.0.1.4".to_string()));
 
     let topology = &topologies[&dpu_machine.id][0];
     assert!(topology.topology_update_needed());
@@ -3496,6 +3522,10 @@ async fn test_expected_machine_device_type_metrics(
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             }),
         ),
         (
@@ -3517,6 +3547,10 @@ async fn test_expected_machine_device_type_metrics(
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             }),
         ),
         (
@@ -3538,6 +3572,10 @@ async fn test_expected_machine_device_type_metrics(
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             }),
         ),
     ]);
@@ -3691,6 +3729,10 @@ async fn test_site_explorer_power_shelf_discovery(
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
         }),
     );
 
@@ -3845,6 +3887,10 @@ async fn test_site_explorer_power_shelf_with_expected_config(
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
         }),
     );
 
@@ -4004,6 +4050,10 @@ async fn test_site_explorer_power_shelf_creation_limit(
                 lockdown_status: None,
                 power_shelf_id: None,
                 switch_id: None,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             }),
         );
     }
@@ -4147,6 +4197,10 @@ async fn test_site_explorer_power_shelf_disabled(
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
         }),
     );
 
@@ -4430,6 +4484,10 @@ async fn test_site_explorer_creates_power_shelf(
         lockdown_status: None,
         power_shelf_id: None,
         switch_id: None,
+        compute_tray_index: None,
+        physical_slot_number: None,
+        revision_id: None,
+        topology_id: None,
     };
 
     let explored_endpoint = ExploredEndpoint {
@@ -4639,6 +4697,10 @@ async fn test_power_shelf_state_history(
         lockdown_status: None,
         power_shelf_id: None,
         switch_id: None,
+        compute_tray_index: None,
+        physical_slot_number: None,
+        revision_id: None,
+        topology_id: None,
     };
 
     let explored_endpoint = ExploredEndpoint {
@@ -4867,6 +4929,10 @@ async fn test_power_shelf_state_history_multiple(
         lockdown_status: None,
         power_shelf_id: None,
         switch_id: None,
+        compute_tray_index: None,
+        physical_slot_number: None,
+        revision_id: None,
+        topology_id: None,
     };
 
     let exploration_report2 = EndpointExplorationReport {
@@ -4892,6 +4958,10 @@ async fn test_power_shelf_state_history_multiple(
         lockdown_status: None,
         power_shelf_id: None,
         switch_id: None,
+        compute_tray_index: None,
+        physical_slot_number: None,
+        revision_id: None,
+        topology_id: None,
     };
 
     let explored_endpoint1 = ExploredEndpoint {
@@ -5134,6 +5204,10 @@ async fn test_power_shelf_state_history_error_handling(
         lockdown_status: None,
         power_shelf_id: None,
         switch_id: None,
+        compute_tray_index: None,
+        physical_slot_number: None,
+        revision_id: None,
+        topology_id: None,
     };
 
     let explored_endpoint = ExploredEndpoint {
@@ -5327,6 +5401,10 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+            compute_tray_index: None,
+            physical_slot_number: None,
+            revision_id: None,
+            topology_id: None,
         }),
     );
 
@@ -5394,6 +5472,98 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
             .unwrap(),
         "1"
     );
+
+    Ok(())
+}
+
+/// Test the get_machine_position_info API endpoint
+#[crate::sqlx_test]
+async fn test_get_machine_position_info(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use rpc::forge::forge_server::Forge;
+
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let (_host_machine_id, dpu_machine_id) =
+        common::api_fixtures::create_managed_host(&env).await.into();
+
+    let dpu_machine = env.find_machine(dpu_machine_id).await.remove(0);
+    let bmc_ip: IpAddr = dpu_machine.bmc_info.as_ref().unwrap().ip().parse().unwrap();
+
+    // Get the existing explored endpoint (created by create_managed_host) and update it with position info
+    let mut txn = env.pool.begin().await?;
+    let existing = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_ip])
+        .await?
+        .pop()
+        .unwrap();
+    let mut report = existing.report;
+    report.chassis = vec![Chassis {
+        id: "Chassis_0".to_string(),
+        physical_slot_number: Some(5),
+        compute_tray_index: Some(2),
+        topology_id: Some(10),
+        revision_id: Some(3),
+        ..Default::default()
+    }];
+    report.physical_slot_number = Some(5);
+    report.compute_tray_index = Some(2);
+    report.topology_id = Some(10);
+    report.revision_id = Some(3);
+    db::explored_endpoints::try_update(bmc_ip, existing.report_version, &report, false, &mut txn)
+        .await?;
+    txn.commit().await?;
+
+    // Call the API
+    let response = env
+        .api
+        .get_machine_position_info(tonic::Request::new(rpc::forge::MachinePositionQuery {
+            machine_ids: vec![dpu_machine_id],
+        }))
+        .await?
+        .into_inner();
+
+    // Verify the response
+    assert_eq!(response.machine_position_info.len(), 1);
+    let info = &response.machine_position_info[0];
+    assert_eq!(info.machine_id, Some(dpu_machine_id));
+    assert_eq!(info.physical_slot_number, Some(5));
+    assert_eq!(info.compute_tray_index, Some(2));
+    assert_eq!(info.topology_id, Some(10));
+    assert_eq!(info.revision_id, Some(3));
+
+    Ok(())
+}
+
+/// Test get_machine_position_info with a machine that has no explored endpoint
+#[crate::sqlx_test]
+async fn test_get_machine_position_info_no_endpoint(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use rpc::forge::forge_server::Forge;
+
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let (_host_machine_id, dpu_machine_id) =
+        common::api_fixtures::create_managed_host(&env).await.into();
+
+    // Don't create any explored endpoint - just query
+
+    // Call the API
+    let response = env
+        .api
+        .get_machine_position_info(tonic::Request::new(rpc::forge::MachinePositionQuery {
+            machine_ids: vec![dpu_machine_id],
+        }))
+        .await?
+        .into_inner();
+
+    // Machine should be in the response but with all None position info
+    assert_eq!(response.machine_position_info.len(), 1);
+    let info = &response.machine_position_info[0];
+    assert_eq!(info.machine_id, Some(dpu_machine_id));
+    assert_eq!(info.physical_slot_number, None);
+    assert_eq!(info.compute_tray_index, None);
+    assert_eq!(info.topology_id, None);
+    assert_eq!(info.revision_id, None);
 
     Ok(())
 }

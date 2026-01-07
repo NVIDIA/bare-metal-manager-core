@@ -37,6 +37,18 @@ pub enum Cmd {
     Metadata(MachineMetadataCommand),
     #[clap(subcommand, about = "Update/show machine hardware info")]
     HardwareInfo(MachineHardwareInfoCommand),
+    #[clap(
+        about = "Show physical location info for machines in rack-based systems",
+        long_about = "Show physical location info for machines in rack-based systems.\n\n\
+            Returns rack topology information including:\n\
+            - Physical slot number: The slot position in the rack\n\
+            - Compute tray index: The compute tray containing this machine\n\
+            - Topology ID: Identifier for the rack topology configuration\n\
+            - Revision ID: Hardware revision identifier\n\
+            - Switch ID: Associated network switch\n\
+            - Power shelf ID: Associated power shelf"
+    )]
+    Positions(Positions),
 }
 
 #[derive(Parser, Debug)]
@@ -358,4 +370,16 @@ pub struct MachineHardwareInfoGpus {
         Pass an empty array if you want to remove GPUs."
     )]
     pub gpu_json_file: std::path::PathBuf,
+}
+
+#[derive(Parser, Debug)]
+pub struct Positions {
+    #[clap(
+        short = 'm',
+        long,
+        num_args = 0..,
+        value_delimiter = ' ',
+        help = "The machine(s) to query, leave empty for all (default)"
+    )]
+    pub machine: Vec<MachineId>,
 }

@@ -151,7 +151,7 @@ pub async fn find_by_machine_ids(
     machine_ids: &[MachineId],
 ) -> Result<HashMap<MachineId, Vec<MachineTopology>>, DatabaseError> {
     // TODO: Actually this shouldn't be able to return multiple entries,
-    // since there  is a check in create that for existing interfaces
+    // since there is a check in create that for existing interfaces
     // But due to race conditions we can likely still have multiple of those interfaces
     let str_ids: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
     let query = "SELECT * FROM machine_topologies WHERE machine_id=ANY($1)";
@@ -213,6 +213,39 @@ pub async fn find_machine_bmc_pairs(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("machine_topologies find_machine_bmc_pairs", e))
+}
+
+/// Find the BMC IP address for each of the given machine IDs.
+///
+/// Returns a list of (machine_id, bmc_ip) pairs. If a machine has multiple topology
+/// records, only the most recent one (by `created` timestamp) is returned.
+///
+/// The BMC IP is returned as `Option<String>`:
+/// - `Some(ip)` if the topology has a valid BMC IP
+/// - `None` if the topology exists but has no BMC IP (caller can log/handle this case)
+///
+/// Note: Machines without topology records will be silently omitted from the result.
+///
+/// This query uses `DISTINCT ON` with `ORDER BY machine_id, created DESC` to efficiently
+/// select the latest topology per machine. This is optimized by the composite index
+/// `machine_topologies_machine_id_created_idx`.
+pub async fn find_machine_bmc_pairs_by_machine_id(
+    txn: &mut PgConnection,
+    machine_ids: Vec<MachineId>,
+) -> Result<Vec<(MachineId, Option<String>)>, DatabaseError> {
+    let query = r#"
+        SELECT DISTINCT ON (machine_id) machine_id, topology->'bmc_info'->>'ip'
+        FROM machine_topologies
+        WHERE machine_id = ANY($1)
+        ORDER BY machine_id, created DESC
+    "#;
+    sqlx::query_as(query)
+        .bind(machine_ids)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| {
+            DatabaseError::new("machine_topologies find_machine_bmc_pairs_by_machine_id", e)
+        })
 }
 
 /// Find any topology with a product, chassis, or board serial number exactly matching the input.

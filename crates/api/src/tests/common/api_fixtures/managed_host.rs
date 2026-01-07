@@ -293,6 +293,10 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 part_number: Some("SB27A42862".to_string()),
                 serial_number: Some(value.serial),
                 network_adapters,
+                compute_tray_index: None,
+                physical_slot_number: None,
+                revision_id: None,
+                topology_id: None,
             }],
             service: vec![Service {
                 id: "FirmwareInventory".to_string(),
@@ -319,6 +323,10 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             lockdown_status: None,
             power_shelf_id: None,
             switch_id: None,
+            physical_slot_number: None,
+            compute_tray_index: None,
+            revision_id: None,
+            topology_id: None,
         }
     }
 }
