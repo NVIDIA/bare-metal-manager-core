@@ -31,9 +31,6 @@ use cfg::cli_options::{
     HostAction, HostReprovision, IpAction, LogicalPartitionOptions, MachineInterfaces,
     NetworkSegment, NvlPartitionOptions, SetAction, Shell,
 };
-use cfg::instance_type::InstanceTypeActions;
-use cfg::network_security_group::NetworkSecurityGroupActions;
-use cfg::tenant::TenantActions;
 use clap::CommandFactory;
 use devenv::apply_devenv_config;
 use forge_secrets::credentials::Credentials;
@@ -1180,46 +1177,25 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CliCommand::TpmCa(cmd) => tpm_ca::dispatch(&cmd, &api_client).await?,
-        CliCommand::NetworkSecurityGroup(nsg_action) => match nsg_action {
-            NetworkSecurityGroupActions::Create(args) => {
-                network_security_group::nsg_create(args, config.format, &api_client).await?
-            }
-            NetworkSecurityGroupActions::Show(args) => {
-                network_security_group::nsg_show(
-                    args,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                    config.extended,
-                )
-                .await?
-            }
-            NetworkSecurityGroupActions::Update(args) => {
-                network_security_group::nsg_update(args, config.format, &api_client).await?
-            }
-            NetworkSecurityGroupActions::Delete(args) => {
-                network_security_group::nsg_delete(args, &api_client).await?
-            }
-            NetworkSecurityGroupActions::ShowAttachments(args) => {
-                network_security_group::nsg_show_attachments(args, config.format, &api_client)
-                    .await?
-            }
-            NetworkSecurityGroupActions::Attach(args) => {
-                network_security_group::nsg_attach(args, &api_client).await?
-            }
-            NetworkSecurityGroupActions::Detach(args) => {
-                network_security_group::nsg_detach(args, &api_client).await?
-            }
-        },
-        CliCommand::Sku(sku_command) => {
-            sku::handle_sku_command(
+        CliCommand::NetworkSecurityGroup(cmd) => {
+            network_security_group::dispatch(
+                cmd,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                config.extended,
+            )
+            .await?
+        }
+        CliCommand::Sku(cmd) => {
+            sku::dispatch(
+                cmd,
                 &api_client,
                 &mut output_file,
                 &config.format,
                 config.extended,
-                sku_command,
             )
-            .await?;
+            .await?
         }
         CliCommand::DevEnv(command) => match command {
             cfg::cli_options::DevEnv::Config(dev_env_config) => match dev_env_config {
@@ -1228,36 +1204,17 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
         },
-        CliCommand::InstanceType(action) => match action {
-            InstanceTypeActions::Create(args) => {
-                instance_type::create(args, config.format, &api_client).await?
-            }
-            InstanceTypeActions::Show(args) => {
-                instance_type::show(
-                    args,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                    config.extended,
-                )
-                .await?
-            }
-            InstanceTypeActions::Update(args) => {
-                instance_type::update(args, config.format, &api_client).await?
-            }
-            InstanceTypeActions::Delete(args) => instance_type::delete(args, &api_client).await?,
-            InstanceTypeActions::Associate(associate_instance_type) => {
-                instance_type::create_association(associate_instance_type, &api_client).await?;
-            }
-            InstanceTypeActions::Disassociate(disassociate_instance_type) => {
-                instance_type::remove_association(
-                    disassociate_instance_type,
-                    config.cloud_unsafe_op.is_some(),
-                    &api_client,
-                )
-                .await?;
-            }
-        },
+        CliCommand::InstanceType(cmd) => {
+            instance_type::dispatch(
+                cmd,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                config.extended,
+                config.cloud_unsafe_op.is_some(),
+            )
+            .await?
+        }
         CliCommand::Ssh(action) => match action {
             cfg::cli_options::SshActions::GetRshimStatus(ssh_args) => {
                 let is_rshim_enabled = is_rshim_enabled(
@@ -1463,12 +1420,9 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
 
-        CliCommand::Tenant(action) => match action {
-            TenantActions::Show(args) => {
-                tenant::show(args, config.format, &api_client, config.internal_page_size).await?
-            }
-            TenantActions::Update(args) => tenant::update(args, config.format, &api_client).await?,
-        },
+        CliCommand::Tenant(cmd) => {
+            tenant::dispatch(cmd, &api_client, config.format, config.internal_page_size).await?
+        }
     }
 
     Ok(())

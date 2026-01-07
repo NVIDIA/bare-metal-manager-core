@@ -23,14 +23,14 @@ use rpc::forge::RouteServerSourceType;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
+use crate::cfg::measurement;
 use crate::cfg::storage::OsImageActions;
-use crate::cfg::{instance_type, measurement, network_security_group, tenant};
 use crate::machine::MachineQuery;
 use crate::{
     domain, dpa, dpu, expected_power_shelf, expected_switch, firmware, ib_partition, instance,
-    machine, machine_validation, managed_host, mlx, ping, power_shelf, rack, redfish,
-    resource_pool, scout_stream, site_explorer, switch, tenant_keyset, tpm_ca, version, vpc,
-    vpc_peering, vpc_prefix,
+    instance_type, machine, machine_validation, managed_host, mlx, network_security_group, ping,
+    power_shelf, rack, redfish, resource_pool, scout_stream, site_explorer, sku, switch, tenant,
+    tenant_keyset, tpm_ca, version, vpc, vpc_peering, vpc_prefix,
 };
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
@@ -241,16 +241,16 @@ pub enum CliCommand {
         visible_alias = "nsg",
         subcommand
     )]
-    NetworkSecurityGroup(network_security_group::NetworkSecurityGroupActions),
+    NetworkSecurityGroup(network_security_group::Cmd),
 
     #[clap(about = "Manage machine SKUs", subcommand)]
-    Sku(Sku),
+    Sku(sku::Cmd),
 
     #[clap(about = "Dev Env related handling", subcommand)]
     DevEnv(DevEnv),
 
     #[clap(about = "Instance type management", visible_alias = "it", subcommand)]
-    InstanceType(instance_type::InstanceTypeActions),
+    InstanceType(instance_type::Cmd),
 
     #[clap(about = "SSH Util functions", subcommand)]
     Ssh(SshActions),
@@ -301,7 +301,7 @@ pub enum CliCommand {
     LogicalPartition(LogicalPartitionOptions),
 
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
-    Tenant(tenant::TenantActions),
+    Tenant(tenant::Cmd),
 }
 
 #[derive(Parser, Debug)]
@@ -1324,40 +1324,6 @@ pub enum NetworkChoice {
 }
 
 #[derive(Parser, Debug)]
-pub enum Sku {
-    #[clap(about = "Show SKU information", visible_alias = "s")]
-    Show(ShowSku),
-    #[clap(about = "Show what machines are assigned a SKU")]
-    ShowMachines(ShowSku),
-    #[clap(
-        about = "Generate SKU information from an existing machine",
-        visible_alias = "g"
-    )]
-    Generate(GenerateSku),
-    #[clap(about = "Create SKUs from a file", visible_alias = "c")]
-    Create(CreateSku),
-    #[clap(about = "Delete a SKU", visible_alias = "d")]
-    Delete { sku_id: String },
-    #[clap(about = "Assign a SKU to a machine", visible_alias = "a")]
-    Assign {
-        sku_id: String,
-        machine_id: MachineId,
-        #[clap(long)]
-        force: bool,
-    },
-    #[clap(about = "Unassign a SKU from a machine", visible_alias = "u")]
-    Unassign(UnassignSku),
-    #[clap(about = "Verify a machine against its SKU", visible_alias = "v")]
-    Verify { machine_id: MachineId },
-    #[clap(about = "Update the metadata of a SKU")]
-    UpdateMetadata(UpdateSkuMetadata),
-    #[clap(about = "Update multiple SKU's metadata from a file")]
-    BulkUpdateMetadata(BulkUpdatyeSkuMetadata),
-    #[clap(about = "Replace the component list of a SKU")]
-    Replace(CreateSku),
-}
-
-#[derive(Parser, Debug)]
 pub enum SshActions {
     #[clap(about = "Show Rshim Status")]
     GetRshimStatus(SshArgs),
@@ -1405,63 +1371,6 @@ pub struct CopyBfbArgs {
     pub ssh_args: SshArgs,
     #[clap(help = "BFB Path")]
     pub bfb_path: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowSku {
-    #[clap(help = "Show SKU details")]
-    pub sku_id: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct GenerateSku {
-    #[clap(help = "The machine id of the machine to use to generate a SKU")]
-    pub machine_id: MachineId,
-    #[clap(help = "override the ID of the SKU", long)]
-    pub id: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct CreateSku {
-    #[clap(help = "The filename of the SKU data")]
-    pub filename: String,
-    #[clap(help = "override the ID of the SKU in the file data", long)]
-    pub id: Option<String>,
-}
-
-#[derive(Parser, Debug)]
-pub struct UnassignSku {
-    #[clap(help = "The machine id of the machine to unassign")]
-    pub machine_id: MachineId,
-    #[clap(long)]
-    pub force: bool,
-}
-
-#[derive(Parser, Debug)]
-#[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&["description", "device_type"])))]
-pub struct UpdateSkuMetadata {
-    #[clap(help = "SKU ID of the SKU to update")]
-    pub sku_id: String,
-    #[clap(help = "Update the SKU's description", long, group("group"))]
-    pub description: Option<String>,
-    #[clap(help = "Update the SKU's device type", long, group("group"))]
-    pub device_type: Option<String>,
-}
-
-impl From<UpdateSkuMetadata> for ::rpc::forge::SkuUpdateMetadataRequest {
-    fn from(value: UpdateSkuMetadata) -> Self {
-        ::rpc::forge::SkuUpdateMetadataRequest {
-            sku_id: value.sku_id,
-            description: value.description,
-            device_type: value.device_type,
-        }
-    }
-}
-
-#[derive(Parser, Debug)]
-pub struct BulkUpdatyeSkuMetadata {
-    #[clap(help = "The CSV file to use to update metadata for multiple skus")]
-    pub filename: String,
 }
 
 #[derive(Parser, Debug)]

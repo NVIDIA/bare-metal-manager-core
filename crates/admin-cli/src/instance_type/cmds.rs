@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc, FindInstanceTypesByIdsRequest};
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
@@ -20,8 +20,7 @@ use rpc::forge::{
     UpdateInstanceTypeRequest,
 };
 
-use super::CarbideCliError;
-use crate::cfg::instance_type::{
+use super::args::{
     AssociateInstanceType, CreateInstanceType, DeleteInstanceType, DisassociateInstanceType,
     ShowInstanceType, UpdateInstanceType,
 };
