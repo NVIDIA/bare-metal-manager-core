@@ -12,6 +12,8 @@
 
 //! Describes hardware that is discovered by Forge
 
+#[cfg(not(feature = "linux-build"))]
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -58,6 +60,24 @@ struct HardwareInfoDeserialized {
     cpus: Vec<Cpu>, // Deprecated in favor of `cpu_info`
     #[serde(default)]
     tpm_description: Option<TpmDescription>,
+}
+
+#[cfg(not(feature = "linux-build"))]
+fn aggregate_cpus(cpus: &[rpc::machine_discovery::Cpu]) -> Vec<rpc::machine_discovery::CpuInfo> {
+    if cpus.is_empty() {
+        return Vec::new();
+    }
+
+    let socket_count = HashSet::<_>::from_iter(cpus.iter().map(|cpu| cpu.socket)).len();
+    let core_count = HashSet::<_>::from_iter(cpus.iter().map(|cpu| (cpu.socket, cpu.core))).len();
+
+    vec![rpc::machine_discovery::CpuInfo {
+        model: cpus[0].model.clone(),
+        vendor: cpus[0].vendor.clone(),
+        sockets: socket_count as u32,
+        cores: core_count as u32,
+        threads: cpus.len() as u32,
+    }]
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -760,7 +780,6 @@ impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
     type Error = RpcDataConversionError;
 
     fn try_from(info: HardwareInfoDeserialized) -> Result<Self, Self::Error> {
-        #[cfg(feature = "linux-build")]
         let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
             // Convert V1 -> V2 format
             let cpus: Vec<rpc::machine_discovery::Cpu> = info
@@ -775,10 +794,6 @@ impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
         } else {
             info.cpu_info
         };
-        #[cfg(not(feature = "linux-build"))]
-        let _ = info.cpus;
-        #[cfg(not(feature = "linux-build"))]
-        let cpu_info = info.cpu_info;
 
         Ok(HardwareInfo {
             network_interfaces: info.network_interfaces,
@@ -825,7 +840,6 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             }
         };
 
-        #[cfg(feature = "linux-build")]
         // TODO: Remove "cpus" when there's no longer a need to handle the old topology format
         let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
             match try_convert_vec(info.cpus) {
@@ -838,8 +852,6 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
         } else {
             try_convert_vec(info.cpu_info)?
         };
-        #[cfg(not(feature = "linux-build"))]
-        let cpu_info = try_convert_vec(info.cpu_info)?;
 
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,

@@ -19,10 +19,10 @@ use model::machine::{
     InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
     ReprovisionState,
 };
+use rpc::forge::forge_agent_control_response::Action;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
-use crate::handlers::measured_boot::rpc_forge::forge_agent_control_response::Action;
 use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
 use crate::tests::common::api_fixtures::{Api, TestEnv, TestMachine};
 

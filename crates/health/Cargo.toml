@@ -28,8 +28,8 @@ serde_with = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = [
-    "env-filter",
-    "local-time",
+  "env-filter",
+  "local-time",
 ], workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
