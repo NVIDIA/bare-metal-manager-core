@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,12 +12,11 @@
 
 use std::collections::HashSet;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
-use super::CarbideCliError;
-use crate::cfg::network_security_group::{
+use super::args::{
     AttachNetworkSecurityGroup, CreateNetworkSecurityGroup, DeleteNetworkSecurityGroup,
     DetachNetworkSecurityGroup, ShowNetworkSecurityGroup, ShowNetworkSecurityGroupAttachments,
     UpdateNetworkSecurityGroup,
@@ -123,7 +122,7 @@ fn convert_nsgs_to_table(
 /// Show one or more NSGs.
 /// If only a single NSG is found, verbose output is used
 /// automatically.
-pub async fn nsg_show(
+pub async fn show(
     args: ShowNetworkSecurityGroup,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -157,7 +156,7 @@ pub async fn nsg_show(
 }
 
 /// Delete a network security group.
-pub async fn nsg_delete(
+pub async fn delete(
     args: DeleteNetworkSecurityGroup,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -171,7 +170,7 @@ pub async fn nsg_delete(
 /// Update a network security group.
 /// On successful update, the details of the
 /// group will be displayed.
-pub async fn nsg_update(
+pub async fn update(
     args: UpdateNetworkSecurityGroup,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -236,7 +235,7 @@ pub async fn nsg_update(
 /// Create a network security group.
 /// On successful creation, the details of the
 /// new group will be displayed.
-pub async fn nsg_create(
+pub async fn create(
     args: CreateNetworkSecurityGroup,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -288,7 +287,7 @@ pub async fn nsg_create(
 /// Display details about objects that are using the
 /// requested NSG, including propagation status of the
 /// NSG across that object
-pub async fn nsg_show_attachments(
+pub async fn show_attachments(
     args: ShowNetworkSecurityGroupAttachments,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -407,7 +406,7 @@ pub async fn nsg_show_attachments(
 
 /// "Attaches" a network security group to an object (VPC/Instance)
 /// by updating the config of the object.
-pub async fn nsg_attach(
+pub async fn attach(
     args: AttachNetworkSecurityGroup,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -489,7 +488,7 @@ pub async fn nsg_attach(
 
 /// "Detaches" a network security group to an object (VPC/Instance)
 /// by updating the config of the object.
-pub async fn nsg_detach(
+pub async fn detach(
     args: DetachNetworkSecurityGroup,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {

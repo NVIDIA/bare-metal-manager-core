@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -18,8 +18,8 @@ use prettytable::{Row, Table};
 use rpc::forge::{RemoveSkuRequest, SkuIdList};
 use tokio::io::AsyncWriteExt;
 
-use crate::cfg::cli_options::{
-    BulkUpdatyeSkuMetadata, CreateSku, GenerateSku, Sku, UnassignSku, UpdateSkuMetadata,
+use super::args::{
+    BulkUpdateSkuMetadata, CreateSku, GenerateSku, ShowSku, UnassignSku, UpdateSkuMetadata,
 };
 use crate::rpc::ApiClient;
 use crate::{async_write_table_as_csv, async_writeln};
@@ -340,154 +340,206 @@ async fn show_machine_table(
     Ok(())
 }
 
-pub async fn handle_sku_command(
+pub async fn show(
+    args: ShowSku,
     api_client: &ApiClient,
     output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: &OutputFormat,
     extended: bool,
-    sku_command: Sku,
-) -> Result<(), CarbideCliError> {
-    match sku_command {
-        Sku::Show(show_sku) => {
-            if let Some(sku_id) = show_sku.sku_id {
-                let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
+) -> CarbideCliResult<()> {
+    if let Some(sku_id) = args.sku_id {
+        let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
 
-                if let Some(sku) = skus.skus.into_iter().next() {
-                    show_sku_details(output, output_format, extended, sku).await?;
-                }
-            } else {
-                let all_ids = api_client.0.get_all_sku_ids().await?;
-                let sku_list = if !all_ids.ids.is_empty() {
-                    api_client.0.find_skus_by_ids(all_ids.ids).await?
-                } else {
-                    SkuList::default()
-                };
-
-                show_skus_table(output, output_format, sku_list.skus).await?;
-            };
-        }
-        Sku::ShowMachines(show_sku) => {
-            if let Some(sku_id) = show_sku.sku_id {
-                let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
-
-                show_machine_table(output, output_format, skus.skus).await?;
-            } else {
-                let all_ids = api_client.0.get_all_sku_ids().await?;
-                let sku_list = if !all_ids.ids.is_empty() {
-                    api_client.0.find_skus_by_ids(all_ids.ids).await?
-                } else {
-                    SkuList::default()
-                };
-
-                show_machine_table(output, output_format, sku_list.skus).await?;
-            };
-        }
-
-        Sku::Generate(GenerateSku { machine_id, id }) => {
-            let mut sku = api_client.0.generate_sku_from_machine(machine_id).await?;
-            if let Some(id) = id {
-                sku.id = id;
-            }
+        if let Some(sku) = skus.skus.into_iter().next() {
             show_sku_details(output, output_format, extended, sku).await?;
         }
-        Sku::Create(CreateSku { filename, id }) => {
-            let file_data = std::fs::read_to_string(filename)?;
-            // attempt to deserialize a single sku.  if it fails try to deserialize as a SkuList
-            let mut sku_list = match serde_json::de::from_str(&file_data) {
-                Ok(sku) => SkuList { skus: vec![sku] },
-                Err(e) => serde_json::de::from_str(&file_data).map_err(|_| e)?,
-            };
-            if let Some(id) = id {
-                if sku_list.skus.len() != 1 {
-                    return Err(CarbideCliError::GenericError(
-                        "ID cannot be specified when creating multiple SKUs".to_string(),
-                    ));
-                }
-                sku_list.skus[0].id = id;
-            }
-            let sku_ids = api_client.0.create_sku(sku_list).await?;
-            let sku_list = api_client.0.find_skus_by_ids(sku_ids.ids).await?;
-            show_skus_table(output, output_format, sku_list.skus).await?;
-        }
-        Sku::Delete { sku_id } => {
-            api_client
-                .0
-                .delete_sku(SkuIdList { ids: vec![sku_id] })
-                .await?;
-        }
-        Sku::Assign {
-            sku_id,
-            machine_id,
-            force,
-        } => {
-            api_client
-                .assign_sku_to_machine(sku_id, machine_id, force)
-                .await?;
-        }
-        Sku::Unassign(UnassignSku { machine_id, force }) => {
-            api_client
-                .0
-                .remove_sku_association(RemoveSkuRequest {
-                    machine_id: Some(machine_id),
-                    force,
-                })
-                .await?;
-        }
-        Sku::Verify { machine_id } => {
-            api_client.0.verify_sku_for_machine(machine_id).await?;
-        }
-        Sku::UpdateMetadata(update_request) => {
-            api_client.0.update_sku_metadata(update_request).await?;
-        }
-        Sku::BulkUpdateMetadata(BulkUpdatyeSkuMetadata { filename }) => {
-            let mut rdr = csv::Reader::from_path(&filename)
-                .map_err(|e| CarbideCliError::IOError(e.into()))?;
+    } else {
+        let all_ids = api_client.0.get_all_sku_ids().await?;
+        let sku_list = if !all_ids.ids.is_empty() {
+            api_client.0.find_skus_by_ids(all_ids.ids).await?
+        } else {
+            SkuList::default()
+        };
 
-            // disable reading the first row as a header
-            rdr.set_headers(vec!["sku id", "device type"].into());
+        show_skus_table(output, output_format, sku_list.skus).await?;
+    };
 
-            let mut current_line = 1;
-            for result in rdr.records() {
-                match result {
-                    Err(e) => {
-                        // log and ignore parsing errors on a single line.
-                        tracing::error!("Error reading file {filename} line {current_line}: {e}");
-                    }
-                    Ok(data) => {
-                        // Log missing SKUs, but don't stop processing
-                        let Some(sku_id) = data.get(0).map(str::to_owned) else {
-                            tracing::error!("No SKU ID at line {current_line}");
-                            continue;
-                        };
-                        let device_type = data.get(1).filter(|s| !s.is_empty()).map(str::to_owned);
-                        let description = data.get(2).filter(|s| !s.is_empty()).map(str::to_owned);
+    Ok(())
+}
 
-                        // log errors but don't stop the processing
-                        if let Err(e) = api_client
-                            .0
-                            .update_sku_metadata(UpdateSkuMetadata {
-                                sku_id,
-                                description,
-                                device_type,
-                            })
-                            .await
-                        {
-                            tracing::error!("{e}");
-                        }
-                    }
-                }
-                current_line += 1;
-            }
-        }
+pub async fn show_machines(
+    args: ShowSku,
+    api_client: &ApiClient,
+    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: &OutputFormat,
+) -> CarbideCliResult<()> {
+    if let Some(sku_id) = args.sku_id {
+        let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
+        show_machine_table(output, output_format, skus.skus).await?;
+    } else {
+        let all_ids = api_client.0.get_all_sku_ids().await?;
+        let sku_list = if !all_ids.ids.is_empty() {
+            api_client.0.find_skus_by_ids(all_ids.ids).await?
+        } else {
+            SkuList::default()
+        };
 
-        Sku::Replace(CreateSku { filename, id }) => {
-            let file_data = std::fs::read_to_string(filename)?;
-            let mut sku: rpc::forge::Sku = serde_json::de::from_str(&file_data)?;
-            sku.id = id.unwrap_or(sku.id);
+        show_machine_table(output, output_format, sku_list.skus).await?;
+    };
 
-            let updated_sku = api_client.0.replace_sku(sku).await?;
-            show_skus_table(output, output_format, vec![updated_sku]).await?;
-        }
+    Ok(())
+}
+
+pub async fn generate(
+    args: GenerateSku,
+    api_client: &ApiClient,
+    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: &OutputFormat,
+    extended: bool,
+) -> CarbideCliResult<()> {
+    let mut sku = api_client
+        .0
+        .generate_sku_from_machine(args.machine_id)
+        .await?;
+    if let Some(id) = args.id {
+        sku.id = id;
     }
+    show_sku_details(output, output_format, extended, sku).await?;
+    Ok(())
+}
+
+pub async fn create(
+    args: CreateSku,
+    api_client: &ApiClient,
+    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: &OutputFormat,
+) -> CarbideCliResult<()> {
+    let file_data = std::fs::read_to_string(args.filename)?;
+    // attempt to deserialize a single sku.  if it fails try to deserialize as a SkuList
+    let mut sku_list = match serde_json::de::from_str(&file_data) {
+        Ok(sku) => SkuList { skus: vec![sku] },
+        Err(e) => serde_json::de::from_str(&file_data).map_err(|_| e)?,
+    };
+    if let Some(id) = args.id {
+        if sku_list.skus.len() != 1 {
+            return Err(CarbideCliError::GenericError(
+                "ID cannot be specified when creating multiple SKUs".to_string(),
+            ));
+        }
+        sku_list.skus[0].id = id;
+    }
+    let sku_ids = api_client.0.create_sku(sku_list).await?;
+    let sku_list = api_client.0.find_skus_by_ids(sku_ids.ids).await?;
+    show_skus_table(output, output_format, sku_list.skus).await?;
+    Ok(())
+}
+
+pub async fn delete(sku_id: String, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .delete_sku(SkuIdList { ids: vec![sku_id] })
+        .await?;
+    Ok(())
+}
+
+pub async fn assign(
+    sku_id: String,
+    machine_id: carbide_uuid::machine::MachineId,
+    force: bool,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    api_client
+        .assign_sku_to_machine(sku_id, machine_id, force)
+        .await?;
+    Ok(())
+}
+
+pub async fn unassign(args: UnassignSku, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .remove_sku_association(RemoveSkuRequest {
+            machine_id: Some(args.machine_id),
+            force: args.force,
+        })
+        .await?;
+    Ok(())
+}
+
+pub async fn verify(
+    machine_id: carbide_uuid::machine::MachineId,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    api_client.0.verify_sku_for_machine(machine_id).await?;
+    Ok(())
+}
+
+pub async fn update_metadata(
+    args: UpdateSkuMetadata,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    api_client.0.update_sku_metadata(args).await?;
+    Ok(())
+}
+
+pub async fn bulk_update_metadata(
+    args: BulkUpdateSkuMetadata,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let mut rdr =
+        csv::Reader::from_path(&args.filename).map_err(|e| CarbideCliError::IOError(e.into()))?;
+
+    // disable reading the first row as a header
+    rdr.set_headers(vec!["sku id", "device type"].into());
+
+    let mut current_line = 1;
+    for result in rdr.records() {
+        match result {
+            Err(e) => {
+                // log and ignore parsing errors on a single line.
+                tracing::error!(
+                    "Error reading file {} line {current_line}: {e}",
+                    args.filename
+                );
+            }
+            Ok(data) => {
+                // Log missing SKUs, but don't stop processing
+                let Some(sku_id) = data.get(0).map(str::to_owned) else {
+                    tracing::error!("No SKU ID at line {current_line}");
+                    continue;
+                };
+                let device_type = data.get(1).filter(|s| !s.is_empty()).map(str::to_owned);
+                let description = data.get(2).filter(|s| !s.is_empty()).map(str::to_owned);
+
+                // log errors but don't stop the processing
+                if let Err(e) = api_client
+                    .0
+                    .update_sku_metadata(UpdateSkuMetadata {
+                        sku_id,
+                        description,
+                        device_type,
+                    })
+                    .await
+                {
+                    tracing::error!("{e}");
+                }
+            }
+        }
+        current_line += 1;
+    }
+    Ok(())
+}
+
+pub async fn replace(
+    args: CreateSku,
+    api_client: &ApiClient,
+    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: &OutputFormat,
+) -> CarbideCliResult<()> {
+    let file_data = std::fs::read_to_string(args.filename)?;
+    let mut sku: rpc::forge::Sku = serde_json::de::from_str(&file_data)?;
+    sku.id = args.id.unwrap_or(sku.id);
+
+    let updated_sku = api_client.0.replace_sku(sku).await?;
+    show_skus_table(output, output_format, vec![updated_sku]).await?;
     Ok(())
 }

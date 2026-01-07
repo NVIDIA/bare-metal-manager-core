@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 use rpc::forge::{FindTenantRequest, TenantByOrganizationIdsRequest, UpdateTenantRequest};
 
-use super::CarbideCliError;
-use crate::cfg::tenant::{ShowTenant, UpdateTenant};
+use super::args::{ShowTenant, UpdateTenant};
 use crate::rpc::ApiClient;
 
 /// Produces a table for printing a non-JSON representation of a
