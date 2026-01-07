@@ -143,16 +143,22 @@ impl IBFabricManager for IBFabricManagerImpl {
                         id: fabric_name.to_string(),
                     })?;
 
+                let key = &CredentialKey::UfmAuth {
+                    fabric: fabric_name.to_string(),
+                };
                 let credentials = self
                     .credential_provider
-                    .get_credentials(&CredentialKey::UfmAuth {
-                        fabric: fabric_name.to_string(),
-                    })
+                    .get_credentials(key)
                     .await
-                    .map_err(|err| CarbideError::internal(format!("Secret manager error: {err}")))?
+                    .map_err(|err| {
+                        CarbideError::internal(format!(
+                            "Cannot create UFM client: secret manager error: {err}"
+                        ))
+                    })?
                     .ok_or_else(|| {
                         CarbideError::internal(format!(
-                            "Vault key not found: ufm/{fabric_name}/token"
+                            "Cannot create UFM client: vault key not found or token is not set: {}",
+                            key.to_key_str()
                         ))
                     })?;
 
