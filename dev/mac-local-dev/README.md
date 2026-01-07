@@ -1,4 +1,187 @@
-# Local Carbide API + machine-a-tron
+# Local Carbide API (without machine-a-tron for now)
+
+Notes:
+- technically you can start machine-a-tron but it is useless on a Mac since its magic relies on Linux-specific features. It may work in docker on Mac...
+- which is why we should run carbide on Mac in docker too. But for now this run native on Mac.
+
+Assumptions:
+- ~/.config/sops/age/keys.txt exists with content similar to 'AGE-SECRET-KEY-1MUQYH7VZ9RZ5ZWQ602A3ZCEJXU0T03W59C0C7S59RZ5TUVD70N5Q8239HT'
+
+## To run carbide from the carbide directory:
+```bash
+SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt FORGED_DIRECTORY="$(pwd)/../forged" just run-mac-carbide
+```
+This will setup everything and run carbide-api binary.
+
+You can verify carbide-api is running by doing:
+```bash
+grpcurl -plaintext localhost:1079 list 
+````
+If you configure carbide to run with TLS , you can do:
+```bash
+grpcurl -insecure localhost:1079 list
+```
+
+## To run carbide in IntelliJ/RustRover IDE
+
+IDE setup is not complete: you may want to configure 'Rust -> External Linters -> Additional Arguments' to include '--no-default-features'.
+
+First run carbide stand-alone the kill it (it does setup everything).<br>
+Then get some light setup and the needed variables by running:
+```bash
+SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt dev/mac-local-dev/set-env.sh
+```
+It should output something like:
+```bash
+# required variables to run carbide-api:
+export VAULT_PKI_ROLE_NAME=role
+export VAULT_ADDR=http://localhost:8200
+export CARBIDE_WEB_OAUTH2_CLIENT_SECRET=cVS8Q~wY2EC8QU~qhgDbbpFuAdfCUap5864bMcO0
+export VAULT_PKI_MOUNT_LOCATION=certs
+export VAULT_KV_MOUNT_LOCATION=secrets
+export VAULT_TOKEN=hvs.fwlLLz8J7LfFchupSRf6le2U
+export CARBIDE_WEB_AUTH_TYPE=oauth2
+export CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY=hFMh7Dasr8BHPGap86rEOr2OrzoOaXR1MEOlI3sYHvMNcJAz2eNnrNvsNO1BtOkP
+export DATABASE_URL=postgresql://postgres:admin@localhost
+
+# variables on a single line to feed IntelliJ run configuration:
+VAULT_PKI_ROLE_NAME=role;VAULT_ADDR=http://localhost:8200;CARBIDE_WEB_OAUTH2_CLIENT_SECRET=cVS8Q~wY2EC8QU~qhgDbbpFuAdfCUap5864bMcO0;VAULT_PKI_MOUNT_LOCATION=certs;VAULT_KV_MOUNT_LOCATION=secrets;VAULT_TOKEN=hvs.fwlLLz8J7LfFchupSRf6le2U;CARBIDE_WEB_AUTH_TYPE=oauth2;CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY=hFMh7Dasr8BHPGap86rEOr2OrzoOaXR1MEOlI3sYHvMNcJAz2eNnrNvsNO1BtOkP
+```
+
+You will need to create/modify a run configuration for carbide-api.
+- cargo command parameters:
+```
+run --package carbide-api
+--no-default-features -- run
+--config-path dev/mac-local-dev/carbide-api-config-custom.toml
+```
+- environment variables: copy/paste the single line output from above into the 'Environment variables' section.
+
+# Setting a local carbide-api for cloud-local
+
+BEFORE setting the cloud-local environment you MUST configure auth by replacing 'kas-legacy' in `deploy/kustomize/overlays/local/configmap.yaml` by the following:
+```yaml
+- name: nvidia
+  origin: 4 # TokenOriginCustom
+  url: https://stg.authn.nvidia.com/pubJWKS
+  issuer: "stg.auth.ngc.nvidia.com"
+  serviceAccount: True
+```
+
+Setup cloud-local (<8m):
+```bash
+cd cloud-local
+scripts/setup-forge-cloud.sh --clean
+```
+
+Make available the local carbide-api to cloud-local by running:
+```bash
+cd cloud-local
+scripts/setup-local-carbide-service.sh
+```
+
+Start the elektra-site-agent:
+```bash
+cd cloud-local
+scripts/setup-site.sh
+````
+# Exposing a remote 'dev' carbide-api to cloud-local
+
+BEFORE setting the cloud-local environment you MUST configure auth by replacing 'kas-legacy' in `deploy/kustomize/overlays/local/configmap.yaml` by the following:
+```yaml
+- name: nvidia
+  origin: 4 # TokenOriginCustom
+  url: https://stg.authn.nvidia.com/pubJWKS
+  issuer: "stg.auth.ngc.nvidia.com"
+  serviceAccount: True
+```
+
+Setup cloud-local (<8m):
+```bash
+cd cloud-local
+scripts/setup-forge-cloud.sh --clean
+```
+
+Make available the local carbide-api to cloud-local by running:
+- use SSH port forwarding to expose carbide-api running remotely on your local machine.<br>
+  Example: `ssh -L 10443:10.217.117.194:443 mydev`
+  You can check access by going to 
+- configure cloud-local to use your remote carbide-api by running:
+```bash
+cd cloud-local
+scripts/setup-dev-carbide-service.sh
+```
+
+Start the elektra-site-agent:
+```bash
+cd cloud-local
+scripts/setup-site.sh
+````
+
+# End-to-end test
+
+## create a tenant and retrieve the Tenant ID
+
+Create and retrieve Tenant by doing a 'Get Current Tenant' request...
+
+Take note of the Tenant ID for subsequent requests.
+
+## retrieve the Site ID
+
+WARNING: you may have to wait for site to be in 'Registered' state before proceeding.
+
+Retrieve the Site ID by doing a 'Get All Sites' request...
+
+Take note of the Site ID for subsequent requests.
+
+## create an ip block
+
+```json
+{
+  "name": "allocation-test-super-block",
+  "description": "IP Super block for Allocation test",
+  "siteId": "{{siteId}}",
+  "routingType": "DatacenterOnly",
+  "prefix": "100.100.0.0",
+  "prefixLength": 19,
+  "protocolVersion": "IPv4"
+}
+```
+Take note of the IP Block ID for subsequent requests.
+
+## create an allocation
+
+Use the ID of the above created IP Block as resourceTypeId.
+
+```json
+{
+  "name": "allocation-test-dont-use-ip-block",
+  "description": "Allocation Test IP Block for Demo Tenant",
+  "tenantId": "{{tenantId}}",
+  "siteId": "{{siteId}}",
+  "allocationConstraints": [
+    {
+      "resourceType": "IPBlock",
+      "resourceTypeId": "3b697bc7-27e2-479c-8152-51b33bfd4c5a",
+      "constraintType": "Reserved",
+      "constraintValue": 19
+    }
+  ]
+}
+
+```
+## create a VPC (this will reach out to carbide API)
+Ensure Site is in 'Registered' state before creating VPC: it should happen automatically if there is a proper connection already.
+
+```json
+{
+  "name": "capi-test-vpc",
+  "description": "VPC for Testing CAPI Integration",
+  "siteId": "{{siteId}}"
+}
+```
+
+# PREVIOUS INFORMATION FOR REFERENCE<br>YOU SHOULD PROBABLY IGNORE FOR NOW
 
 Running machine-a-tron against carbide API locally.
 
@@ -75,3 +258,14 @@ sudo echo sudo enabled # get sudo without password (so we don't have to run carg
 REPO_ROOT=. cargo run --bin machine-a-tron dev/machine-a-tron/config/mac.toml --forge-root-ca-path /Users/fchua/repos/carbide/dev/certs/localhost/ca.crt --client-cert-path /Users/fchua/repos/carbide/dev/certs/localhost/localhost.crt --client-key-path /Users/fchua/repos/carbide/dev/certs/localhost/localhost.key
 ```
 
+
+
+[//]: # (Edit your config map entry 'carbide_address' to point to <service-IP>:1079 then restart the elektra-site-agent pods.)
+
+[//]: # (```bash)
+
+[//]: # (kubectl edit configmap elektra-config-map-6745d4gct5 -n elektra-site-agent)
+
+[//]: # (kubectl delete pod elektra-site-agent-0 elektra-site-agent-1 elektra-site-agent-2 -n elektra-site-agent)
+
+[//]: # (```)
