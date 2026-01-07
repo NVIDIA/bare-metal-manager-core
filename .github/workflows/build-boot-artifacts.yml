@@ -217,8 +217,12 @@ jobs:
             EXTRA_DOCKER_ARGS="${EXTRA_DOCKER_ARGS} -v /var/run/docker.sock:/var/run/docker.sock"
 
             # Also pass Docker auth config so pulls from NVCR work.
+            # Copy to temp dir (not :ro) because docker buildx needs to write to DOCKER_CONFIG/buildx
             if [[ -d "${HOME}/.docker" ]]; then
-              EXTRA_DOCKER_ARGS="${EXTRA_DOCKER_ARGS} -v ${HOME}/.docker:/docker-config:ro -e DOCKER_CONFIG=/docker-config"
+              DOCKER_CONFIG_TMP="/tmp/docker-config-$$"
+              mkdir -p "${DOCKER_CONFIG_TMP}"
+              cp -r "${HOME}/.docker/"* "${DOCKER_CONFIG_TMP}/" 2>/dev/null || true
+              EXTRA_DOCKER_ARGS="${EXTRA_DOCKER_ARGS} -v ${DOCKER_CONFIG_TMP}:/docker-config -e DOCKER_CONFIG=/docker-config"
             else
               echo "⚠️  ${HOME}/.docker not found; NVCR pulls inside the build container may fail"
             fi
@@ -402,7 +406,6 @@ jobs:
           path: build.log
           if-no-files-found: warn
           retention-days: 7
-
       - name: Display build summary
         run: |
           echo "============================================"
