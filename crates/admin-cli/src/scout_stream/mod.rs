@@ -18,6 +18,7 @@ use clap::Parser;
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
+use crate::cfg::runtime::RuntimeContext;
 use crate::rpc::ApiClient;
 
 #[derive(Parser, Debug)]
@@ -52,14 +53,10 @@ pub struct CliContext<'g, 'a> {
 }
 
 // dispatch routes scout-stream commands.
-pub async fn dispatch(
-    command: ScoutStreamAction,
-    api_client: &ApiClient,
-    format: &OutputFormat,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(command: ScoutStreamAction, ctx: RuntimeContext) -> CarbideCliResult<()> {
     let mut ctxt = CliContext {
-        grpc_conn: api_client,
-        format,
+        grpc_conn: &ctx.api_client,
+        format: &ctx.config.format,
     };
     match command {
         ScoutStreamAction::Show(cmd) => handle_show(cmd, &mut ctxt).await,

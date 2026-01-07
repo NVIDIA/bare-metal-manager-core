@@ -15,13 +15,13 @@ pub mod cmds;
 
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes rack commands.
-pub async fn dispatch(cmd: &Cmd, api_client: &ApiClient) -> color_eyre::Result<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> color_eyre::Result<()> {
     match cmd {
-        Cmd::Show(show_opts) => cmds::show_rack(api_client, show_opts).await,
-        Cmd::List => cmds::list_racks(api_client).await,
-        Cmd::Delete(delete_opts) => cmds::delete_rack(api_client, delete_opts).await,
+        Cmd::Show(show_opts) => cmds::show_rack(&ctx.api_client, &show_opts).await,
+        Cmd::List => cmds::list_racks(&ctx.api_client).await,
+        Cmd::Delete(delete_opts) => cmds::delete_rack(&ctx.api_client, &delete_opts).await,
     }
 }

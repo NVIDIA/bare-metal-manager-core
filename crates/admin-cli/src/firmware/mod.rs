@@ -13,21 +13,22 @@
 pub mod args;
 pub mod cmds;
 
-use std::pin::Pin;
-
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes firmware commands.
-pub async fn dispatch(
-    cmd: &Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
-) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Show(args) => cmds::show(args, format, output_file, api_client).await,
+        Cmd::Show(args) => {
+            cmds::show(
+                &args,
+                ctx.config.format,
+                &mut ctx.output_file,
+                &ctx.api_client,
+            )
+            .await
+        }
     }
 }

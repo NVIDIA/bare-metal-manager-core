@@ -19,13 +19,13 @@ pub mod cmds;
 // subcommands.
 pub use args::Opts;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes ping commands, which in this
 // case is just a top-level set of options.
-pub async fn dispatch(opts: &Opts, api_client: &ApiClient) -> color_eyre::Result<()> {
+pub async fn dispatch(opts: Opts, ctx: RuntimeContext) -> color_eyre::Result<()> {
     // No match here since ping just has a single
     // command, but still maintain the pattern of
     // having a dispatcher.
-    cmds::ping(api_client, opts).await
+    cmds::ping(&ctx.api_client, &opts).await
 }

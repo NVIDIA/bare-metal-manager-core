@@ -16,12 +16,12 @@ pub mod cmds;
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes resource_pool commands.
-pub async fn dispatch(cmd: &Cmd, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Grow(data) => cmds::grow(data, api_client).await,
-        Cmd::List => cmds::list(api_client).await,
+        Cmd::Grow(data) => cmds::grow(&data, &ctx.api_client).await,
+        Cmd::List => cmds::list(&ctx.api_client).await,
     }
 }

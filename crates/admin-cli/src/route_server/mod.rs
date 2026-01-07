@@ -14,19 +14,15 @@ use ::rpc::forge as rpc;
 use prettytable::{Cell, Row, Table};
 
 use crate::cfg::cli_options::RouteServer;
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch is a dispatch handler for admin CLI
 // route-server subcommands.
-pub async fn dispatch(
-    command: &RouteServer,
-    api_client: &ApiClient,
-    output: output::OutputFormat,
-) -> CarbideCliResult<()> {
-    match command {
+pub async fn dispatch(cmd: RouteServer, ctx: RuntimeContext) -> CarbideCliResult<()> {
+    match cmd {
         RouteServer::Get => {
-            let route_servers = api_client.0.get_route_servers().await?;
-            match output {
+            let route_servers = ctx.api_client.0.get_route_servers().await?;
+            match ctx.config.format {
                 output::OutputFormat::AsciiTable => {
                     let table = route_servers_to_table(&route_servers)?;
                     table.printstd();
@@ -46,7 +42,7 @@ pub async fn dispatch(
             }
         }
         RouteServer::Add(addresses) => {
-            api_client
+            ctx.api_client
                 .0
                 .add_route_servers(rpc::RouteServers {
                     route_servers: addresses.ip.iter().map(ToString::to_string).collect(),
@@ -55,7 +51,7 @@ pub async fn dispatch(
                 .await?
         }
         RouteServer::Remove(addresses) => {
-            api_client
+            ctx.api_client
                 .0
                 .remove_route_servers(rpc::RouteServers {
                     route_servers: addresses.ip.iter().map(ToString::to_string).collect(),
@@ -64,7 +60,7 @@ pub async fn dispatch(
                 .await?
         }
         RouteServer::Replace(addresses) => {
-            api_client
+            ctx.api_client
                 .0
                 .replace_route_servers(rpc::RouteServers {
                     route_servers: addresses.ip.iter().map(ToString::to_string).collect(),

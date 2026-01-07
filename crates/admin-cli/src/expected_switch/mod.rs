@@ -13,23 +13,18 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::OutputFormat;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
 // dispatch routes expected_switch commands.
-pub async fn dispatch(
-    cmd: &Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-) -> color_eyre::Result<()> {
+pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> color_eyre::Result<()> {
     match cmd {
-        Cmd::Show(query) => Ok(cmds::show(query, api_client, format).await?),
-        Cmd::Add(data) => cmds::add(data, api_client).await,
-        Cmd::Delete(query) => Ok(cmds::delete(query, api_client).await?),
-        Cmd::Update(data) => cmds::update(data, api_client).await,
-        Cmd::ReplaceAll(request) => Ok(cmds::replace_all(request, api_client).await?),
-        Cmd::Erase => Ok(cmds::erase(api_client).await?),
+        Cmd::Show(query) => Ok(cmds::show(&query, &ctx.api_client, ctx.config.format).await?),
+        Cmd::Add(data) => cmds::add(&data, &ctx.api_client).await,
+        Cmd::Delete(query) => Ok(cmds::delete(&query, &ctx.api_client).await?),
+        Cmd::Update(data) => cmds::update(&data, &ctx.api_client).await,
+        Cmd::ReplaceAll(request) => Ok(cmds::replace_all(&request, &ctx.api_client).await?),
+        Cmd::Erase => Ok(cmds::erase(&ctx.api_client).await?),
     }
 }
