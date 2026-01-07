@@ -10,9 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fmt::{Display, Formatter, Result as FmtResult};
+
 use ::rpc::forge as rpc;
+use itertools::Itertools;
 use model::tenant::{
-    TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest, UpdateTenantKeyset,
+    PublicKey, TenantKeyset, TenantKeysetIdentifier, TenantPublicKey,
+    TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
 use tonic::{Request, Response, Status};
 
@@ -35,6 +39,16 @@ pub(crate) async fn create(
     let keyset = db::tenant_keyset::create(&keyset_request, &mut txn).await?;
 
     txn.commit().await?;
+
+    let public_keys = &keyset_request.keyset_content.public_keys;
+    tracing::info!(
+        organization_id = keyset_request.keyset_identifier.organization_id.to_string(),
+        keyset_id = keyset_request.keyset_identifier.keyset_id,
+        public_key_suffixes = PublicKeySuffixes(public_keys).to_string(),
+        public_key_suffixes_num = public_keys.len(),
+        version = keyset_request.version,
+        "Tenant keyset created"
+    );
 
     Ok(Response::new(rpc::CreateTenantKeysetResponse {
         keyset: Some(keyset.into()),
@@ -114,6 +128,16 @@ pub(crate) async fn update(
 
     txn.commit().await?;
 
+    let public_keys = &update_request.keyset_content.public_keys;
+    tracing::info!(
+        organization_id = update_request.keyset_identifier.organization_id.to_string(),
+        keyset_id = update_request.keyset_identifier.keyset_id,
+        public_key_suffixes = PublicKeySuffixes(public_keys).to_string(),
+        public_key_suffixes_num = public_keys.len(),
+        version = update_request.version,
+        "Tenant keyset updated"
+    );
+
     Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
 }
 
@@ -143,6 +167,11 @@ pub(crate) async fn delete(
     }
 
     txn.commit().await?;
+    tracing::info!(
+        organization_id = keyset_identifier.organization_id.to_string(),
+        keyset_id = keyset_identifier.keyset_id,
+        "Tenant keyset deleted"
+    );
 
     Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
 }
@@ -161,4 +190,34 @@ pub(crate) async fn validate_public_key(
     txn.commit().await?;
 
     Ok(Response::new(rpc::ValidateTenantPublicKeyResponse {}))
+}
+
+struct PublicKeySuffixes<'a>(&'a Vec<TenantPublicKey>);
+
+impl Display for PublicKeySuffixes<'_> {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        self.0
+            .iter()
+            .map(|v| PublicKeySuffix(&v.public_key))
+            .join(",")
+            .fmt(fmt)
+    }
+}
+
+struct PublicKeySuffix<'a>(&'a PublicKey);
+
+impl Display for PublicKeySuffix<'_> {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        const PUB_KEY_SUFFIX_LEN: usize = 8;
+        self.0
+            .key
+            .chars()
+            .rev()
+            .take(PUB_KEY_SUFFIX_LEN)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<String>()
+            .fmt(fmt)
+    }
 }
