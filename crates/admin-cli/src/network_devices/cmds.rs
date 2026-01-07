@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -13,12 +13,12 @@ use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
-use crate::cfg::cli_options::NetworkDeviceShow;
+use super::args::ShowNetworkDevice;
 use crate::rpc::ApiClient;
 
-pub async fn show(
+pub async fn handle_show(
     output_format: OutputFormat,
-    query: NetworkDeviceShow,
+    query: ShowNetworkDevice,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let query_id: Option<String> = if query.all || query.id.is_empty() {

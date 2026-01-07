@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -18,15 +18,13 @@ pub use args::Cmd;
 
 use crate::rpc::ApiClient;
 
-// dispatch routes tenant commands.
+// dispatch routes network_devices commands.
 pub async fn dispatch(
     cmd: Cmd,
     api_client: &ApiClient,
     format: OutputFormat,
-    page_size: usize,
 ) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Show(args) => cmds::show(args, format, api_client, page_size).await,
-        Cmd::Update(args) => cmds::update(args, format, api_client).await,
+        Cmd::Show(args) => cmds::handle_show(format, args, api_client).await,
     }
 }

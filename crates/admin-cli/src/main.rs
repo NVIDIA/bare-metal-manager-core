@@ -12,11 +12,10 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
-use std::fs::File;
 use std::io;
-use std::io::{BufReader, Write};
+use std::io::Write;
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::FromStr;
 
@@ -27,9 +26,8 @@ use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::{CredentialType, forge as forgerpc};
 use carbide_uuid::machine::MachineId;
 use cfg::cli_options::{
-    BmcAction, BootOverrideAction, CliCommand, CliOptions, CredentialAction, ExpectedMachineJson,
-    HostAction, HostReprovision, IpAction, LogicalPartitionOptions, MachineInterfaces,
-    NetworkSegment, NvlPartitionOptions, SetAction, Shell,
+    BmcAction, BootOverrideAction, CliCommand, CliOptions, CredentialAction, HostAction,
+    HostReprovision, IpAction, SetAction, Shell,
 };
 use clap::CommandFactory;
 use devenv::apply_devenv_config;
@@ -42,7 +40,6 @@ use forge_tls::client_config::{
     get_proxy_info,
 };
 use mac_address::MacAddress;
-use serde::{Deserialize, Serialize};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
@@ -77,9 +74,9 @@ mod managed_host;
 mod measurement;
 mod metadata;
 mod mlx;
-mod network;
 mod network_devices;
 mod network_security_group;
+mod network_segment;
 mod nvl_logical_partition;
 mod nvl_partition;
 mod ping;
@@ -221,28 +218,16 @@ async fn main() -> color_eyre::Result<()> {
             )
             .await?
         }
-        CliCommand::NetworkSegment(network) => match network {
-            NetworkSegment::Show(network) => {
-                network::handle_show(
-                    network,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?
-            }
-            NetworkSegment::Delete(delete_network_segment) => {
-                if config.cloud_unsafe_op.is_none() {
-                    return Err(CarbideCliError::GenericError(
-                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
-                    )
-                    .into());
-                }
-                api_client
-                    .delete_network_segment(delete_network_segment.id)
-                    .await?;
-            }
-        },
+        CliCommand::NetworkSegment(cmd) => {
+            network_segment::dispatch(
+                cmd,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+                config.cloud_unsafe_op.is_some(),
+            )
+            .await?
+        }
         CliCommand::Domain(cmd) => domain::dispatch(&cmd, &api_client, config.format).await?,
         CliCommand::ManagedHost(cmd) => {
             managed_host::dispatch(
@@ -281,11 +266,9 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         },
-        CliCommand::NetworkDevice(data) => match data {
-            cfg::cli_options::NetworkDeviceAction::Show(args) => {
-                network_devices::show(config.format, args, &api_client).await?;
-            }
-        },
+        CliCommand::NetworkDevice(cmd) => {
+            network_devices::dispatch(cmd, &api_client, config.format).await?
+        }
         CliCommand::Dpu(cmd) => {
             dpu::dispatch(
                 cmd,
@@ -608,15 +591,9 @@ async fn main() -> color_eyre::Result<()> {
             )
             .await?
         }
-        CliCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
-            MachineInterfaces::Show(machine_interfaces) => {
-                machine_interfaces::handle_show(machine_interfaces, config.format, &api_client)
-                    .await?
-            }
-            MachineInterfaces::Delete(args) => {
-                machine_interfaces::handle_delete(args, &api_client).await?
-            }
-        },
+        CliCommand::MachineInterfaces(cmd) => {
+            machine_interfaces::dispatch(cmd, &api_client, config.format).await?
+        }
         CliCommand::GenerateShellComplete(shell) => {
             let mut cmd = CliOptions::command();
             match shell.shell {
@@ -693,135 +670,9 @@ async fn main() -> color_eyre::Result<()> {
                     .await?
             }
         },
-        CliCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
-            cfg::cli_options::ExpectedMachineAction::Show(expected_machine_query) => {
-                expected_machines::show_expected_machines(
-                    &expected_machine_query,
-                    &api_client,
-                    config.format,
-                    &mut output_file,
-                )
-                .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Add(expected_machine_data) => {
-                if expected_machine_data.has_duplicate_dpu_serials() {
-                    eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
-                    return Ok(());
-                }
-                let metadata = expected_machine_data.metadata()?;
-                let host_nics = Vec::new();
-                api_client
-                    .add_expected_machine(
-                        expected_machine_data.bmc_mac_address,
-                        expected_machine_data.bmc_username,
-                        expected_machine_data.bmc_password,
-                        expected_machine_data.chassis_serial_number,
-                        expected_machine_data.fallback_dpu_serial_numbers,
-                        metadata,
-                        expected_machine_data.sku_id,
-                        expected_machine_data.id,
-                        host_nics,
-                        expected_machine_data.rack_id,
-                    )
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Delete(expected_machine_query) => {
-                api_client
-                    .0
-                    .delete_expected_machine(::rpc::forge::ExpectedMachineRequest {
-                        bmc_mac_address: expected_machine_query.bmc_mac_address.to_string(),
-                        id: None,
-                    })
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Patch(expected_machine_data) => {
-                if let Err(e) = expected_machine_data.validate() {
-                    eprintln!("{e}");
-                    return Ok(());
-                }
-                api_client
-                    .patch_expected_machine(
-                        expected_machine_data.bmc_mac_address,
-                        expected_machine_data.bmc_username,
-                        expected_machine_data.bmc_password,
-                        expected_machine_data.chassis_serial_number,
-                        expected_machine_data.fallback_dpu_serial_numbers,
-                        expected_machine_data.meta_name,
-                        expected_machine_data.meta_description,
-                        expected_machine_data.labels,
-                        expected_machine_data.sku_id,
-                        expected_machine_data.rack_id,
-                    )
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Update(request) => {
-                let json_file_path = Path::new(&request.filename);
-                let file_content = std::fs::read_to_string(json_file_path)?;
-                let expected_machine: cfg::cli_options::ExpectedMachineJson =
-                    serde_json::from_str(&file_content)?;
-
-                let metadata = expected_machine.metadata.unwrap_or_default();
-
-                // Use patch API but provide all fields from JSON for full replacement
-                api_client
-                    .patch_expected_machine(
-                        expected_machine.bmc_mac_address,
-                        Some(expected_machine.bmc_username),
-                        Some(expected_machine.bmc_password),
-                        Some(expected_machine.chassis_serial_number),
-                        expected_machine.fallback_dpu_serial_numbers,
-                        Some(metadata.name),
-                        Some(metadata.description),
-                        Some(
-                            metadata
-                                .labels
-                                .into_iter()
-                                .map(|label| {
-                                    if let Some(value) = label.value {
-                                        format!("{}:{}", label.key, value)
-                                    } else {
-                                        label.key
-                                    }
-                                })
-                                .collect(),
-                        ),
-                        expected_machine.sku_id,
-                        expected_machine.rack_id,
-                    )
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::ReplaceAll(request) => {
-                let json_file_path = Path::new(&request.filename);
-                let reader = BufReader::new(File::open(json_file_path)?);
-                #[derive(Debug, Serialize, Deserialize)]
-                struct ExpectedMachineList {
-                    expected_machines: Vec<ExpectedMachineJson>,
-                    expected_machines_count: Option<usize>,
-                }
-                let expected_machine_list: ExpectedMachineList = serde_json::from_reader(reader)?;
-
-                if expected_machine_list
-                    .expected_machines_count
-                    .is_some_and(|count| count != expected_machine_list.expected_machines.len())
-                {
-                    return Err(CarbideCliError::GenericError(format!(
-                        "Json File specified an invalid count: {:#?}; actual count: {}",
-                        expected_machine_list
-                            .expected_machines_count
-                            .unwrap_or_default(),
-                        expected_machine_list.expected_machines.len()
-                    ))
-                    .into());
-                }
-
-                api_client
-                    .replace_all_expected_machines(expected_machine_list.expected_machines)
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Erase => {
-                api_client.0.delete_all_expected_machines().await?;
-            }
-        },
+        CliCommand::ExpectedMachine(cmd) => {
+            expected_machines::dispatch(cmd, &api_client, config.format, &mut output_file).await?
+        }
         CliCommand::ExpectedPowerShelf(cmd) => {
             expected_power_shelf::dispatch(&cmd, &api_client, config.format).await?
         }
@@ -964,8 +815,8 @@ async fn main() -> color_eyre::Result<()> {
                         }
 
                         NetworkSegment => {
-                            network::handle_show(
-                                cfg::cli_options::ShowNetwork {
+                            network_segment::cmds::handle_show(
+                                network_segment::args::ShowNetworkSegment {
                                     network: Some(m.owner_id.ok_or(CarbideCliError::GenericError(
                                         "failed to unwrap owner_id after finding network segment for IP".to_string(),
                                     ))?.parse()?),
@@ -993,8 +844,8 @@ async fn main() -> color_eyre::Result<()> {
                 match api_client.identify_uuid(u).await {
                     Ok(o) => match o {
                         forgerpc::UuidType::NetworkSegment => {
-                            network::handle_show(
-                                cfg::cli_options::ShowNetwork {
+                            network_segment::cmds::handle_show(
+                                network_segment::args::ShowNetworkSegment {
                                     network: Some(j.id.parse()?),
                                     tenant_org_id: None,
                                     name: None,
@@ -1025,8 +876,8 @@ async fn main() -> color_eyre::Result<()> {
                             .await?
                         }
                         forgerpc::UuidType::MachineInterface => {
-                            machine_interfaces::handle_show(
-                                cfg::cli_options::ShowMachineInterfaces {
+                            machine_interfaces::cmds::handle_show(
+                                machine_interfaces::args::ShowMachineInterfaces {
                                     interface_id: Some(j.id.parse()?),
                                     all: false,
                                     more: true,
@@ -1088,8 +939,8 @@ async fn main() -> color_eyre::Result<()> {
                 match api_client.identify_mac(m).await {
                     Ok((mac_owner, primary_key)) => match mac_owner {
                         forgerpc::MacOwner::MachineInterface => {
-                            machine_interfaces::handle_show(
-                                cfg::cli_options::ShowMachineInterfaces {
+                            machine_interfaces::cmds::handle_show(
+                                machine_interfaces::args::ShowMachineInterfaces {
                                     interface_id: Some(primary_key.parse()?),
                                     all: false,
                                     more: true,
@@ -1313,112 +1164,34 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CliCommand::DpuRemediation(command) => match command {
-            cfg::cli_options::DpuRemediation::Create(create_remediation) => {
-                dpu_remediation::create_dpu_remediation(create_remediation, &api_client).await?;
-            }
-            cfg::cli_options::DpuRemediation::Approve(approve_remediation) => {
-                dpu_remediation::approve_dpu_remediation(approve_remediation, &api_client).await?;
-            }
-            cfg::cli_options::DpuRemediation::Revoke(revoke_remediation) => {
-                dpu_remediation::revoke_dpu_remediation(revoke_remediation, &api_client).await?;
-            }
-
-            cfg::cli_options::DpuRemediation::Enable(enable_remediation) => {
-                dpu_remediation::enable_dpu_remediation(enable_remediation, &api_client).await?;
-            }
-            cfg::cli_options::DpuRemediation::Disable(disable_remediation) => {
-                dpu_remediation::disable_dpu_remediation(disable_remediation, &api_client).await?;
-            }
-            cfg::cli_options::DpuRemediation::Show(show_remediation) => {
-                dpu_remediation::handle_show(
-                    show_remediation,
-                    config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?;
-            }
-            cfg::cli_options::DpuRemediation::ListApplied(list_applied_remediations) => {
-                dpu_remediation::handle_list_applied(
-                    list_applied_remediations,
-                    config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?;
-            }
-        },
-        CliCommand::ExtensionService(extension_service_command) => {
-            match extension_service_command {
-                cfg::cli_options::ExtensionServiceOptions::Create(create_options) => {
-                    extension_service::handle_create(create_options, config.format, &api_client)
-                        .await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::Update(update_options) => {
-                    extension_service::handle_update(update_options, config.format, &api_client)
-                        .await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::Delete(delete_options) => {
-                    extension_service::handle_delete(delete_options, config.format, &api_client)
-                        .await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::Show(show_options) => {
-                    extension_service::handle_show(
-                        show_options,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                    )
-                    .await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::GetVersion(get_version_options) => {
-                    extension_service::handle_get_version(get_version_options, &api_client).await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::ShowInstances(
-                    show_instances_options,
-                ) => {
-                    extension_service::handle_show_instances(
-                        show_instances_options,
-                        config.format,
-                        &api_client,
-                    )
-                    .await?;
-                }
-            }
+        CliCommand::DpuRemediation(cmd) => {
+            dpu_remediation::dispatch(
+                cmd,
+                &api_client,
+                config.format,
+                &mut output_file,
+                config.internal_page_size,
+            )
+            .await?
+        }
+        CliCommand::ExtensionService(cmd) => {
+            extension_service::dispatch(cmd, &api_client, config.format, config.internal_page_size)
+                .await?
         }
 
-        CliCommand::NvlPartition(nvlp) => match nvlp {
-            NvlPartitionOptions::Show(show_options) => {
-                nvl_partition::handle_show(
-                    show_options,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
+        CliCommand::NvlPartition(cmd) => {
+            nvl_partition::dispatch(cmd, &api_client, config.format, config.internal_page_size)
                 .await?
-            }
-        },
-
-        CliCommand::LogicalPartition(lp) => match lp {
-            LogicalPartitionOptions::Show(show_options) => {
-                nvl_logical_partition::handle_show(
-                    show_options,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?
-            }
-            LogicalPartitionOptions::Create(create_options) => {
-                nvl_logical_partition::handle_create(create_options, &api_client).await?
-            }
-            LogicalPartitionOptions::Delete(delete_options) => {
-                nvl_logical_partition::handle_delete(delete_options, &api_client).await?
-            }
-        },
+        }
+        CliCommand::LogicalPartition(cmd) => {
+            nvl_logical_partition::dispatch(
+                cmd,
+                &api_client,
+                config.format,
+                config.internal_page_size,
+            )
+            .await?
+        }
 
         CliCommand::Tenant(cmd) => {
             tenant::dispatch(cmd, &api_client, config.format, config.internal_page_size).await?

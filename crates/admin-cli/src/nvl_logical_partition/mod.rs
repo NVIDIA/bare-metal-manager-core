@@ -18,7 +18,7 @@ pub use args::Cmd;
 
 use crate::rpc::ApiClient;
 
-// dispatch routes tenant commands.
+// dispatch routes nvl_logical_partition commands.
 pub async fn dispatch(
     cmd: Cmd,
     api_client: &ApiClient,
@@ -26,7 +26,8 @@ pub async fn dispatch(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     match cmd {
-        Cmd::Show(args) => cmds::show(args, format, api_client, page_size).await,
-        Cmd::Update(args) => cmds::update(args, format, api_client).await,
+        Cmd::Show(args) => cmds::handle_show(args, format, api_client, page_size).await,
+        Cmd::Create(args) => cmds::handle_create(args, api_client).await,
+        Cmd::Delete(args) => cmds::handle_delete(args, api_client).await,
     }
 }
