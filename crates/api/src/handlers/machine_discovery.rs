@@ -368,9 +368,6 @@ pub(crate) async fn discover_machine(
     let machine_certificate_opt: Option<rpc::MachineCertificate>;
 
     if api.runtime_config.attestation_enabled && !hardware_info.is_dpu() {
-        #[cfg(not(feature = "linux-build"))]
-        unimplemented!();
-
         #[cfg(feature = "linux-build")]
         if let Some(attest_key_info) = attest_key_info_opt {
             tracing::info!(
@@ -389,6 +386,23 @@ pub(crate) async fn discover_machine(
             return Err(Status::invalid_argument(
                 "Internal Error: This should have been handled above! AttestKeyInfo is not populated.",
             ));
+        }
+
+        #[cfg(not(feature = "linux-build"))]
+        {
+            tracing::warn!(
+                %stable_machine_id,
+                "Attestation enabled but linux-build feature disabled; vending certificate without attestation challenge"
+            );
+            let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
+                forge_secrets::certificates::Certificate::default()
+            } else {
+                api.certificate_provider
+                    .get_certificate(&stable_machine_id.to_string(), None, None)
+                    .await
+                    .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
+            };
+            machine_certificate_opt = Some(certificate.into());
         }
     } else {
         tracing::info!(

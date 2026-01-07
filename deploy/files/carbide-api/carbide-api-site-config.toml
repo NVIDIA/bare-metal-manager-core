@@ -1,20 +1,18 @@
-dhcp_servers=["CARBIDE_DHCP_EXTERNAL_IP"]
+dhcp_servers = ["CARBIDE_DHCP_EXTERNAL_IP"]
 # route_servers = [
 #   "FRR_ROUTING_0_EXTERNAL_IP",
 #   "FRR_ROUTING_1_EXTERNAL_IP",
 #   "FRR_ROUTING_2_EXTERNAL_IP"
 # ]
 enable_route_servers = true
-initial_domain_name="ENVIORNMENT_NAME.frg.nvidia.com"
-sitename="ENVIORNMENT_NAME"
+initial_domain_name = "ENVIORNMENT_NAME.frg.nvidia.com"
+sitename = "ENVIORNMENT_NAME"
 attestation_enabled = false
 bypass_rbac = true
 max_concurrent_machine_updates = 20
 
 # List all tenant overlays here
-site_fabric_prefixes = [
-  "SITE_FABRIC_PREFIX_1",
-]
+site_fabric_prefixes = ["SITE_FABRIC_PREFIX_1"]
 
 # Site infrastructure prefixes instances are not allowed to talk to.
 # These should include admin pool, site controller nodes IPMI pools and managed hosts IPMI pools

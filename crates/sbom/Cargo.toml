@@ -16,12 +16,12 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 regex = { workspace = true }
 lazy_static = { workspace = true }
-itertools = {workspace = true }
+itertools = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
-    "env-filter",
-    "local-time",
+  "env-filter",
+  "local-time",
 ] }
 
 [lints]

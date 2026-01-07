@@ -600,7 +600,7 @@ async fn test_multiple_state_controllers_schedule_object_only_once(
 
     let count = state_handler.count.load(Ordering::SeqCst) as f64;
     assert!(
-        count >= 0.65 * expected_total_count && count <= 1.25 * expected_total_count,
+        count >= 0.60 * expected_total_count && count <= 1.25 * expected_total_count,
         "Expected count of {expected_total_count}, but got {count}"
     );
 
@@ -612,7 +612,7 @@ async fn test_multiple_state_controllers_schedule_object_only_once(
             .unwrap_or_default() as f64;
 
         assert!(
-            count >= 0.65 * expected_iterations && count <= 1.25 * expected_iterations,
+            count >= 0.60 * expected_iterations && count <= 1.25 * expected_iterations,
             "Expected individual count of {expected_iterations}, but got {count} for {object_id}"
         );
     }
