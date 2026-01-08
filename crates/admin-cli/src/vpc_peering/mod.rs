@@ -16,13 +16,15 @@ pub mod cmds;
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes vpc_peering commands.
-pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Create(data) => cmds::create(&data, ctx.config.format, &ctx.api_client).await,
-        Cmd::Show(query) => cmds::show(&query, ctx.config.format, &ctx.api_client).await,
-        Cmd::Delete(query) => cmds::delete(&query, ctx.config.format, &ctx.api_client).await,
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Create(data) => cmds::create(&data, ctx.config.format, &ctx.api_client).await,
+            Cmd::Show(query) => cmds::show(&query, ctx.config.format, &ctx.api_client).await,
+            Cmd::Delete(query) => cmds::delete(&query, ctx.config.format, &ctx.api_client).await,
+        }
     }
 }

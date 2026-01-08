@@ -14,62 +14,63 @@ use ::rpc::forge as rpc;
 use prettytable::{Cell, Row, Table};
 
 use crate::cfg::cli_options::RouteServer;
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-// dispatch is a dispatch handler for admin CLI
-// route-server subcommands.
-pub async fn dispatch(cmd: RouteServer, ctx: RuntimeContext) -> CarbideCliResult<()> {
-    match cmd {
-        RouteServer::Get => {
-            let route_servers = ctx.api_client.0.get_route_servers().await?;
-            match ctx.config.format {
-                output::OutputFormat::AsciiTable => {
-                    let table = route_servers_to_table(&route_servers)?;
-                    table.printstd();
-                }
-                output::OutputFormat::Csv => {
-                    println!("address,source_type");
-                    for route_server in &route_servers.route_servers {
-                        println!("{},{:?}", route_server.address, route_server.source_type)
+impl Dispatch for RouteServer {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            RouteServer::Get => {
+                let route_servers = ctx.api_client.0.get_route_servers().await?;
+                match ctx.config.format {
+                    output::OutputFormat::AsciiTable => {
+                        let table = route_servers_to_table(&route_servers)?;
+                        table.printstd();
+                    }
+                    output::OutputFormat::Csv => {
+                        println!("address,source_type");
+                        for route_server in &route_servers.route_servers {
+                            println!("{},{:?}", route_server.address, route_server.source_type)
+                        }
+                    }
+                    output::OutputFormat::Json => {
+                        println!("{}", serde_json::to_string(&route_servers)?)
+                    }
+                    output::OutputFormat::Yaml => {
+                        println!("{}", serde_yaml::to_string(&route_servers)?)
                     }
                 }
-                output::OutputFormat::Json => {
-                    println!("{}", serde_json::to_string(&route_servers)?)
-                }
-                output::OutputFormat::Yaml => {
-                    println!("{}", serde_yaml::to_string(&route_servers)?)
-                }
+            }
+            RouteServer::Add(addresses) => {
+                ctx.api_client
+                    .0
+                    .add_route_servers(rpc::RouteServers {
+                        route_servers: addresses.ip.iter().map(ToString::to_string).collect(),
+                        source_type: addresses.source_type as i32,
+                    })
+                    .await?
+            }
+            RouteServer::Remove(addresses) => {
+                ctx.api_client
+                    .0
+                    .remove_route_servers(rpc::RouteServers {
+                        route_servers: addresses.ip.iter().map(ToString::to_string).collect(),
+                        source_type: addresses.source_type as i32,
+                    })
+                    .await?
+            }
+            RouteServer::Replace(addresses) => {
+                ctx.api_client
+                    .0
+                    .replace_route_servers(rpc::RouteServers {
+                        route_servers: addresses.ip.iter().map(ToString::to_string).collect(),
+                        source_type: addresses.source_type as i32,
+                    })
+                    .await?
             }
         }
-        RouteServer::Add(addresses) => {
-            ctx.api_client
-                .0
-                .add_route_servers(rpc::RouteServers {
-                    route_servers: addresses.ip.iter().map(ToString::to_string).collect(),
-                    source_type: addresses.source_type as i32,
-                })
-                .await?
-        }
-        RouteServer::Remove(addresses) => {
-            ctx.api_client
-                .0
-                .remove_route_servers(rpc::RouteServers {
-                    route_servers: addresses.ip.iter().map(ToString::to_string).collect(),
-                    source_type: addresses.source_type as i32,
-                })
-                .await?
-        }
-        RouteServer::Replace(addresses) => {
-            ctx.api_client
-                .0
-                .replace_route_servers(rpc::RouteServers {
-                    route_servers: addresses.ip.iter().map(ToString::to_string).collect(),
-                    source_type: addresses.source_type as i32,
-                })
-                .await?
-        }
+        Ok(())
     }
-    Ok(())
 }
 
 // route_servers_to_table converts the RouteServerEntries

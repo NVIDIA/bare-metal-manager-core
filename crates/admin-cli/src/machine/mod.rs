@@ -26,64 +26,69 @@ pub use args::{
 };
 pub use cmds::{get_health_report, get_next_free_machine, handle_show};
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-pub async fn dispatch(cmd: Cmd, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Show(args) => {
-            cmds::handle_show(
-                args,
-                &ctx.config.format,
-                &mut ctx.output_file,
-                &ctx.api_client,
-                ctx.config.page_size,
-                &ctx.config.sort_by,
-            )
-            .await
-        }
-        Cmd::DpuSshCredentials(query) => {
-            cmds::dpu_ssh_credentials(&ctx.api_client, query, ctx.config.format).await
-        }
-        Cmd::Network(cmd) => {
-            cmds::network(
-                &ctx.api_client,
-                cmd,
-                ctx.config.format,
-                &mut ctx.output_file,
-            )
-            .await
-        }
-        Cmd::HealthOverride(cmd) => {
-            cmds::handle_override(cmd, ctx.config.format, &ctx.api_client).await
-        }
-        Cmd::Reboot(args) => cmds::reboot(&ctx.api_client, args).await,
-        Cmd::ForceDelete(query) => cmds::force_delete(query, &ctx.api_client).await,
-        Cmd::AutoUpdate(cfg) => cmds::autoupdate(cfg, &ctx.api_client).await,
-        Cmd::Metadata(cmd) => {
-            cmds::metadata(
-                &ctx.api_client,
-                cmd,
-                &mut ctx.output_file,
-                ctx.config.format,
-                ctx.config.extended,
-            )
-            .await
-        }
-        Cmd::HardwareInfo(cmd) => match cmd {
-            args::MachineHardwareInfoCommand::Show(show_cmd) => {
-                cmds::handle_show_machine_hardware_info(
-                    &ctx.api_client,
-                    &mut ctx.output_file,
+impl Dispatch for Cmd {
+    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Show(args) => {
+                cmds::handle_show(
+                    args,
                     &ctx.config.format,
-                    show_cmd.machine,
+                    &mut ctx.output_file,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                    &ctx.config.sort_by,
                 )
+                .await?
             }
-            args::MachineHardwareInfoCommand::Update(capability) => match capability {
-                args::MachineHardwareInfo::Gpus(gpus) => {
-                    cmds::handle_update_machine_hardware_info_gpus(&ctx.api_client, gpus).await
+            Cmd::DpuSshCredentials(query) => {
+                cmds::dpu_ssh_credentials(&ctx.api_client, query, ctx.config.format).await?
+            }
+            Cmd::Network(cmd) => {
+                cmds::network(
+                    &ctx.api_client,
+                    cmd,
+                    ctx.config.format,
+                    &mut ctx.output_file,
+                )
+                .await?
+            }
+            Cmd::HealthOverride(cmd) => {
+                cmds::handle_override(cmd, ctx.config.format, &ctx.api_client).await?
+            }
+            Cmd::Reboot(args) => cmds::reboot(&ctx.api_client, args).await?,
+            Cmd::ForceDelete(query) => cmds::force_delete(query, &ctx.api_client).await?,
+            Cmd::AutoUpdate(cfg) => cmds::autoupdate(cfg, &ctx.api_client).await?,
+            Cmd::Metadata(cmd) => {
+                cmds::metadata(
+                    &ctx.api_client,
+                    cmd,
+                    &mut ctx.output_file,
+                    ctx.config.format,
+                    ctx.config.extended,
+                )
+                .await?
+            }
+            Cmd::HardwareInfo(cmd) => match cmd {
+                args::MachineHardwareInfoCommand::Show(show_cmd) => {
+                    cmds::handle_show_machine_hardware_info(
+                        &ctx.api_client,
+                        &mut ctx.output_file,
+                        &ctx.config.format,
+                        show_cmd.machine,
+                    )?
                 }
+                args::MachineHardwareInfoCommand::Update(capability) => match capability {
+                    args::MachineHardwareInfo::Gpus(gpus) => {
+                        cmds::handle_update_machine_hardware_info_gpus(&ctx.api_client, gpus)
+                            .await?
+                    }
+                },
             },
-        },
-        Cmd::Positions(args) => cmds::positions(args, &ctx.api_client).await,
+            Cmd::Positions(args) => cmds::positions(args, &ctx.api_client).await?,
+        }
+        Ok(())
     }
 }

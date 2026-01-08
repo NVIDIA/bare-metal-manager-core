@@ -16,36 +16,37 @@ pub mod cmds;
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes dpu_remediation commands.
-pub async fn dispatch(cmd: Cmd, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Create(args) => cmds::create_dpu_remediation(args, &ctx.api_client).await?,
-        Cmd::Approve(args) => cmds::approve_dpu_remediation(args, &ctx.api_client).await?,
-        Cmd::Revoke(args) => cmds::revoke_dpu_remediation(args, &ctx.api_client).await?,
-        Cmd::Enable(args) => cmds::enable_dpu_remediation(args, &ctx.api_client).await?,
-        Cmd::Disable(args) => cmds::disable_dpu_remediation(args, &ctx.api_client).await?,
-        Cmd::Show(args) => {
-            cmds::handle_show(
-                args,
-                ctx.config.format,
-                &mut ctx.output_file,
-                &ctx.api_client,
-                ctx.config.page_size,
-            )
-            .await?
-        }
-        Cmd::ListApplied(args) => {
-            cmds::handle_list_applied(
-                args,
-                ctx.config.format,
-                &mut ctx.output_file,
-                &ctx.api_client,
-                ctx.config.page_size,
-            )
-            .await?
+impl Dispatch for Cmd {
+    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Create(args) => cmds::create_dpu_remediation(args, &ctx.api_client).await,
+            Cmd::Approve(args) => cmds::approve_dpu_remediation(args, &ctx.api_client).await,
+            Cmd::Revoke(args) => cmds::revoke_dpu_remediation(args, &ctx.api_client).await,
+            Cmd::Enable(args) => cmds::enable_dpu_remediation(args, &ctx.api_client).await,
+            Cmd::Disable(args) => cmds::disable_dpu_remediation(args, &ctx.api_client).await,
+            Cmd::Show(args) => {
+                cmds::handle_show(
+                    args,
+                    ctx.config.format,
+                    &mut ctx.output_file,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                )
+                .await
+            }
+            Cmd::ListApplied(args) => {
+                cmds::handle_list_applied(
+                    args,
+                    ctx.config.format,
+                    &mut ctx.output_file,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                )
+                .await
+            }
         }
     }
-    Ok(())
 }

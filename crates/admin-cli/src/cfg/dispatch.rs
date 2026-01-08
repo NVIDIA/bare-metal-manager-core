@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,22 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod args;
-pub mod cmds;
-
-// Export so the CLI builder can just pull in domain::Cmd.
 use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
 
-use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(show_args) => {
-                cmds::handle_show(&show_args, ctx.config.format, &ctx.api_client).await
-            }
-        }
-    }
+// Dispatch is a trait implemented by all CLI command types.
+// It provides a unified interface for executing commands with
+// the runtime context.
+pub(crate) trait Dispatch {
+    fn dispatch(
+        self,
+        ctx: RuntimeContext,
+    ) -> impl std::future::Future<Output = CarbideCliResult<()>>;
 }

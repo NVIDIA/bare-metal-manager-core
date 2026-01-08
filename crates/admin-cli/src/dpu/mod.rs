@@ -16,41 +16,44 @@ pub mod cmds;
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-pub async fn dispatch(cmd: Cmd, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Reprovision(reprov) => cmds::reprovision(&ctx.api_client, reprov).await,
-        Cmd::AgentUpgradePolicy(args::AgentUpgrade { set }) => {
-            cmds::agent_upgrade_policy(&ctx.api_client, set).await
-        }
-        Cmd::Versions(options) => {
-            cmds::versions(
-                &mut ctx.output_file,
-                ctx.config.format,
-                &ctx.api_client,
-                options,
-                ctx.config.page_size,
-            )
-            .await
-        }
-        Cmd::Status => {
-            cmds::status(
-                &mut ctx.output_file,
-                ctx.config.format,
-                &ctx.api_client,
-                ctx.config.page_size,
-            )
-            .await
-        }
-        Cmd::Network(cmd) => {
-            cmds::network(
-                &ctx.api_client,
-                &mut ctx.output_file,
-                cmd,
-                ctx.config.format,
-            )
-            .await
+impl Dispatch for Cmd {
+    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Reprovision(reprov) => cmds::reprovision(&ctx.api_client, reprov).await,
+            Cmd::AgentUpgradePolicy(args::AgentUpgrade { set }) => {
+                cmds::agent_upgrade_policy(&ctx.api_client, set).await
+            }
+            Cmd::Versions(options) => {
+                cmds::versions(
+                    &mut ctx.output_file,
+                    ctx.config.format,
+                    &ctx.api_client,
+                    options,
+                    ctx.config.page_size,
+                )
+                .await
+            }
+            Cmd::Status => {
+                cmds::status(
+                    &mut ctx.output_file,
+                    ctx.config.format,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                )
+                .await
+            }
+            Cmd::Network(cmd) => {
+                cmds::network(
+                    &ctx.api_client,
+                    &mut ctx.output_file,
+                    cmd,
+                    ctx.config.format,
+                )
+                .await
+            }
         }
     }
 }
