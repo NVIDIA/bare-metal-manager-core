@@ -158,6 +158,10 @@ pub fn wrap_router_with_mock_machine(
             patch(patch_dell_system).get(get_dell_system),
         )
         .route(
+            rf!("Systems/System.Embedded.1/BootOptions"),
+            get(get_dell_boot_options),
+        )
+        .route(
             rf!("Systems/Bluefield/SecureBoot"),
             get(get_dpu_secure_boot),
         )
@@ -200,6 +204,7 @@ pub fn wrap_router_with_mock_machine(
                 secure_boot_enabled: Arc::new(AtomicBool::new(false)),
                 bios: Arc::new(Mutex::new(serde_json::json!({}))),
                 dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
+                boot_order: Arc::new(Mutex::new(None)),
                 injected_bugs: Default::default(),
             },
         })
@@ -832,7 +837,48 @@ async fn get_system(
     if let Some(secure_boot) = secure_boot {
         json_patch(&mut json, serde_json::json!({"SecureBoot": secure_boot}));
     }
+    if let Some(boot_order) = state.bmc_state.get_boot_order() {
+        json_patch(
+            &mut json,
+            serde_json::json!({"Boot": { "BootOrder": boot_order }}),
+        );
+    }
     Ok(Bytes::from(json.to_string()))
+}
+
+// Carbide relies that Dell sorts boot options in according to boot
+// order. Code below simulates the same.
+async fn get_dell_boot_options(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<()>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    let mut boot_options: serde_json::Value = serde_json::from_slice(inner_response.as_ref())?;
+    if let Some(boot_order) = state.bmc_state.get_boot_order()
+        && let Some(members) = boot_options
+            .as_object_mut()
+            .and_then(|obj| obj.get_mut("Members"))
+            .and_then(serde_json::Value::as_array_mut)
+    {
+        members.sort_by_key(|member| {
+            member
+                .as_object()
+                .and_then(|obj| obj.get("@odata.id"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(|member_id| {
+                    boot_order
+                        .iter()
+                        .enumerate()
+                        .find(|(_, ord)| member_id.ends_with(*ord))
+                        .map(|(idx, _)| idx)
+                })
+                // Push items that are not in boot order array to
+                // the end.
+                .unwrap_or(boot_order.len())
+        })
+    }
+    Ok(Bytes::from(serde_json::to_string(&boot_options)?))
 }
 
 async fn get_dpu_boot_options(
@@ -961,23 +1007,26 @@ async fn patch_dpu_bios(
 async fn patch_dell_system(
     State(mut state): State<MockWrapperState>,
     _path: Path<()>,
-    _request: Request<Body>,
-) -> impl IntoResponse {
-    // Dell password change, needs a job ID to be returned in the Location: header
-    match state.bmc_state.add_job() {
-        Ok(job_id) => Response::builder()
-            .status(StatusCode::OK)
-            .header(
-                "location",
-                format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{job_id}"),
-            )
-            .body(Body::from(""))
-            .unwrap(),
-        Err(e) => Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::from(e.to_string()))
-            .unwrap(),
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let body = request.into_body().collect().await?.to_bytes();
+    let patch_system: serde_json::Value = serde_json::from_slice(&body)?;
+    if let Some(new_boot_order) = patch_system
+        .as_object()
+        .and_then(|obj| obj.get("Boot"))
+        .and_then(serde_json::Value::as_object)
+        .and_then(|obj| obj.get("BootOrder"))
+        .and_then(serde_json::Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(ToString::to_string)
+                .collect()
+        })
+    {
+        state.bmc_state.update_boot_order(new_boot_order);
     }
+    Ok(Bytes::from(""))
 }
 
 async fn patch_bios_settings(
