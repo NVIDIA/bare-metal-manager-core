@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 
-use super::CarbideCliError;
-use crate::cfg::storage::{CreateOsImage, DeleteOsImage, ListOsImage, UpdateOsImage};
+use super::args::{CreateOsImage, DeleteOsImage, ListOsImage, UpdateOsImage};
 use crate::rpc::ApiClient;
 
 fn str_to_rpc_uuid(id: &str) -> CarbideCliResult<::rpc::common::Uuid> {
@@ -23,7 +23,7 @@ fn str_to_rpc_uuid(id: &str) -> CarbideCliResult<::rpc::common::Uuid> {
     Ok(id)
 }
 
-pub async fn os_image_show(
+pub async fn show(
     args: ListOsImage,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -50,7 +50,7 @@ pub async fn os_image_show(
     Ok(())
 }
 
-pub async fn os_image_create(args: CreateOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn create(args: CreateOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     let image_attrs = forgerpc::OsImageAttributes {
         id: Some(id),
@@ -82,7 +82,7 @@ pub async fn os_image_create(args: CreateOsImage, api_client: &ApiClient) -> Car
     Ok(())
 }
 
-pub async fn os_image_delete(args: DeleteOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(args: DeleteOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     api_client
         .delete_os_image(id.clone(), args.tenant_org_id)
@@ -91,7 +91,7 @@ pub async fn os_image_delete(args: DeleteOsImage, api_client: &ApiClient) -> Car
     Ok(())
 }
 
-pub async fn os_image_update(args: UpdateOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn update(args: UpdateOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     let image = api_client
         .update_os_image(

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -19,7 +19,7 @@ use ::rpc::{InstanceList, MachineList};
 use carbide_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
-use crate::cfg::cli_options::InventoryAction;
+use super::args::Cmd;
 use crate::rpc::ApiClient;
 
 // Expected output
@@ -215,7 +215,7 @@ fn get_bmc_info(
 /// Main entry function which print inventory.
 pub async fn print_inventory(
     api_client: &ApiClient,
-    action: InventoryAction,
+    action: Cmd,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let all_machines = api_client

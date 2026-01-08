@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,4 +10,44 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod args;
 pub mod cmds;
+
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Cmd;
+
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
+
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::SetUefiPassword(query) => cmds::set_uefi_password(&query, &ctx.api_client).await,
+            Cmd::ClearUefiPassword(query) => {
+                cmds::clear_uefi_password(&query, &ctx.api_client).await
+            }
+            Cmd::GenerateHostUefiPassword => cmds::generate_uefi_password(),
+            Cmd::Reprovision(reprovision) => match reprovision {
+                args::HostReprovision::Set(data) => {
+                    cmds::trigger_reprovisioning(
+                        data.id,
+                        ::rpc::forge::host_reprovisioning_request::Mode::Set,
+                        &ctx.api_client,
+                        data.update_message,
+                    )
+                    .await
+                }
+                args::HostReprovision::Clear(data) => {
+                    cmds::trigger_reprovisioning(
+                        data.id,
+                        ::rpc::forge::host_reprovisioning_request::Mode::Clear,
+                        &ctx.api_client,
+                        None,
+                    )
+                    .await
+                }
+                args::HostReprovision::List => cmds::list_hosts_pending(&ctx.api_client).await,
+            },
+        }
+    }
+}
