@@ -166,8 +166,10 @@ pub(crate) async fn create(
     Ok(Response::new(response))
 }
 
-/// Updates an existing extension service metadata and creates a new version.
-/// - Validates that the new data/credential differs from the latest version
+/// Updates an existing extension service
+/// - If only metadata is provided, updates the metadata without creating a new version
+/// - If data or credential is provided, validates that the new data/credential differs from
+///   the latest version
 /// - Creates a new version with the updated data/credential, along with any name/description changes
 /// - Update will fail if new name conflicts with an existing service name
 /// - Stores the new credential in Vault if provided
@@ -188,6 +190,19 @@ pub(crate) async fn update(
             e.to_string(),
         ))
     })?;
+
+    if req.service_name.is_some() && req.service_name.as_ref().unwrap().is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("service_name cannot be empty".to_string()).into(),
+        );
+    }
+
+    // Determine if the update is a metadata-only update
+    let metadata_only = req.data.is_empty()
+        && req.credential.is_none()
+        && req.observability.is_none()
+        && (req.service_name.as_deref().is_some_and(|s| !s.is_empty())
+            || req.description.is_some());
 
     let mut txn = api.txn_begin().await?;
 
@@ -221,84 +236,105 @@ pub(crate) async fn update(
         .into());
     }
 
-    let latest_version = extension_service::find_version_info(&mut txn, service_id, None).await?;
-
-    // Validate new data format based on service type
-    validate_extension_service_data(&current_service.service_type, &req.data)?;
-
-    // Validate new credential format based on service type if provided
-    if let Some(credential) = &req.credential {
-        validate_extension_service_credential(&current_service.service_type, credential)?;
-    }
-
-    // Validate if there is data or credential change, if there is no change, reject the update with an error
-    let latest_credential = if latest_version.has_credential {
-        Some(
-            get_extension_service_credential(
-                &api.credential_provider,
-                create_extension_service_credential_key(&service_id, latest_version.version),
-            )
-            .await?,
+    let (updated_service, latest_version_row) = if metadata_only {
+        // The name and description are updated in the database if provided, but no new version is
+        // created.
+        let updated_service = extension_service::update_metadata(
+            &mut txn,
+            service_id,
+            req.service_name.as_deref(),
+            req.description.as_deref(),
         )
+        .await?;
+
+        let latest_version_row =
+            extension_service::find_version_info(&mut txn, service_id, None).await?;
+
+        (updated_service, latest_version_row)
     } else {
-        None
-    };
-    let is_spec_changed = detect_extension_service_spec_change(
-        &current_service.service_type,
-        &req.data,
-        &latest_version.data,
-        req.credential.clone(),
-        latest_credential,
-    )?;
-    if !is_spec_changed {
-        return Err(CarbideError::InvalidArgument(
-            "No changes to data or credential from latest version".to_string(),
-        )
-        .into());
-    }
+        // Data or credential is provided, update the extension service with the new version
+        let latest_version =
+            extension_service::find_version_info(&mut txn, service_id, None).await?;
 
-    let obvs_len = req
-        .observability
-        .as_ref()
-        .map(|o| o.configs.len())
-        .unwrap_or(0);
-    if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
-        return Err(CarbideError::InvalidConfiguration(
-            model::ConfigValidationError::InvalidValue(format!(
-                "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
-                obvs_len
-            )),
-        ).into());
-    }
+        // Validate new data format based on service type
+        validate_extension_service_data(&current_service.service_type, &req.data)?;
 
-    // Update the extension service with the new version in the database
-    let (updated_service, new_version_row) = extension_service::update(
-        &mut txn,
-        service_id,
-        req.service_name.as_deref(),
-        req.description.as_deref(),
-        &req.data,
-        req.observability
+        // Validate new credential format based on service type if provided
+        if let Some(credential) = &req.credential {
+            validate_extension_service_credential(&current_service.service_type, credential)?;
+        }
+
+        // Validate if there is data or credential change, if there is no change, reject the update with an error
+        let latest_credential = if latest_version.has_credential {
+            Some(
+                get_extension_service_credential(
+                    &api.credential_provider,
+                    create_extension_service_credential_key(&service_id, latest_version.version),
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        let is_spec_changed = detect_extension_service_spec_change(
+            &current_service.service_type,
+            &req.data,
+            &latest_version.data,
+            req.credential.clone(),
+            latest_credential,
+        )?;
+        if !is_spec_changed {
+            return Err(CarbideError::InvalidArgument(
+                "No changes to data or credential from latest version".to_string(),
+            )
+            .into());
+        }
+
+        let obvs_len = req
+            .observability
             .as_ref()
-            .map(|o| ExtensionServiceObservability::try_from(o.to_owned()))
-            .transpose()?,
-        req.credential.is_some(),
-    )
-    .await?;
+            .map(|o| o.configs.len())
+            .unwrap_or(0);
+        if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
+            return Err(CarbideError::InvalidConfiguration(
+                model::ConfigValidationError::InvalidValue(format!(
+                    "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
+                    obvs_len
+                )),
+            ).into());
+        }
+
+        // Update the extension service with the new version in the database
+        let (updated_service, new_version_row) = extension_service::update(
+            &mut txn,
+            service_id,
+            req.service_name.as_deref(),
+            req.description.as_deref(),
+            &req.data,
+            req.observability
+                .as_ref()
+                .map(|o| ExtensionServiceObservability::try_from(o.to_owned()))
+                .transpose()?,
+            req.credential.is_some(),
+        )
+        .await?;
+
+        // Store the new credential in Vault if provided
+        if let Some(credential) = &req.credential {
+            set_extension_service_credential(
+                &updated_service.service_type,
+                &api.credential_provider,
+                create_extension_service_credential_key(&service_id, new_version_row.version),
+                credential,
+            )
+            .await?;
+        }
+
+        (updated_service, new_version_row)
+    };
 
     // Get all active versions for this service to return in the response
     let versions = extension_service::find_all_versions(&mut txn, service_id).await?;
-
-    // Store the new credential in Vault if provided
-    if let Some(credential) = &req.credential {
-        set_extension_service_credential(
-            &updated_service.service_type,
-            &api.credential_provider,
-            create_extension_service_credential_key(&service_id, new_version_row.version),
-            credential,
-        )
-        .await?;
-    }
 
     // If commit fails, delete credential from Vault
     match txn.commit().await {
@@ -306,8 +342,10 @@ pub(crate) async fn update(
         Err(e) => {
             // If we created a credential earlier in this request, delete it from Vault
             if req.credential.is_some() {
-                let credential_key =
-                    create_extension_service_credential_key(&service_id, new_version_row.version);
+                let credential_key = create_extension_service_credential_key(
+                    &service_id,
+                    latest_version_row.version,
+                );
                 // Best effort deletion - log but don't fail the request if deletion fails
                 if let Err(delete_err) =
                     delete_extension_service_credential(&api.credential_provider, credential_key)
@@ -332,7 +370,7 @@ pub(crate) async fn update(
         tenant_organization_id: updated_service.tenant_organization_id.to_string(),
         version_ctr: updated_service.version_ctr,
         active_versions: versions.iter().map(|v| v.to_string()).collect(),
-        latest_version_info: Some(new_version_row.into()),
+        latest_version_info: Some(latest_version_row.into()),
         description: updated_service.description.clone(),
         created: updated_service.created.to_string(),
         updated: updated_service.updated.to_string(),

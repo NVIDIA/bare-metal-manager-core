@@ -194,6 +194,58 @@ pub async fn update(
     Ok((updated_service, new_version))
 }
 
+pub async fn update_metadata(
+    txn: &mut PgConnection,
+    service_id: ExtensionServiceId,
+    service_name: Option<&str>,
+    description: Option<&str>,
+) -> Result<ExtensionService, DatabaseError> {
+    // Update the "updated" timestamp of the extension service, and optionally update any provided
+    // metadata (name, description)
+    let mut builder =
+        sqlx::QueryBuilder::new("UPDATE extension_services SET updated = CURRENT_TIMESTAMP");
+
+    if let Some(name) = service_name {
+        builder.push(", name = ");
+        builder.push_bind(name);
+    }
+    if let Some(desc) = description {
+        builder.push(", description = ");
+        builder.push_bind(desc);
+    }
+    builder.push(" WHERE id = ");
+    builder.push_bind(service_id);
+    builder.push(" AND deleted IS NULL");
+    builder.push(" RETURNING id, type, name, description, tenant_organization_id, version_ctr, created, updated, deleted");
+
+    let updated_service = match builder
+        .build_query_as::<ExtensionService>()
+        .fetch_one(&mut *txn)
+        .await
+    {
+        Ok(service) => service,
+        Err(sqlx::Error::RowNotFound) => {
+            return Err(DatabaseError::NotFoundError {
+                kind: "extension_service",
+                id: service_id.to_string(),
+            });
+        }
+        Err(sqlx::Error::Database(db_err))
+            if db_err.is_unique_violation()
+                && db_err.constraint() == Some("extension_services_tenant_lowername_unique")
+                && service_name.is_some() =>
+        {
+            return Err(DatabaseError::AlreadyFoundError {
+                kind: "extension_service",
+                id: format!("conflict on name {}", service_name.unwrap()),
+            });
+        }
+        Err(e) => return Err(DatabaseError::query(builder.sql(), e)),
+    };
+
+    Ok(updated_service)
+}
+
 /// Finds the IDs of extension services, optionally filtered by type, name, and tenant organization ID.
 ///
 /// # Parameters
