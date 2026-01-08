@@ -51,6 +51,7 @@ pub struct BmcState {
     pub secure_boot_enabled: Arc<AtomicBool>,
     pub bios: Arc<Mutex<serde_json::Value>>,
     pub dell_attrs: Arc<Mutex<serde_json::Value>>,
+    pub boot_order: Arc<Mutex<Option<Vec<String>>>>,
     pub injected_bugs: InjectedBugs,
 }
 
@@ -119,5 +120,13 @@ impl BmcState {
         let dell_attrs = self.dell_attrs.lock().unwrap();
         json_patch(&mut base, dell_attrs.clone());
         base
+    }
+
+    pub fn update_boot_order(&mut self, v: Vec<String>) {
+        *self.boot_order.lock().unwrap() = Some(v);
+    }
+
+    pub fn get_boot_order(&self) -> Option<Vec<String>> {
+        self.boot_order.lock().unwrap().clone()
     }
 }
