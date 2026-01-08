@@ -33,13 +33,6 @@ if [ ! -f ~/.ssh/privatekey.pem ]; then
 	cat ~/.ssh/privatekey.pem.pub >> ~/.ssh/authorized_keys
 fi
 
-mkdir -p /tmp/machine_validation/external_config
-mkdir -p /opt/shorelineagent/shoreline
-mkdir -p /opt/shorelineagent/databases
-mkdir -p /opt/shorelineagent/onprem
-mkdir -p /opt/shorelineagent/secrets
-touch /opt/shorelineagent/scraper.yml
-
 rmmod mlx5_ib || true
 udevadm settle
 modprobe mlx5_ib || true

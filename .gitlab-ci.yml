@@ -12,6 +12,8 @@ variables:
   APPLICATION_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/nvmetal-carbide
   ARTIFACTS_DOCKER_IMAGE_AARCH64: nvcr.io/nvidian/nvforge-devel/boot-artifacts-aarch64
   ARTIFACTS_DOCKER_IMAGE_X86_64: nvcr.io/nvidian/nvforge-devel/boot-artifacts-x86_64
+  CARBIDE_EXTRAS_IMAGE: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide-extras:latest"
+
   MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/machine_validation
   MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/machine-validation-runner
 
@@ -624,17 +626,49 @@ build-boot-artifacts-ephemeral-image-x86-host:
   needs:
     - job: prepare-ci
       optional: false
+    - job: export-docker-json-config
+      optional: false
     - job: build-boot-artifacts-x86-host
       optional: false
   dependencies:
     - build-boot-artifacts-x86-host
+    - export-docker-json-config
   tags:
     - shell # mkosi cannot run in docker :(
     - ukify
     - mkosi
+  variables:
+    PROFILE: scout-oss-x86_64
+    VAULT_NAMESPACE: ngc-forge
+  id_tokens:
+    VAULT_JWT_TOKEN:
+      aud: $VAULT_ADDR
   image:
     name: $CONTAINER_BUILD_ARTIFACTS_AARCH64
+  before_script:
+    - set -euo pipefail
+    - mkdir -p ~/.docker
+    - cp .docker/config.json ~/.docker/config.json
+    - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
+    - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
+    - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
   script:
+    # Pull and extract extras from container
+    - docker pull "${CARBIDE_EXTRAS_IMAGE}"
+    - container_id=$(docker create "${CARBIDE_EXTRAS_IMAGE}" /bin/true)
+    - mkdir -p pxe/.scout-extras
+    - docker cp "${container_id}:/extras/." pxe/.scout-extras/
+    - docker rm "${container_id}"
+
+    # Copy extras to build-output/extras/
+    - PROFILE_DIR="pxe/mkosi.profiles/${PROFILE}"
+    - mkdir -p "${PROFILE_DIR}/mkosi.extra/build-output"
+    - cp -a pxe/.scout-extras "${PROFILE_DIR}/mkosi.extra/build-output/extras"
+
+    # Append postinst
+    - cat pxe/.scout-extras/postinst-extras.sh >> "${PROFILE_DIR}/mkosi.postinst.chroot"
+
+    # Build
     - cargo make --cwd pxe create-ephemeral-image-x86-host-ci
   artifacts:
     paths:
@@ -759,18 +793,50 @@ build-boot-artifacts-ephemeral-image-arm-host:
   needs:
     - job: prepare-ci
       optional: false
+    - job: export-docker-json-config
+      optional: false
     - job: build-boot-artifacts-bfb
       optional: false
   dependencies:
     - build-boot-artifacts-bfb
+    - export-docker-json-config
   tags:
     - aarch64-shell
+  variables:
+    PROFILE: scout-oss-aarch64
+    VAULT_NAMESPACE: ngc-forge
+  id_tokens:
+    VAULT_JWT_TOKEN:
+      aud: $VAULT_ADDR
+  before_script:
+    - set -euo pipefail
+    - mkdir -p ~/.docker
+    - cp .docker/config.json ~/.docker/config.json
+    - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
+    - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
+    - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
   script:
+    # Pull and extract extras from container
+    - docker pull "${CARBIDE_EXTRAS_IMAGE}"
+    - container_id=$(docker create "${CARBIDE_EXTRAS_IMAGE}" /bin/true)
+    - mkdir -p pxe/.scout-extras
+    - docker cp "${container_id}:/extras/." pxe/.scout-extras/
+    - docker rm "${container_id}"
+
+    # Copy extras to build-output/extras/
+    - PROFILE_DIR="pxe/mkosi.profiles/${PROFILE}"
+    - mkdir -p "${PROFILE_DIR}/mkosi.extra/build-output"
+    - cp -a pxe/.scout-extras "${PROFILE_DIR}/mkosi.extra/build-output/extras"
+
+    # Append postinst
+    - cat pxe/.scout-extras/postinst-extras.sh >> "${PROFILE_DIR}/mkosi.postinst.chroot"
+
+    #Build
     - cargo make --cwd pxe create-ephemeral-image-arm-host-ci
   artifacts:
     paths:
       - target/debs/*
-      - pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/*
+      - pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/*
       - pxe/static/blobs/internal/aarch64/scout.efi
       - pxe/static/blobs/internal/aarch64/qcow-imager.efi
       - pxe/static/blobs/internal/aarch64/scout.cpio.zst
