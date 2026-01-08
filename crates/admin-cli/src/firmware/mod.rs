@@ -13,6 +13,9 @@
 pub mod args;
 pub mod cmds;
 
+#[cfg(test)]
+mod tests;
+
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
