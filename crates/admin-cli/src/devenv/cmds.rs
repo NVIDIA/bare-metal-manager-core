@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -15,11 +15,11 @@ use forge_network::ip::prefix::Ipv4Network;
 use rpc::forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery};
 use serde::{Deserialize, Serialize};
 
-use crate::cfg::cli_options::{DevEnvApplyConfig, NetworkChoice};
+use super::args::{DevEnvApplyConfig, NetworkChoice};
 use crate::rpc::ApiClient;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct DevEnvConfig {
+struct DevEnvFileConfig {
     #[serde(default)]
     overlay_networks: Vec<Ipv4Network>,
 }
@@ -97,7 +97,7 @@ async fn handle_overlay_segment_creation(
 
 async fn handle_devenv_config(
     mode: NetworkChoice,
-    config: DevEnvConfig,
+    config: DevEnvFileConfig,
     api_client: &ApiClient,
 ) -> eyre::Result<()> {
     if !config.overlay_networks.is_empty() {
@@ -165,7 +165,7 @@ pub async fn apply_devenv_config(
     }
 
     if let Ok(file_str) = tokio::fs::read_to_string(config.path).await {
-        match toml::from_str::<DevEnvConfig>(file_str.as_str()) {
+        match toml::from_str::<DevEnvFileConfig>(file_str.as_str()) {
             Ok(devenv_config) => {
                 if let Err(err) = handle_devenv_config(config.mode, devenv_config, api_client).await
                 {

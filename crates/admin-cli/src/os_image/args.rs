@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,11 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab_case")]
-pub enum OsImageActions {
+pub enum Cmd {
     #[clap(
         about = "Create an OS image entry in the OS catalog for a tenant.",
         visible_alias = "c"

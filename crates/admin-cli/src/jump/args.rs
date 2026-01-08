@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,7 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-pub mod cli_options;
-pub mod dispatch;
-pub mod measurement;
-pub mod runtime;
+
+use clap::Parser;
+
+#[derive(Parser, Debug, Clone)]
+pub struct Cmd {
+    #[clap(required(true), help = "The machine ID, IP, UUID, etc, to find")]
+    pub id: String,
+}
