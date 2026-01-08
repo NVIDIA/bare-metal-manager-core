@@ -6,6 +6,7 @@ StartLimitIntervalSec=600
 StartLimitBurst=120
 
 [Service]
+ExecStartPre=cloud-init status --wait
 ExecStart=ip vrf exec mgmt /etc/otelcol-contrib/otelcol-wrapper
 KillMode=mixed
 Restart=always

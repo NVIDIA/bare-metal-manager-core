@@ -1,5 +1,13 @@
 #!/bin/bash -p
 
+
+$HOSTNAME=$(hostname)
+
+if [[ "$HOSTNAME" == "localhost" ]]; then
+    echo "hostname cannot be 'localhost'"
+    exit 1
+fi
+
 source /etc/otelcol-contrib/otelcol-wrapper-imports
 
 # This should protect us on start-up in the event that bad extension config was left behind.
