@@ -736,7 +736,29 @@ async fn test_extension_service_update_invalid_arg(
         .await;
     assert!(create_resp.is_ok());
 
-    // Update with wrong version number
+    // Update with empty service name
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: Some("".to_string()),
+            description: None,
+            data: TEST_SERVICE_DATA_VERSION_3.to_string(),
+            credential: None,
+            observability: None,
+
+            if_version_ctr_match: None,
+        }))
+        .await;
+    assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("service_name cannot be empty")
+    );
+
+    // Update with wrong version match number
     let update_resp = env
         .api
         .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
@@ -760,12 +782,19 @@ async fn test_extension_service_update_invalid_arg(
             service_name: None,
             description: None,
             data: TEST_SERVICE_DATA.to_string(),
-            credential: Some(create_credential()),
+            credential: None,
             observability: Some(create_observability()),
-            if_version_ctr_match: Some(2),
+
+            if_version_ctr_match: None,
         }))
         .await;
     assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("No changes to data or credential from latest version")
+    );
 
     // Update with empty data format
     let update_resp = env
@@ -778,10 +807,16 @@ async fn test_extension_service_update_invalid_arg(
             credential: None,
             observability: None,
 
-            if_version_ctr_match: Some(2),
+            if_version_ctr_match: None,
         }))
         .await;
     assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("Invalid empty data for KubernetesPod service, need a valid pod manifest")
+    );
 
     // Update with invalid data format
     let update_resp = env
@@ -794,10 +829,16 @@ async fn test_extension_service_update_invalid_arg(
             credential: None,
             observability: None,
 
-            if_version_ctr_match: Some(2),
+            if_version_ctr_match: None,
         }))
         .await;
     assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("Pod manifest must be a valid mapping object")
+    );
 
     // Update with wrong service id
     let update_resp = env
@@ -810,10 +851,16 @@ async fn test_extension_service_update_invalid_arg(
             credential: None,
             observability: None,
 
-            if_version_ctr_match: Some(2),
+            if_version_ctr_match: None,
         }))
         .await;
     assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("extension_service not found:")
+    );
 
     // Update to a name that's already taken
     let update_resp = env
@@ -862,6 +909,120 @@ async fn test_extension_service_update_invalid_arg(
     assert!(update_resp.is_err());
     let status = update_resp.err().unwrap();
     assert!(status.message().contains("exceeds"));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_extension_service_update_metadata(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+    let service_version = create_test_extension_service(&env).await?;
+    let service_id = service_version.service_id;
+
+    // Create another extension service with a different name
+    let other_extension_service = rpc::CreateDpuExtensionServiceRequest {
+        service_id: None,
+        service_name: "other-test-service".to_string(),
+        description: Some("Other test service".to_string()),
+        tenant_organization_id: "best_org".to_string(),
+        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        data: TEST_SERVICE_DATA.to_string(),
+        credential: None,
+        observability: None,
+    };
+    let create_resp = env
+        .api
+        .create_dpu_extension_service(Request::new(other_extension_service))
+        .await;
+    assert!(create_resp.is_ok());
+
+    // Update only name
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: Some("updated-service".to_string()),
+            description: None,
+            data: "".to_string(),
+            credential: None,
+            observability: None,
+            if_version_ctr_match: None,
+        }))
+        .await;
+    assert!(update_resp.is_ok());
+
+    let extension_service = update_resp.unwrap().into_inner();
+    assert_eq!(extension_service.service_name, "updated-service");
+    assert_eq!(extension_service.description, "Test service");
+    assert_eq!(extension_service.version_ctr, 1);
+    let latest_version = extension_service.latest_version_info.unwrap();
+    // Expect no version increment
+    assert_eq!(
+        latest_version
+            .version
+            .parse::<config_version::ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        1
+    );
+
+    // Normal update should still work
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: None,
+            description: None,
+            data: TEST_SERVICE_DATA_VERSION_2.to_string(),
+            credential: Some(create_credential()),
+            observability: None,
+            if_version_ctr_match: Some(1),
+        }))
+        .await;
+    assert!(update_resp.is_ok());
+    let extension_service = update_resp.unwrap().into_inner();
+    assert_eq!(extension_service.service_name, "updated-service");
+    assert_eq!(extension_service.description, "Test service");
+    assert_eq!(extension_service.version_ctr, 2);
+    let latest_version = extension_service.latest_version_info.unwrap();
+    assert_eq!(
+        latest_version
+            .version
+            .parse::<config_version::ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        2
+    );
+
+    // Update both name and description
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: Some("updated-service-2".to_string()),
+            description: Some("Updated description".to_string()),
+            data: "".to_string(),
+            credential: None,
+            observability: None,
+            if_version_ctr_match: None,
+        }))
+        .await;
+    assert!(update_resp.is_ok());
+
+    let extension_service = update_resp.unwrap().into_inner();
+    assert_eq!(extension_service.service_name, "updated-service-2");
+    assert_eq!(extension_service.description, "Updated description");
+    assert_eq!(extension_service.version_ctr, 2);
+    let latest_version = extension_service.latest_version_info.unwrap();
+    // Expect no version increment
+    assert_eq!(
+        latest_version
+            .version
+            .parse::<config_version::ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        2
+    );
 
     Ok(())
 }
