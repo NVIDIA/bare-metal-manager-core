@@ -11,7 +11,7 @@
 /.github/CODEOWNERS @NVIDIA/carbide-sw-admins
 
 # CI/CD related files
-/.github/ @lachen-nv @huaweic-nv
+/.github/ @lachen-nv @huaweic-nv @lauragra-y
 
 # Network IP module
 /common/network/src/ip/ @DrewBloechl
