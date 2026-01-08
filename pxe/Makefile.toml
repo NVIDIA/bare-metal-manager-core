@@ -60,10 +60,10 @@ condition = { env_not_set = ["SA_ENABLEMENT"] }
 # Note that libnss-exec is located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
 description = "Stages files required for nvssh into the mkosi image for installation in postinst script"
 script = '''
-  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
-  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_amd64.deb mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
-  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
-  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_amd64.deb mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
 '''
 
 [tasks.stage-disk_imaging-script]
@@ -83,14 +83,6 @@ script = '''
 [tasks.stage-scout-update-check]
 description = "Copies the scout-update script and systemd files to build-output"
 script = '''
-  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
-  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
-  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
-
-  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
-  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
-  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
-
   # OSS scout profiles
   mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
@@ -199,7 +191,6 @@ dependencies = [
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-x86_64",
   "copy-forge-prod-root-ca-x86_64",
-  "stage-nvinit",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
@@ -222,7 +213,6 @@ dependencies = [
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-x86_64",
   "copy-forge-dev-root-ca-x86_64",
-  "stage-nvinit",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
@@ -244,7 +234,6 @@ dependencies = [
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-aarch64",
   "copy-forge-prod-root-ca-aarch64",
-  "stage-nvinit",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
@@ -267,7 +256,6 @@ dependencies = [
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-aarch64",
   "copy-forge-dev-root-ca-aarch64",
-  "stage-nvinit",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
@@ -301,8 +289,8 @@ script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-amd64"
-  mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output"
-  mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output"
+  mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output"
+  mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output"
 '''
 
 [tasks.copy-forge-prod-root-ca-x86_64]
@@ -312,7 +300,7 @@ command = "cp"
 args = [
   "-f",
   "${FORGE_CA_PATH}",
-  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+  "mkosi.profiles/scout-oss-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-prod-root-ca-aarch64]
@@ -322,7 +310,7 @@ command = "cp"
 args = [
   "-f",
   "${FORGE_CA_PATH}",
-  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+  "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-dev-root-ca-x86_64]
@@ -332,7 +320,7 @@ command = "cp"
 args = [
   "-f",
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+  "mkosi.profiles/scout-oss-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-dev-root-ca-aarch64]
@@ -342,17 +330,13 @@ command = "cp"
 args = [
   "-f",
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+  "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-scout-x86_64]
 category = "Copy Forge Scout locally"
 script = '''
-  if [ -n "${SA_ENABLEMENT}" ]; then
-    PROFILE="scout-oss-x86_64"
-  else
-    PROFILE="scout-x86_64"
-  fi
+  PROFILE="scout-oss-x86_64"
   mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
   cp ${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb \
   mkosi.profiles/${PROFILE}/mkosi.extra/build-output/forge-scout.deb
@@ -362,11 +346,7 @@ dependencies = ["mkdir-static"]
 [tasks.copy-forge-scout-aarch64]
 category = "Copy Forge Scout locally"
 script = '''
-  if [ -n "${SA_ENABLEMENT}" ]; then
-    PROFILE="scout-oss-aarch64"
-  else
-    PROFILE="scout-aarch64"
-  fi
+  PROFILE="scout-oss-aarch64"
   mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
   cp ${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_arm64.deb \
   mkosi.profiles/${PROFILE}/mkosi.extra/build-output/forge-scout.deb
@@ -391,7 +371,7 @@ args = [
 [tasks.mkosi-clean-scout-x86_64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "scout-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = ["--profile", "scout-oss-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 
 [tasks.mkosi-clean-scout-loader-x86_64]
 category = "Ephemeral Image"
@@ -408,7 +388,7 @@ category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
 args = [
   "--profile",
-  "scout-aarch64",
+  "scout-oss-aarch64",
   "--output-dir=${MKOSI_BUILD_TMP}",
   "clean",
 ]
@@ -446,12 +426,7 @@ set_env MKOSI_BUILD_TMP ${tmp_name}
 [tasks.mkosi-build-scout-x86_64]
 category = "Ephemeral Image"
 script = '''
-  PROFILE=""
-  if  [ -n "${SA_ENABLEMENT}" ]; then
-    PROFILE="scout-oss-x86_64"
-  else
-    PROFILE="scout-x86_64"
-  fi
+  PROFILE="scout-oss-x86_64"
   export PATH=${PATH}:/sbin
   ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
 '''
@@ -467,12 +442,7 @@ args = [
 [tasks.mkosi-build-scout-aarch64]
 category = "Ephemeral Image"
 script = '''
-  PROFILE=""
-  if  [ -n "${SA_ENABLEMENT}" ]; then
-    PROFILE="scout-oss-aarch64"
-  else
-    PROFILE="scout-aarch64"
-  fi
+  PROFILE="scout-oss-aarch64"
   export PATH=${PATH}:/sbin
   ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
 '''
