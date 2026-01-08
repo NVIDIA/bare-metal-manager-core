@@ -341,9 +341,68 @@ fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
 //     Ok(())
 // }
 
+// Set KEEP_IB_LINK_UP on all non-DPU IB devices.
+// This ensures the port link state remains up independent of host OS,
+// making the port visible to UFM regardless of driver state.
+// Sets P1 (required) and P2 (optional, for dual-port devices).
+fn set_ib_link_up() -> Result<(), CarbideClientError> {
+    match discovery_ibs() {
+        Ok(ibs) => {
+            for ib in ibs {
+                if let Some(p) = ib.pci_properties {
+                    let slot = p.slot.unwrap();
+                    // Set P1 (required - all IB devices have P1)
+                    match cmdrun::run_prog(format!(
+                        "mstconfig -y -d {slot} set KEEP_IB_LINK_UP_P1=1"
+                    )) {
+                        Ok(_) => {
+                            tracing::info!(
+                                "set KEEP_IB_LINK_UP_P1=1 on IB device {} successfully.",
+                                slot
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!("{}", e);
+                            return Err(e);
+                        }
+                    }
+                    // Set P2 (optional - only dual-port devices have P2)
+                    match cmdrun::run_prog(format!(
+                        "mstconfig -y -d {slot} set KEEP_IB_LINK_UP_P2=1"
+                    )) {
+                        Ok(_) => {
+                            tracing::info!(
+                                "set KEEP_IB_LINK_UP_P2=1 on IB device {} successfully.",
+                                slot
+                            );
+                        }
+                        Err(e) => {
+                            // P2 may not exist on single-port devices, ignore error
+                            tracing::debug!(
+                                "KEEP_IB_LINK_UP_P2 not available on IB device {} (single-port): {}",
+                                slot,
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("{}", e);
+            return Err(CarbideClientError::GenericError(format!(
+                "Failed to get ibs: {e}"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 // reuse hardware_enumeration::discovery_ibs to get all the non-DPU devices.
 // in forge case, all the non-DPU device should be VPI device or IB-only device
 // `reset` will set the link_type to IB for all the devices.
+// It calls set_ib_link_up() to set KEEP_IB_LINK_UP for P1/P2 which is now default state.
 fn reset_ib_devices() -> Result<(), CarbideClientError> {
     match discovery_ibs() {
         Ok(ibs) => {
@@ -370,7 +429,7 @@ fn reset_ib_devices() -> Result<(), CarbideClientError> {
         }
     }
 
-    Ok(())
+    set_ib_link_up()
 }
 
 async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineCleanupInfo> {
@@ -514,5 +573,10 @@ pub fn run_no_api() {
         }
     } else {
         tracing::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
+    }
+
+    match reset_ib_devices() {
+        Ok(_) => tracing::debug!("IB devices reset OK"),
+        Err(e) => tracing::error!("IB devices reset error: {}", e),
     }
 }
