@@ -11,7 +11,6 @@
  */
 use clap::{Parser, ValueEnum, ValueHint};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::RouteServerSourceType;
 
 use crate::cfg::measurement;
 use crate::{
@@ -20,8 +19,9 @@ use crate::{
     generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip, jump,
     machine, machine_interfaces, machine_validation, managed_host, mlx, network_devices,
     network_security_group, network_segment, nvl_logical_partition, nvl_partition, os_image, ping,
-    power_shelf, rack, redfish, resource_pool, rms, scout_stream, set, site_explorer, sku, ssh,
-    switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
+    power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer,
+    sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering,
+    vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
@@ -162,7 +162,7 @@ pub enum CliCommand {
     #[clap(about = "Credential related handling", subcommand, visible_alias = "c")]
     Credential(credential::Cmd),
     #[clap(about = "Route server handling", subcommand)]
-    RouteServer(RouteServer),
+    RouteServer(route_server::Cmd),
     #[clap(about = "Site explorer functions", subcommand)]
     SiteExplorer(site_explorer::Cmd),
     #[clap(
@@ -297,35 +297,4 @@ impl CliOptions {
     pub fn load() -> Self {
         Self::parse()
     }
-}
-
-#[derive(Parser, Debug)]
-pub enum RouteServer {
-    Get,
-    Add(RouteServerAddresses),
-    Remove(RouteServerAddresses),
-    Replace(RouteServerAddresses),
-}
-
-// RouteServerAddresses is used for add/remove/replace
-// operations for route server addresses, with support
-// for overriding the source_type to not be admin_api,
-// and make ephemeral changes against whatever was
-// loaded up via the config file at start.
-#[derive(Parser, Debug)]
-pub struct RouteServerAddresses {
-    #[arg(value_delimiter = ',', help = "Comma-separated list of IPv4 addresses")]
-    pub ip: Vec<std::net::Ipv4Addr>,
-    // The optional source_type to set. If unset, this
-    // defaults to admin_api, which is what we'd expect.
-    // Override with --source_type=config to make
-    // ephemeral changes to config file-based entries,
-    // which is really intended for break-glass types
-    // of scenarios.
-    #[arg(
-        long,
-        default_value = "admin_api",
-        help = "The source_type to use for the target addresses. Defaults to admin_api."
-    )]
-    pub source_type: RouteServerSourceType,
 }
