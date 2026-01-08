@@ -17,8 +17,9 @@ use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
-use db::{extension_service, network_security_group};
+use db::{WithTransaction, extension_service, network_security_group};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use futures_util::FutureExt;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
 };
@@ -135,11 +136,11 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::InstanceIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let filter: rpc::InstanceSearchFilter = request.into_inner();
 
-    let instance_ids = db::instance::find_ids(&mut txn, filter).await?;
+    let instance_ids = api
+        .with_txn(|txn| db::instance::find_ids(txn, filter).boxed())
+        .await??;
 
     Ok(tonic::Response::new(rpc::InstanceIdList { instance_ids }))
 }

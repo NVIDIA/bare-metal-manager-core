@@ -7,6 +7,7 @@ async fn good_db_related() {
     let mut txn = make_transaction();
     db::actually_use_txn(txn.deref_mut()).await;
     good_outer_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 }
 
 async fn good_db_related_tuples() {
@@ -46,6 +47,7 @@ async fn good_no_await() {
     non_async_work();
     db::actually_use_txn(txn.deref_mut()).await;
     good_outer_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 }
 
 // No warnings: txn.commit() discards the transaction
@@ -61,12 +63,14 @@ async fn bad_await() {
     let mut txn = make_transaction();
     unrelated_async_work("bad").await;
     db::actually_use_txn(txn.deref_mut()).await;
+    txn.commit().await.unwrap();
 }
 
 // No warnings: This is passing the &mut txn to the call triggering the await
 async fn bad_call_bad_db_wrapper() {
     let mut txn = make_transaction();
-    bad_db_wrapper(&mut txn).await
+    bad_db_wrapper(&mut txn).await;
+    txn.commit().await.unwrap();
 }
 
 // No warnings: txn is dropped before we do unrelated async work
@@ -74,6 +78,7 @@ async fn good_drop_before_await() {
     {
         let mut txn = make_transaction();
         db::actually_use_txn(txn.deref_mut()).await;
+        txn.commit().await.unwrap();
     }
     unrelated_async_work("good").await;
 }
@@ -112,6 +117,7 @@ async fn call_methods() {
     let mut txn = make_transaction();
     call_good_methods(&mut txn).await;
     call_bad_methods(&mut txn).await;
+    txn.commit().await.unwrap();
 }
 
 // No warnings: txn is passed to db.good_fn
@@ -126,6 +132,7 @@ async fn call_good_methods(txn: &mut PgTransaction<'_>) {
 async fn good_txn_as_receiver() {
     let mut txn = make_transaction();
     txn.prepare("SELECT 1").await.unwrap();
+    txn.commit().await.unwrap();
 }
 
 // No warnings: txn is passed to db.bad_fun
@@ -273,6 +280,21 @@ async fn good_related_work_in_closure_locals() {
     .await;
 }
 
+async fn bad_missing_commit_local() {
+    let _ = "keep local scope varied";
+    let txn = make_transaction();
+    let _ = &txn;
+    non_async_work();
+}
+
+fn bad_missing_commit_param(_txn: PgTransaction<'_>) {
+    non_async_work();
+}
+
+async fn good_move_out() -> PgTransaction<'static> {
+    make_transaction()
+}
+
 #[tokio::main]
 async fn main() {
     // Actually call the functions to dead code warnings. But we're not actually running this code,
@@ -293,4 +315,8 @@ async fn main() {
     good_related_work_in_closure_upvars().await;
     bad_unrelated_work_in_closure_locals().await;
     good_related_work_in_closure_locals().await;
+    bad_missing_commit_local().await;
+    bad_missing_commit_param(make_transaction());
+    let owned_txn = good_move_out().await;
+    owned_txn.commit().await.unwrap();
 }

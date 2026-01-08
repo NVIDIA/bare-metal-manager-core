@@ -19,12 +19,14 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::TrustedMachineId;
+use db::WithTransaction;
 use db::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
     insert_into_approved_profiles, list_attestation_summary,
     remove_from_approved_machines_by_approval_id, remove_from_approved_machines_by_machine_id,
     remove_from_approved_profiles_by_approval_id, remove_from_approved_profiles_by_profile_id,
 };
+use futures_util::FutureExt;
 use measured_boot::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
@@ -82,9 +84,9 @@ pub async fn handle_export_site_measurements(
     api: &Api,
     _req: ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
-    let mut txn = api.txn_begin().await?;
-    let site_model = db::measured_boot::site::export(&mut txn)
-        .await
+    let site_model = api
+        .with_txn(|txn| db::measured_boot::site::export(txn).boxed())
+        .await?
         .map_err(|e| Status::internal(format!("export failed: {e}")))?;
 
     Ok(ExportSiteMeasurementsResponse {
@@ -167,9 +169,9 @@ pub async fn handle_list_measurement_trusted_machines(
     api: &Api,
     _req: ListMeasurementTrustedMachinesRequest,
 ) -> Result<ListMeasurementTrustedMachinesResponse, Status> {
-    let mut txn = api.txn_begin().await?;
-    let approval_records: Vec<MeasurementApprovedMachineRecordPb> = get_approved_machines(&mut txn)
-        .await
+    let approval_records: Vec<MeasurementApprovedMachineRecordPb> = api
+        .with_txn(|txn| get_approved_machines(txn).boxed())
+        .await?
         .map_err(|e| Status::internal(format!("failed to fetch machine approvals: {e}")))?
         .into_iter()
         .map(|record| record.into())
@@ -243,9 +245,9 @@ pub async fn handle_list_measurement_trusted_profiles(
     api: &Api,
     _req: ListMeasurementTrustedProfilesRequest,
 ) -> Result<ListMeasurementTrustedProfilesResponse, Status> {
-    let mut txn = api.txn_begin().await?;
-    let approval_records: Vec<MeasurementApprovedProfileRecordPb> = get_approved_profiles(&mut txn)
-        .await
+    let approval_records: Vec<MeasurementApprovedProfileRecordPb> = api
+        .with_txn(|txn| get_approved_profiles(txn).boxed())
+        .await?
         .map_err(|e| Status::internal(format!("failed to fetch profile approvals: {e}")))?
         .into_iter()
         .map(|record| record.into())
@@ -258,9 +260,9 @@ pub async fn handle_list_attestation_summary(
     api: &Api,
     _req: ListAttestationSummaryRequest,
 ) -> Result<ListAttestationSummaryResponse, Status> {
-    let mut txn = api.txn_begin().await?;
-    let attestation_summary = list_attestation_summary(&mut txn)
-        .await
+    let attestation_summary = api
+        .with_txn(|txn| list_attestation_summary(txn).boxed())
+        .await?
         .map_err(|e| Status::internal(format!("failed to fetch attestation summary: {e}")))?;
 
     Ok(MachineAttestationSummaryList::to_grpc(&attestation_summary))

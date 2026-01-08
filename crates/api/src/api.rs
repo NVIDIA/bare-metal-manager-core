@@ -19,14 +19,14 @@ pub use ::rpc::forge as rpc;
 use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use db::DatabaseError;
 use db::work_lock_manager::WorkLockManagerHandle;
+use db::{DatabaseError, DatabaseResult, WithTransaction};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::resource_pool::common::CommonPools;
-use sqlx::PgPool;
+use sqlx::{PgPool, PgTransaction};
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -2974,6 +2974,23 @@ impl Api {
 
     pub fn log_filter_string(&self) -> String {
         self.dynamic_settings.log_filter.to_string()
+    }
+}
+
+impl WithTransaction for Api {
+    #[track_caller]
+    fn with_txn<'pool, T, E>(
+        &'pool self,
+        f: impl for<'txn> FnOnce(
+            &'txn mut PgTransaction<'pool>,
+        ) -> futures::future::BoxFuture<'txn, Result<T, E>>
+        + Send,
+    ) -> impl Future<Output = DatabaseResult<Result<T, E>>>
+    where
+        T: Send,
+        E: Send,
+    {
+        self.database_connection.with_txn(f)
     }
 }
 

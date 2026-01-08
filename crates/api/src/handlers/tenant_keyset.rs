@@ -13,6 +13,8 @@
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use ::rpc::forge as rpc;
+use db::WithTransaction;
+use futures_util::FutureExt;
 use itertools::Itertools;
 use model::tenant::{
     PublicKey, TenantKeyset, TenantKeysetIdentifier, TenantPublicKey,
@@ -61,11 +63,11 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
-    let keyset_ids = db::tenant_keyset::find_ids(&mut txn, filter).await?;
+    let keyset_ids = api
+        .with_txn(|txn| db::tenant_keyset::find_ids(txn, filter).boxed())
+        .await??;
 
     Ok(Response::new(rpc::TenantKeysetIdList {
         keyset_ids: keyset_ids
@@ -80,7 +82,6 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::TenantKeysetsByIdsRequest>,
 ) -> Result<Response<rpc::TenantKeySetList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin().await?;
 
     let rpc::TenantKeysetsByIdsRequest {
         keyset_ids,
@@ -100,7 +101,9 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let keysets = db::tenant_keyset::find_by_ids(&mut txn, keyset_ids, include_key_data).await;
+    let keysets = api
+        .with_txn(|txn| db::tenant_keyset::find_by_ids(txn, keyset_ids, include_key_data).boxed())
+        .await?;
 
     let result = keysets
         .map(|vpc| rpc::TenantKeySetList {

@@ -12,6 +12,7 @@ use rustc_span::ErrorGuaranteed;
 use rustc_span::def_id::LocalDefId;
 
 use crate::txn_held_across_await::TxnHeldAcrossAwait;
+use crate::txn_without_commit::TxnWithoutCommit;
 
 /// The type for the mir_borrowck query in rustc, which we're overriding.
 type BorrowckQueryFn = Box<
@@ -58,7 +59,12 @@ impl BorrowckShim {
         // represented (desugared), as well as `async move { ... }` closures.
         let results = AsyncClosureFinder::find_async_closures(body_id, tcx);
 
+        // For any function body, ensure transactions we own are eventually committed or moved out.
+        TxnWithoutCommit::default().check_fn_body(tcx, def_id);
+
         for (closure, coroutine_source) in results {
+            TxnWithoutCommit::default().check_fn_body(tcx, closure.def_id);
+
             // Check locals defined in the closure
             TxnHeldAcrossAwait::default().check_closure_locals(tcx, closure);
 

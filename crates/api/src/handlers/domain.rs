@@ -9,10 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::forge as rpc;
 use db::domain::{self};
-use db::{self, ObjectColumnFilter};
+use db::{self, ObjectColumnFilter, WithTransaction};
+use futures_util::FutureExt;
 use model::domain::NewDomain;
 use tonic::{Request, Response, Status};
 
@@ -132,18 +132,24 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::DomainList>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
-    let domains = match (id, name) {
-        (Some(id), _) => {
-            db::domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &id)).await
-        }
-        (None, Some(name)) => db::domain::find_by_name(&mut txn, &name).await,
-        (None, None) => {
-            db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await
-        }
-    };
+    let domains = api
+        .with_txn(|txn| {
+            async move {
+                match (id, name) {
+                    (Some(id), _) => {
+                        db::domain::find_by(txn, ObjectColumnFilter::One(domain::IdColumn, &id))
+                            .await
+                    }
+                    (None, Some(name)) => db::domain::find_by_name(txn, &name).await,
+                    (None, None) => {
+                        db::domain::find_by(txn, ObjectColumnFilter::<domain::IdColumn>::All).await
+                    }
+                }
+            }
+            .boxed()
+        })
+        .await?;
 
     let result = domains
         .map(|domain| rpc::DomainList {

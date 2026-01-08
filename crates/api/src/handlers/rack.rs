@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::forge as rpc;
-use db::rack as db_rack;
+use db::{WithTransaction, rack as db_rack};
+use futures_util::FutureExt;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
@@ -21,23 +21,27 @@ pub async fn get_rack(
     request: Request<rpc::GetRackRequest>,
 ) -> Result<Response<rpc::GetRackResponse>, Status> {
     let req = request.into_inner();
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
-    let mut rack: Vec<rpc::Rack> = Vec::new();
-    if let Some(id) = req.id {
-        let r = db_rack::get(&mut txn, id.as_str())
-            .await
-            .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
-        rack.push(r.into());
-    } else {
-        let r = db_rack::list(&mut txn)
-            .await
-            .map_err(|e| Status::internal(format!("Listing racks {}", e)))?;
-        rack = r.iter().map(|x| x.clone().into()).collect();
-    };
+    let rack = api
+        .with_txn(|txn| {
+            async move {
+                if let Some(id) = req.id {
+                    let r = db_rack::get(txn, id.as_str())
+                        .await
+                        .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
+                    Ok::<_, Status>(vec![r.into()])
+                } else {
+                    let racks = db_rack::list(txn)
+                        .await
+                        .map_err(|e| Status::internal(format!("Listing racks {}", e)))?
+                        .into_iter()
+                        .map(|x| x.into())
+                        .collect();
+                    Ok(racks)
+                }
+            }
+            .boxed()
+        })
+        .await??;
     Ok(Response::new(rpc::GetRackResponse { rack }))
 }
 
@@ -46,17 +50,19 @@ pub async fn delete_rack(
     request: Request<rpc::DeleteRackRequest>,
 ) -> Result<Response<()>, Status> {
     let req = request.into_inner();
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
-    let rack = db_rack::get(&mut txn, req.id.as_str())
-        .await
-        .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
-    db_rack::mark_as_deleted(&rack, &mut txn)
-        .await
-        .map_err(|e| Status::internal(format!("Marking rack deleted {}", e)))?;
+    api.with_txn(|txn| {
+        async move {
+            let rack = db_rack::get(txn, req.id.as_str())
+                .await
+                .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
+            db_rack::mark_as_deleted(&rack, txn)
+                .await
+                .map_err(|e| Status::internal(format!("Marking rack deleted {}", e)))?;
+            Ok::<_, Status>(())
+        }
+        .boxed()
+    })
+    .await??;
     Ok(Response::new(()))
 }
 

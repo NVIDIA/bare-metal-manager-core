@@ -17,10 +17,12 @@
 use std::collections::HashMap;
 
 use carbide_uuid::measured_boot::MeasurementSystemProfileId;
+use db::WithTransaction;
 use db::measured_boot::interface::profile::{
     export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
     get_machines_for_profile_id, get_machines_for_profile_name,
 };
+use futures_util::FutureExt;
 use measured_boot::profile::MeasurementSystemProfile;
 use rpc::protos::measured_boot::{
     CreateMeasurementSystemProfileRequest, CreateMeasurementSystemProfileResponse,
@@ -164,6 +166,7 @@ pub async fn handle_show_measurement_system_profile(
         // Show all system profiles.
         None => return Err(Status::invalid_argument("selector required")),
     };
+    txn.commit().await?;
 
     Ok(ShowMeasurementSystemProfileResponse {
         system_profile: Some(system_profile.into()),
@@ -176,12 +179,12 @@ pub async fn handle_show_measurement_system_profiles(
     api: &Api,
     _req: ShowMeasurementSystemProfilesRequest,
 ) -> Result<ShowMeasurementSystemProfilesResponse, Status> {
-    let mut txn = api.txn_begin().await?;
     Ok(ShowMeasurementSystemProfilesResponse {
-        system_profiles: db::measured_boot::profile::get_all(&mut txn)
-            .await
+        system_profiles: api
+            .with_txn(|txn| db::measured_boot::profile::get_all(txn).boxed())
+            .await?
             .map_err(|e| Status::internal(format!("{e}")))?
-            .drain(..)
+            .into_iter()
             .map(|profile| profile.into())
             .collect(),
     })
@@ -193,14 +196,13 @@ pub async fn handle_list_measurement_system_profiles(
     api: &Api,
     _req: ListMeasurementSystemProfilesRequest,
 ) -> Result<ListMeasurementSystemProfilesResponse, Status> {
-    let mut txn = api.txn_begin().await?;
-    let system_profiles: Vec<MeasurementSystemProfileRecordPb> =
-        export_measurement_profile_records(&mut txn)
-            .await
-            .map_err(|e| Status::internal(format!("{e}")))?
-            .drain(..)
-            .map(|record| record.into())
-            .collect();
+    let system_profiles: Vec<MeasurementSystemProfileRecordPb> = api
+        .with_txn(|txn| export_measurement_profile_records(txn).boxed())
+        .await?
+        .map_err(|e| Status::internal(format!("{e}")))?
+        .into_iter()
+        .map(|record| record.into())
+        .collect();
 
     Ok(ListMeasurementSystemProfilesResponse { system_profiles })
 }
@@ -230,6 +232,8 @@ pub async fn handle_list_measurement_system_profile_bundles(
         // ... either a UUID or name is required.
         None => return Err(Status::invalid_argument("selector required")),
     };
+
+    txn.commit().await?;
 
     Ok(ListMeasurementSystemProfileBundlesResponse { bundle_ids })
 }
@@ -263,6 +267,7 @@ pub async fn handle_list_measurement_system_profile_machines(
         // ...and it has to be either by ID or name.
         None => return Err(Status::invalid_argument("selector required")),
     };
+    txn.commit().await?;
 
     Ok(ListMeasurementSystemProfileMachinesResponse { machine_ids })
 }

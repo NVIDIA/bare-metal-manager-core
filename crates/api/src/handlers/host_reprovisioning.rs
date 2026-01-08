@@ -9,9 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use db::WithTransaction;
+use futures_util::FutureExt;
 use itertools::Itertools;
 use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
@@ -91,10 +92,9 @@ pub(crate) async fn list_hosts_waiting_for_reprovisioning(
 ) -> Result<Response<rpc::HostReprovisioningListResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
-    let hosts = db::machine::list_machines_requested_for_host_reprovisioning(&mut txn)
-        .await?
+    let hosts = api
+        .with_txn(|txn| db::machine::list_machines_requested_for_host_reprovisioning(txn).boxed())
+        .await??
         .into_iter()
         .map(
             |x| rpc::host_reprovisioning_list_response::HostReprovisioningListItem {

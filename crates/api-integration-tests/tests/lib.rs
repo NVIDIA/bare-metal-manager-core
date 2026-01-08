@@ -629,5 +629,6 @@ pub async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
     let mut txn = pool.begin().await.unwrap();
     let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
     let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();
+    txn.commit().await.unwrap();
     rows.try_get("row_cnt").unwrap()
 }
