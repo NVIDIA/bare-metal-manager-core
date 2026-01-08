@@ -6,6 +6,7 @@ StartLimitIntervalSec=300
 StartLimitBurst=5
 
 [Service]
+ExecStartPre=cloud-init status --wait
 ExecStart=/usr/bin/transceiver-exporter -web.listen-address=localhost:9300 -collector.interface-features.enable=false
 KillMode=mixed
 Restart=always

@@ -6,6 +6,7 @@ StartLimitIntervalSec=300
 StartLimitBurst=5
 
 [Service]
+ExecStartPre=cloud-init status --wait
 ExecStart=/usr/bin/node_exporter --web.listen-address=localhost:9200 --collector.disable-defaults \
     --collector.arp \
     --collector.netclass \
