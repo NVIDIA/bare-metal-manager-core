@@ -45,6 +45,7 @@ use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
 use crate::cfg::cli_options::AdminPowerControlAction;
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::{RuntimeConfig, RuntimeContext};
 use crate::cfg::storage::OsImageActions;
 use crate::rpc::ApiClient;
@@ -204,15 +205,45 @@ async fn main() -> color_eyre::Result<()> {
 
     // Command to talk to Carbide API.
     match command {
-        CliCommand::Version(cmd) => version::dispatch(cmd, ctx).await?,
-        CliCommand::Mlx(cmd) => mlx::dispatch(cmd, ctx).await?,
-        CliCommand::Machine(cmd) => machine::dispatch(cmd, ctx).await?,
-        CliCommand::Instance(cmd) => instance::dispatch(cmd, ctx).await?,
-        CliCommand::NetworkSegment(cmd) => network_segment::dispatch(cmd, ctx).await?,
-        CliCommand::Domain(cmd) => domain::dispatch(cmd, ctx).await?,
-        CliCommand::ManagedHost(cmd) => managed_host::dispatch(cmd, ctx).await?,
-        CliCommand::Measurement(cmd) => measurement::dispatch(cmd, ctx).await?,
-        CliCommand::ResourcePool(cmd) => resource_pool::dispatch(cmd, ctx).await?,
+        CliCommand::Domain(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Dpa(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Dpu(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::DpuRemediation(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedMachine(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedPowerShelf(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedSwitch(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExtensionService(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Firmware(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::IbPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Instance(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::InstanceType(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::LogicalPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Machine(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::MachineInterfaces(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::MachineValidation(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ManagedHost(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Measurement(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Mlx(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NetworkDevice(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NetworkSecurityGroup(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Ping(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::PowerShelf(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Rack(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ResourcePool(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::RouteServer(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ScoutStream(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::SiteExplorer(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Sku(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Switch(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Tenant(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::TenantKeySet(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::TpmCa(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Version(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Vpc(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::VpcPeering(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::VpcPrefix(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ip(ip_command) => match ip_command {
             IpAction::Find(find) => {
                 let req = forgerpc::FindIpAddressRequest {
@@ -231,8 +262,6 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         },
-        CliCommand::NetworkDevice(cmd) => network_devices::dispatch(cmd, ctx).await?,
-        CliCommand::Dpu(cmd) => dpu::dispatch(cmd, ctx).await?,
         CliCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {
                 uefi::cmds::set_password(&query, &ctx.api_client).await?;
@@ -274,7 +303,6 @@ async fn main() -> color_eyre::Result<()> {
             // Handled earlier
             unreachable!();
         }
-        CliCommand::ScoutStream(cmd) => scout_stream::dispatch(cmd, ctx).await?,
         CliCommand::BootOverride(boot_override_args) => match boot_override_args {
             BootOverrideAction::Get(boot_override) => {
                 let mbo = ctx
@@ -532,9 +560,6 @@ async fn main() -> color_eyre::Result<()> {
                 ctx.api_client.0.delete_credential(req).await?;
             }
         },
-        CliCommand::RouteServer(cmd) => route_server::dispatch(cmd, ctx).await?,
-        CliCommand::SiteExplorer(cmd) => site_explorer::dispatch(cmd, ctx).await?,
-        CliCommand::MachineInterfaces(cmd) => machine_interfaces::dispatch(cmd, ctx).await?,
         CliCommand::GenerateShellComplete(shell) => {
             let mut cmd = CliOptions::command();
             match shell.shell {
@@ -568,7 +593,6 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CliCommand::Ping(cmd) => ping::dispatch(cmd, ctx).await?,
         CliCommand::Set(subcmd) => match subcmd {
             SetAction::LogFilter(opts) => {
                 ctx.api_client
@@ -611,15 +635,6 @@ async fn main() -> color_eyre::Result<()> {
                     .await?
             }
         },
-        CliCommand::ExpectedMachine(cmd) => expected_machines::dispatch(cmd, ctx).await?,
-        CliCommand::ExpectedPowerShelf(cmd) => expected_power_shelf::dispatch(cmd, ctx).await?,
-        CliCommand::ExpectedSwitch(cmd) => expected_switch::dispatch(cmd, ctx).await?,
-        CliCommand::Vpc(cmd) => vpc::dispatch(cmd, ctx).await?,
-        CliCommand::Dpa(cmd) => dpa::dispatch(cmd, ctx).await?,
-        CliCommand::VpcPeering(cmd) => vpc_peering::dispatch(cmd, ctx).await?,
-        CliCommand::VpcPrefix(cmd) => vpc_prefix::dispatch(cmd, ctx).await?,
-        CliCommand::IbPartition(cmd) => ib_partition::dispatch(cmd, ctx).await?,
-        CliCommand::TenantKeySet(cmd) => tenant_keyset::dispatch(cmd, ctx).await?,
         CliCommand::Jump(j) => {
             // Is it a machine ID?
             // Grab the machine details.
@@ -917,7 +932,6 @@ async fn main() -> color_eyre::Result<()> {
             color_eyre::eyre::bail!("Unable to determine ID type");
         }
 
-        CliCommand::MachineValidation(cmd) => machine_validation::dispatch(cmd, ctx).await?,
         CliCommand::OsImage(os_image) => match os_image {
             OsImageActions::Show(os_image) => {
                 storage::os_image_show(
@@ -938,9 +952,6 @@ async fn main() -> color_eyre::Result<()> {
                 storage::os_image_update(os_image, &ctx.api_client).await?
             }
         },
-        CliCommand::TpmCa(cmd) => tpm_ca::dispatch(cmd, ctx).await?,
-        CliCommand::NetworkSecurityGroup(cmd) => network_security_group::dispatch(cmd, ctx).await?,
-        CliCommand::Sku(cmd) => sku::dispatch(cmd, ctx).await?,
         CliCommand::DevEnv(command) => match command {
             cfg::cli_options::DevEnv::Config(dev_env_config) => match dev_env_config {
                 cfg::cli_options::DevEnvConfig::Apply(dev_env_config_apply) => {
@@ -948,7 +959,6 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
         },
-        CliCommand::InstanceType(cmd) => instance_type::dispatch(cmd, ctx).await?,
         CliCommand::Ssh(action) => match action {
             cfg::cli_options::SshActions::GetRshimStatus(ssh_args) => {
                 let is_rshim_enabled = is_rshim_enabled(
@@ -995,9 +1005,6 @@ async fn main() -> color_eyre::Result<()> {
                 println!("OBMC Console Log:\n{log}");
             }
         },
-        CliCommand::PowerShelf(cmd) => power_shelf::dispatch(cmd, ctx).await?,
-        CliCommand::Switch(cmd) => switch::dispatch(cmd, ctx).await?,
-        CliCommand::Rack(cmd) => rack::dispatch(cmd, ctx).await?,
         CliCommand::Rms(action) => match action {
             cfg::cli_options::RmsActions::Inventory => {
                 rack::cmds::get_inventory(&ctx.api_client).await?;
@@ -1026,7 +1033,6 @@ async fn main() -> color_eyre::Result<()> {
                 rack::cmds::check_bkc_compliance(&ctx.api_client).await?;
             }
         },
-        CliCommand::Firmware(cmd) => firmware::dispatch(cmd, ctx).await?,
         CliCommand::TrimTable(target) => {
             match target {
                 cfg::cli_options::TrimTableTarget::MeasuredBoot(keep_entries) => {
@@ -1045,11 +1051,6 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CliCommand::DpuRemediation(cmd) => dpu_remediation::dispatch(cmd, ctx).await?,
-        CliCommand::ExtensionService(cmd) => extension_service::dispatch(cmd, ctx).await?,
-        CliCommand::NvlPartition(cmd) => nvl_partition::dispatch(cmd, ctx).await?,
-        CliCommand::LogicalPartition(cmd) => nvl_logical_partition::dispatch(cmd, ctx).await?,
-        CliCommand::Tenant(cmd) => tenant::dispatch(cmd, ctx).await?,
     }
 
     Ok(())

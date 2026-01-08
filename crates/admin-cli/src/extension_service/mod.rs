@@ -16,26 +16,34 @@ pub mod cmds;
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes extension_service commands.
-pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Create(args) => cmds::handle_create(args, ctx.config.format, &ctx.api_client).await,
-        Cmd::Update(args) => cmds::handle_update(args, ctx.config.format, &ctx.api_client).await,
-        Cmd::Delete(args) => cmds::handle_delete(args, ctx.config.format, &ctx.api_client).await,
-        Cmd::Show(args) => {
-            cmds::handle_show(
-                args,
-                ctx.config.format,
-                &ctx.api_client,
-                ctx.config.page_size,
-            )
-            .await
-        }
-        Cmd::GetVersion(args) => cmds::handle_get_version(args, &ctx.api_client).await,
-        Cmd::ShowInstances(args) => {
-            cmds::handle_show_instances(args, ctx.config.format, &ctx.api_client).await
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Create(args) => {
+                cmds::handle_create(args, ctx.config.format, &ctx.api_client).await
+            }
+            Cmd::Update(args) => {
+                cmds::handle_update(args, ctx.config.format, &ctx.api_client).await
+            }
+            Cmd::Delete(args) => {
+                cmds::handle_delete(args, ctx.config.format, &ctx.api_client).await
+            }
+            Cmd::Show(args) => {
+                cmds::handle_show(
+                    args,
+                    ctx.config.format,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                )
+                .await
+            }
+            Cmd::GetVersion(args) => cmds::handle_get_version(args, &ctx.api_client).await,
+            Cmd::ShowInstances(args) => {
+                cmds::handle_show_instances(args, ctx.config.format, &ctx.api_client).await
+            }
         }
     }
 }

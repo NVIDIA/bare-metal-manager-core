@@ -16,28 +16,30 @@ pub mod cmds;
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes instance_type commands.
-pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Create(args) => cmds::create(args, ctx.config.format, &ctx.api_client).await,
-        Cmd::Show(args) => {
-            cmds::show(
-                args,
-                ctx.config.format,
-                &ctx.api_client,
-                ctx.config.page_size,
-                ctx.config.extended,
-            )
-            .await
-        }
-        Cmd::Update(args) => cmds::update(args, ctx.config.format, &ctx.api_client).await,
-        Cmd::Delete(args) => cmds::delete(args, &ctx.api_client).await,
-        Cmd::Associate(args) => cmds::create_association(args, &ctx.api_client).await,
-        Cmd::Disassociate(args) => {
-            cmds::remove_association(args, ctx.config.cloud_unsafe_op_enabled, &ctx.api_client)
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Create(args) => cmds::create(args, ctx.config.format, &ctx.api_client).await,
+            Cmd::Show(args) => {
+                cmds::show(
+                    args,
+                    ctx.config.format,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                    ctx.config.extended,
+                )
                 .await
+            }
+            Cmd::Update(args) => cmds::update(args, ctx.config.format, &ctx.api_client).await,
+            Cmd::Delete(args) => cmds::delete(args, &ctx.api_client).await,
+            Cmd::Associate(args) => cmds::create_association(args, &ctx.api_client).await,
+            Cmd::Disassociate(args) => {
+                cmds::remove_association(args, ctx.config.cloud_unsafe_op_enabled, &ctx.api_client)
+                    .await
+            }
         }
     }
 }

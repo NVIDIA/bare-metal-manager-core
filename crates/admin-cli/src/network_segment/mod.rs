@@ -16,29 +16,31 @@ pub mod cmds;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 pub use args::Cmd;
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes network_segment commands.
-pub async fn dispatch(cmd: Cmd, ctx: RuntimeContext) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Show(args) => {
-            cmds::handle_show(
-                args,
-                ctx.config.format,
-                &ctx.api_client,
-                ctx.config.page_size,
-            )
-            .await
-        }
-        Cmd::Delete(args) => {
-            if !ctx.config.cloud_unsafe_op_enabled {
-                return Err(CarbideCliError::GenericError(
-                    "Operation not allowed due to potential inconsistencies with cloud database."
-                        .to_owned(),
-                ));
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Show(args) => {
+                cmds::handle_show(
+                    args,
+                    ctx.config.format,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                )
+                .await?
             }
-            ctx.api_client.delete_network_segment(args.id).await?;
-            Ok(())
+            Cmd::Delete(args) => {
+                if !ctx.config.cloud_unsafe_op_enabled {
+                    return Err(CarbideCliError::GenericError(
+                        "Operation not allowed due to potential inconsistencies with cloud database."
+                            .to_owned(),
+                    ));
+                }
+                ctx.api_client.delete_network_segment(args.id).await?;
+            }
         }
+        Ok(())
     }
 }

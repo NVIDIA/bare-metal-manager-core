@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 pub mod cli_options;
+pub mod dispatch;
 pub mod measurement;
 pub mod runtime;
 pub mod storage;
