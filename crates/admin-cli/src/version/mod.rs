@@ -13,6 +13,9 @@
 pub mod args;
 pub mod cmds;
 
+#[cfg(test)]
+mod tests;
+
 // Export so the CLI builder can just pull in version::Opts.
 // This is different than others that pull in Cmd, since
 // this is just a single top-level command without any

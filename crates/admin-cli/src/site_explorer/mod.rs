@@ -13,6 +13,9 @@
 pub mod args;
 pub mod cmds;
 
+#[cfg(test)]
+mod tests;
+
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 pub use cmds::show_discovered_managed_host as show_site_explorer_discovered_managed_host;

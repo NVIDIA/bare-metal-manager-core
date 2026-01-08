@@ -21,13 +21,13 @@ use super::args::{
 };
 use crate::rpc::ApiClient;
 
-fn url_validator(url: String) -> Result<String, CarbideCliError> {
+pub(crate) fn url_validator(url: String) -> Result<String, CarbideCliError> {
     let addr = tonic::transport::Uri::try_from(&url)
         .map_err(|_| CarbideCliError::GenericError("invalid url".to_string()))?;
     Ok(addr.to_string())
 }
 
-fn password_validator(s: String) -> Result<String, CarbideCliError> {
+pub(crate) fn password_validator(s: String) -> Result<String, CarbideCliError> {
     // TODO: check password according BMC pwd rule.
     if s.is_empty() {
         return Err(CarbideCliError::GenericError("invalid input".to_string()));

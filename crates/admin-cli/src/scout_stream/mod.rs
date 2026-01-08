@@ -22,6 +22,9 @@ use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
 use crate::rpc::ApiClient;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Parser, Debug)]
 pub enum ScoutStreamAction {
     #[clap(about = "Show all active scout stream connections")]

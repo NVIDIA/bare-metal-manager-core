@@ -13,6 +13,9 @@
 pub mod args;
 pub mod cmds;
 
+#[cfg(test)]
+mod tests;
+
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;

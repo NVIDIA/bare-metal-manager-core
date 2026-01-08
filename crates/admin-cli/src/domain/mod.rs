@@ -13,6 +13,9 @@
 pub mod args;
 pub mod cmds;
 
+#[cfg(test)]
+mod tests;
+
 // Export so the CLI builder can just pull in domain::Cmd.
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
