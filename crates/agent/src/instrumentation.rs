@@ -241,7 +241,7 @@ pub fn get_metrics_router(registry: prometheus::Registry) -> Router {
 }
 
 #[axum::debug_handler]
-async fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Full<Bytes>> {
+fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Full<Bytes>> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
     let metric_families = registry.gather();
