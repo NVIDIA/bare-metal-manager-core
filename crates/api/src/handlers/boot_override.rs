@@ -45,6 +45,8 @@ pub(crate) async fn get(
         },
     };
 
+    txn.commit().await?;
+
     Ok(tonic::Response::new(mbo.into()))
 }
 

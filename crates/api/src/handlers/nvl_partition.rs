@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::forge as rpc;
-use db::ObjectColumnFilter;
 // use db::nvl_logical_partition::{LogicalPartition, LogicalPartitionSearchConfig};
 use db::nvl_partition;
+use db::{ObjectColumnFilter, WithTransaction};
+use futures_util::FutureExt;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -25,11 +25,11 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let filter: rpc::NvLinkPartitionSearchFilter = request.into_inner();
 
-    let partition_ids = db::nvl_partition::find_ids(&mut txn, filter).await?;
+    let partition_ids = api
+        .with_txn(|txn| db::nvl_partition::find_ids(txn, filter).boxed())
+        .await??;
 
     Ok(Response::new(rpc::NvLinkPartitionIdList { partition_ids }))
 }
@@ -39,8 +39,6 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::NvLinkPartitionsByIdsRequest>,
 ) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
     log_request_data(&request);
-
-    let mut txn = api.txn_begin().await?;
 
     let rpc::NvLinkPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
 
@@ -56,11 +54,15 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = db::nvl_partition::find_by(
-        &mut txn,
-        ObjectColumnFilter::List(nvl_partition::IdColumn, &partition_ids),
-    )
-    .await?;
+    let partitions = api
+        .with_txn(|txn| {
+            db::nvl_partition::find_by(
+                txn,
+                ObjectColumnFilter::List(nvl_partition::IdColumn, &partition_ids),
+            )
+            .boxed()
+        })
+        .await??;
 
     let mut result = Vec::with_capacity(partitions.len());
     for ibp in partitions {
@@ -77,8 +79,6 @@ pub(crate) async fn for_tenant(
 ) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let rpc::TenantSearchQuery {
         tenant_organization_id,
     } = request.into_inner();
@@ -90,9 +90,9 @@ pub(crate) async fn for_tenant(
         }
     };
 
-    let results = db::nvl_partition::for_tenant(&mut txn, _tenant_organization_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = api
+        .with_txn(|txn| db::nvl_partition::for_tenant(txn, _tenant_organization_id).boxed())
+        .await??;
 
     let mut partitions = Vec::with_capacity(results.len());
 

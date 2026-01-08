@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementSystemProfileId;
+use futures_util::FutureExt;
 use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
 use sqlx::{PgConnection, PgTransaction};
@@ -33,7 +34,7 @@ use crate::measured_boot::interface::profile::{
     insert_measurement_profile_attr_records, insert_measurement_profile_record,
     rename_profile_for_profile_id, rename_profile_for_profile_name,
 };
-use crate::{DatabaseError, DatabaseResult, Transaction};
+use crate::{DatabaseError, DatabaseResult, Transaction, WithTransaction};
 
 pub async fn new_with_txn(
     // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
@@ -455,8 +456,9 @@ pub async fn load_from_id(
     db_conn: &Pool<Postgres>,
     profile_id: MeasurementSystemProfileId,
 ) -> DatabaseResult<MeasurementSystemProfile> {
-    let mut txn = Transaction::begin(db_conn).await?;
-    load_from_id_with_txn(&mut txn, profile_id).await
+    db_conn
+        .with_txn(|txn| load_from_id_with_txn(txn, profile_id).boxed())
+        .await?
 }
 
 #[cfg(test)]

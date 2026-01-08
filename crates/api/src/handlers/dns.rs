@@ -9,8 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::forge as rpc;
+use db::WithTransaction;
+use futures_util::FutureExt;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -21,8 +22,6 @@ pub(crate) async fn lookup_record(
     request: Request<rpc::dns_message::DnsQuestion>,
 ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
     log_request_data(&request);
-
-    let mut txn = api.txn_begin().await?;
 
     let rpc::dns_message::DnsQuestion {
         q_name,
@@ -42,8 +41,9 @@ pub(crate) async fn lookup_record(
         return Err(CarbideError::InvalidArgument("q_type must be 1".to_string()).into());
     }
 
-    let resource_record = db::resource_record::find(&mut txn, &q_name)
-        .await?
+    let resource_record = api
+        .with_txn(|txn| db::resource_record::find(txn, &q_name).boxed())
+        .await??
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "dns_record",
             id: q_name,

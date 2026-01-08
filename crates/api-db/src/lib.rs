@@ -9,6 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+// Allow txn_without_commit in tests
+#![cfg_attr(test, allow(txn_without_commit))]
+
 pub mod attestation;
 pub mod bmc_metadata;
 pub mod carbide_version;
@@ -95,7 +99,7 @@ use model::ConfigValidationError;
 use model::hardware_info::HardwareInfoError;
 use model::tenant::TenantError;
 use rpc::errors::RpcDataConversionError;
-use sqlx::{Acquire, Postgres};
+use sqlx::{Acquire, PgPool, PgTransaction, Postgres};
 use tonic::Status;
 
 use crate::ip_allocator::DhcpError;
@@ -658,6 +662,56 @@ impl DerefMut for Transaction<'_> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
+    }
+}
+
+/// Provides an easy way to auto-commit a transaction if no error is thrown.
+pub trait WithTransaction {
+    #[track_caller]
+    fn with_txn<'pool, T, E>(
+        &'pool self,
+        f: impl for<'txn> FnOnce(
+            &'txn mut PgTransaction<'pool>,
+        ) -> futures::future::BoxFuture<'txn, Result<T, E>>
+        + Send,
+    ) -> impl Future<Output = DatabaseResult<Result<T, E>>> + Send
+    where
+        T: Send,
+        E: Send;
+}
+
+impl WithTransaction for PgPool {
+    #[track_caller]
+    fn with_txn<'pool, T, E>(
+        &'pool self,
+        f: impl for<'txn> FnOnce(
+            &'txn mut PgTransaction<'pool>,
+        ) -> futures::future::BoxFuture<'txn, Result<T, E>>
+        + Send,
+    ) -> impl Future<Output = DatabaseResult<Result<T, E>>>
+    where
+        T: Send,
+        E: Send,
+    {
+        let caller = Location::caller();
+        async move {
+            let mut t = self
+                .begin()
+                .await
+                .map_err(|e| DatabaseError::txn_begin(e, caller))?;
+            match f(&mut t).await {
+                Ok(output) => {
+                    t.commit()
+                        .await
+                        .map_err(|e| DatabaseError::txn_commit(e, caller))?;
+                    Ok(Ok(output))
+                }
+                Err(e) => {
+                    t.rollback().await.ok();
+                    Ok(Err(e))
+                }
+            }
+        }
     }
 }
 

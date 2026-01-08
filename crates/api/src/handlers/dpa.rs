@@ -13,8 +13,9 @@
 use ::rpc::protos::mlx_device as mlx_device_pb;
 use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
 use carbide_uuid::machine::MachineId;
-use db::dpa_interface;
+use db::{WithTransaction, dpa_interface};
 use eyre::eyre;
+use futures_util::FutureExt;
 use mlxconfig_device::report::MlxDeviceReport;
 use model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
@@ -120,9 +121,9 @@ pub(crate) async fn get_all_ids(
 ) -> Result<Response<::rpc::forge::DpaInterfaceIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
-    let ids = db::dpa_interface::find_ids(&mut txn).await?;
+    let ids = api
+        .with_txn(|txn| db::dpa_interface::find_ids(txn).boxed())
+        .await??;
 
     Ok(Response::new(::rpc::forge::DpaInterfaceIdList { ids }))
 }

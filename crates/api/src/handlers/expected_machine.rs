@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::forge as rpc;
-use db::rack as db_rack;
+use db::{WithTransaction, rack as db_rack};
+use futures_util::FutureExt;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -58,7 +58,7 @@ pub(crate) async fn get(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    match db::expected_machine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
+    let result = match db::expected_machine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
         Some(expected_machine) => {
             if expected_machine.bmc_mac_address != parsed_mac {
                 return Err(Status::invalid_argument(format!(
@@ -73,7 +73,11 @@ pub(crate) async fn get(
             id: parsed_mac.to_string(),
         }
         .into()),
-    }
+    };
+
+    txn.rollback().await?;
+
+    result
 }
 
 pub(crate) async fn add(
@@ -262,10 +266,9 @@ pub(crate) async fn get_all(
 ) -> Result<tonic::Response<rpc::ExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
-    let expected_machine_list: Vec<ExpectedMachine> =
-        db::expected_machine::find_all(&mut txn).await?;
+    let expected_machine_list: Vec<ExpectedMachine> = api
+        .with_txn(|txn| db::expected_machine::find_all(txn).boxed())
+        .await??;
 
     Ok(tonic::Response::new(rpc::ExpectedMachineList {
         expected_machines: expected_machine_list.into_iter().map(Into::into).collect(),
@@ -277,9 +280,10 @@ pub(crate) async fn get_linked(
     request: tonic::Request<()>,
 ) -> Result<tonic::Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin().await?;
 
-    let out = db::expected_machine::find_all_linked(&mut txn).await?;
+    let out = api
+        .with_txn(|txn| db::expected_machine::find_all_linked(txn).boxed())
+        .await??;
     let list = rpc::LinkedExpectedMachineList {
         expected_machines: out.into_iter().map(|m| m.into()).collect(),
     };

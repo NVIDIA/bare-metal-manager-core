@@ -66,6 +66,8 @@ pub(crate) async fn clear_host_uefi_password(
         crate::redfish::clear_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
             .await?;
 
+    txn.commit().await?;
+
     Ok(Response::new(rpc::ClearHostUefiPasswordResponse { job_id }))
 }
 

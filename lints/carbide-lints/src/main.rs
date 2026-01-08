@@ -3,6 +3,7 @@
 
 mod borrowck_shim;
 mod txn_held_across_await;
+mod txn_without_commit;
 
 extern crate rustc_abi;
 extern crate rustc_arena;
@@ -51,7 +52,10 @@ impl Callbacks for CarbideLints {
     fn config(&mut self, config: &mut interface::Config) {
         // Register the lints themselves, so that `#[allow(txn_held_across_await)]` works properly
         config.register_lints = Some(Box::new(|_session, lints| {
-            lints.register_lints(&[txn_held_across_await::TXN_HELD_ACROSS_AWAIT]);
+            lints.register_lints(&[
+                txn_held_across_await::TXN_HELD_ACROSS_AWAIT,
+                txn_without_commit::TXN_WITHOUT_COMMIT,
+            ]);
         }));
 
         // Override the `mir_borrowck` query from rustc. This query has the right information
