@@ -241,18 +241,22 @@ pub fn get_metrics_router(registry: prometheus::Registry) -> Router {
 }
 
 #[axum::debug_handler]
-fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Full<Bytes>> {
-    let mut buffer = vec![];
-    let encoder = TextEncoder::new();
-    let metric_families = registry.gather();
-    encoder.encode(&metric_families, &mut buffer).unwrap();
+async fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Full<Bytes>> {
+    tokio::task::spawn_blocking(move || {
+        let mut buffer = vec![];
+        let encoder = TextEncoder::new();
+        let metric_families = registry.gather();
+        encoder.encode(&metric_families, &mut buffer).unwrap();
 
-    Response::builder()
-        .status(200)
-        .header(CONTENT_TYPE, encoder.format_type())
-        .header(CONTENT_LENGTH, buffer.len())
-        .body(buffer.into())
-        .unwrap()
+        Response::builder()
+            .status(200)
+            .header(CONTENT_TYPE, encoder.format_type())
+            .header(CONTENT_LENGTH, buffer.len())
+            .body(buffer.into())
+            .unwrap()
+    })
+    .await
+    .unwrap()
 }
 pub trait WithTracingLayer {
     fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router;
