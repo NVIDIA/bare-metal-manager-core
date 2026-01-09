@@ -82,6 +82,15 @@ pub struct ConfigVersion {
     timestamp: DateTime<Utc>,
 }
 
+/// Represents an operation to change (typically increment) a ConfigVersion, for cases that resemble
+/// "compare-and-swap", ie. change to the `new` only if the current matches `current`. Typically
+/// constructed via [`ConfigVersion::incremental_change`]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ConfigVersionChange {
+    pub current: ConfigVersion,
+    pub new: ConfigVersion,
+}
+
 impl std::fmt::Display for ConfigVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Note that we could implement `to_version_string()` in terms of `Display`.
@@ -181,6 +190,17 @@ impl ConfigVersion {
                 std::cmp::Ordering::Greater => *other,
             },
             std::cmp::Ordering::Greater => *other,
+        }
+    }
+
+    /// Construct a ConfigVersionChange that increments this ConfigVersion by 1
+    pub fn incremental_change(&self) -> ConfigVersionChange {
+        ConfigVersionChange {
+            current: *self,
+            new: ConfigVersion {
+                version_nr: self.version_nr + 1,
+                timestamp: Utc::now(),
+            },
         }
     }
 }

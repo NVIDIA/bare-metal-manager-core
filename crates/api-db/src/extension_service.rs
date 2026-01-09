@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use carbide_uuid::extension_service::ExtensionServiceId;
-use config_version::ConfigVersion;
+use config_version::{ConfigVersion, ConfigVersionChange};
 use model::extension_service::{
     ExtensionService, ExtensionServiceObservability, ExtensionServiceSnapshot,
     ExtensionServiceType, ExtensionServiceVersionInfo,
@@ -39,6 +39,7 @@ use crate::{DatabaseError, DatabaseResult};
 #[allow(clippy::too_many_arguments)]
 pub async fn create(
     txn: &mut PgConnection,
+    version: ConfigVersion,
     service_id: &ExtensionServiceId,
     service_type: &ExtensionServiceType,
     service_name: &str,
@@ -49,7 +50,6 @@ pub async fn create(
     has_credential: bool,
 ) -> Result<(ExtensionService, ExtensionServiceVersionInfo), DatabaseError> {
     let initial_version_ctr = 1;
-    let initial_version = ConfigVersion::initial();
 
     // First create the extension service record
     let service_query = "INSERT INTO extension_services
@@ -90,7 +90,7 @@ pub async fn create(
 
     let version = sqlx::query_as::<_, ExtensionServiceVersionInfo>(version_query)
         .bind(service_id)
-        .bind(initial_version.to_string())
+        .bind(version.to_string())
         .bind(data)
         .bind(observability.map(sqlx::types::Json))
         .bind(has_credential)
@@ -117,6 +117,7 @@ pub async fn create(
 /// * `has_credential`         - Whether the new extension service version has a credential stored
 ///   in vault
 ///
+#[allow(clippy::too_many_arguments)]
 pub async fn update(
     txn: &mut PgConnection,
     service_id: ExtensionServiceId,
@@ -125,6 +126,7 @@ pub async fn update(
     data: &str,
     observability: Option<ExtensionServiceObservability>,
     has_credential: bool,
+    config_version_change: ConfigVersionChange,
 ) -> Result<(ExtensionService, ExtensionServiceVersionInfo), DatabaseError> {
     // Update the "updated" timestamp of the extension service, and optionally update any provided
     // metadata (name, description)
@@ -139,9 +141,14 @@ pub async fn update(
         builder.push(", description = ");
         builder.push_bind(desc);
     }
-    builder.push(", version_ctr = version_ctr + 1");
+    builder
+        .push(", version_ctr = ")
+        .push_bind(config_version_change.new.version_nr().cast_signed());
     builder.push(" WHERE id = ");
     builder.push_bind(service_id);
+    builder
+        .push(" AND version_ctr = ")
+        .push_bind(config_version_change.current.version_nr().cast_signed());
     builder.push(" AND deleted IS NULL");
     builder.push(" RETURNING id, type, name, description, tenant_organization_id, version_ctr, created, updated, deleted");
 
@@ -170,9 +177,6 @@ pub async fn update(
         Err(e) => return Err(DatabaseError::query(builder.sql(), e)),
     };
 
-    // We already incremented the version counter in the update query, so we can use it directly.
-    let new_version = ConfigVersion::new(updated_service.version_ctr as u64);
-
     // Insert the new version with the next version number.
     // Since all updates will first take the extension service row for update, we do not need to worry
     // about concurrent update issue here.
@@ -183,7 +187,7 @@ pub async fn update(
 
     let new_version = sqlx::query_as::<_, ExtensionServiceVersionInfo>(version_query)
         .bind(service_id)
-        .bind(new_version)
+        .bind(config_version_change.new)
         .bind(data)
         .bind(observability.map(sqlx::types::Json))
         .bind(has_credential)

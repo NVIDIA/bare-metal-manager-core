@@ -9,13 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
-use db::{extension_service, instance};
+use db::{WithTransaction, extension_service, instance};
 use forge_secrets::credentials::{CredentialKey, Credentials};
+use futures_util::FutureExt;
 use model::extension_service::{ExtensionServiceObservability, ExtensionServiceType};
 use model::tenant::TenantOrganizationId;
 use tonic::{Request, Response, Status};
@@ -28,7 +28,6 @@ const MAX_POD_SPEC_SIZE: usize = 2 << 15; // 64 KB
 const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
 
 /// Creates a new extension service with an initial version.
-#[allow(txn_held_across_await)]
 pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::CreateDpuExtensionServiceRequest>,
@@ -62,6 +61,8 @@ pub(crate) async fn create(
             .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?
             .into();
 
+    let initial_version = ConfigVersion::initial();
+
     // Validate data format based on service type
     validate_extension_service_data(&service_type, &req.data)?;
 
@@ -69,8 +70,6 @@ pub(crate) async fn create(
     if let Some(credential) = &req.credential {
         validate_extension_service_credential(&service_type, credential)?;
     }
-
-    let mut txn = api.txn_begin().await?;
 
     let obvs_len = req
         .observability
@@ -86,53 +85,49 @@ pub(crate) async fn create(
         ).into());
     }
 
-    let (service, version) = extension_service::create(
-        &mut txn,
-        &service_id,
-        &service_type,
-        &req.service_name,
-        &tenant_organization_id,
-        req.description.as_deref(),
-        &req.data,
-        req.observability
-            .as_ref()
-            .map(|o| ExtensionServiceObservability::try_from(o.to_owned()))
-            .transpose()?,
-        req.credential.is_some(),
-    )
-    .await?;
+    let observability = req
+        .observability
+        .map(ExtensionServiceObservability::try_from)
+        .transpose()?;
 
-    // Sanity check: A newly created service should have exactly one version
-    let versions = extension_service::find_all_versions(&mut txn, service.id).await?;
-    if versions.len() != 1 || versions.first().unwrap().version_nr() != 1 {
-        return Err(CarbideError::Internal {
-            message: "Initial extension service should only have a single version (1)".to_string(),
-        }
-        .into());
-    }
-
-    // Store credential in Vault if provided.
-    // Note since the credential is stored before committing the DB transaction, we'll need to
-    // clean it up if the transaction fails
+    // Store the new credential in Vault if provided. We have to do this before updating the data in
+    // the database, so that in case this fails, the database remains untouched. We can't use db
+    // transactions for this since it can cause issues if vault is unresponsive.
     if let Some(credential) = &req.credential {
-        set_extension_service_credential(
+        create_extension_service_credential(
             &service_type,
             &api.credential_provider,
-            create_extension_service_credential_key(&service.id, version.version),
+            create_extension_service_credential_key(&service_id, initial_version),
             credential,
         )
         .await?;
     }
 
-    // Try commit the transaction. If it fails, we need to delete the credential stored in Vault.
-    // If commit fails, delete credential from Vault
-    match txn.commit().await {
-        Ok(()) => {}
-        Err(e) => {
-            // If we created a credential earlier in this request, delete it from Vault
+    // Finally, create the extension in the database. If this fails, the vault credential will be removed.
+    let (service, version) = match api
+        .with_txn(|txn| {
+            extension_service::create(
+                txn,
+                initial_version,
+                &service_id,
+                &service_type,
+                &req.service_name,
+                &tenant_organization_id,
+                req.description.as_deref(),
+                &req.data,
+                observability,
+                req.credential.is_some(),
+            )
+            .boxed()
+        })
+        .await
+    {
+        Ok(Ok(result)) => result,
+        Err(e) | Ok(Err(e)) => {
+            // If creating the extension fails, we need to delete the credential stored in Vault.
             if req.credential.is_some() {
                 let credential_key =
-                    create_extension_service_credential_key(&service.id, version.version);
+                    create_extension_service_credential_key(&service_id, initial_version);
                 // Best effort deletion - log but don't fail the request if deletion fails
                 if let Err(delete_err) =
                     delete_extension_service_credential(&api.credential_provider, credential_key)
@@ -140,13 +135,24 @@ pub(crate) async fn create(
                 {
                     tracing::warn!(
                         "Failed to delete credential for extension service {} after transaction failure: {}",
-                        service.id,
+                        service_id,
                         delete_err
                     );
                 }
             }
             return Err(e.into());
         }
+    };
+
+    // Sanity check: A newly created service should have exactly one version
+    let versions = api
+        .with_txn(|txn| extension_service::find_all_versions(txn, service.id).boxed())
+        .await??;
+    if versions.len() != 1 || versions.first().unwrap().version_nr() != 1 {
+        return Err(CarbideError::Internal {
+            message: "Initial extension service should only have a single version (1)".to_string(),
+        }
+        .into());
     }
 
     // Create response with service details
@@ -174,7 +180,6 @@ pub(crate) async fn create(
 /// - Update will fail if new name conflicts with an existing service name
 /// - Stores the new credential in Vault if provided
 /// - Commits the transaction, or rolls back and deletes the credential on failure
-#[allow(txn_held_across_await)]
 pub(crate) async fn update(
     api: &Api,
     request: Request<rpc::UpdateDpuExtensionServiceRequest>,
@@ -249,12 +254,16 @@ pub(crate) async fn update(
 
         let latest_version_row =
             extension_service::find_version_info(&mut txn, service_id, None).await?;
+        txn.commit().await?;
 
         (updated_service, latest_version_row)
     } else {
         // Data or credential is provided, update the extension service with the new version
         let latest_version =
             extension_service::find_version_info(&mut txn, service_id, None).await?;
+
+        // Close the txn to avoid holding it across a vault call
+        txn.commit().await?;
 
         // Validate new data format based on service type
         validate_extension_service_data(&current_service.service_type, &req.data)?;
@@ -304,63 +313,93 @@ pub(crate) async fn update(
             ).into());
         }
 
-        // Update the extension service with the new version in the database
-        let (updated_service, new_version_row) = extension_service::update(
-            &mut txn,
-            service_id,
-            req.service_name.as_deref(),
-            req.description.as_deref(),
-            &req.data,
-            req.observability
-                .as_ref()
-                .map(|o| ExtensionServiceObservability::try_from(o.to_owned()))
-                .transpose()?,
-            req.credential.is_some(),
-        )
-        .await?;
+        let observability = req
+            .observability
+            .map(ExtensionServiceObservability::try_from)
+            .transpose()?;
 
-        // Store the new credential in Vault if provided
-        if let Some(credential) = &req.credential {
-            set_extension_service_credential(
-                &updated_service.service_type,
+        let version_change =
+            ConfigVersion::new(current_service.version_ctr.try_into().map_err(|e| {
+                CarbideError::internal(format!("Invalid version for extension service: {e}"))
+            })?)
+            .incremental_change();
+
+        // Store the new credential in Vault if provided. We have to do this before updating the
+        // data in the database, so that in case this fails, the database remains untouched. We
+        // can't use db transactions for this since it can cause issues if vault is unresponsive.
+        //
+        // It does mean we have to inherit the service_type from the current service, rather than
+        // the updated one, which is ok because that is not being updated here. It also means we
+        // have to pick the new version ourselves by incrermenting the current version, but this is
+        // safe because the database will use "WHERE version_ctr = {old_version}", failing if there
+        // is a race.
+        let vault_credential_created = if let Some(credential) = &req.credential {
+            create_extension_service_credential(
+                &current_service.service_type,
                 &api.credential_provider,
-                create_extension_service_credential_key(&service_id, new_version_row.version),
+                create_extension_service_credential_key(&service_id, version_change.new),
                 credential,
             )
             .await?;
-        }
+            true
+        } else {
+            false
+        };
+
+        // Update the extension service with the new version in the database. If fails, delete any
+        // credential we stored in vault.
+        let (updated_service, new_version_row) = match api
+            .with_txn(|txn| {
+                extension_service::update(
+                    txn,
+                    service_id,
+                    req.service_name.as_deref(),
+                    req.description.as_deref(),
+                    &req.data,
+                    observability,
+                    req.credential.is_some(),
+                    version_change,
+                )
+                .boxed()
+            })
+            .await
+        {
+            Ok(Ok(result)) => result,
+            Err(e) | Ok(Err(e)) => {
+                if vault_credential_created {
+                    let credential_key =
+                        create_extension_service_credential_key(&service_id, version_change.new);
+                    // Best effort deletion - log but don't fail the request if deletion fails
+                    // Note: one of the causes of a DatabaseError here may be that there is a race
+                    // condition where the extension version already exists in the database (due to
+                    // two requests to update the extension at the same time.) If this happens, the
+                    // vault credential should have also collided above, and we should have already
+                    // failed by this point. So it should be safe to delete the vault credential
+                    // now.
+                    if let Err(delete_err) = delete_extension_service_credential(
+                        &api.credential_provider,
+                        credential_key,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "Failed to delete credential for extension service {} after transaction failure: {}",
+                            service_id,
+                            delete_err
+                        );
+                    }
+                }
+                return Err(e.into());
+            }
+        };
 
         (updated_service, new_version_row)
     };
 
     // Get all active versions for this service to return in the response
-    let versions = extension_service::find_all_versions(&mut txn, service_id).await?;
-
-    // If commit fails, delete credential from Vault
-    match txn.commit().await {
-        Ok(()) => {}
-        Err(e) => {
-            // If we created a credential earlier in this request, delete it from Vault
-            if req.credential.is_some() {
-                let credential_key = create_extension_service_credential_key(
-                    &service_id,
-                    latest_version_row.version,
-                );
-                // Best effort deletion - log but don't fail the request if deletion fails
-                if let Err(delete_err) =
-                    delete_extension_service_credential(&api.credential_provider, credential_key)
-                        .await
-                {
-                    tracing::warn!(
-                        "Failed to delete credential for extension service {} after transaction failure: {}",
-                        service_id,
-                        delete_err
-                    );
-                }
-            }
-            return Err(e.into());
-        }
-    }
+    let versions = api
+        .with_txn(|txn| extension_service::find_all_versions(txn, service_id).boxed())
+        .await??;
 
     let response = rpc::DpuExtensionService {
         service_id: service_id.to_string(),
@@ -932,8 +971,8 @@ pub(crate) fn create_extension_service_credential_key(
     }
 }
 
-/// Set the extension service credential in the vault based on the credential type
-async fn set_extension_service_credential(
+/// Create the extension service credential in the vault based on the credential type
+async fn create_extension_service_credential(
     service_type: &ExtensionServiceType,
     credential_provider: &std::sync::Arc<dyn forge_secrets::credentials::CredentialProvider>,
     credential_key: CredentialKey,
@@ -941,7 +980,7 @@ async fn set_extension_service_credential(
 ) -> Result<(), CarbideError> {
     match service_type {
         ExtensionServiceType::KubernetesPod => {
-            use rpc::dpu_extension_service_credential::Type as CredType;
+            use ::rpc::forge::dpu_extension_service_credential::Type as CredType;
 
             match credential.r#type.as_ref() {
                 Some(CredType::UsernamePassword(up)) => {
@@ -958,15 +997,13 @@ async fn set_extension_service_credential(
                     };
 
                     credential_provider
-                        .set_credentials(&credential_key, &cred)
+                        .create_credentials(&credential_key, &cred)
                         .await
                         .map_err(|e| {
                             CarbideError::internal(format!(
-                                "Error setting credential for extension service: {e}"
+                                "Error creating credential for extension service: {e}"
                             ))
-                        })?;
-
-                    Ok(())
+                        })
                 }
                 None => Err(CarbideError::InvalidArgument(
                     "Missing credential".to_string(),

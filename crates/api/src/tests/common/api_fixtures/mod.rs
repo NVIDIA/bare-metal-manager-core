@@ -283,6 +283,7 @@ pub struct TestEnv {
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
+    pub test_credential_provider: Arc<TestCredentialProvider>,
 }
 
 impl TestEnv {
@@ -1553,6 +1554,7 @@ pub async fn create_test_env_with_overrides(
         underlay_segment,
         domain,
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
+        test_credential_provider: credential_provider.clone(),
     }
 }
 
