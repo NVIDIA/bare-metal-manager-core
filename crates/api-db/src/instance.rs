@@ -224,6 +224,26 @@ pub async fn use_custom_ipxe_on_next_boot(
     Ok(())
 }
 
+/// Sets the custom_pxe_reboot_requested flag. This flag is set by the API when a tenant
+/// requests a reboot with custom iPXE. The Ready handler checks this flag to initiate
+/// the HostPlatformConfiguration flow. The WaitingForRebootToReady handler clears this
+/// flag after setting use_custom_pxe_on_boot.
+pub async fn set_custom_pxe_reboot_requested(
+    machine_id: &MachineId,
+    requested: bool,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE instances SET custom_pxe_reboot_requested=$1::bool WHERE machine_id=$2 RETURNING machine_id";
+    let _: (MachineId,) = sqlx::query_as(query)
+        .bind(requested)
+        .bind(machine_id.to_string())
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
 /// Updates the desired network configuration for an instance
 pub async fn update_network_config(
     txn: &mut PgConnection,

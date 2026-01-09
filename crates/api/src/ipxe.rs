@@ -346,9 +346,10 @@ exit ||
                         .run_provisioning_instructions_on_every_boot
                         || instance.use_custom_pxe_on_boot
                     {
+                        // For non-always-PXE instances, clear the use_custom_pxe_on_boot flag
+                        // now that we're serving the script. Always-PXE instances don't use
+                        // this flag (they rely on run_provisioning_instructions_on_every_boot).
                         if instance.use_custom_pxe_on_boot {
-                            // We don't have to reset the flag for `always_boot_with_custom_ipxe`, since
-                            // it's not used in this case
                             db::instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
                                 .await?;
                         }

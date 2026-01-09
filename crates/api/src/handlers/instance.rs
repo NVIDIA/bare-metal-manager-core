@@ -730,6 +730,35 @@ pub(crate) async fn invoke_power(
         })
         .unwrap_or_default();
 
+    // Determine if we should let the state machine handle the reboot.
+    // This is true when:
+    // 1. The machine is in Assigned/Ready state, AND
+    // 2. The instance needs to PXE boot (either always-PXE or explicit request)
+    //
+    // In this case, we set the custom_pxe_reboot_requested flag and return early.
+    // The Assigned/Ready handler will pick up the flag, verify boot order via
+    // HostPlatformConfiguration, and initiate the reboot.
+    //
+    // Otherwise, we issue a synchronous Redfish reboot directly.
+    // Determine how to handle the reboot based on the instance configuration and request.
+    //
+    // For custom PXE or always-PXE instances in Ready state, we use the state machine to
+    // verify boot order before rebooting. For regular reboots, we clear the use_custom_pxe_on_boot
+    // flag so the iPXE handler returns "exit" (boot from disk).
+    let use_state_machine_for_reboot = matches!(
+        snapshot.managed_state,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    ) && (run_provisioning_instructions_on_every_boot
+        || request.boot_with_custom_ipxe);
+
+    if use_state_machine_for_reboot {
+        db::instance::set_custom_pxe_reboot_requested(&machine_id, true, &mut txn).await?;
+    }
+
+    // For non-always-PXE instances, set use_custom_pxe_on_boot based on the request.
+    // This tells the iPXE handler whether to serve the custom script or return "exit".
     if !run_provisioning_instructions_on_every_boot {
         db::instance::use_custom_ipxe_on_next_boot(
             &machine_id,
@@ -790,6 +819,18 @@ pub(crate) async fn invoke_power(
 
     if reprovision_handled {
         // Host will reboot once DPU reprovisioning is successfully finished.
+        return Ok(Response::new(rpc::InstancePowerResult {}));
+    }
+
+    // If using state machine for reboot, return early. The flag was set above and the
+    // Assigned/Ready handler will pick it up, verify BIOS boot order, and initiate the reboot.
+    if use_state_machine_for_reboot {
+        tracing::info!(
+            machine_id = %machine_id,
+            run_provisioning_instructions_on_every_boot,
+            boot_with_custom_ipxe = request.boot_with_custom_ipxe,
+            "Delegating reboot to state machine for boot order verification"
+        );
         return Ok(Response::new(rpc::InstancePowerResult {}));
     }
 
