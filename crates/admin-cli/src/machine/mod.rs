@@ -24,8 +24,7 @@ pub use args::Cmd;
 // or just make the call-sites import ::args and ::cmds
 // as needed.
 pub use args::{
-    ForceDeleteMachineQuery, HealthOverrideTemplates, MachineAutoupdate, MachineQuery,
-    NetworkCommand, ShowMachine,
+    HealthOverrideTemplates, MachineAutoupdate, MachineQuery, NetworkCommand, ShowMachine,
 };
 pub use cmds::{get_health_report, get_next_free_machine, handle_show};
 

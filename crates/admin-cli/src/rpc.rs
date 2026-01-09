@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::instance_interface_config::NetworkDetails;
@@ -19,11 +18,11 @@ use ::rpc::forge::{
     self as rpc, BmcEndpointRequest, CreateNetworkSecurityGroupRequest,
     FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
-    IdentifySerialRequest, MachineBootOverride, MachineHardwareInfo, MachineHardwareInfoUpdateType,
-    NetworkPrefix, NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest,
-    NetworkSegmentType, Remediation, RemediationIdList, RemediationList,
-    UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
-    VpcSearchFilter, VpcVirtualizationType, VpcsByIdsRequest,
+    IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType, NetworkPrefix,
+    NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest, NetworkSegmentType, Remediation,
+    RemediationIdList, RemediationList, UpdateMachineHardwareInfoRequest,
+    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
+    VpcsByIdsRequest,
 };
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::{Machine, NetworkSegment};
@@ -39,7 +38,7 @@ use mac_address::MacAddress;
 
 use crate::expected_machines::args::ExpectedMachineJson;
 use crate::instance::args::AllocateInstance;
-use crate::machine::{ForceDeleteMachineQuery, MachineAutoupdate};
+use crate::machine::MachineAutoupdate;
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
 /// methods.
@@ -83,14 +82,6 @@ impl ApiClient {
         Ok(machine_details)
     }
 
-    pub async fn get_network_device_topology(
-        &self,
-        id: Option<String>,
-    ) -> CarbideCliResult<rpc::NetworkTopologyData> {
-        let request = rpc::NetworkTopologyRequest { id };
-        Ok(self.0.get_network_topology(request).await?)
-    }
-
     pub async fn get_all_machines(
         &self,
         request: rpc::MachineSearchConfig,
@@ -107,36 +98,6 @@ impl ApiClient {
         }
 
         Ok(all_machines)
-    }
-
-    pub async fn reboot_instance(
-        &self,
-        machine_id: MachineId,
-        boot_with_custom_ipxe: bool,
-        apply_updates_on_reboot: bool,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::InstancePowerRequest {
-            machine_id: Some(machine_id),
-            operation: rpc::instance_power_request::Operation::PowerReset as i32,
-            boot_with_custom_ipxe,
-            apply_updates_on_reboot,
-        };
-
-        self.0.invoke_instance_power(request).await?;
-
-        Ok(())
-    }
-
-    pub async fn release_instances(&self, instance_ids: Vec<InstanceId>) -> CarbideCliResult<()> {
-        for instance_id in instance_ids {
-            let request = rpc::InstanceReleaseRequest {
-                id: Some(instance_id),
-                issue: None,
-                is_repair_tenant: None,
-            };
-            self.0.release_instance(request).await?;
-        }
-        Ok(())
     }
 
     pub async fn identify_uuid(&self, u: uuid::Uuid) -> CarbideCliResult<rpc::UuidType> {
@@ -373,107 +334,6 @@ impl ApiClient {
             }),
         };
         Ok(self.0.insert_health_report_override(request).await?)
-    }
-
-    pub async fn machine_remove_health_report_override(
-        &self,
-        id: MachineId,
-        source: String,
-    ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::RemoveHealthReportOverrideRequest {
-            machine_id: Some(id),
-            source,
-        };
-        Ok(self.0.remove_health_report_override(request).await?)
-    }
-
-    pub async fn get_health_report_overrides(
-        &self,
-        machine_id: ::carbide_uuid::machine::MachineId,
-    ) -> CarbideCliResult<::rpc::forge::ListHealthReportOverrideResponse> {
-        self.0
-            .list_health_report_overrides(machine_id)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn get_machine_health_histories(
-        &self,
-        request: ::rpc::forge::MachineHealthHistoriesRequest,
-    ) -> CarbideCliResult<::rpc::forge::MachineHealthHistories> {
-        self.0
-            .find_machine_health_histories(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn machine_admin_force_delete(
-        &self,
-        query: ForceDeleteMachineQuery,
-    ) -> CarbideCliResult<::rpc::forge::AdminForceDeleteMachineResponse> {
-        let request = ::rpc::forge::AdminForceDeleteMachineRequest {
-            host_query: query.machine,
-            delete_interfaces: query.delete_interfaces,
-            delete_bmc_interfaces: query.delete_bmc_interfaces,
-            delete_bmc_credentials: query.delete_bmc_credentials,
-        };
-        Ok(self.0.admin_force_delete_machine(request).await?)
-    }
-
-    pub async fn trigger_dpu_reprovisioning(
-        &self,
-        id: MachineId,
-        mode: ::rpc::forge::dpu_reprovisioning_request::Mode,
-        update_firmware: bool,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::DpuReprovisioningRequest {
-            dpu_id: Some(id),
-            machine_id: Some(id),
-            mode: mode as i32,
-            initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-            update_firmware,
-        };
-        Ok(self.0.trigger_dpu_reprovisioning(request).await?)
-    }
-
-    pub async fn trigger_host_reprovisioning(
-        &self,
-        id: MachineId,
-        mode: ::rpc::forge::host_reprovisioning_request::Mode,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::HostReprovisioningRequest {
-            machine_id: Some(id),
-            mode: mode as i32,
-            initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-        };
-        self.0.trigger_host_reprovisioning(request).await?;
-
-        Ok(())
-    }
-
-    pub async fn set_boot_override(
-        &self,
-        machine_interface_id: MachineInterfaceId,
-        custom_pxe_path: Option<&Path>,
-        custom_user_data_path: Option<&Path>,
-    ) -> CarbideCliResult<()> {
-        let custom_pxe = match custom_pxe_path {
-            Some(custom_pxe_path) => Some(std::fs::read_to_string(custom_pxe_path)?),
-            None => None,
-        };
-
-        let custom_user_data = match custom_user_data_path {
-            Some(custom_user_data_path) => Some(std::fs::read_to_string(custom_user_data_path)?),
-            None => None,
-        };
-
-        let request = MachineBootOverride {
-            machine_interface_id: Some(machine_interface_id),
-            custom_pxe,
-            custom_user_data,
-        };
-
-        Ok(self.0.set_machine_boot_override(request).await?)
     }
 
     pub async fn bmc_reset(

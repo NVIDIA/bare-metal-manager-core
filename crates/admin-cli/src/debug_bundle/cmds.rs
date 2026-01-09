@@ -1085,7 +1085,11 @@ async fn get_health_alerts(
     };
 
     // Call unified API with time filtering
-    let response = api_client.get_machine_health_histories(request).await?;
+    let response = api_client
+        .0
+        .find_machine_health_histories(request)
+        .await
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     Ok(response)
 }
@@ -1105,7 +1109,11 @@ async fn get_alert_overrides(
     })?;
 
     // Call API to get current overrides
-    let response = api_client.get_health_report_overrides(machine_id).await?;
+    let response = api_client
+        .0
+        .list_health_report_overrides(machine_id)
+        .await
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     Ok(response)
 }
