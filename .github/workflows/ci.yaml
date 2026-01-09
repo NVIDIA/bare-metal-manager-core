@@ -892,7 +892,8 @@ jobs:
           done
 
   promote-to-be-scanned-image:
-    if: ${{ !cancelled() && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' }}
+    # Skip for pull-request/* branches (main, release/*, and tags are allowed by workflow trigger)
+    if: ${{ !cancelled() && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') }}
     needs:
       - prepare
       - build-release-container-x86_64
