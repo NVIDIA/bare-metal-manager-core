@@ -8,7 +8,7 @@
 * @NVIDIA/carbide-sw-reviewers
 
 # CODEOWNERS file itself - requires admin approval
-/.github/CODEOWNERS @NVIDIA/carbide-sw-admins
+/.github/CODEOWNERS @NVIDIA/carbide-sw-maintainers
 
 # CI/CD related files
 /.github/ @lachen-nv @huaweic-nv @lauragra-y
