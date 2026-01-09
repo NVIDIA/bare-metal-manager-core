@@ -13,7 +13,7 @@ REPO_ROOT = { script = [
   "dirname $(cargo locate-project --message-format plain --workspace)",
 ] }
 PKG_VERSION = { script = [
-  "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
+  "echo $(git describe --tags --first-parent --always --long | sed 's/^v//')",
 ] }
 
 [tasks.package-component-local]
