@@ -23,6 +23,7 @@ use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 use rand::Rng;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::sleep;
+use vaultrs::api::kv2::requests::SetSecretRequestOptions;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
 use vaultrs::client::{
     VaultClient, VaultClientSettings, VaultClientSettingsBuilder, VaultClientSettingsBuilderError,
@@ -399,6 +400,7 @@ struct SetCredentialsHelper<'key, 'location> {
     pub kv_mount_location: &'location String,
     pub key: &'key CredentialKey,
     pub credentials: &'key Credentials,
+    pub allow_overwrite: bool,
 }
 
 #[async_trait]
@@ -413,13 +415,32 @@ impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
             .add(1, &[KeyValue::new("request_type", "set_credentials")]);
 
         let time_started_vault_request = Instant::now();
-        let vault_response = kv2::set(
-            vault_client.deref(),
-            self.kv_mount_location,
-            self.key.to_key_str().as_ref(),
-            &self.credentials,
-        )
-        .await;
+
+        let vault_response = if self.allow_overwrite {
+            kv2::set(
+                vault_client.deref(),
+                self.kv_mount_location,
+                self.key.to_key_str().as_ref(),
+                &self.credentials,
+            )
+            .await
+        } else {
+            // Setting the cas key to 0 is the officially documented way of create-only writes. Per
+            // vault docs:
+            // > If set to 0 a write will only be allowed if the key doesn't exist as unset keys do
+            // > not have any version information.
+            let options = SetSecretRequestOptions { cas: 0 };
+
+            kv2::set_with_options(
+                vault_client.deref(),
+                self.kv_mount_location,
+                self.key.to_key_str().as_ref(),
+                &self.credentials,
+                options,
+            )
+            .await
+        };
+
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
         vault_metrics.vault_request_duration_histogram.record(
             elapsed_request_duration,
@@ -509,6 +530,25 @@ impl CredentialProvider for ForgeVaultClient {
             key,
             credentials,
             kv_mount_location,
+            allow_overwrite: true,
+        };
+        let vault_client = self.vault_client().await?;
+        set_credentials_helper
+            .execute(vault_client, &self.vault_metrics)
+            .await
+    }
+
+    async fn create_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError> {
+        let kv_mount_location = &self.vault_client_config.kv_mount_location;
+        let set_credentials_helper = SetCredentialsHelper {
+            key,
+            credentials,
+            kv_mount_location,
+            allow_overwrite: false,
         };
         let vault_client = self.vault_client().await?;
         set_credentials_helper

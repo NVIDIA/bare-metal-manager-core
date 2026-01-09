@@ -12,6 +12,8 @@
 use core::fmt;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::atomic;
+use std::sync::atomic::AtomicU32;
 
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
@@ -25,7 +27,7 @@ use crate::SecretsError;
 
 const PASSWORD_LEN: usize = 16;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum Credentials {
     UsernamePassword { username: String, password: String },
     //TODO: maybe add cert here?
@@ -120,7 +122,14 @@ pub trait CredentialProvider: Send + Sync {
         &self,
         key: &CredentialKey,
     ) -> Result<Option<Credentials>, SecretsError>;
+
     async fn set_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError>;
+
+    async fn create_credentials(
         &self,
         key: &CredentialKey,
         credentials: &Credentials,
@@ -133,6 +142,7 @@ pub trait CredentialProvider: Send + Sync {
 pub struct TestCredentialProvider {
     credentials: Mutex<HashMap<String, Credentials>>,
     fallback_credentials: Option<Credentials>,
+    pub set_credentials_sleep_time_ms: AtomicU32,
 }
 
 impl TestCredentialProvider {
@@ -142,6 +152,7 @@ impl TestCredentialProvider {
         Self {
             credentials: Mutex::new(HashMap::new()),
             fallback_credentials: Some(fallback_credentials),
+            set_credentials_sleep_time_ms: Default::default(),
         }
     }
 }
@@ -165,9 +176,37 @@ impl CredentialProvider for TestCredentialProvider {
         key: &CredentialKey,
         credentials: &Credentials,
     ) -> Result<(), SecretsError> {
+        let sleep_ms = self
+            .set_credentials_sleep_time_ms
+            .load(atomic::Ordering::Acquire);
+        if sleep_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms as _)).await;
+        }
         let mut data = self.credentials.lock().await;
-        let _ = data.insert(key.to_key_str().to_string(), credentials.clone());
+        data.insert(key.to_key_str().to_string(), credentials.clone());
+        Ok(())
+    }
 
+    async fn create_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError> {
+        let sleep_ms = self
+            .set_credentials_sleep_time_ms
+            .load(atomic::Ordering::Acquire);
+        if sleep_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms as _)).await;
+        }
+        let mut data = self.credentials.lock().await;
+        let key_str = key.to_key_str();
+        if data.contains_key(key_str.as_ref()) {
+            return Err(SecretsError::GenericError(eyre::eyre!(
+                "Secret already exists with key {key_str}"
+            )));
+        }
+
+        data.insert(key_str.to_string(), credentials.clone());
         Ok(())
     }
 
