@@ -82,8 +82,16 @@ pub struct InstanceSnapshot {
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
 
-    /// Whether the next boot attempt should run the tenants iPXE script
+    /// Whether the next boot attempt should run the tenants iPXE script.
+    /// This flag is checked by the iPXE handler to determine whether to serve
+    /// the tenant's custom script or exit instructions.
     pub use_custom_pxe_on_boot: bool,
+
+    /// Whether a custom PXE reboot has been requested via the API.
+    /// This flag is set by the API when a tenant requests a reboot with custom iPXE.
+    /// The Ready handler checks this to initiate the HostPlatformConfiguration flow.
+    /// The WaitingForRebootToReady handler clears this flag.
+    pub custom_pxe_reboot_requested: bool,
 
     /// The timestamp when deletion for this instance was requested
     pub deleted: Option<chrono::DateTime<chrono::Utc>>,
@@ -149,6 +157,8 @@ pub struct InstanceSnapshotPgJson {
     config_version: String,
     phone_home_last_contact: Option<DateTime<Utc>>,
     use_custom_pxe_on_boot: bool,
+    #[serde(default)]
+    custom_pxe_reboot_requested: bool,
     tenant_org: Option<String>,
     keyset_ids: Vec<String>,
     hostname: Option<String>,
@@ -266,6 +276,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
                 phone_home_last_contact: value.phone_home_last_contact,
             },
             use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,
+            custom_pxe_reboot_requested: value.custom_pxe_reboot_requested,
             deleted: value.deleted,
             update_network_config_request: value.update_network_config_request,
             // Unused as of today

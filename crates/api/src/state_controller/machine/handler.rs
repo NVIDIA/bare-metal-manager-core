@@ -5132,6 +5132,16 @@ impl StateHandler for InstanceStateHandler {
                     }
                 }
                 InstanceState::WaitingForRebootToReady => {
+                    let host_machine_id = &mh_snapshot.host_snapshot.id;
+
+                    // If custom_pxe_reboot_requested is set, this reboot was triggered by
+                    // the tenant requested a boot with custom iPXE. Clear the request flag.
+                    // The use_custom_pxe_on_boot flag was already set by the API handler.
+                    if instance.custom_pxe_reboot_requested {
+                        db::instance::set_custom_pxe_reboot_requested(host_machine_id, false, txn)
+                            .await?;
+                    }
+
                     // Reboot host
                     handler_host_power_control(
                         mh_snapshot,
@@ -5200,9 +5210,19 @@ impl StateHandler for InstanceStateHandler {
                         tracing::info!(machine_id = %host_machine_id, "Auto rebooting host for reprovision/upgrade due to being in approved time period");
                     }
 
+                    // Check if the instance needs to PXE boot. The custom_pxe_reboot_requested flag
+                    // is set by the API when the tenant calls InvokeInstancePower with boot_with_custom_ipxe=true
+                    //
+                    // This triggers the HostPlatformConfiguration flow to verify BIOS boot order
+                    // before rebooting. The WaitingForRebootToReady handler will clear this flag
+                    // and set use_custom_pxe_on_boot, which the iPXE handler uses to serve the
+                    // tenant's script.
+                    let boot_with_custom_ipxe = instance.custom_pxe_reboot_requested;
+
                     if instance.deleted.is_some()
                         || reprov_can_be_started
                         || host_firmware_requested
+                        || boot_with_custom_ipxe
                     {
                         for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                             if dpu_snapshot.reprovision_requested.is_some() {
@@ -5226,20 +5246,32 @@ impl StateHandler for InstanceStateHandler {
                             .await?;
                         }
 
-                        let redfish_client = ctx
-                            .services
-                            .redfish_client_pool
-                            .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
-                            .await?;
+                        // For deletion, power cycle the host first. For everything else
+                        // (reprovision, firmware update, custom PXE), verify boot config first.
+                        let next_state = if instance.deleted.is_some() {
+                            let redfish_client = ctx
+                                .services
+                                .redfish_client_pool
+                                .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                                .await?;
 
-                        let power_state = host_power_state(redfish_client.as_ref()).await?;
+                            let power_state = host_power_state(redfish_client.as_ref()).await?;
 
-                        let next_state = ManagedHostState::Assigned {
-                            instance_state: InstanceState::HostPlatformConfiguration {
-                                platform_config_state: HostPlatformConfigurationState::PowerCycle {
-                                    power_on: power_state == libredfish::PowerState::Off,
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::HostPlatformConfiguration {
+                                    platform_config_state:
+                                        HostPlatformConfigurationState::PowerCycle {
+                                            power_on: power_state == libredfish::PowerState::Off,
+                                        },
                                 },
-                            },
+                            }
+                        } else {
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::HostPlatformConfiguration {
+                                    platform_config_state:
+                                        HostPlatformConfigurationState::CheckHostConfig,
+                                },
+                            }
                         };
 
                         if host_firmware_requested {
@@ -5299,19 +5331,35 @@ impl StateHandler for InstanceStateHandler {
                             "Waiting for DPUs to come up.".to_string(),
                         ));
                     }
-                    handler_host_power_control(
-                        mh_snapshot,
-                        ctx.services,
-                        SystemPowerControl::ForceRestart,
-                        txn,
-                    )
-                    .await?;
-                    let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::BootingWithDiscoveryImage {
-                            retry: RetryInfo { count: 0 },
-                        },
-                    };
-                    Ok(StateHandlerOutcome::transition(next_state))
+
+                    // If custom_pxe_reboot_requested is set, transition to WaitingForRebootToReady and reboot.
+                    // The iPXE handler will then serve the tenant's custom script when the host PXE boots.
+                    //
+                    // The API sets custom_pxe_reboot_requested when the tenant explicitly requests
+                    // "Reboot with Custom iPXE"
+                    //
+                    // Otherwise, follow the normal termination/reprovision flow through
+                    // BootingWithDiscoveryImage.
+                    if instance.custom_pxe_reboot_requested {
+                        let next_state = ManagedHostState::Assigned {
+                            instance_state: InstanceState::WaitingForRebootToReady,
+                        };
+                        Ok(StateHandlerOutcome::transition(next_state))
+                    } else {
+                        handler_host_power_control(
+                            mh_snapshot,
+                            ctx.services,
+                            SystemPowerControl::ForceRestart,
+                            txn,
+                        )
+                        .await?;
+                        let next_state = ManagedHostState::Assigned {
+                            instance_state: InstanceState::BootingWithDiscoveryImage {
+                                retry: RetryInfo { count: 0 },
+                            },
+                        };
+                        Ok(StateHandlerOutcome::transition(next_state))
+                    }
                 }
                 InstanceState::BootingWithDiscoveryImage { retry } => {
                     if !rebooted(&mh_snapshot.host_snapshot) {
