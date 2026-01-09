@@ -15,7 +15,7 @@ use std::pin::Pin;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::SkuList;
 use prettytable::{Row, Table};
-use rpc::forge::{RemoveSkuRequest, SkuIdList};
+use rpc::forge::{RemoveSkuRequest, SkuIdList, SkuMachinePair};
 use tokio::io::AsyncWriteExt;
 
 use super::args::{
@@ -449,7 +449,12 @@ pub async fn assign(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     api_client
-        .assign_sku_to_machine(sku_id, machine_id, force)
+        .0
+        .assign_sku_to_machine(SkuMachinePair {
+            sku_id,
+            machine_id: Some(machine_id),
+            force,
+        })
         .await?;
     Ok(())
 }

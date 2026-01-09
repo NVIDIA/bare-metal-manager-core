@@ -12,7 +12,11 @@
 use ::rpc::admin_cli::output::OutputFormat;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::dpu_extension_service_credential::Type;
-use ::rpc::forge::{DpuExtensionService, DpuExtensionServiceType, InstanceDpuExtensionServiceInfo};
+use ::rpc::forge::{
+    DeleteDpuExtensionServiceRequest, DpuExtensionService, DpuExtensionServiceType,
+    FindInstancesByDpuExtensionServiceRequest, GetDpuExtensionServiceVersionsInfoRequest,
+    InstanceDpuExtensionServiceInfo,
+};
 use prettytable::{Table, row};
 
 use super::args::{
@@ -137,7 +141,11 @@ pub async fn handle_delete(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     api_client
-        .delete_extension_service(args.service_id.clone(), args.versions)
+        .0
+        .delete_dpu_extension_service(DeleteDpuExtensionServiceRequest {
+            service_id: args.service_id.clone(),
+            versions: args.versions,
+        })
         .await?;
 
     println!("Delete successful");
@@ -181,7 +189,11 @@ pub async fn handle_get_version(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let versions = api_client
-        .get_extension_service_version_infos(args.service_id, args.versions)
+        .0
+        .get_dpu_extension_service_versions_info(GetDpuExtensionServiceVersionsInfoRequest {
+            service_id: args.service_id,
+            versions: args.versions,
+        })
         .await?;
 
     println!("{}", serde_json::to_string_pretty(&versions.version_infos)?);
@@ -197,7 +209,11 @@ pub async fn handle_show_instances(
     let is_json = output_format == OutputFormat::Json;
 
     let response = api_client
-        .find_instances_by_extension_service(args.service_id, args.version)
+        .0
+        .find_instances_by_dpu_extension_service(FindInstancesByDpuExtensionServiceRequest {
+            service_id: args.service_id,
+            version: args.version,
+        })
         .await?;
 
     if is_json {
