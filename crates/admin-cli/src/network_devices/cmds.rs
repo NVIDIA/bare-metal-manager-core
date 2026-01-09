@@ -12,6 +12,7 @@
 use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::forge::NetworkTopologyRequest;
 
 use super::args::ShowNetworkDevice;
 use crate::rpc::ApiClient;
@@ -21,13 +22,16 @@ pub async fn handle_show(
     query: ShowNetworkDevice,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let query_id: Option<String> = if query.all || query.id.is_empty() {
+    let id: Option<String> = if query.all || query.id.is_empty() {
         None
     } else {
         Some(query.id)
     };
 
-    let devices = api_client.get_network_device_topology(query_id).await?;
+    let devices = api_client
+        .0
+        .get_network_topology(NetworkTopologyRequest { id })
+        .await?;
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&devices)?),

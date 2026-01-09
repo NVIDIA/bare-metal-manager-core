@@ -15,7 +15,7 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use ::rpc::forge::{self as forgerpc, InstancePowerRequest, InstanceReleaseRequest};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
@@ -505,7 +505,13 @@ pub async fn handle_reboot(args: RebootInstance, api_client: &ApiClient) -> Carb
         })?;
 
     api_client
-        .reboot_instance(machine_id, args.custom_pxe, args.apply_updates_on_reboot)
+        .0
+        .invoke_instance_power(InstancePowerRequest {
+            machine_id: Some(machine_id),
+            operation: forgerpc::instance_power_request::Operation::PowerReset as i32,
+            boot_with_custom_ipxe: args.custom_pxe,
+            apply_updates_on_reboot: args.apply_updates_on_reboot,
+        })
         .await?;
     println!(
         "Reboot for instance {} (machine {}) is requested successfully!",
@@ -572,7 +578,16 @@ pub async fn release(
         }
         _ => {}
     };
-    api_client.release_instances(instance_ids).await?;
+    for instance_id in instance_ids {
+        api_client
+            .0
+            .release_instance(InstanceReleaseRequest {
+                id: Some(instance_id),
+                issue: None,
+                is_repair_tenant: None,
+            })
+            .await?;
+    }
     Ok(())
 }
 

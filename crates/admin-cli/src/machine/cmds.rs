@@ -18,7 +18,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use ::rpc::forge::{
+    self as forgerpc, AdminForceDeleteMachineRequest, RemoveHealthReportOverrideRequest,
+};
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use health_report::{
@@ -602,7 +604,11 @@ pub async fn handle_override(
             report_source,
         } => {
             api_client
-                .machine_remove_health_report_override(machine_id, report_source)
+                .0
+                .remove_health_report_override(RemoveHealthReportOverrideRequest {
+                    machine_id: Some(machine_id),
+                    source: report_source,
+                })
                 .await?;
         }
         OverrideCommand::PrintEmptyTemplate => {
@@ -640,7 +646,15 @@ pub async fn force_delete(
     }
 
     loop {
-        let response = api_client.machine_admin_force_delete(query.clone()).await?;
+        let response = api_client
+            .0
+            .admin_force_delete_machine(AdminForceDeleteMachineRequest {
+                host_query: query.machine.clone(),
+                delete_interfaces: query.delete_interfaces,
+                delete_bmc_interfaces: query.delete_bmc_interfaces,
+                delete_bmc_credentials: query.delete_bmc_credentials,
+            })
+            .await?;
         println!(
             "Force delete response: {}",
             serde_json::to_string_pretty(&response)?

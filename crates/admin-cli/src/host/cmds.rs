@@ -12,6 +12,7 @@
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::host_reprovisioning_request::Mode;
+use ::rpc::forge::{HostReprovisioningRequest, UpdateInitiator};
 use carbide_uuid::machine::MachineId;
 use forge_secrets::credentials::Credentials;
 use prettytable::{Table, row};
@@ -57,7 +58,12 @@ pub async fn trigger_reprovisioning(
             .await?;
     }
     api_client
-        .trigger_host_reprovisioning(host_id, mode)
+        .0
+        .trigger_host_reprovisioning(HostReprovisioningRequest {
+            machine_id: Some(host_id),
+            mode: mode as i32,
+            initiator: UpdateInitiator::AdminCli as i32,
+        })
         .await?;
 
     Ok(())
