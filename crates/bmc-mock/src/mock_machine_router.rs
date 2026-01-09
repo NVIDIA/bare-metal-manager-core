@@ -1008,9 +1008,18 @@ async fn patch_dell_system(
     State(mut state): State<MockWrapperState>,
     _path: Path<()>,
     request: Request<Body>,
-) -> MockWrapperResult {
-    let body = request.into_body().collect().await?.to_bytes();
-    let patch_system: serde_json::Value = serde_json::from_slice(&body)?;
+) -> impl IntoResponse {
+    let patch_system: serde_json::Value = match request
+        .into_body()
+        .collect()
+        .await
+        .map(|v| v.to_bytes())
+        .map_err(MockWrapperError::from)
+        .and_then(|v| serde_json::from_slice(&v).map_err(MockWrapperError::from))
+    {
+        Ok(v) => v,
+        Err(err) => return err.into_response(),
+    };
     if let Some(new_boot_order) = patch_system
         .as_object()
         .and_then(|obj| obj.get("Boot"))
@@ -1025,8 +1034,23 @@ async fn patch_dell_system(
         })
     {
         state.bmc_state.update_boot_order(new_boot_order);
+        match state.bmc_state.add_job() {
+            Ok(job_id) => Response::builder()
+                .status(StatusCode::OK)
+                .header(
+                    "location",
+                    format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{job_id}"),
+                )
+                .body(Body::from(""))
+                .unwrap(),
+            Err(e) => Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from(e.to_string()))
+                .unwrap(),
+        }
+    } else {
+        StatusCode::OK.into_response()
     }
-    Ok(Bytes::from(""))
 }
 
 async fn patch_bios_settings(
