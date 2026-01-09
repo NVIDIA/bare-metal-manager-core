@@ -1151,7 +1151,6 @@ impl Default for SiteExplorerConfig {
     }
 }
 
-#[cfg(test)]
 impl PartialEq for SiteExplorerConfig {
     fn eq(&self, other: &SiteExplorerConfig) -> bool {
         self.enabled == other.enabled
@@ -1162,29 +1161,6 @@ impl PartialEq for SiteExplorerConfig {
                 == other.create_machines.load(AtomicOrdering::Relaxed)
             && self.override_target_ip == other.override_target_ip
             && self.override_target_port == other.override_target_port
-            && self.allow_zero_dpu_hosts == other.allow_zero_dpu_hosts
-            && *self.bmc_proxy.load() == *other.bmc_proxy.load()
-            && self.allow_changing_bmc_proxy == other.allow_changing_bmc_proxy
-            && self.reset_rate_limit == other.reset_rate_limit
-            && self.allocate_secondary_vtep_ip == other.allocate_secondary_vtep_ip
-            && self.create_power_shelves.load(AtomicOrdering::Relaxed)
-                == other.create_power_shelves.load(AtomicOrdering::Relaxed)
-            && self
-                .explore_power_shelves_from_static_ip
-                .load(AtomicOrdering::Relaxed)
-                == other
-                    .explore_power_shelves_from_static_ip
-                    .load(AtomicOrdering::Relaxed)
-            && self.power_shelves_created_per_run == other.power_shelves_created_per_run
-            && self.create_switches.load(AtomicOrdering::Relaxed)
-                == other.create_switches.load(AtomicOrdering::Relaxed)
-            && self
-                .explore_switches_from_static_ip
-                .load(AtomicOrdering::Relaxed)
-                == other
-                    .explore_switches_from_static_ip
-                    .load(AtomicOrdering::Relaxed)
-            && self.switches_created_per_run == other.switches_created_per_run
     }
 }
 
