@@ -19,8 +19,7 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use carbide_uuid::machine::MachineId;
 use health_report::HealthProbeAlert;
 use prettytable::{Cell, Row, Table};
-use rpc::forge as forgerpc;
-use rpc::forge::PowerOptions;
+use rpc::forge::{self as forgerpc, PowerOptionUpdateRequest, PowerOptions};
 use serde::Serialize;
 use tracing::warn;
 
@@ -772,8 +771,13 @@ pub async fn update_power_option(
         DesiredPowerState::PowerManagerDisabled => ::rpc::forge::PowerState::PowerManagerDisabled,
     };
     let updated_power_option = api_client
-        .update_power_options(args.machine, power_state)
-        .await?;
+        .0
+        .update_power_option(PowerOptionUpdateRequest {
+            machine_id: Some(args.machine),
+            power_state: power_state as i32,
+        })
+        .await?
+        .response;
     println!("Power options updated successfully!!");
     println!("Updated power options are");
     power_options_show_one(

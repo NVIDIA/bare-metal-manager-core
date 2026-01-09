@@ -16,8 +16,8 @@ use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 use rpc::TenantState;
 use rpc::forge::{
-    CreateInstanceTypeRequest, DeleteInstanceTypeRequest, InstanceTypeAttributes,
-    UpdateInstanceTypeRequest,
+    AssociateMachinesWithInstanceTypeRequest, CreateInstanceTypeRequest, DeleteInstanceTypeRequest,
+    InstanceTypeAttributes, RemoveMachineInstanceTypeAssociationRequest, UpdateInstanceTypeRequest,
 };
 
 use super::args::{
@@ -298,10 +298,11 @@ pub async fn create_association(
     }
 
     api_client
-        .create_instance_type_association(
-            associate_instance_type.instance_type_id,
-            associate_instance_type.machine_ids,
-        )
+        .0
+        .associate_machines_with_instance_type(AssociateMachinesWithInstanceTypeRequest {
+            instance_type_id: associate_instance_type.instance_type_id,
+            machine_ids: associate_instance_type.machine_ids,
+        })
         .await?;
 
     println!("Association is created successfully!!");
@@ -353,7 +354,10 @@ async fn remove_association_api(
     machine_id: MachineId,
 ) -> Result<(), CarbideCliError> {
     api_client
-        .remove_instance_type_association(machine_id)
+        .0
+        .remove_machine_instance_type_association(RemoveMachineInstanceTypeAssociationRequest {
+            machine_id: machine_id.to_string(),
+        })
         .await?;
     println!("Association is removed successfully!!");
     Ok(())

@@ -21,6 +21,7 @@ use std::io::Write;
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::forge::BmcEndpointRequest;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Local, NaiveDate, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -681,7 +682,13 @@ async fn get_site_controller_analysis(
     println!("   Exploring BMC endpoint via Redfish...");
 
     // Step 2: Call Explore RPC (fetches Redfish data)
-    let exploration_report = api_client.explore(&bmc_ip, mac_address).await?;
+    let exploration_report = api_client
+        .0
+        .explore(BmcEndpointRequest {
+            ip_address: bmc_ip.clone(),
+            mac_address: mac_address.map(|m| m.to_string()),
+        })
+        .await?;
 
     println!("   Systems: {} found", exploration_report.systems.len());
     println!("   Managers: {} found", exploration_report.managers.len());
@@ -689,7 +696,11 @@ async fn get_site_controller_analysis(
 
     // Step 3: Call BmcCredentialStatus RPC
     let credential_status = api_client
-        .bmc_credential_status(&bmc_ip, mac_address)
+        .0
+        .bmc_credential_status(BmcEndpointRequest {
+            ip_address: bmc_ip.clone(),
+            mac_address: mac_address.map(|m| m.to_string()),
+        })
         .await?;
 
     println!(

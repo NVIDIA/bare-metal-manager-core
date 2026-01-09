@@ -11,7 +11,7 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use ::rpc::forge::{self as forgerpc, DeleteOsImageRequest};
 
 use super::args::{CreateOsImage, DeleteOsImage, ListOsImage, UpdateOsImage};
 use crate::rpc::ApiClient;
@@ -85,7 +85,11 @@ pub async fn create(args: CreateOsImage, api_client: &ApiClient) -> CarbideCliRe
 pub async fn delete(args: DeleteOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     api_client
-        .delete_os_image(id.clone(), args.tenant_org_id)
+        .0
+        .delete_os_image(DeleteOsImageRequest {
+            id: Some(id.clone()),
+            tenant_organization_id: args.tenant_org_id,
+        })
         .await?;
     println!("OS image {id} deleted successfully.");
     Ok(())

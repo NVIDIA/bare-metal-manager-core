@@ -13,7 +13,7 @@
 use std::collections::HashSet;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use ::rpc::forge::{self as forgerpc, DeleteNetworkSecurityGroupRequest};
 use prettytable::{Table, row};
 
 use super::args::{
@@ -161,7 +161,11 @@ pub async fn delete(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     api_client
-        .delete_network_security_group(args.id.clone(), args.tenant_organization_id)
+        .0
+        .delete_network_security_group(DeleteNetworkSecurityGroupRequest {
+            id: args.id.clone(),
+            tenant_organization_id: args.tenant_organization_id,
+        })
         .await?;
     println!("Deleted network security group {} successfully.", args.id);
     Ok(())

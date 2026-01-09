@@ -10,7 +10,10 @@
 use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use ::rpc::forge::{
+    self as forgerpc, MachineValidationTestEnableDisableTestRequest,
+    MachineValidationTestUpdateRequest, MachineValidationTestVerfiedRequest,
+};
 use prettytable::{Table, row};
 
 use super::args::{
@@ -533,7 +536,11 @@ pub async fn machine_validation_test_verfied(
     options: VerifyTestOptions,
 ) -> CarbideCliResult<()> {
     api_client
-        .machine_validation_test_verfied(options.test_id, options.version)
+        .0
+        .machine_validation_test_verfied(MachineValidationTestVerfiedRequest {
+            test_id: options.test_id,
+            version: options.version,
+        })
         .await?;
     Ok(())
 }
@@ -543,7 +550,14 @@ pub async fn machine_validation_test_enable(
     options: EnableDisableTestOptions,
 ) -> CarbideCliResult<()> {
     api_client
-        .machine_validation_test_enable_disable(options.test_id, options.version, true)
+        .0
+        .machine_validation_test_enable_disable_test(
+            MachineValidationTestEnableDisableTestRequest {
+                test_id: options.test_id,
+                version: options.version,
+                is_enabled: true,
+            },
+        )
         .await?;
     Ok(())
 }
@@ -553,7 +567,14 @@ pub async fn machine_validation_test_disable(
     options: EnableDisableTestOptions,
 ) -> CarbideCliResult<()> {
     api_client
-        .machine_validation_test_enable_disable(options.test_id, options.version, false)
+        .0
+        .machine_validation_test_enable_disable_test(
+            MachineValidationTestEnableDisableTestRequest {
+                test_id: options.test_id,
+                version: options.version,
+                is_enabled: false,
+            },
+        )
         .await?;
     Ok(())
 }
@@ -583,7 +604,12 @@ pub async fn machine_validation_test_update(
         name: None,
     };
     api_client
-        .machine_validation_test_update(options.test_id, options.version, payload)
+        .0
+        .update_machine_validation_test(MachineValidationTestUpdateRequest {
+            test_id: options.test_id,
+            version: options.version,
+            payload: Some(payload),
+        })
         .await?;
     Ok(())
 }

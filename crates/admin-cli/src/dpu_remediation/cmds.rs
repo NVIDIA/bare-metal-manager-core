@@ -16,7 +16,12 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
-use rpc::forge::{AppliedRemediationIdList, AppliedRemediationList, Remediation, RemediationList};
+use rpc::forge::{
+    AppliedRemediationIdList, AppliedRemediationList, ApproveRemediationRequest,
+    CreateRemediationRequest, DisableRemediationRequest, EnableRemediationRequest,
+    FindAppliedRemediationIdsRequest, FindAppliedRemediationsRequest, Remediation, RemediationList,
+    RevokeRemediationRequest,
+};
 
 use super::args::{
     ApproveDpuRemediation, CreateDpuRemediation, DisableDpuRemediation, EnableDpuRemediation,
@@ -37,11 +42,12 @@ pub async fn create_dpu_remediation(
         })?;
 
     let response = api_client
-        .create_dpu_remediation(
+        .0
+        .create_remediation(CreateRemediationRequest {
             script,
-            create_remediation.metadata(),
-            create_remediation.retries,
-        )
+            metadata: create_remediation.metadata(),
+            retries: create_remediation.retries.unwrap_or_default() as i32,
+        })
         .await?;
 
     tracing::info!("Created remediation with id: {:?}", response.remediation_id);
@@ -53,7 +59,10 @@ pub async fn approve_dpu_remediation(
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     api_client
-        .approve_dpu_remediation(approve_remediation.id)
+        .0
+        .approve_remediation(ApproveRemediationRequest {
+            remediation_id: Some(approve_remediation.id),
+        })
         .await?;
 
     tracing::info!("Approved remediation with id: {:?}", approve_remediation.id);
@@ -65,7 +74,10 @@ pub async fn revoke_dpu_remediation(
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     api_client
-        .revoke_dpu_remediation(revoke_remediation.id)
+        .0
+        .revoke_remediation(RevokeRemediationRequest {
+            remediation_id: Some(revoke_remediation.id),
+        })
         .await?;
 
     tracing::info!("Revoked remediation with id: {:?}", revoke_remediation.id);
@@ -77,7 +89,10 @@ pub async fn enable_dpu_remediation(
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     api_client
-        .enable_dpu_remediation(enable_remediation.id)
+        .0
+        .enable_remediation(EnableRemediationRequest {
+            remediation_id: Some(enable_remediation.id),
+        })
         .await?;
 
     tracing::info!("Enabled remediation with id: {:?}", enable_remediation.id);
@@ -89,7 +104,10 @@ pub async fn disable_dpu_remediation(
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     api_client
-        .disable_dpu_remediation(disable_remediation.id)
+        .0
+        .disable_remediation(DisableRemediationRequest {
+            remediation_id: Some(disable_remediation.id),
+        })
         .await?;
 
     tracing::info!("Disabled remediation with id: {:?}", disable_remediation.id);
@@ -155,7 +173,11 @@ async fn show_applied_remediation_details(
     _page_size: usize,
 ) -> CarbideCliResult<()> {
     let applied_remediations = api_client
-        .find_applied_remediations(remediation_id, machine_id)
+        .0
+        .find_applied_remediations(FindAppliedRemediationsRequest {
+            remediation_id: Some(remediation_id),
+            dpu_machine_id: Some(machine_id),
+        })
         .await?;
     match output_format {
         OutputFormat::AsciiTable => {
@@ -185,7 +207,11 @@ async fn show_machines_for_applied_remediation(
     _page_size: usize,
 ) -> CarbideCliResult<()> {
     let applied_remediation_ids = api_client
-        .find_applied_remediations_by_remediation_id(remediation_id)
+        .0
+        .find_applied_remediation_ids(FindAppliedRemediationIdsRequest {
+            remediation_id: Some(remediation_id),
+            dpu_machine_id: None,
+        })
         .await?;
     match output_format {
         OutputFormat::AsciiTable => {
@@ -215,7 +241,11 @@ async fn show_applied_remediations_for_machine(
     _page_size: usize,
 ) -> CarbideCliResult<()> {
     let applied_remediation_ids = api_client
-        .find_applied_remediations_by_machine_id(machine_id)
+        .0
+        .find_applied_remediation_ids(FindAppliedRemediationIdsRequest {
+            remediation_id: None,
+            dpu_machine_id: Some(machine_id),
+        })
         .await?;
     match output_format {
         OutputFormat::AsciiTable => {

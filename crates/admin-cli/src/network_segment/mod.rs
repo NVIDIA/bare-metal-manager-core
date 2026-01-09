@@ -17,6 +17,7 @@ pub mod cmds;
 mod tests;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::forge::NetworkSegmentDeletionRequest;
 pub use args::Cmd;
 
 use crate::cfg::dispatch::Dispatch;
@@ -41,7 +42,10 @@ impl Dispatch for Cmd {
                             .to_owned(),
                     ));
                 }
-                ctx.api_client.delete_network_segment(args.id).await?;
+                ctx.api_client
+                    .0
+                    .delete_network_segment(NetworkSegmentDeletionRequest { id: Some(args.id) })
+                    .await?;
             }
         }
         Ok(())
