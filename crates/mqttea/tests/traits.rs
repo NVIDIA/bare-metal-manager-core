@@ -208,7 +208,6 @@ async fn create_test_client() -> Arc<MqtteaClient> {
         "test-client",
         Some(ClientOptions::default().with_qos(QoS::AtMostOnce)),
     )
-    .await
     .unwrap()
 }
 
