@@ -113,8 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.port,
         &client_id,
         Some(ClientOptions::default().with_qos(qos)),
-    )
-    .await?;
+    )?;
 
     println!("Registering message types with registry.");
     client

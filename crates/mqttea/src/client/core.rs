@@ -78,7 +78,7 @@ impl MqtteaClient {
     // new creates a new MQTT client with empty client-scoped registry.
     // Each client gets its own independent registry for complete isolation.
     // Call connect() after registering handlers to begin processing messages.
-    pub async fn new(
+    pub fn new(
         broker_host: &str,
         broker_port: u16,
         client_id: &str,
