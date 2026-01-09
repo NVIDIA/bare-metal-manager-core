@@ -10,6 +10,7 @@ use sbom::{
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::util::SubscriberInitExt;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "sbom",
@@ -20,6 +21,12 @@ struct Cli {
     /// Directory for log files (if not specified, only console logging is used)
     #[arg(long, global = true)]
     log_dir: Option<PathBuf>,
+
+    #[arg(long, default_value = "WARN", global = true)]
+    log_level: Option<String>,
+
+    #[arg(long, default_value = "DEBUG", global = true)]
+    file_log_level: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -109,11 +116,27 @@ enum Commands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let console_layer = tracing_subscriber::fmt::layer()
-        .with_target(true)
-        .with_writer(std::io::stdout);
+    let file_env_filter = EnvFilter::builder()
+        .parse(
+            cli.file_log_level
+                .unwrap_or_else(|| "sbom=DEBUG".to_string()),
+        )
+        .map(|filter| {
+            tracing::debug!("Setting file log level to {}", filter);
+            filter
+        })?;
 
-    let env_filter = EnvFilter::from_default_env().add_directive("sbom=info".parse().unwrap());
+    let console_env_filter = EnvFilter::builder()
+        .parse(cli.log_level.unwrap_or_else(|| "sbom=WARN".to_string()))
+        .map(|filter| {
+            tracing::debug!("Setting log level to {}", filter);
+            filter
+        })?;
+
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_ansi(true)
+        .with_target(true)
+        .with_filter(console_env_filter);
 
     // Keep the guard alive
     let _guard = if let Some(log_dir) = &cli.log_dir {
@@ -131,10 +154,10 @@ fn main() -> Result<()> {
         let file_layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
             .with_target(true)
-            .with_writer(non_blocking_writer);
+            .with_writer(non_blocking_writer)
+            .with_filter(file_env_filter);
 
         tracing_subscriber::registry()
-            .with(env_filter)
             .with(console_layer)
             .with(file_layer)
             .try_init()?;
@@ -143,7 +166,6 @@ fn main() -> Result<()> {
     } else {
         // Console logging only
         tracing_subscriber::registry()
-            .with(env_filter)
             .with(console_layer)
             .try_init()?;
 
