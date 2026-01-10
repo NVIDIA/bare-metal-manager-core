@@ -51,6 +51,7 @@ mod mac_address_pool;
 mod machine_admin_force_delete;
 mod machine_bmc_metadata;
 mod machine_boot_override;
+mod machine_creator;
 mod machine_dhcp;
 mod machine_discovery;
 mod machine_find;
