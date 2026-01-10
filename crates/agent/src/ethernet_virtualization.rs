@@ -368,6 +368,8 @@ pub async fn update_nvue(
         ct_access_vlans: access_vlans,
         deny_prefixes: nc.deny_prefixes.clone(),
         site_fabric_prefixes: nc.site_fabric_prefixes.clone(),
+        anycast_site_prefixes: nc.anycast_site_prefixes.clone(),
+        tenant_host_asn: nc.tenant_host_asn,
         stateful_acls_enabled: nc.stateful_acls_enabled && has_stateful_nsg,
 
         // For now, the isolation options boil down to a boolean,
@@ -2386,6 +2388,8 @@ mod tests {
         rpc::ManagedHostNetworkConfigResponse {
             asn: 4259912557,
             datacenter_asn: 11414,
+            anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
+            tenant_host_asn: Some(65100),
             common_internal_route_target: Some(rpc_common::RouteTarget {
                 asn: 11415,
                 vni: 200,
@@ -2609,6 +2613,8 @@ mod tests {
             traffic_intercept_public_prefixes: vec!["7.6.5.0/24".to_string()],
             asn: 65535,
             datacenter_asn: 11414,
+            anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
+            tenant_host_asn: Some(65100),
             common_internal_route_target: Some(nvue::RouteTargetConfig {
                 asn: 11415,
                 vni: 200,
@@ -2885,6 +2891,8 @@ mod tests {
                 vni: 22222,
             }],
 
+            anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
+            tenant_host_asn: Some(65100),
             routing_profile: Some(rpc::RoutingProfile {
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,

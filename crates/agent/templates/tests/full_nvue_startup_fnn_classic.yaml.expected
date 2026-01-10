@@ -66,11 +66,15 @@
                   any: {}
           dpu_from_instance:
             rule:
-              '10':
+              '1000':
                 action: permit
                 match:
-                  0.0.0.0/0:
+                  5.255.255.0/24:
                     min-prefix-len: 32
+              '65535':
+                action: deny
+                match:
+                  any: {}
         route-map:
           dpu_to_instance:
             rule:

@@ -373,6 +373,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     host_intercept_bridge_port_name: opts.host_intercept_bridge_port_name,
                     asn: opts.asn,
                     datacenter_asn: opts.datacenter_asn,
+                    anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
+                    tenant_host_asn: Some(65100),
                     common_internal_route_target: opts
                         .common_internal_route_target
                         .map(|r| serde_json::from_str::<nvue::RouteTargetConfig>(&r))

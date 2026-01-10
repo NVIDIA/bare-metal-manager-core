@@ -115,11 +115,15 @@
                   10.255.254.253/32: {}
           DPU_FROM_INSTANCE_PREFIX_LIST:
             rule:
-              '10':
+              '1000':
                 action: permit
                 match:
-                  0.0.0.0/0:
+                  5.255.255.0/24:
                     min-prefix-len: 32
+              '65535':
+                action: deny
+                match:
+                  any: {}
           DPU_FROM_TRAFFIC_INTERCEPT_PEER_PREFIX_LIST:
             rule:
               '1':
@@ -385,7 +389,7 @@
                       outbound:
                         route-map: dpu_to_instance
                 nexthop-connected-check: off
-                remote-as: external
+                remote-as: 65100
                 timers:
                   connection-retry: 10
                   hold: 9
@@ -463,7 +467,7 @@
                       outbound:
                         route-map: dpu_to_instance
                 nexthop-connected-check: off
-                remote-as: external
+                remote-as: 65100
                 timers:
                   connection-retry: 10
                   hold: 9
