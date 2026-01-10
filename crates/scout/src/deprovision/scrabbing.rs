@@ -554,10 +554,10 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
     Ok(())
 }
 
-pub fn run_no_api() {
+pub fn run_no_api() -> Result<(), CarbideClientError> {
     if !is_host() {
         tracing::info!("No cleanup needed on DPU.");
-        return;
+        return Ok(());
     }
     tracing::info!("no_api deprovision starts.");
     let stdin_link = match fs::read_link("/proc/self/fd/0") {
@@ -575,8 +575,8 @@ pub fn run_no_api() {
         tracing::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
     }
 
-    match reset_ib_devices() {
-        Ok(_) => tracing::debug!("IB devices reset OK"),
-        Err(e) => tracing::error!("IB devices reset error: {}", e),
-    }
+    // P1 errors are propagated (fail startup), P2 errors are handled internally in reset_ib_devices()
+    reset_ib_devices()?;
+    tracing::debug!("IB devices reset OK");
+    Ok(())
 }

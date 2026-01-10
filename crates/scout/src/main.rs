@@ -335,7 +335,7 @@ async fn handle_action(
     match action {
         Action::Discovery => {
             // This is temporary. All cleanup must be done when API call Reset.
-            deprovision::run_no_api();
+            deprovision::run_no_api()?;
             let retry = registration::DiscoveryRetry {
                 secs: config.discovery_retry_secs,
                 max: config.discovery_retries_max,
