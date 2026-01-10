@@ -395,6 +395,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         Uplinks: conf.uplinks.clone(),
         RouteServers: conf.route_servers.clone(),
         DHCPServers: conf.dhcp_servers.clone(),
+        AnycastSitePrefixes: conf
+            .anycast_site_prefixes
+            .iter()
+            .enumerate()
+            .map(|(i, s)| Prefix {
+                Index: format!("{}", 1000 + i),
+                Prefix: s.to_string(),
+            })
+            .collect(),
         HasSiteFabricPrefixes: !conf.site_fabric_prefixes.is_empty(),
         SiteFabricPrefixes: conf
             .site_fabric_prefixes
@@ -433,6 +442,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
             VrfLoopback: vrf_loopback,
             PortConfigs: port_configs,
+            HasHostASN: conf.tenant_host_asn.is_some(),
+            HostASN: conf.tenant_host_asn.unwrap_or_default(),
             HostInterfaces: host_interfaces,
             NetworkSecurityGroups: network_security_groups,
             HasNetworkSecurityGroup: has_network_security_group,
@@ -852,6 +863,8 @@ pub struct NvueConfig {
     pub l3_domains: Vec<L3Domain>,
     pub deny_prefixes: Vec<String>,
     pub site_fabric_prefixes: Vec<String>,
+    pub anycast_site_prefixes: Vec<String>,
+    pub tenant_host_asn: Option<u32>,
     pub use_vpc_isolation: bool,
     pub stateful_acls_enabled: bool,
 
@@ -1044,6 +1057,10 @@ struct TmplNvue {
 
     HasSiteFabricPrefixes: bool,
 
+    /// Format: CIDR of the site prefixes that tenants are allowed to
+    /// from the host to the DPU.
+    AnycastSitePrefixes: Vec<Prefix>,
+
     // Whether VPC-isolation should be applied.
     UseVpcIsolation: bool,
 
@@ -1149,6 +1166,15 @@ struct TmplComputeTenant {
     /// from a dedicated resource-pool, handed out as un-related /32s, and
     /// interfaces in FNN get /31s.
     VrfLoopback: String, // XXX: This is in the Classic template -- where does the IP come from?
+
+    HasHostASN: bool,
+    /// An ASN allocated for tenants to use
+    /// when they peer with the DPU.
+    /// If configured, the DPU will expect the host
+    /// to peer with this ASN.  If left unset
+    /// remote-as external will be used, allowing
+    /// any ASN.
+    HostASN: u32,
 
     HostInterfaces: Vec<TmplHostInterfaces>,
 

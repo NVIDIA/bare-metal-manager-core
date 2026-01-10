@@ -556,6 +556,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
         deprecated_deny_prefixes,
         deny_prefixes,
         site_fabric_prefixes,
+        anycast_site_prefixes: api
+            .runtime_config
+            .anycast_site_prefixes
+            .iter()
+            .map(|p| p.to_string())
+            .collect(),
+        tenant_host_asn: api.runtime_config.common_tenant_host_asn,
         datacenter_asn: api.runtime_config.datacenter_asn,
         vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::from(
             api.runtime_config.vpc_isolation_behavior,
