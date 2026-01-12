@@ -23,8 +23,11 @@ use db::{
 };
 use forge_network::virtualization::VpcVirtualizationType;
 use futures_util::FutureExt;
+use futures_util::future::join_all;
 use itertools::Itertools;
+use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
 use model::hardware_info::MachineInventory;
+use model::instance::config::extension_services::InstanceExtensionServiceConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;
 use model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
@@ -43,13 +46,23 @@ use crate::{CarbideError, ethernet_virtualization};
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
 
-#[allow(txn_held_across_await)]
 pub(crate) async fn get_managed_host_network_config_inner(
     api: &Api,
     dpu_machine_id: MachineId,
-    snapshot: model::machine::ManagedHostStateSnapshot,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, tonic::Status> {
+    let mut txn = api.txn_begin().await?;
+
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &dpu_machine_id,
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+    )
+    .await?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: dpu_machine_id.to_string(),
+    })?;
+
     let dpu_snapshot = match snapshot
         .dpu_snapshots
         .iter()
@@ -73,7 +86,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         .find(|x| x.primary_interface)
         .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
 
-    let primary_dpu = db::machine_interface::find_one(txn, primary_dpu_snapshot.id).await?;
+    let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
         .attached_dpu_machine_id
         .map(|x| x == dpu_snapshot.id)
@@ -150,7 +163,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     }
 
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
-        txn,
+        &mut txn,
         &snapshot.host_snapshot.id,
         &dpu_snapshot.id,
         use_fnn_over_admin_nw,
@@ -201,15 +214,15 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 // network segment is empty, return error.
                 return Err(CarbideError::NetworkSegmentNotAllocated.into());
             };
-            let vpc = db::vpc::find_by_segment(txn, network_segment_id)
+            let vpc = db::vpc::find_by_segment(&mut txn, network_segment_id)
                 .await?;
 
-                // We probably shouldn't allow multiple interfaces that are in different VPCs with
-                // different routing-profiles.  Even in the case of something like a GW instance,
-                // We should probably require that all tenants/vpcs being serviced have a routing profile
-                // that matches the GW instance.
-                // However, if we decide to allow total mixing-and-matching, then this would need to move into
-                // tenant_network() and the profile details would have to move into the flattened interface details.
+            // We probably shouldn't allow multiple interfaces that are in different VPCs with
+            // different routing-profiles.  Even in the case of something like a GW instance,
+            // We should probably require that all tenants/vpcs being serviced have a routing profile
+            // that matches the GW instance.
+            // However, if we decide to allow total mixing-and-matching, then this would need to move into
+            // tenant_network() and the profile details would have to move into the flattened interface details.
             let routing_profile =  if vpc.network_virtualization_type == VpcVirtualizationType::Fnn {
                 api
                     .runtime_config
@@ -271,14 +284,14 @@ pub(crate) async fn get_managed_host_network_config_inner(
             // Check if there's an NSG on the instance.
             let network_security_group_details = if !suppress_tenant_security_groups
                 && let Some((tenant_id, Some(nsg_id))) = snapshot.instance.as_ref().map(|i| {
-                    (
-                        &i.config.tenant.tenant_organization_id,
-                        i.config.network_security_group_id.as_ref(),
-                    )
-                }) {
+                (
+                    &i.config.tenant.tenant_organization_id,
+                    i.config.network_security_group_id.as_ref(),
+                )
+            }) {
                 // Make our DB query for the IDs to get our NetworkSecurityGroup
                 let network_security_group =
-                    network_security_group::find_by_ids(txn, &[nsg_id.to_owned()], Some(tenant_id), false)
+                    network_security_group::find_by_ids(&mut txn, &[nsg_id.to_owned()], Some(tenant_id), false)
                         .await?
                         .pop()
                         .ok_or(CarbideError::NotFoundError {
@@ -324,7 +337,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             // instance creation.
             let segment_ids = interfaces.iter().filter_map(|x|x.network_segment_id).collect_vec();
             let segment_details = db::network_segment::find_by(
-                txn,
+                &mut txn,
                 ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
                 NetworkSegmentSearchConfig::default(),
             ).await?;
@@ -339,7 +352,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let domain = match segment.subdomain_id {
                 Some(domain_id) => {
-                    domain::find_by_uuid(txn, domain_id)
+                    domain::find_by_uuid(&mut txn, domain_id)
                         .await?
                         .ok_or_else(|| CarbideError::NotFoundError {
                             kind: "domain",
@@ -367,7 +380,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
                 let tenant_loopback_ip = db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
                     &api.common_pools,
-                    txn,
+                    &mut txn,
                     &dpu_machine_id,
                     &vpc.id,
                 )
@@ -398,7 +411,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
                 let tenant_interface =
                     ethernet_virtualization::tenant_network(
-                        txn,
+                        &mut txn,
                         instance.id,
                         iface,
                         fqdn.clone(),
@@ -472,82 +485,104 @@ pub(crate) async fn get_managed_host_network_config_inner(
         VpcIsolationBehaviorType::Open => deny_prefixes.clone(),
     };
 
+    // Strip the source_type for the route servers that we feed back to the DPUs -- they just care
+    // about the IP address. Although, maybe in the future, we might be interested in sending the
+    // entire struct down, and then putting some smarts inside the DPU re: the source_type.
+    // Only pass them on if route servers are enabled.
+    let route_servers = if api.runtime_config.enable_route_servers {
+        db::route_servers::get(&mut txn)
+            .await?
+            .into_iter()
+            .map(|rs| rs.address.to_string())
+            .collect()
+    } else {
+        vec![]
+    };
+
     // If instance is present, get the extension services configured for the instance.
-    let extension_services = if let Some(instance) = snapshot.instance.as_ref() {
-        let configs = &instance.config.extension_services.service_configs;
-        let mut services_config = Vec::with_capacity(configs.len());
-        // @TODO(Felicity): optimize database query to fetch all extension service versions at once.
-        //  This might be ok for now since the number of extension services is expected to be small.
-        for config in configs {
-            let service_id = config.service_id;
 
-            let service_res = db::extension_service::find_by_ids(txn, &[service_id], false).await?;
-            let service = service_res
-                .first()
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "ExtensionService",
-                    id: service_id.to_string(),
-                })?;
+    // simple grouping of stuff we need from the extension service:
+    struct ExtensionServiceInfo<'a> {
+        service: ExtensionService,
+        version: ExtensionServiceVersionInfo,
+        instance_config: &'a InstanceExtensionServiceConfig,
+    }
 
-            let service_version =
-                db::extension_service::find_version_info(txn, service_id, Some(config.version))
-                    .await?;
+    // First fetch from the database, while we have a transaction:
+    let extension_service_info = if let Some(instance) = snapshot.instance.as_ref() {
+        let mut extension_service_info: Vec<ExtensionServiceInfo> =
+            Vec::with_capacity(instance.config.extension_services.service_configs.len());
+        for config in &instance.config.extension_services.service_configs {
+            // @TODO(Felicity): optimize database query to fetch all extension service versions at once.
+            //  This might be ok for now since the number of extension services is expected to be small.
+            let service_res =
+                db::extension_service::find_by_ids(&mut txn, &[config.service_id], false).await?;
+            let service =
+                service_res
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "ExtensionService",
+                        id: config.service_id.to_string(),
+                    })?;
 
-            // Get the credential if it exists
-            let credential = if service_version.has_credential {
-                let key = extension_service::create_extension_service_credential_key(
-                    &service_id,
-                    service_version.version,
-                );
-                Some(
-                    extension_service::get_extension_service_credential(
-                        &api.credential_provider,
-                        key,
-                    )
-                    .await?,
-                )
-            } else {
-                None
-            };
+            let version = db::extension_service::find_version_info(
+                &mut txn,
+                config.service_id,
+                Some(config.version),
+            )
+            .await?;
 
-            services_config.push(rpc::ManagedHostDpuExtensionServiceConfig {
-                service_id: service_id.to_string(),
-                name: service.name.clone(),
-                removed: config.removed.map(|ts| ts.to_string()),
-                version: service_version.version.to_string(),
-                service_type: rpc::DpuExtensionServiceType::from(service.service_type.clone())
-                    .into(),
-                data: service_version.data,
-                credential,
-                observability: service_version.observability.map(|o| o.into()),
+            extension_service_info.push(ExtensionServiceInfo {
+                service,
+                version,
+                instance_config: config,
             });
         }
-        services_config
+        extension_service_info
     } else {
         Vec::new()
     };
+
+    // Next, get credentials for each extension service from vault. This should be done after the
+    // transaction is committed.
+    txn.commit().await?;
+    let extension_services = join_all(extension_service_info.into_iter().map(|info| async move {
+        // Get the credential if it exists
+        let credential = if info.version.has_credential {
+            let key = extension_service::create_extension_service_credential_key(
+                &info.service.id,
+                info.version.version,
+            );
+            Some(
+                extension_service::get_extension_service_credential(&api.credential_provider, key)
+                    .await?,
+            )
+        } else {
+            None
+        };
+
+        Ok::<_, tonic::Status>(rpc::ManagedHostDpuExtensionServiceConfig {
+            service_id: info.service.id.to_string(),
+            name: info.service.name,
+            removed: info.instance_config.removed.map(|ts| ts.to_string()),
+            version: info.version.version.to_string(),
+            service_type: rpc::DpuExtensionServiceType::from(info.service.service_type.clone())
+                .into(),
+            data: info.version.data,
+            credential,
+            observability: info.version.observability.map(|o| o.into()),
+        })
+    }))
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
 
     let resp = rpc::ManagedHostNetworkConfigResponse {
         instance_id: snapshot.instance.as_ref().map(|instance| instance.id),
         asn,
         dhcp_servers: api.eth_data.dhcp_servers.clone(),
-        // Strip the source_type for the route servers that
-        // we feed back to the DPUs -- they just care about
-        // the IP address. Although, maybe in the future,
-        // we might be interested in sending the entire
-        // struct down, and then putting some smarts inside
-        // the DPU re: the source_type.
-        //
-        // Only pass them on if route servers are enabled.
-        route_servers: if api.runtime_config.enable_route_servers {
-            db::route_servers::get(txn)
-                .await?
-                .into_iter()
-                .map(|rs| rs.address.to_string())
-                .collect()
-        } else {
-            vec![]
-        },
+        route_servers,
         // TODO: Automatically add the prefix(es?) from the IPv4 loopback
         // pool to deny_prefixes. The database stores the pool in an
         // exploded representation, so we either need to reconstruct the
@@ -681,23 +716,7 @@ pub(crate) async fn get_managed_host_network_config(
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin().await?;
-
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &dpu_machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
-    )
-    .await?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "machine",
-        id: dpu_machine_id.to_string(),
-    })?;
-
-    let resp =
-        get_managed_host_network_config_inner(api, dpu_machine_id, snapshot, &mut txn).await?;
-
-    txn.commit().await?;
+    let resp = get_managed_host_network_config_inner(api, dpu_machine_id).await?;
 
     Ok(Response::new(resp))
 }
