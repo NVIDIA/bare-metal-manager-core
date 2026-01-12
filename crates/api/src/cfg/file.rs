@@ -110,6 +110,19 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub site_fabric_prefixes: Vec<Ipv4Network>,
 
+    /// List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned
+    /// to tenants so that they themselves can announce to the DPU.  E.g., BYOIP
+    #[serde(default)]
+    pub anycast_site_prefixes: Vec<Ipv4Network>,
+
+    /// An ASN allocated for tenants to use
+    /// when they peer with the DPU.
+    /// If configured, the DPU will expect the host
+    /// to peer with this ASN.  If left unset
+    /// remote-as external will be used, allowing
+    /// any ASN.
+    pub common_tenant_host_asn: Option<u32>,
+
     #[serde(default)]
     pub vpc_isolation_behavior: VpcIsolationBehaviorType,
 

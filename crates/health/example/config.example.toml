@@ -67,7 +67,7 @@ firmware_refresh_interval = "30m"
 logs_collection_interval = "5m"
 logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 logs_output_dir = "/tmp/logs"
-logs_max_file_size = 104857600  # 100MB
+logs_max_file_size = 104857600                            # 100MB
 logs_max_backups = 5
 
 # ==============================================================================

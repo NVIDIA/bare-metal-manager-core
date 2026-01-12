@@ -21,7 +21,10 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
-use db::{DatabaseError, ObjectColumnFilter, domain, instance, network_segment, vpc};
+use db::{
+    DatabaseError, ObjectColumnFilter, WithTransaction, domain, instance, network_segment, vpc,
+};
+use futures_util::FutureExt;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
@@ -115,13 +118,15 @@ pub(crate) async fn identify_serial(
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
-    let mut txn = api.txn_begin().await?;
-
-    let machine_ids = if req.exact {
-        db::machine_topology::find_by_serial(&mut txn, &req.serial_number).await
-    } else {
-        db::machine_topology::find_freetext(&mut txn, &req.serial_number).await
-    }?;
+    let machine_ids = api
+        .with_txn(|txn| {
+            if req.exact {
+                db::machine_topology::find_by_serial(txn, &req.serial_number).boxed()
+            } else {
+                db::machine_topology::find_freetext(txn, &req.serial_number).boxed()
+            }
+        })
+        .await??;
 
     if machine_ids.len() > 1 {
         tracing::warn!(
@@ -432,6 +437,8 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         }
     }
 
+    txn.commit().await?;
+
     Ok(None)
 }
 
@@ -479,6 +486,7 @@ async fn by_mac(
     }
 
     // Any other MAC addresses to search?
+    txn.commit().await?;
 
     Ok(None)
 }

@@ -1,9 +1,11 @@
 use ::rpc::common::MachineIdList;
 use ::rpc::forge::{self as rpc, AttestationResponse};
 use config_version::ConfigVersion;
+use db::WithTransaction;
 use db::attestation::spdm::{
     insert_or_update_machine_attestation_request, load_details_for_machine_ids,
 };
+use futures_util::FutureExt;
 use itertools::Itertools;
 use model::attestation::spdm::SpdmMachineAttestation;
 use tonic::{Request, Response, Status};
@@ -196,12 +198,16 @@ pub(crate) async fn attest_quote(
     // - get attestation result
     // - if enabled and not successful, send response without certs
     // - else send response with certs
-    let mut txn = api.txn_begin().await?;
+    let attestation_failed = if api.runtime_config.attestation_enabled {
+        !api.with_txn(|txn| {
+            crate::attestation::has_passed_attestation(txn, &machine_id, &report.report_id).boxed()
+        })
+        .await??
+    } else {
+        false
+    };
 
-    if api.runtime_config.attestation_enabled
-        && !crate::attestation::has_passed_attestation(&mut txn, &machine_id, &report.report_id)
-            .await?
-    {
+    if attestation_failed {
         tracing::info!(
             "Attestation failed for machine with id {} - not vending any certs",
             machine_id

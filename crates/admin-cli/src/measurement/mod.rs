@@ -23,45 +23,49 @@ pub mod profile;
 pub mod report;
 pub mod site;
 
-use ::rpc::admin_cli::{ToTable, set_summary};
+use ::rpc::admin_cli::{CarbideCliResult, ToTable, set_summary};
 use carbide_uuid::machine::MachineId;
 use serde::Serialize;
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::measurement::{Cmd, GlobalOptions};
-use crate::rpc::ApiClient;
+use crate::cfg::runtime::RuntimeContext;
 
-pub async fn dispatch(
-    command: &Cmd,
-    args: &GlobalOptions,
-    api_client: &ApiClient,
-) -> eyre::Result<()> {
-    set_summary(!args.extended);
-    let mut cli_data = global::cmds::CliData {
-        grpc_conn: api_client,
-        args,
-    };
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        // Build internal GlobalOptions from RuntimeContext
+        let args = GlobalOptions {
+            format: ctx.config.format,
+            extended: ctx.config.extended,
+        };
+        set_summary(!args.extended);
+        let mut cli_data = global::cmds::CliData {
+            grpc_conn: &ctx.api_client,
+            args: &args,
+        };
 
-    match command {
-        // Handle everything with the `bundle` subcommand.
-        Cmd::Bundle(cmd) => bundle::cmds::dispatch(cmd, &mut cli_data).await?,
+        match self {
+            // Handle everything with the `bundle` subcommand.
+            Cmd::Bundle(subcmd) => bundle::cmds::dispatch(&subcmd, &mut cli_data).await?,
 
-        // Handle everything with the `journal` subcommand.
-        Cmd::Journal(cmd) => journal::cmds::dispatch(cmd, &mut cli_data).await?,
+            // Handle everything with the `journal` subcommand.
+            Cmd::Journal(subcmd) => journal::cmds::dispatch(&subcmd, &mut cli_data).await?,
 
-        // Handle everything with the `profile` subcommand.
-        Cmd::Profile(cmd) => profile::cmds::dispatch(cmd, &mut cli_data).await?,
+            // Handle everything with the `profile` subcommand.
+            Cmd::Profile(subcmd) => profile::cmds::dispatch(&subcmd, &mut cli_data).await?,
 
-        // Handle everything with the `report` subcommand.
-        Cmd::Report(cmd) => report::cmds::dispatch(cmd, &mut cli_data).await?,
+            // Handle everything with the `report` subcommand.
+            Cmd::Report(subcmd) => report::cmds::dispatch(&subcmd, &mut cli_data).await?,
 
-        // Handle everything with the `machine` subcommand.
-        Cmd::Machine(cmd) => machine::cmds::dispatch(cmd, &mut cli_data).await?,
+            // Handle everything with the `machine` subcommand.
+            Cmd::Machine(subcmd) => machine::cmds::dispatch(&subcmd, &mut cli_data).await?,
 
-        // Handle everything with the `site` subcommand.
-        Cmd::Site(cmd) => site::cmds::dispatch(cmd, &mut cli_data).await?,
+            // Handle everything with the `site` subcommand.
+            Cmd::Site(subcmd) => site::cmds::dispatch(&subcmd, &mut cli_data).await?,
+        }
+
+        Ok(())
     }
-
-    Ok(())
 }
 
 #[derive(Serialize)]

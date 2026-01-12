@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,10 +12,12 @@
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::host_reprovisioning_request::Mode;
+use ::rpc::forge::{HostReprovisioningRequest, UpdateInitiator};
 use carbide_uuid::machine::MachineId;
+use forge_secrets::credentials::Credentials;
 use prettytable::{Table, row};
 
-use crate::machine::{HealthOverrideTemplates, get_health_report};
+use crate::machine::{HealthOverrideTemplates, MachineQuery, get_health_report};
 use crate::rpc::ApiClient;
 
 pub async fn trigger_reprovisioning(
@@ -56,7 +58,12 @@ pub async fn trigger_reprovisioning(
             .await?;
     }
     api_client
-        .trigger_host_reprovisioning(host_id, mode)
+        .0
+        .trigger_host_reprovisioning(HostReprovisioningRequest {
+            machine_id: Some(host_id),
+            mode: mode as i32,
+            initiator: UpdateInitiator::AdminCli as i32,
+        })
         .await?;
 
     Ok(())
@@ -65,6 +72,42 @@ pub async fn trigger_reprovisioning(
 pub async fn list_hosts_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
     let response = api_client.0.list_hosts_waiting_for_reprovisioning().await?;
     print_pending_hosts(response);
+    Ok(())
+}
+
+pub async fn set_uefi_password(
+    query: &MachineQuery,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let response = api_client
+        .0
+        .set_host_uefi_password(query.query.parse::<MachineId>()?)
+        .await?;
+    println!(
+        "successfully set UEFI password for host {query:#?} (jid: {:#?})",
+        response.job_id
+    );
+    Ok(())
+}
+
+pub async fn clear_uefi_password(
+    query: &MachineQuery,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let response = api_client
+        .0
+        .clear_host_uefi_password(query.query.parse::<MachineId>()?)
+        .await?;
+    println!(
+        "successfully cleared UEFI password for host {query:#?}; (jid: {:#?})",
+        response.job_id
+    );
+    Ok(())
+}
+
+pub fn generate_uefi_password() -> CarbideCliResult<()> {
+    let password = Credentials::generate_password_no_special_char();
+    println!("Generated Bios Admin Password: {password}");
     Ok(())
 }
 

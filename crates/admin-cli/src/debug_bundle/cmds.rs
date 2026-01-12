@@ -21,6 +21,7 @@ use std::io::Write;
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::forge::BmcEndpointRequest;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Local, NaiveDate, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -681,7 +682,13 @@ async fn get_site_controller_analysis(
     println!("   Exploring BMC endpoint via Redfish...");
 
     // Step 2: Call Explore RPC (fetches Redfish data)
-    let exploration_report = api_client.explore(&bmc_ip, mac_address).await?;
+    let exploration_report = api_client
+        .0
+        .explore(BmcEndpointRequest {
+            ip_address: bmc_ip.clone(),
+            mac_address: mac_address.map(|m| m.to_string()),
+        })
+        .await?;
 
     println!("   Systems: {} found", exploration_report.systems.len());
     println!("   Managers: {} found", exploration_report.managers.len());
@@ -689,7 +696,11 @@ async fn get_site_controller_analysis(
 
     // Step 3: Call BmcCredentialStatus RPC
     let credential_status = api_client
-        .bmc_credential_status(&bmc_ip, mac_address)
+        .0
+        .bmc_credential_status(BmcEndpointRequest {
+            ip_address: bmc_ip.clone(),
+            mac_address: mac_address.map(|m| m.to_string()),
+        })
         .await?;
 
     println!(
@@ -1074,7 +1085,11 @@ async fn get_health_alerts(
     };
 
     // Call unified API with time filtering
-    let response = api_client.get_machine_health_histories(request).await?;
+    let response = api_client
+        .0
+        .find_machine_health_histories(request)
+        .await
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     Ok(response)
 }
@@ -1094,7 +1109,11 @@ async fn get_alert_overrides(
     })?;
 
     // Call API to get current overrides
-    let response = api_client.get_health_report_overrides(machine_id).await?;
+    let response = api_client
+        .0
+        .list_health_report_overrides(machine_id)
+        .await
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     Ok(response)
 }

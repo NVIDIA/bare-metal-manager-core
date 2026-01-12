@@ -13,19 +13,22 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+#[cfg(test)]
+mod tests;
+
 // Export so the CLI builder can just pull in domain::Cmd.
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes domain commands.
-pub async fn dispatch(
-    command: &Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-) -> CarbideCliResult<()> {
-    match command {
-        Cmd::Show(show_args) => cmds::handle_show(show_args, format, api_client).await,
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Show(show_args) => {
+                cmds::handle_show(&show_args, ctx.config.format, &ctx.api_client).await
+            }
+        }
     }
 }

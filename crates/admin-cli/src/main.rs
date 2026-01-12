@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,51 +12,30 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
-use std::fs::File;
-use std::io;
-use std::io::{BufReader, Write};
-use std::net::IpAddr;
-use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::str::FromStr;
 
 use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge::ConfigSetting;
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-use ::rpc::{CredentialType, forge as forgerpc};
-use carbide_uuid::machine::MachineId;
-use cfg::cli_options::{
-    BmcAction, BootOverrideAction, CliCommand, CliOptions, CredentialAction, ExpectedMachineJson,
-    HostAction, HostReprovision, IpAction, LogicalPartitionOptions, MachineInterfaces,
-    NetworkSegment, NvlPartitionOptions, SetAction, Shell,
-};
-use cfg::instance_type::InstanceTypeActions;
-use cfg::network_security_group::NetworkSecurityGroupActions;
-use cfg::tenant::TenantActions;
+use cfg::cli_options::{CliCommand, CliOptions};
 use clap::CommandFactory;
-use devenv::apply_devenv_config;
-use forge_secrets::credentials::Credentials;
-use forge_ssh::ssh::{
-    copy_bfb_to_bmc_rshim, disable_rshim, enable_rshim, is_rshim_enabled, read_obmc_console_log,
-};
 use forge_tls::client_config::{
     get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
     get_proxy_info,
 };
-use mac_address::MacAddress;
-use serde::{Deserialize, Serialize};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
-use crate::cfg::cli_options::AdminPowerControlAction;
-use crate::cfg::storage::OsImageActions;
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::{RuntimeConfig, RuntimeContext};
 use crate::rpc::ApiClient;
 
 mod async_write;
-
+mod bmc_machine;
+mod boot_override;
 mod cfg;
+mod credential;
 mod debug_bundle;
 mod devenv;
 mod domain;
@@ -68,11 +47,14 @@ mod expected_power_shelf;
 mod expected_switch;
 mod extension_service;
 mod firmware;
+mod generate_shell_complete;
 mod host;
 mod ib_partition;
 mod instance;
 mod instance_type;
 mod inventory;
+mod ip;
+mod jump;
 mod machine;
 mod machine_interfaces;
 mod machine_validation;
@@ -80,28 +62,30 @@ mod managed_host;
 mod measurement;
 mod metadata;
 mod mlx;
-mod network;
 mod network_devices;
 mod network_security_group;
+mod network_segment;
 mod nvl_logical_partition;
 mod nvl_partition;
+mod os_image;
 mod ping;
-
 mod power_shelf;
 mod rack;
 mod redfish;
 mod resource_pool;
+mod rms;
 mod route_server;
 mod rpc;
 mod scout_stream;
+mod set;
 mod site_explorer;
 mod sku;
-mod storage;
+mod ssh;
 mod switch;
 mod tenant;
 mod tenant_keyset;
 mod tpm_ca;
-mod uefi;
+mod trim_table;
 mod version;
 mod vpc;
 mod vpc_peering;
@@ -188,1305 +172,84 @@ async fn main() -> color_eyre::Result<()> {
     let mut client_config = ForgeClientConfig::new(forge_root_ca_path, forge_client_cert);
     client_config.socks_proxy(proxy);
 
-    // api_client is created here and subsequently
-    // borrowed by all others.
-    let api_client = ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config)));
-
-    let mut output_file = get_output_file_or_stdout(config.output.as_deref()).await?;
+    let ctx = RuntimeContext {
+        api_client: ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config))),
+        config: RuntimeConfig {
+            format: config.format.clone(),
+            page_size: config.internal_page_size,
+            extended: config.extended,
+            cloud_unsafe_op_enabled: config.cloud_unsafe_op.is_some(),
+            sort_by: config.sort_by.clone(),
+        },
+        output_file: get_output_file_or_stdout(config.output.as_deref()).await?,
+    };
 
     // Command to talk to Carbide API.
     match command {
-        CliCommand::Version(version) => {
-            version::dispatch(&version, &api_client, config.format).await?
-        }
-        CliCommand::Mlx(cmd) => mlx::dispatch(cmd, &api_client, &config.format).await?,
-        CliCommand::Machine(cmd) => {
-            machine::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                &config.sort_by,
-                config.extended,
-            )
-            .await?
-        }
-        CliCommand::Instance(cmd) => {
-            instance::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                &config.sort_by,
-                config.cloud_unsafe_op,
-            )
-            .await?
-        }
-        CliCommand::NetworkSegment(network) => match network {
-            NetworkSegment::Show(network) => {
-                network::handle_show(
-                    network,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?
-            }
-            NetworkSegment::Delete(delete_network_segment) => {
-                if config.cloud_unsafe_op.is_none() {
-                    return Err(CarbideCliError::GenericError(
-                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
-                    )
-                    .into());
-                }
-                api_client
-                    .delete_network_segment(delete_network_segment.id)
-                    .await?;
-            }
-        },
-        CliCommand::Domain(cmd) => domain::dispatch(&cmd, &api_client, config.format).await?,
-        CliCommand::ManagedHost(cmd) => {
-            managed_host::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                config.sort_by,
-            )
-            .await?
-        }
-        CliCommand::Measurement(cmd) => {
-            let args = cfg::measurement::GlobalOptions {
-                format: config.format,
-                extended: config.extended,
-            };
-            measurement::dispatch(&cmd, &args, &api_client).await?
-        }
-        CliCommand::ResourcePool(cmd) => resource_pool::dispatch(&cmd, &api_client).await?,
-        CliCommand::Ip(ip_command) => match ip_command {
-            IpAction::Find(find) => {
-                let req = forgerpc::FindIpAddressRequest {
-                    ip: find.ip.to_string(),
-                };
-                // maybe handle tonic::Status's `.code()` of tonic::Code::NotFound
-                let resp = api_client.0.find_ip_address(req).await?;
-                for r in resp.matches {
-                    tracing::info!("{}", r.message);
-                }
-                if !resp.errors.is_empty() {
-                    tracing::warn!("These matchers failed:");
-                    for err in resp.errors {
-                        tracing::warn!("\t{err}");
-                    }
-                }
-            }
-        },
-        CliCommand::NetworkDevice(data) => match data {
-            cfg::cli_options::NetworkDeviceAction::Show(args) => {
-                network_devices::show(config.format, args, &api_client).await?;
-            }
-        },
-        CliCommand::Dpu(cmd) => {
-            dpu::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-            )
-            .await?
-        }
-        CliCommand::Host(host_action) => match host_action {
-            HostAction::SetUefiPassword(query) => {
-                uefi::cmds::set_password(&query, &api_client).await?;
-            }
-            HostAction::ClearUefiPassword(query) => {
-                uefi::cmds::clear_password(&query, &api_client).await?;
-            }
-            HostAction::GenerateHostUefiPassword => {
-                let password = Credentials::generate_password_no_special_char();
-                println!("Generated Bios Admin Password: {password}");
-            }
-            HostAction::Reprovision(reprovision) => match reprovision {
-                HostReprovision::Set(data) => {
-                    host::cmds::trigger_reprovisioning(
-                        data.id,
-                        ::rpc::forge::host_reprovisioning_request::Mode::Set,
-                        &api_client,
-                        data.update_message,
-                    )
-                    .await?
-                }
-                HostReprovision::Clear(data) => {
-                    host::cmds::trigger_reprovisioning(
-                        data.id,
-                        ::rpc::forge::host_reprovisioning_request::Mode::Clear,
-                        &api_client,
-                        None,
-                    )
-                    .await?
-                }
-                HostReprovision::List => host::cmds::list_hosts_pending(&api_client).await?,
-            },
-        },
+        CliCommand::BmcMachine(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::BootOverride(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Credential(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::DevEnv(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Domain(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Dpa(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Dpu(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::DpuRemediation(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedMachine(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedPowerShelf(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedSwitch(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExtensionService(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Firmware(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::GenerateShellComplete(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Host(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::IbPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Instance(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::InstanceType(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Inventory(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Ip(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Jump(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::LogicalPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Machine(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::MachineInterfaces(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::MachineValidation(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ManagedHost(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Measurement(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Mlx(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NetworkDevice(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NetworkSecurityGroup(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::OsImage(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Ping(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::PowerShelf(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Rack(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ResourcePool(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Rms(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::RouteServer(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ScoutStream(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Set(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Ssh(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::SiteExplorer(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Sku(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Switch(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Tenant(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::TenantKeySet(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::TpmCa(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::TrimTable(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Version(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Vpc(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::VpcPeering(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::VpcPrefix(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Redfish(action) => {
             if let redfish::Cmd::Browse(redfish::UriInfo { uri }) = &action.command {
-                return redfish::handle_browse_command(&api_client, uri).await;
+                return redfish::handle_browse_command(&ctx.api_client, uri).await;
             }
 
             // Handled earlier
             unreachable!();
         }
-        CliCommand::ScoutStream(cmd) => {
-            scout_stream::dispatch(cmd, &api_client, &config.format).await?
-        }
-        CliCommand::BootOverride(boot_override_args) => match boot_override_args {
-            BootOverrideAction::Get(boot_override) => {
-                let mbo = api_client
-                    .0
-                    .get_machine_boot_override(boot_override.interface_id)
-                    .await?;
-
-                tracing::info!(
-                    "{}",
-                    serde_json::to_string_pretty(&mbo)
-                        .expect("Failed to serialize MachineBootOverride")
-                );
-            }
-            BootOverrideAction::Set(boot_override_set) => {
-                if boot_override_set.custom_pxe.is_none()
-                    && boot_override_set.custom_user_data.is_none()
-                {
-                    return Err(CarbideCliError::GenericError(
-                        "Either custom pxe or custom user data is required".to_owned(),
-                    )
-                    .into());
-                }
-
-                let custom_pxe_path = boot_override_set.custom_pxe.map(PathBuf::from);
-                let custom_user_data_path = boot_override_set.custom_user_data.map(PathBuf::from);
-
-                api_client
-                    .set_boot_override(
-                        boot_override_set.interface_id,
-                        custom_pxe_path.as_deref(),
-                        custom_user_data_path.as_deref(),
-                    )
-                    .await?;
-            }
-            BootOverrideAction::Clear(boot_override) => {
-                api_client
-                    .0
-                    .clear_machine_boot_override(boot_override.interface_id)
-                    .await?;
-            }
-        },
-        CliCommand::BmcMachine(bmc_machine) => match bmc_machine {
-            BmcAction::BmcReset(args) => {
-                api_client
-                    .bmc_reset(None, Some(args.machine), args.use_ipmitool)
-                    .await?;
-            }
-            BmcAction::AdminPowerControl(args) => {
-                api_client
-                    .admin_power_control(None, Some(args.machine), args.action.into())
-                    .await?;
-            }
-            BmcAction::CreateBmcUser(args) => {
-                api_client
-                    .create_bmc_user(
-                        args.ip_address,
-                        args.mac_address,
-                        args.machine,
-                        args.username,
-                        args.password,
-                        args.role_id,
-                    )
-                    .await?;
-            }
-            BmcAction::DeleteBmcUser(args) => {
-                api_client
-                    .delete_bmc_user(
-                        args.ip_address,
-                        args.mac_address,
-                        args.machine,
-                        args.username,
-                    )
-                    .await?;
-            }
-            BmcAction::EnableInfiniteBoot(args) => {
-                let machine = args.machine;
-                api_client
-                    .enable_infinite_boot(None, Some(machine.clone()))
-                    .await?;
-                if args.reboot {
-                    api_client
-                        .admin_power_control(
-                            None,
-                            Some(machine),
-                            AdminPowerControlAction::ForceRestart.into(),
-                        )
-                        .await?;
-                }
-            }
-            BmcAction::IsInfiniteBootEnabled(args) => {
-                let response = api_client
-                    .is_infinite_boot_enabled(None, Some(args.machine))
-                    .await?;
-                match response.is_enabled {
-                    Some(true) => println!("Enabled"),
-                    Some(false) => println!("Disabled"),
-                    None => println!("Unknown"),
-                }
-            }
-            BmcAction::Lockdown(args) => {
-                let machine = args.machine;
-                let action = if args.enable {
-                    forgerpc::LockdownAction::Enable
-                } else if args.disable {
-                    forgerpc::LockdownAction::Disable
-                } else {
-                    return Err(CarbideCliError::GenericError(
-                        "Either --enable or --disable must be specified".to_string(),
-                    )
-                    .into());
-                };
-
-                api_client.lockdown(None, machine, action).await?;
-
-                let action_str = if args.enable { "enabled" } else { "disabled" };
-
-                if args.reboot {
-                    api_client
-                        .admin_power_control(
-                            None,
-                            Some(machine.to_string()),
-                            AdminPowerControlAction::ForceRestart.into(),
-                        )
-                        .await?;
-                    println!(
-                        "Lockdown {} and reboot initiated to apply the change.",
-                        action_str
-                    );
-                } else {
-                    println!(
-                        "Lockdown {}. Please reboot the machine to apply the change.",
-                        action_str
-                    );
-                }
-            }
-            BmcAction::LockdownStatus(args) => {
-                let response = api_client.lockdown_status(None, args.machine).await?;
-                // Convert status enum to string
-                let status_str = match response.status {
-                    0 => "Enabled",  // InternalLockdownStatus::ENABLED
-                    1 => "Partial",  // InternalLockdownStatus::PARTIAL
-                    2 => "Disabled", // InternalLockdownStatus::DISABLED
-                    _ => "Unknown",
-                };
-                println!("{}: {}", status_str, response.message);
-            }
-        },
-        CliCommand::Inventory(action) => {
-            inventory::print_inventory(&api_client, action, config.internal_page_size).await?
-        }
-        CliCommand::Credential(credential_action) => match credential_action {
-            CredentialAction::AddUFM(c) => {
-                let username = url_validator(c.url.clone())?;
-                let password = c.token.clone();
-                let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::Ufm.into(),
-                    username: Some(username),
-                    password,
-                    mac_address: None,
-                    vendor: None,
-                };
-                api_client.0.create_credential(req).await?;
-            }
-            CredentialAction::DeleteUFM(c) => {
-                let username = url_validator(c.url.clone())?;
-                let req = forgerpc::CredentialDeletionRequest {
-                    credential_type: CredentialType::Ufm.into(),
-                    username: Some(username),
-                    mac_address: None,
-                };
-                api_client.0.delete_credential(req).await?;
-            }
-            CredentialAction::GenerateUFMCert(c) => {
-                let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::Ufm.into(),
-                    username: None,
-                    password: "".to_string(),
-                    mac_address: None,
-                    vendor: Some(c.fabric),
-                };
-                api_client.0.create_credential(req).await?;
-            }
-            CredentialAction::AddBMC(c) => {
-                let password = password_validator(c.password.clone())?;
-                let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::from(c.kind).into(),
-                    username: c.username,
-                    password,
-                    mac_address: c.mac_address.map(|mac| mac.to_string()),
-                    vendor: None,
-                };
-                api_client.0.create_credential(req).await?;
-            }
-            CredentialAction::DeleteBMC(c) => {
-                let req = forgerpc::CredentialDeletionRequest {
-                    credential_type: CredentialType::from(c.kind).into(),
-                    username: None,
-                    mac_address: c.mac_address.map(|mac| mac.to_string()),
-                };
-                api_client.0.delete_credential(req).await?;
-            }
-            CredentialAction::AddUefi(c) => {
-                let mut password = password_validator(c.password.clone())?;
-                if c.password.is_empty() {
-                    password = Credentials::generate_password_no_special_char();
-                }
-
-                let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::from(c.kind).into(),
-                    username: None,
-                    password,
-                    mac_address: None,
-                    vendor: None,
-                };
-                api_client.0.create_credential(req).await?;
-            }
-            CredentialAction::AddHostFactoryDefault(c) => {
-                let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::HostBmcFactoryDefault.into(),
-                    username: Some(c.username),
-                    password: c.password,
-                    mac_address: None,
-                    vendor: Some(c.vendor.to_string()),
-                };
-                api_client.0.create_credential(req).await?;
-            }
-            CredentialAction::AddDpuFactoryDefault(c) => {
-                let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::DpuBmcFactoryDefault.into(),
-                    username: Some(c.username),
-                    password: c.password,
-                    mac_address: None,
-                    vendor: None,
-                };
-                api_client.0.create_credential(req).await?;
-            }
-            CredentialAction::AddNmxM(c) => {
-                let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::NmxM.into(),
-                    username: Some(c.username),
-                    password: c.password,
-                    mac_address: None,
-                    vendor: None,
-                };
-                api_client.0.create_credential(req).await?;
-            }
-            CredentialAction::DeleteNmxM(c) => {
-                let req = forgerpc::CredentialDeletionRequest {
-                    credential_type: CredentialType::NmxM.into(),
-                    username: Some(c.username),
-                    mac_address: None,
-                };
-                api_client.0.delete_credential(req).await?;
-            }
-        },
-        CliCommand::RouteServer(cmd) => {
-            route_server::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::SiteExplorer(cmd) => {
-            site_explorer::dispatch(
-                cmd,
-                &mut output_file,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-            )
-            .await?
-        }
-        CliCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
-            MachineInterfaces::Show(machine_interfaces) => {
-                machine_interfaces::handle_show(machine_interfaces, config.format, &api_client)
-                    .await?
-            }
-            MachineInterfaces::Delete(args) => {
-                machine_interfaces::handle_delete(args, &api_client).await?
-            }
-        },
-        CliCommand::GenerateShellComplete(shell) => {
-            let mut cmd = CliOptions::command();
-            match shell.shell {
-                Shell::Bash => {
-                    clap_complete::generate(
-                        clap_complete::shells::Bash,
-                        &mut cmd,
-                        "forge-admin-cli",
-                        &mut io::stdout(),
-                    );
-                    // Make completion work for alias `fa`
-                    io::stdout().write_all(
-                        b"complete -F _forge-admin-cli -o nosort -o bashdefault -o default fa\n",
-                    )?;
-                }
-                Shell::Fish => {
-                    clap_complete::generate(
-                        clap_complete::shells::Fish,
-                        &mut cmd,
-                        "forge-admin-cli",
-                        &mut io::stdout(),
-                    );
-                }
-                Shell::Zsh => {
-                    clap_complete::generate(
-                        clap_complete::shells::Zsh,
-                        &mut cmd,
-                        "forge-admin-cli",
-                        &mut io::stdout(),
-                    );
-                }
-            }
-        }
-        CliCommand::Ping(opts) => ping::dispatch(&opts, &api_client).await?,
-        CliCommand::Set(subcmd) => match subcmd {
-            SetAction::LogFilter(opts) => {
-                api_client
-                    .set_dynamic_config(ConfigSetting::LogFilter, opts.filter, Some(opts.expiry))
-                    .await?
-            }
-            SetAction::CreateMachines(opts) => {
-                api_client
-                    .set_dynamic_config(
-                        ConfigSetting::CreateMachines,
-                        opts.enabled.to_string(),
-                        None,
-                    )
-                    .await?
-            }
-            SetAction::BmcProxy(opts) => {
-                if opts.enabled {
-                    api_client
-                        .set_dynamic_config(
-                            ConfigSetting::BmcProxy,
-                            opts.proxy.unwrap_or("".to_string()),
-                            None,
-                        )
-                        .await?
-                } else {
-                    api_client
-                        .set_dynamic_config(ConfigSetting::BmcProxy, "".to_string(), None)
-                        .await?
-                }
-            }
-            SetAction::TracingEnabled {
-                value: tracing_enabled,
-            } => {
-                api_client
-                    .set_dynamic_config(
-                        ConfigSetting::TracingEnabled,
-                        tracing_enabled.to_string(),
-                        None,
-                    )
-                    .await?
-            }
-        },
-        CliCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
-            cfg::cli_options::ExpectedMachineAction::Show(expected_machine_query) => {
-                expected_machines::show_expected_machines(
-                    &expected_machine_query,
-                    &api_client,
-                    config.format,
-                    &mut output_file,
-                )
-                .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Add(expected_machine_data) => {
-                if expected_machine_data.has_duplicate_dpu_serials() {
-                    eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
-                    return Ok(());
-                }
-                let metadata = expected_machine_data.metadata()?;
-                let host_nics = Vec::new();
-                api_client
-                    .add_expected_machine(
-                        expected_machine_data.bmc_mac_address,
-                        expected_machine_data.bmc_username,
-                        expected_machine_data.bmc_password,
-                        expected_machine_data.chassis_serial_number,
-                        expected_machine_data.fallback_dpu_serial_numbers,
-                        metadata,
-                        expected_machine_data.sku_id,
-                        expected_machine_data.id,
-                        host_nics,
-                        expected_machine_data.rack_id,
-                    )
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Delete(expected_machine_query) => {
-                api_client
-                    .0
-                    .delete_expected_machine(::rpc::forge::ExpectedMachineRequest {
-                        bmc_mac_address: expected_machine_query.bmc_mac_address.to_string(),
-                        id: None,
-                    })
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Patch(expected_machine_data) => {
-                if let Err(e) = expected_machine_data.validate() {
-                    eprintln!("{e}");
-                    return Ok(());
-                }
-                api_client
-                    .patch_expected_machine(
-                        expected_machine_data.bmc_mac_address,
-                        expected_machine_data.bmc_username,
-                        expected_machine_data.bmc_password,
-                        expected_machine_data.chassis_serial_number,
-                        expected_machine_data.fallback_dpu_serial_numbers,
-                        expected_machine_data.meta_name,
-                        expected_machine_data.meta_description,
-                        expected_machine_data.labels,
-                        expected_machine_data.sku_id,
-                        expected_machine_data.rack_id,
-                    )
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Update(request) => {
-                let json_file_path = Path::new(&request.filename);
-                let file_content = std::fs::read_to_string(json_file_path)?;
-                let expected_machine: cfg::cli_options::ExpectedMachineJson =
-                    serde_json::from_str(&file_content)?;
-
-                let metadata = expected_machine.metadata.unwrap_or_default();
-
-                // Use patch API but provide all fields from JSON for full replacement
-                api_client
-                    .patch_expected_machine(
-                        expected_machine.bmc_mac_address,
-                        Some(expected_machine.bmc_username),
-                        Some(expected_machine.bmc_password),
-                        Some(expected_machine.chassis_serial_number),
-                        expected_machine.fallback_dpu_serial_numbers,
-                        Some(metadata.name),
-                        Some(metadata.description),
-                        Some(
-                            metadata
-                                .labels
-                                .into_iter()
-                                .map(|label| {
-                                    if let Some(value) = label.value {
-                                        format!("{}:{}", label.key, value)
-                                    } else {
-                                        label.key
-                                    }
-                                })
-                                .collect(),
-                        ),
-                        expected_machine.sku_id,
-                        expected_machine.rack_id,
-                    )
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::ReplaceAll(request) => {
-                let json_file_path = Path::new(&request.filename);
-                let reader = BufReader::new(File::open(json_file_path)?);
-                #[derive(Debug, Serialize, Deserialize)]
-                struct ExpectedMachineList {
-                    expected_machines: Vec<ExpectedMachineJson>,
-                    expected_machines_count: Option<usize>,
-                }
-                let expected_machine_list: ExpectedMachineList = serde_json::from_reader(reader)?;
-
-                if expected_machine_list
-                    .expected_machines_count
-                    .is_some_and(|count| count != expected_machine_list.expected_machines.len())
-                {
-                    return Err(CarbideCliError::GenericError(format!(
-                        "Json File specified an invalid count: {:#?}; actual count: {}",
-                        expected_machine_list
-                            .expected_machines_count
-                            .unwrap_or_default(),
-                        expected_machine_list.expected_machines.len()
-                    ))
-                    .into());
-                }
-
-                api_client
-                    .replace_all_expected_machines(expected_machine_list.expected_machines)
-                    .await?;
-            }
-            cfg::cli_options::ExpectedMachineAction::Erase => {
-                api_client.0.delete_all_expected_machines().await?;
-            }
-        },
-        CliCommand::ExpectedPowerShelf(cmd) => {
-            expected_power_shelf::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::ExpectedSwitch(cmd) => {
-            expected_switch::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::Vpc(cmd) => {
-            vpc::dispatch(cmd, &api_client, config.format, config.internal_page_size).await?
-        }
-        CliCommand::Dpa(cmd) => {
-            dpa::dispatch(&cmd, &api_client, config.format, config.internal_page_size).await?
-        }
-        CliCommand::VpcPeering(cmd) => {
-            vpc_peering::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::VpcPrefix(cmd) => {
-            vpc_prefix::dispatch(&cmd, &api_client, config.format, config.internal_page_size)
-                .await?
-        }
-        CliCommand::IbPartition(cmd) => {
-            ib_partition::dispatch(cmd, &api_client, config.format, config.internal_page_size)
-                .await?
-        }
-        CliCommand::TenantKeySet(cmd) => {
-            tenant_keyset::dispatch(cmd, &api_client, config.format, config.internal_page_size)
-                .await?
-        }
-        CliCommand::Jump(j) => {
-            // Is it a machine ID?
-            // Grab the machine details.
-            if let Ok(machine_id) = j.id.parse::<MachineId>() {
-                machine::handle_show(
-                    machine::ShowMachine {
-                        machine: Some(machine_id),
-                        help: None,
-                        hosts: false,
-                        all: false,
-                        dpus: false,
-                        instance_type_id: None,
-                        history_count: 5,
-                    },
-                    &config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                    &config.sort_by,
-                )
-                .await?;
-
-                return Ok(());
-            }
-
-            // Is it an IP?
-            if IpAddr::from_str(&j.id).is_ok() {
-                let req = forgerpc::FindIpAddressRequest { ip: j.id };
-
-                let resp = api_client.0.find_ip_address(req).await?;
-
-                // Go through each object that matched the IP search,
-                // and perform any more specific searches available for
-                // the object type of the owner.   E.g., if it's an IP
-                // attached to an instance, get the details of the instance.
-                for m in resp.matches {
-                    let ip_type = match forgerpc::IpType::try_from(m.ip_type) {
-                        Ok(t) => t,
-                        Err(err) => {
-                            tracing::error!(ip_type = m.ip_type, error = %err, "Invalid IpType");
-                            continue;
-                        }
-                    };
-
-                    let config_format = config.format.clone();
-
-                    use forgerpc::IpType::*;
-                    match ip_type {
-                        StaticDataDhcpServer => tracing::info!("DHCP Server"),
-                        StaticDataRouteServer => tracing::info!("Route Server"),
-                        RouteServerFromConfigFile => tracing::info!("Route Server from Carbide config"),
-                        RouteServerFromAdminApi => tracing::info!("Route Server from Admin API"),
-                        InstanceAddress => {
-                            instance::cmds::handle_show(
-                                instance::args::ShowInstance {
-                                    id: m.owner_id.ok_or(CarbideCliError::GenericError(
-                                        "failed to unwrap owner_id after finding instance for IP".to_string(),
-                                    ))?,
-                                    extrainfo: true,
-                                    tenant_org_id: None,
-                                    vpc_id: None,
-                                    label_key: None,
-                                    label_value: None,
-                                    instance_type_id: None,
-                                },
-                                &mut output_file,
-                                &config_format,
-                                &api_client,
-                                config.internal_page_size,
-                                &config.sort_by,
-                            )
-                            .await?
-                        }
-                        MachineAddress | BmcIp | LoopbackIp => {
-                            machine::handle_show(
-                                machine::ShowMachine {
-                                    machine: Some(m.owner_id.and_then(|id| id.parse::<MachineId>().ok()).ok_or(CarbideCliError::GenericError(
-                                        "failed to unwrap owner_id after finding machine for IP".to_string(),
-                                    ))?),
-                                    help: None,
-                                    hosts: false,
-                                    all: false,
-                                    dpus: false,
-                                    instance_type_id: None,
-                                    history_count: 5
-                                },
-                                &config_format,
-                                &mut output_file,
-                                &api_client,
-                                config.internal_page_size,
-                                &config.sort_by,
-                            )
-                            .await?;
-                        }
-
-                        ExploredEndpoint => {
-                            site_explorer::show_site_explorer_discovered_managed_host(
-                                &api_client,
-                                &mut output_file,
-                                config_format,
-                                config.internal_page_size,
-                                site_explorer::args::GetReportMode::Endpoint(site_explorer::args::EndpointInfo{
-                                    address: if m.owner_id.is_some() { m.owner_id } else {
-                                        color_eyre::eyre::bail!(CarbideCliError::GenericError("IP type is explored-endpoint but returned owner_id is empty".to_string()))
-                                    },
-                                    erroronly: false,
-                                    successonly: false,
-                                    unpairedonly: false,
-                                    vendor: None,
-                                }),
-                            )
-                            .await?;
-                        }
-
-                        NetworkSegment => {
-                            network::handle_show(
-                                cfg::cli_options::ShowNetwork {
-                                    network: Some(m.owner_id.ok_or(CarbideCliError::GenericError(
-                                        "failed to unwrap owner_id after finding network segment for IP".to_string(),
-                                    ))?.parse()?),
-                                    tenant_org_id: None,
-                                    name: None,
-                                },
-                                config_format,
-                                &api_client,
-                                config.internal_page_size,
-                            )
-                            .await?
-                        }
-                        ResourcePool => resource_pool::cmds::list(&api_client).await?,
-                    };
-                }
-
-                return Ok(());
-            }
-
-            // Is it the UUID of some type of object?
-            // Try to identify the type of object and then perform
-            // a search for the object's details.  E.g., if it's the
-            // UUID of an instance, then get the details of the instance.
-            if let Ok(u) = j.id.parse::<uuid::Uuid>() {
-                match api_client.identify_uuid(u).await {
-                    Ok(o) => match o {
-                        forgerpc::UuidType::NetworkSegment => {
-                            network::handle_show(
-                                cfg::cli_options::ShowNetwork {
-                                    network: Some(j.id.parse()?),
-                                    tenant_org_id: None,
-                                    name: None,
-                                },
-                                config.format,
-                                &api_client,
-                                config.internal_page_size,
-                            )
-                            .await?
-                        }
-                        forgerpc::UuidType::Instance => {
-                            instance::cmds::handle_show(
-                                instance::args::ShowInstance {
-                                    id: j.id,
-                                    extrainfo: true,
-                                    tenant_org_id: None,
-                                    vpc_id: None,
-                                    label_key: None,
-                                    label_value: None,
-                                    instance_type_id: None,
-                                },
-                                &mut output_file,
-                                &config.format,
-                                &api_client,
-                                config.internal_page_size,
-                                &config.sort_by,
-                            )
-                            .await?
-                        }
-                        forgerpc::UuidType::MachineInterface => {
-                            machine_interfaces::handle_show(
-                                cfg::cli_options::ShowMachineInterfaces {
-                                    interface_id: Some(j.id.parse()?),
-                                    all: false,
-                                    more: true,
-                                },
-                                config.format,
-                                &api_client,
-                            )
-                            .await?
-                        }
-                        forgerpc::UuidType::Vpc => {
-                            vpc::cmds::show(
-                                vpc::args::ShowVpc {
-                                    id: Some(j.id.parse()?),
-                                    tenant_org_id: None,
-                                    name: None,
-                                    label_key: None,
-                                    label_value: None,
-                                },
-                                config.format,
-                                &api_client,
-                                1,
-                            )
-                            .await?
-                        }
-                        forgerpc::UuidType::Domain => {
-                            domain::cmds::handle_show(
-                                &domain::args::ShowDomain {
-                                    domain: Some(j.id.parse()?),
-                                    all: false,
-                                },
-                                config.format,
-                                &api_client,
-                            )
-                            .await?
-                        }
-                        forgerpc::UuidType::DpaInterfaceId => {
-                            dpa::cmds::show(
-                                &dpa::args::ShowDpa {
-                                    id: Some(j.id.parse()?),
-                                },
-                                config.format,
-                                &api_client,
-                                1,
-                            )
-                            .await?
-                        }
-                    },
-                    Err(e) => {
-                        color_eyre::eyre::bail!(e);
-                    }
-                }
-
-                return Ok(());
-            }
-
-            // Is it a MAC?
-            // Grab the details for the interface it's associated with.
-            if let Ok(m) = MacAddress::from_str(&j.id) {
-                match api_client.identify_mac(m).await {
-                    Ok((mac_owner, primary_key)) => match mac_owner {
-                        forgerpc::MacOwner::MachineInterface => {
-                            machine_interfaces::handle_show(
-                                cfg::cli_options::ShowMachineInterfaces {
-                                    interface_id: Some(primary_key.parse()?),
-                                    all: false,
-                                    more: true,
-                                },
-                                config.format,
-                                &api_client,
-                            )
-                            .await?
-                        }
-                        forgerpc::MacOwner::ExploredEndpoint => {
-                            color_eyre::eyre::bail!(
-                                "Searching explored-endpoints from MAC not yet implemented"
-                            );
-                        }
-                        forgerpc::MacOwner::ExpectedMachine => {
-                            color_eyre::eyre::bail!(
-                                "Searching expected-machines from MAC not yet implemented"
-                            );
-                        }
-                    },
-                    Err(e) => {
-                        color_eyre::eyre::bail!(e);
-                    }
-                }
-
-                return Ok(());
-            }
-
-            // Is it a serial number?!??!?!
-            // Grab the machine ID and look-up the machine.
-            if let Ok(machine_id) = api_client.identify_serial(j.id, false).await {
-                machine::handle_show(
-                    machine::ShowMachine {
-                        machine: Some(machine_id),
-                        help: None,
-                        hosts: false,
-                        all: false,
-                        dpus: false,
-                        instance_type_id: None,
-                        history_count: 5,
-                    },
-                    &config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                    &config.sort_by,
-                )
-                .await?;
-
-                return Ok(());
-            }
-
-            // Do we have no idea what it is?
-            color_eyre::eyre::bail!("Unable to determine ID type");
-        }
-
-        CliCommand::MachineValidation(cmd) => {
-            machine_validation::dispatch(
-                cmd,
-                &api_client,
-                config.format,
-                config.internal_page_size,
-                config.extended,
-            )
-            .await?
-        }
-        CliCommand::OsImage(os_image) => match os_image {
-            OsImageActions::Show(os_image) => {
-                storage::os_image_show(
-                    os_image,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?
-            }
-            OsImageActions::Create(os_image) => {
-                storage::os_image_create(os_image, &api_client).await?
-            }
-            OsImageActions::Delete(os_image) => {
-                storage::os_image_delete(os_image, &api_client).await?
-            }
-            OsImageActions::Update(os_image) => {
-                storage::os_image_update(os_image, &api_client).await?
-            }
-        },
-        CliCommand::TpmCa(cmd) => tpm_ca::dispatch(&cmd, &api_client).await?,
-        CliCommand::NetworkSecurityGroup(nsg_action) => match nsg_action {
-            NetworkSecurityGroupActions::Create(args) => {
-                network_security_group::nsg_create(args, config.format, &api_client).await?
-            }
-            NetworkSecurityGroupActions::Show(args) => {
-                network_security_group::nsg_show(
-                    args,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                    config.extended,
-                )
-                .await?
-            }
-            NetworkSecurityGroupActions::Update(args) => {
-                network_security_group::nsg_update(args, config.format, &api_client).await?
-            }
-            NetworkSecurityGroupActions::Delete(args) => {
-                network_security_group::nsg_delete(args, &api_client).await?
-            }
-            NetworkSecurityGroupActions::ShowAttachments(args) => {
-                network_security_group::nsg_show_attachments(args, config.format, &api_client)
-                    .await?
-            }
-            NetworkSecurityGroupActions::Attach(args) => {
-                network_security_group::nsg_attach(args, &api_client).await?
-            }
-            NetworkSecurityGroupActions::Detach(args) => {
-                network_security_group::nsg_detach(args, &api_client).await?
-            }
-        },
-        CliCommand::Sku(sku_command) => {
-            sku::handle_sku_command(
-                &api_client,
-                &mut output_file,
-                &config.format,
-                config.extended,
-                sku_command,
-            )
-            .await?;
-        }
-        CliCommand::DevEnv(command) => match command {
-            cfg::cli_options::DevEnv::Config(dev_env_config) => match dev_env_config {
-                cfg::cli_options::DevEnvConfig::Apply(dev_env_config_apply) => {
-                    apply_devenv_config(dev_env_config_apply, &api_client).await?;
-                }
-            },
-        },
-        CliCommand::InstanceType(action) => match action {
-            InstanceTypeActions::Create(args) => {
-                instance_type::create(args, config.format, &api_client).await?
-            }
-            InstanceTypeActions::Show(args) => {
-                instance_type::show(
-                    args,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                    config.extended,
-                )
-                .await?
-            }
-            InstanceTypeActions::Update(args) => {
-                instance_type::update(args, config.format, &api_client).await?
-            }
-            InstanceTypeActions::Delete(args) => instance_type::delete(args, &api_client).await?,
-            InstanceTypeActions::Associate(associate_instance_type) => {
-                instance_type::create_association(associate_instance_type, &api_client).await?;
-            }
-            InstanceTypeActions::Disassociate(disassociate_instance_type) => {
-                instance_type::remove_association(
-                    disassociate_instance_type,
-                    config.cloud_unsafe_op.is_some(),
-                    &api_client,
-                )
-                .await?;
-            }
-        },
-        CliCommand::Ssh(action) => match action {
-            cfg::cli_options::SshActions::GetRshimStatus(ssh_args) => {
-                let is_rshim_enabled = is_rshim_enabled(
-                    ssh_args.credentials.bmc_ip_address,
-                    ssh_args.credentials.bmc_username,
-                    ssh_args.credentials.bmc_password,
-                )
-                .await?;
-                tracing::info!("{is_rshim_enabled}");
-            }
-            cfg::cli_options::SshActions::DisableRshim(ssh_args) => {
-                disable_rshim(
-                    ssh_args.credentials.bmc_ip_address,
-                    ssh_args.credentials.bmc_username,
-                    ssh_args.credentials.bmc_password,
-                )
-                .await?;
-            }
-            cfg::cli_options::SshActions::EnableRshim(ssh_args) => {
-                enable_rshim(
-                    ssh_args.credentials.bmc_ip_address,
-                    ssh_args.credentials.bmc_username,
-                    ssh_args.credentials.bmc_password,
-                )
-                .await?;
-            }
-            cfg::cli_options::SshActions::CopyBfb(copy_bfb_args) => {
-                copy_bfb_to_bmc_rshim(
-                    copy_bfb_args.ssh_args.credentials.bmc_ip_address,
-                    copy_bfb_args.ssh_args.credentials.bmc_username,
-                    copy_bfb_args.ssh_args.credentials.bmc_password,
-                    copy_bfb_args.bfb_path,
-                )
-                .await?;
-            }
-            cfg::cli_options::SshActions::ShowObmcLog(ssh_args) => {
-                let log = read_obmc_console_log(
-                    ssh_args.credentials.bmc_ip_address,
-                    ssh_args.credentials.bmc_username,
-                    ssh_args.credentials.bmc_password,
-                )
-                .await?;
-
-                println!("OBMC Console Log:\n{log}");
-            }
-        },
-        CliCommand::PowerShelf(cmd) => {
-            power_shelf::dispatch(&cmd, &api_client, config.format).await?
-        }
-        CliCommand::Switch(cmd) => switch::dispatch(&cmd, &api_client, config.format).await?,
-        CliCommand::Rack(cmd) => rack::dispatch(&cmd, &api_client).await?,
-        CliCommand::Rms(action) => match action {
-            cfg::cli_options::RmsActions::Inventory => {
-                rack::cmds::get_inventory(&api_client).await?;
-            }
-            cfg::cli_options::RmsActions::RemoveNode(remove_node_opts) => {
-                rack::cmds::remove_node(&api_client, &remove_node_opts).await?;
-            }
-            cfg::cli_options::RmsActions::PoweronOrder => {
-                rack::cmds::get_poweron_order(&api_client).await?;
-            }
-            cfg::cli_options::RmsActions::PowerState(power_state_opts) => {
-                rack::cmds::get_power_state(&api_client, &power_state_opts).await?;
-            }
-            cfg::cli_options::RmsActions::FirmwareInventory(firmware_inventory_opts) => {
-                rack::cmds::get_firmware_inventory(&api_client, &firmware_inventory_opts).await?;
-            }
-            cfg::cli_options::RmsActions::AvailableFwImages(available_fw_images_opts) => {
-                rack::cmds::get_available_fw_images(&api_client, &available_fw_images_opts).await?;
-            }
-            cfg::cli_options::RmsActions::BkcFiles => {
-                rack::cmds::get_bkc_files(&api_client).await?;
-            }
-            cfg::cli_options::RmsActions::CheckBkcCompliance => {
-                rack::cmds::check_bkc_compliance(&api_client).await?;
-            }
-        },
-        CliCommand::Firmware(cmd) => {
-            firmware::dispatch(&cmd, &api_client, config.format, &mut output_file).await?
-        }
-        CliCommand::TrimTable(target) => {
-            match target {
-                cfg::cli_options::TrimTableTarget::MeasuredBoot(keep_entries) => {
-                    // create a request and send it
-                    let request = ::rpc::forge::TrimTableRequest {
-                        target: ::rpc::forge::TrimTableTarget::MeasuredBoot.into(),
-                        keep_entries: keep_entries.keep_entries,
-                    };
-
-                    let response = api_client.0.trim_table(request).await?;
-
-                    println!(
-                        "Trimmed {} reports from Measured Boot",
-                        response.total_deleted
-                    );
-                }
-            }
-        }
-        CliCommand::DpuRemediation(command) => match command {
-            cfg::cli_options::DpuRemediation::Create(create_remediation) => {
-                dpu_remediation::create_dpu_remediation(create_remediation, &api_client).await?;
-            }
-            cfg::cli_options::DpuRemediation::Approve(approve_remediation) => {
-                dpu_remediation::approve_dpu_remediation(approve_remediation, &api_client).await?;
-            }
-            cfg::cli_options::DpuRemediation::Revoke(revoke_remediation) => {
-                dpu_remediation::revoke_dpu_remediation(revoke_remediation, &api_client).await?;
-            }
-
-            cfg::cli_options::DpuRemediation::Enable(enable_remediation) => {
-                dpu_remediation::enable_dpu_remediation(enable_remediation, &api_client).await?;
-            }
-            cfg::cli_options::DpuRemediation::Disable(disable_remediation) => {
-                dpu_remediation::disable_dpu_remediation(disable_remediation, &api_client).await?;
-            }
-            cfg::cli_options::DpuRemediation::Show(show_remediation) => {
-                dpu_remediation::handle_show(
-                    show_remediation,
-                    config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?;
-            }
-            cfg::cli_options::DpuRemediation::ListApplied(list_applied_remediations) => {
-                dpu_remediation::handle_list_applied(
-                    list_applied_remediations,
-                    config.format,
-                    &mut output_file,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?;
-            }
-        },
-        CliCommand::ExtensionService(extension_service_command) => {
-            match extension_service_command {
-                cfg::cli_options::ExtensionServiceOptions::Create(create_options) => {
-                    extension_service::handle_create(create_options, config.format, &api_client)
-                        .await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::Update(update_options) => {
-                    extension_service::handle_update(update_options, config.format, &api_client)
-                        .await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::Delete(delete_options) => {
-                    extension_service::handle_delete(delete_options, config.format, &api_client)
-                        .await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::Show(show_options) => {
-                    extension_service::handle_show(
-                        show_options,
-                        config.format,
-                        &api_client,
-                        config.internal_page_size,
-                    )
-                    .await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::GetVersion(get_version_options) => {
-                    extension_service::handle_get_version(get_version_options, &api_client).await?;
-                }
-                cfg::cli_options::ExtensionServiceOptions::ShowInstances(
-                    show_instances_options,
-                ) => {
-                    extension_service::handle_show_instances(
-                        show_instances_options,
-                        config.format,
-                        &api_client,
-                    )
-                    .await?;
-                }
-            }
-        }
-
-        CliCommand::NvlPartition(nvlp) => match nvlp {
-            NvlPartitionOptions::Show(show_options) => {
-                nvl_partition::handle_show(
-                    show_options,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?
-            }
-        },
-
-        CliCommand::LogicalPartition(lp) => match lp {
-            LogicalPartitionOptions::Show(show_options) => {
-                nvl_logical_partition::handle_show(
-                    show_options,
-                    config.format,
-                    &api_client,
-                    config.internal_page_size,
-                )
-                .await?
-            }
-            LogicalPartitionOptions::Create(create_options) => {
-                nvl_logical_partition::handle_create(create_options, &api_client).await?
-            }
-            LogicalPartitionOptions::Delete(delete_options) => {
-                nvl_logical_partition::handle_delete(delete_options, &api_client).await?
-            }
-        },
-
-        CliCommand::Tenant(action) => match action {
-            TenantActions::Show(args) => {
-                tenant::show(args, config.format, &api_client, config.internal_page_size).await?
-            }
-            TenantActions::Update(args) => tenant::update(args, config.format, &api_client).await?,
-        },
     }
 
     Ok(())
-}
-
-pub fn url_validator(url: String) -> Result<String, CarbideCliError> {
-    let addr = tonic::transport::Uri::try_from(&url)
-        .map_err(|_| CarbideCliError::GenericError("invalid url".to_string()))?;
-    Ok(addr.to_string())
-}
-
-pub fn password_validator(s: String) -> Result<String, CarbideCliError> {
-    // TODO: check password according BMC pwd rule.
-    if s.is_empty() {
-        return Err(CarbideCliError::GenericError("invalid input".to_string()));
-    }
-
-    Ok(s)
 }
 
 pub async fn get_output_file_or_stdout(

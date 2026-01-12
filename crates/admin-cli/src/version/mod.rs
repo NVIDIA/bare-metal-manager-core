@@ -13,23 +13,21 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+#[cfg(test)]
+mod tests;
+
 // Export so the CLI builder can just pull in version::Opts.
 // This is different than others that pull in Cmd, since
 // this is just a single top-level command without any
 // subcommands.
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Opts;
 
-use crate::rpc::ApiClient;
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes version commands.
-pub async fn dispatch(
-    opts: &Opts,
-    api_client: &ApiClient,
-    format: OutputFormat,
-) -> CarbideCliResult<()> {
-    // No match here since version just has a single
-    // command it does, but still maintain the pattern
-    // of having a dispatcher.
-    cmds::handle_show_version(opts, api_client, format).await
+impl Dispatch for Opts {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        cmds::handle_show_version(&self, &ctx.api_client, ctx.config.format).await
+    }
 }

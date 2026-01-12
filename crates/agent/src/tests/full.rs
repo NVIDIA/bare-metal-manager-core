@@ -863,6 +863,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             }],
         }),
 
+        anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
+        tenant_host_asn: Some(65100),
         traffic_intercept_config: Some(rpc::forge::TrafficInterceptConfig {
             bridging: Some(rpc::forge::TrafficInterceptBridging {
                 internal_bridge_routing_prefix: "10.255.255.0/29".to_string(),

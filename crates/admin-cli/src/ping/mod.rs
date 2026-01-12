@@ -13,19 +13,22 @@
 pub mod args;
 pub mod cmds;
 
+#[cfg(test)]
+mod tests;
+
 // Export so the CLI builder can just pull in ping::Opts.
 // This is different than others that pull in Cmd, since
 // this is just a single top-level command without any
 // subcommands.
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Opts;
 
-use crate::rpc::ApiClient;
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes ping commands, which in this
-// case is just a top-level set of options.
-pub async fn dispatch(opts: &Opts, api_client: &ApiClient) -> color_eyre::Result<()> {
-    // No match here since ping just has a single
-    // command, but still maintain the pattern of
-    // having a dispatcher.
-    cmds::ping(api_client, opts).await
+impl Dispatch for Opts {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        cmds::ping(&ctx.api_client, &self).await?;
+        Ok(())
+    }
 }

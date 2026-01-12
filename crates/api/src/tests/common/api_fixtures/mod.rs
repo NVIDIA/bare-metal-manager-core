@@ -283,6 +283,7 @@ pub struct TestEnv {
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
+    pub test_credential_provider: Arc<TestCredentialProvider>,
 }
 
 impl TestEnv {
@@ -929,6 +930,8 @@ pub fn get_config() -> CarbideConfig {
         enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
+        anycast_site_prefixes: vec![],
+        common_tenant_host_asn: None,
         vpc_isolation_behavior: <_ as Default>::default(),
         tls: Some(crate::cfg::file::TlsConfig {
             root_cafile_path: "Not a real path".to_string(),
@@ -1553,6 +1556,7 @@ pub async fn create_test_env_with_overrides(
         underlay_segment,
         domain,
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
+        test_credential_provider: credential_provider.clone(),
     }
 }
 

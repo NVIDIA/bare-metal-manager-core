@@ -150,6 +150,18 @@ pub enum CarbideCliError {
 
     #[error("Invalid Routing Profile Type: {0}")]
     InvalidRoutingProfileType(String),
+
+    #[error(transparent)]
+    EyreReport(eyre::Report),
+}
+
+impl From<eyre::Report> for CarbideCliError {
+    // For commands that are [still] returning an eyre::Report,
+    // and not a CarbideCliError, preserve the full report and
+    // error chain for complete context.
+    fn from(err: eyre::Report) -> Self {
+        CarbideCliError::EyreReport(err)
+    }
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;

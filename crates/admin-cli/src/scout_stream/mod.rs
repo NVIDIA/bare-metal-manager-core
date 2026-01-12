@@ -18,7 +18,12 @@ use clap::Parser;
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 use crate::rpc::ApiClient;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Parser, Debug)]
 pub enum ScoutStreamAction {
@@ -51,20 +56,18 @@ pub struct CliContext<'g, 'a> {
     pub format: &'a OutputFormat,
 }
 
-// dispatch routes scout-stream commands.
-pub async fn dispatch(
-    command: ScoutStreamAction,
-    api_client: &ApiClient,
-    format: &OutputFormat,
-) -> CarbideCliResult<()> {
-    let mut ctxt = CliContext {
-        grpc_conn: api_client,
-        format,
-    };
-    match command {
-        ScoutStreamAction::Show(cmd) => handle_show(cmd, &mut ctxt).await,
-        ScoutStreamAction::Disconnect(cmd) => handle_disconnect(cmd, &mut ctxt).await,
-        ScoutStreamAction::Ping(cmd) => handle_ping(cmd, &mut ctxt).await,
+impl Dispatch for ScoutStreamAction {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        let mut ctxt = CliContext {
+            grpc_conn: &ctx.api_client,
+            format: &ctx.config.format,
+        };
+        match self {
+            ScoutStreamAction::Show(cmd) => handle_show(cmd, &mut ctxt).await?,
+            ScoutStreamAction::Disconnect(cmd) => handle_disconnect(cmd, &mut ctxt).await?,
+            ScoutStreamAction::Ping(cmd) => handle_ping(cmd, &mut ctxt).await?,
+        }
+        Ok(())
     }
 }
 

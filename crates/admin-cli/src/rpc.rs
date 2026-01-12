@@ -11,23 +11,16 @@
  */
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
-    self as rpc, AppliedRemediationIdList, AppliedRemediationList, ApproveRemediationRequest,
-    BmcCredentialStatusResponse, BmcEndpointRequest, CreateNetworkSecurityGroupRequest,
-    CreateRemediationRequest, CreateRemediationResponse, DeleteNetworkSecurityGroupRequest,
-    DisableRemediationRequest, EnableRemediationRequest, FindAppliedRemediationIdsRequest,
-    FindAppliedRemediationsRequest, FindInstanceTypesByIdsRequest,
-    FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
-    GetNetworkSecurityGroupPropagationStatusRequest, IdentifySerialRequest,
-    IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
-    MachineHardwareInfoUpdateType, Metadata, NetworkPrefix, NetworkSecurityGroupAttributes,
-    NetworkSegmentCreationRequest, NetworkSegmentDeletionRequest, NetworkSegmentDeletionResult,
-    NetworkSegmentType, PowerState, Remediation, RemediationIdList, RemediationList,
-    RevokeRemediationRequest, SshRequest, UpdateMachineHardwareInfoRequest,
+    self as rpc, BmcEndpointRequest, CreateNetworkSecurityGroupRequest,
+    FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest,
+    GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
+    IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType, NetworkPrefix,
+    NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest, NetworkSegmentType, Remediation,
+    RemediationIdList, RemediationList, UpdateMachineHardwareInfoRequest,
     UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
     VpcsByIdsRequest,
 };
@@ -41,12 +34,11 @@ use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::vpc::VpcId;
-use carbide_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
-use crate::cfg::cli_options;
+use crate::expected_machines::args::ExpectedMachineJson;
 use crate::instance::args::AllocateInstance;
-use crate::machine::{ForceDeleteMachineQuery, MachineAutoupdate};
+use crate::machine::MachineAutoupdate;
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
 /// methods.
@@ -90,14 +82,6 @@ impl ApiClient {
         Ok(machine_details)
     }
 
-    pub async fn get_network_device_topology(
-        &self,
-        id: Option<String>,
-    ) -> CarbideCliResult<rpc::NetworkTopologyData> {
-        let request = rpc::NetworkTopologyRequest { id };
-        Ok(self.0.get_network_topology(request).await?)
-    }
-
     pub async fn get_all_machines(
         &self,
         request: rpc::MachineSearchConfig,
@@ -114,36 +98,6 @@ impl ApiClient {
         }
 
         Ok(all_machines)
-    }
-
-    pub async fn reboot_instance(
-        &self,
-        machine_id: MachineId,
-        boot_with_custom_ipxe: bool,
-        apply_updates_on_reboot: bool,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::InstancePowerRequest {
-            machine_id: Some(machine_id),
-            operation: rpc::instance_power_request::Operation::PowerReset as i32,
-            boot_with_custom_ipxe,
-            apply_updates_on_reboot,
-        };
-
-        self.0.invoke_instance_power(request).await?;
-
-        Ok(())
-    }
-
-    pub async fn release_instances(&self, instance_ids: Vec<InstanceId>) -> CarbideCliResult<()> {
-        for instance_id in instance_ids {
-            let request = rpc::InstanceReleaseRequest {
-                id: Some(instance_id),
-                issue: None,
-                is_repair_tenant: None,
-            };
-            self.0.release_instance(request).await?;
-        }
-        Ok(())
     }
 
     pub async fn identify_uuid(&self, u: uuid::Uuid) -> CarbideCliResult<rpc::UuidType> {
@@ -382,107 +336,6 @@ impl ApiClient {
         Ok(self.0.insert_health_report_override(request).await?)
     }
 
-    pub async fn machine_remove_health_report_override(
-        &self,
-        id: MachineId,
-        source: String,
-    ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::RemoveHealthReportOverrideRequest {
-            machine_id: Some(id),
-            source,
-        };
-        Ok(self.0.remove_health_report_override(request).await?)
-    }
-
-    pub async fn get_health_report_overrides(
-        &self,
-        machine_id: ::carbide_uuid::machine::MachineId,
-    ) -> CarbideCliResult<::rpc::forge::ListHealthReportOverrideResponse> {
-        self.0
-            .list_health_report_overrides(machine_id)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn get_machine_health_histories(
-        &self,
-        request: ::rpc::forge::MachineHealthHistoriesRequest,
-    ) -> CarbideCliResult<::rpc::forge::MachineHealthHistories> {
-        self.0
-            .find_machine_health_histories(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn machine_admin_force_delete(
-        &self,
-        query: ForceDeleteMachineQuery,
-    ) -> CarbideCliResult<::rpc::forge::AdminForceDeleteMachineResponse> {
-        let request = ::rpc::forge::AdminForceDeleteMachineRequest {
-            host_query: query.machine,
-            delete_interfaces: query.delete_interfaces,
-            delete_bmc_interfaces: query.delete_bmc_interfaces,
-            delete_bmc_credentials: query.delete_bmc_credentials,
-        };
-        Ok(self.0.admin_force_delete_machine(request).await?)
-    }
-
-    pub async fn trigger_dpu_reprovisioning(
-        &self,
-        id: MachineId,
-        mode: ::rpc::forge::dpu_reprovisioning_request::Mode,
-        update_firmware: bool,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::DpuReprovisioningRequest {
-            dpu_id: Some(id),
-            machine_id: Some(id),
-            mode: mode as i32,
-            initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-            update_firmware,
-        };
-        Ok(self.0.trigger_dpu_reprovisioning(request).await?)
-    }
-
-    pub async fn trigger_host_reprovisioning(
-        &self,
-        id: MachineId,
-        mode: ::rpc::forge::host_reprovisioning_request::Mode,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::HostReprovisioningRequest {
-            machine_id: Some(id),
-            mode: mode as i32,
-            initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-        };
-        self.0.trigger_host_reprovisioning(request).await?;
-
-        Ok(())
-    }
-
-    pub async fn set_boot_override(
-        &self,
-        machine_interface_id: MachineInterfaceId,
-        custom_pxe_path: Option<&Path>,
-        custom_user_data_path: Option<&Path>,
-    ) -> CarbideCliResult<()> {
-        let custom_pxe = match custom_pxe_path {
-            Some(custom_pxe_path) => Some(std::fs::read_to_string(custom_pxe_path)?),
-            None => None,
-        };
-
-        let custom_user_data = match custom_user_data_path {
-            Some(custom_user_data_path) => Some(std::fs::read_to_string(custom_user_data_path)?),
-            None => None,
-        };
-
-        let request = MachineBootOverride {
-            machine_interface_id: Some(machine_interface_id),
-            custom_pxe,
-            custom_user_data,
-        };
-
-        Ok(self.0.set_machine_boot_override(request).await?)
-    }
-
     pub async fn bmc_reset(
         &self,
         bmc_endpoint_request: Option<BmcEndpointRequest>,
@@ -581,79 +434,6 @@ impl ApiClient {
             all_hosts.managed_hosts.extend(list.managed_hosts);
         }
         Ok(all_hosts.managed_hosts)
-    }
-
-    pub async fn explore(
-        &self,
-        address: &str,
-        mac_address: Option<MacAddress>,
-    ) -> CarbideCliResult<::rpc::site_explorer::EndpointExplorationReport> {
-        let request = rpc::BmcEndpointRequest {
-            ip_address: address.to_string(),
-            mac_address: mac_address.map(|mac| mac.to_string()),
-        };
-        Ok(self.0.explore(request).await?)
-    }
-
-    pub async fn re_explore_endpoint(&self, address: &str) -> CarbideCliResult<()> {
-        let request = rpc::ReExploreEndpointRequest {
-            ip_address: address.to_string(),
-            if_version_match: None,
-        };
-        Ok(self.0.re_explore_endpoint(request).await?)
-    }
-
-    pub async fn pause_explored_endpoint_remediation(
-        &self,
-        address: &str,
-        pause: bool,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::PauseExploredEndpointRemediationRequest {
-            ip_address: address.to_string(),
-            pause,
-        };
-        Ok(self.0.pause_explored_endpoint_remediation(request).await?)
-    }
-
-    pub async fn is_bmc_in_managed_host(
-        &self,
-        address: &str,
-        mac_address: Option<MacAddress>,
-    ) -> CarbideCliResult<IsBmcInManagedHostResponse> {
-        let request = rpc::BmcEndpointRequest {
-            ip_address: address.to_string(),
-            mac_address: mac_address.map(|mac| mac.to_string()),
-        };
-        Ok(self.0.is_bmc_in_managed_host(request).await?)
-    }
-
-    pub async fn bmc_credential_status(
-        &self,
-        address: &str,
-        mac_address: Option<MacAddress>,
-    ) -> CarbideCliResult<BmcCredentialStatusResponse> {
-        let request = rpc::BmcEndpointRequest {
-            ip_address: address.to_string(),
-            mac_address: mac_address.map(|mac| mac.to_string()),
-        };
-        Ok(self.0.bmc_credential_status(request).await?)
-    }
-
-    pub async fn copy_bfb_to_dpu_rshim(
-        &self,
-        address: String,
-        mac_address: Option<MacAddress>,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::CopyBfbToDpuRshimRequest {
-            ssh_request: Some(SshRequest {
-                endpoint_request: Some(BmcEndpointRequest {
-                    ip_address: address.to_string(),
-                    mac_address: mac_address.map(|mac| mac.to_string()),
-                }),
-            }),
-        };
-
-        Ok(self.0.copy_bfb_to_dpu_rshim(request).await?)
     }
 
     pub async fn get_machines_by_ids(
@@ -901,7 +681,7 @@ impl ApiClient {
 
     pub async fn replace_all_expected_machines(
         &self,
-        expected_machine_list: Vec<cli_options::ExpectedMachineJson>,
+        expected_machine_list: Vec<ExpectedMachineJson>,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedMachineList {
             expected_machines: expected_machine_list
@@ -1108,14 +888,6 @@ impl ApiClient {
         Ok(self.0.create_network_segment(request).await?)
     }
 
-    pub async fn delete_network_segment(
-        &self,
-        id: NetworkSegmentId,
-    ) -> CarbideCliResult<NetworkSegmentDeletionResult> {
-        let request = NetworkSegmentDeletionRequest { id: Some(id) };
-        Ok(self.0.delete_network_segment(request).await?)
-    }
-
     // Fetch from Carbide and return a vector of Dpa interface IDs
     async fn get_dpa_ids(&self) -> CarbideCliResult<rpc::DpaInterfaceIdList> {
         Ok(self.0.get_all_dpa_interface_ids().await?)
@@ -1161,34 +933,6 @@ impl ApiClient {
         self.0.update_vpc_virtualization(request).await?;
 
         Ok(())
-    }
-
-    pub async fn create_vpc_peering(
-        &self,
-        vpc_id: Option<VpcId>,
-        peer_vpc_id: Option<VpcId>,
-    ) -> CarbideCliResult<rpc::VpcPeering> {
-        let request = rpc::VpcPeeringCreationRequest {
-            vpc_id,
-            peer_vpc_id,
-        };
-        Ok(self.0.create_vpc_peering(request).await?)
-    }
-
-    pub async fn find_vpc_peering_ids(
-        &self,
-        vpc_id: Option<VpcId>,
-    ) -> CarbideCliResult<rpc::VpcPeeringIdList> {
-        let request = rpc::VpcPeeringSearchFilter { vpc_id };
-        Ok(self.0.find_vpc_peering_ids(request).await?)
-    }
-
-    pub async fn find_vpc_peerings_by_ids(
-        &self,
-        vpc_peering_ids: Vec<VpcPeeringId>,
-    ) -> CarbideCliResult<rpc::VpcPeeringList> {
-        let request = rpc::VpcPeeringsByIdsRequest { vpc_peering_ids };
-        Ok(self.0.find_vpc_peerings_by_ids(request).await?)
     }
 
     pub async fn get_all_ib_partitions(
@@ -1768,19 +1512,6 @@ impl ApiClient {
         Ok(response.images)
     }
 
-    pub async fn delete_os_image(
-        &self,
-        id: ::rpc::common::Uuid,
-        tenant_organization_id: String,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::DeleteOsImageRequest {
-            id: Some(id),
-            tenant_organization_id,
-        };
-        self.0.delete_os_image(request).await?;
-        Ok(())
-    }
-
     pub async fn update_os_image(
         &self,
         id: ::rpc::common::Uuid,
@@ -1866,48 +1597,6 @@ impl ApiClient {
         Ok(self.0.get_machine_validation_tests(request).await?)
     }
 
-    pub async fn machine_validation_test_verfied(
-        &self,
-        test_id: String,
-        version: String,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::MachineValidationTestVerfiedRequest { test_id, version };
-        self.0.machine_validation_test_verfied(request).await?;
-        Ok(())
-    }
-
-    pub async fn machine_validation_test_enable_disable(
-        &self,
-        test_id: String,
-        version: String,
-        is_enabled: bool,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::MachineValidationTestEnableDisableTestRequest {
-            test_id,
-            version,
-            is_enabled,
-        };
-        self.0
-            .machine_validation_test_enable_disable_test(request)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn machine_validation_test_update(
-        &self,
-        test_id: String,
-        version: String,
-        payload: rpc::machine_validation_test_update_request::Payload,
-    ) -> CarbideCliResult<()> {
-        let request = rpc::MachineValidationTestUpdateRequest {
-            test_id,
-            version,
-            payload: Some(payload),
-        };
-        self.0.update_machine_validation_test(request).await?;
-        Ok(())
-    }
-
     pub async fn update_machine_metadata(
         &self,
         machine_id: MachineId,
@@ -1920,20 +1609,6 @@ impl ApiClient {
             metadata: Some(metadata),
         };
         Ok(self.0.update_machine_metadata(request).await?)
-    }
-
-    pub async fn assign_sku_to_machine(
-        &self,
-        sku_id: String,
-        machine_id: MachineId,
-        force: bool,
-    ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::SkuMachinePair {
-            sku_id,
-            machine_id: Some(machine_id),
-            force,
-        };
-        Ok(self.0.assign_sku_to_machine(request).await?)
     }
 
     pub async fn create_network_security_group(
@@ -2072,21 +1747,6 @@ impl ApiClient {
             .ok_or(CarbideCliError::Empty)
     }
 
-    pub async fn delete_network_security_group(
-        &self,
-        id: String,
-        tenant_organization_id: String,
-    ) -> CarbideCliResult<()> {
-        self.0
-            .delete_network_security_group(DeleteNetworkSecurityGroupRequest {
-                id,
-                tenant_organization_id,
-            })
-            .await?;
-
-        Ok(())
-    }
-
     // TODO: add other hardware info
     pub async fn update_machine_hardware_info(
         &self,
@@ -2127,37 +1787,6 @@ impl ApiClient {
         Ok(all_itypes)
     }
 
-    pub async fn create_instance_type_association(
-        &self,
-        instance_type_id: String,
-        machine_ids: Vec<String>,
-    ) -> CarbideCliResult<()> {
-        self.0
-            .associate_machines_with_instance_type(rpc::AssociateMachinesWithInstanceTypeRequest {
-                instance_type_id,
-                machine_ids,
-            })
-            .await?;
-
-        Ok(())
-    }
-
-    pub async fn remove_instance_type_association(
-        &self,
-        machine_id: MachineId,
-    ) -> CarbideCliResult<()> {
-        self.0
-            .remove_machine_instance_type_association(
-                // Note: This RPC method actually takes a string machine_id. It should have been using a MachineId instead.
-                rpc::RemoveMachineInstanceTypeAssociationRequest {
-                    machine_id: machine_id.to_string(),
-                },
-            )
-            .await?;
-
-        Ok(())
-    }
-
     pub async fn get_power_options(
         &self,
         machine_id: Vec<MachineId>,
@@ -2169,23 +1798,6 @@ impl ApiClient {
             .response;
 
         Ok(all_options)
-    }
-
-    pub async fn update_power_options(
-        &self,
-        machine_id: MachineId,
-        power_state: PowerState,
-    ) -> CarbideCliResult<Vec<rpc::PowerOptions>> {
-        let power_options = self
-            .0
-            .update_power_option(rpc::PowerOptionUpdateRequest {
-                machine_id: Some(machine_id),
-                power_state: power_state as i32,
-            })
-            .await?
-            .response;
-
-        Ok(power_options)
     }
 
     pub async fn get_all_nv_link_partitions(
@@ -2414,91 +2026,6 @@ impl ApiClient {
         Ok(self.0.lockdown_status(request).await?)
     }
 
-    pub async fn create_dpu_remediation(
-        &self,
-        script: String,
-        metadata: Option<Metadata>,
-        retries: Option<u32>,
-    ) -> CarbideCliResult<CreateRemediationResponse> {
-        let retries = retries.unwrap_or_default() as i32;
-        let request = CreateRemediationRequest {
-            script,
-            metadata,
-            retries,
-        };
-        Ok(self.0.create_remediation(request).await?)
-    }
-
-    pub async fn approve_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
-        let request = ApproveRemediationRequest {
-            remediation_id: Some(id),
-        };
-        Ok(self.0.approve_remediation(request).await?)
-    }
-
-    pub async fn revoke_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
-        let request = RevokeRemediationRequest {
-            remediation_id: Some(id),
-        };
-        Ok(self.0.revoke_remediation(request).await?)
-    }
-
-    pub async fn enable_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
-        let request = EnableRemediationRequest {
-            remediation_id: Some(id),
-        };
-        Ok(self.0.enable_remediation(request).await?)
-    }
-
-    pub async fn disable_dpu_remediation(&self, id: RemediationId) -> CarbideCliResult<()> {
-        let request = DisableRemediationRequest {
-            remediation_id: Some(id),
-        };
-        Ok(self.0.disable_remediation(request).await?)
-    }
-
-    pub async fn find_applied_remediations_by_remediation_id(
-        &self,
-        remediation_id: RemediationId,
-    ) -> CarbideCliResult<AppliedRemediationIdList> {
-        self.find_applied_remediation_ids(Some(remediation_id), None)
-            .await
-    }
-
-    pub async fn find_applied_remediations_by_machine_id(
-        &self,
-        dpu_machine_id: MachineId,
-    ) -> CarbideCliResult<AppliedRemediationIdList> {
-        self.find_applied_remediation_ids(None, Some(dpu_machine_id))
-            .await
-    }
-
-    async fn find_applied_remediation_ids(
-        &self,
-        remediation_id: Option<RemediationId>,
-        dpu_machine_id: Option<MachineId>,
-    ) -> CarbideCliResult<AppliedRemediationIdList> {
-        let request = FindAppliedRemediationIdsRequest {
-            remediation_id,
-            dpu_machine_id,
-        };
-
-        Ok(self.0.find_applied_remediation_ids(request).await?)
-    }
-
-    pub async fn find_applied_remediations(
-        &self,
-        remediation_id: RemediationId,
-        machine_id: MachineId,
-    ) -> CarbideCliResult<AppliedRemediationList> {
-        let request = FindAppliedRemediationsRequest {
-            remediation_id: Some(remediation_id),
-            dpu_machine_id: Some(machine_id),
-        };
-
-        Ok(self.0.find_applied_remediations(request).await?)
-    }
-
     pub async fn get_remediation(
         &self,
         remediation_id: RemediationId,
@@ -2592,19 +2119,6 @@ impl ApiClient {
         Ok(self.0.update_dpu_extension_service(request).await?)
     }
 
-    pub async fn delete_extension_service(
-        &self,
-        service_id: String,
-        versions: Vec<String>,
-    ) -> CarbideCliResult<rpc::DeleteDpuExtensionServiceResponse> {
-        let request = rpc::DeleteDpuExtensionServiceRequest {
-            service_id,
-            versions,
-        };
-
-        Ok(self.0.delete_dpu_extension_service(request).await?)
-    }
-
     pub async fn find_extension_services(
         &self,
         service_type: Option<i32>,
@@ -2656,37 +2170,5 @@ impl ApiClient {
             },
             Err(e) => Err(CarbideCliError::ApiInvocationError(e)),
         }
-    }
-
-    pub async fn get_extension_service_version_infos(
-        &self,
-        service_id: String,
-        versions: Vec<String>,
-    ) -> CarbideCliResult<rpc::DpuExtensionServiceVersionInfoList> {
-        let request = rpc::GetDpuExtensionServiceVersionsInfoRequest {
-            service_id,
-            versions,
-        };
-
-        Ok(self
-            .0
-            .get_dpu_extension_service_versions_info(request)
-            .await?)
-    }
-
-    pub async fn find_instances_by_extension_service(
-        &self,
-        service_id: String,
-        version: Option<String>,
-    ) -> CarbideCliResult<rpc::FindInstancesByDpuExtensionServiceResponse> {
-        let request = rpc::FindInstancesByDpuExtensionServiceRequest {
-            service_id,
-            version,
-        };
-
-        Ok(self
-            .0
-            .find_instances_by_dpu_extension_service(request)
-            .await?)
     }
 }

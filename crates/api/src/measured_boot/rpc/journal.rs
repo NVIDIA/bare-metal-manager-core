@@ -17,9 +17,11 @@
 use std::str::FromStr;
 
 use carbide_uuid::machine::MachineId;
+use db::WithTransaction;
 use db::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
+use futures_util::FutureExt;
 use rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, DeleteMeasurementJournalResponse,
     ListMeasurementJournalRequest, ListMeasurementJournalResponse, MeasurementJournalRecordPb,
@@ -88,6 +90,8 @@ pub async fn handle_show_measurement_journal(
         None => return Err(Status::invalid_argument("selector must be provided")),
     };
 
+    txn.commit().await?;
+
     Ok(ShowMeasurementJournalResponse {
         journal: Some(journal.into()),
     })
@@ -99,11 +103,10 @@ pub async fn handle_show_measurement_journals(
     api: &Api,
     _req: ShowMeasurementJournalsRequest,
 ) -> Result<ShowMeasurementJournalsResponse, Status> {
-    let mut txn = api.txn_begin().await?;
-
     Ok(ShowMeasurementJournalsResponse {
-        journals: db::measured_boot::journal::get_all(&mut txn)
-            .await
+        journals: api
+            .with_txn(|txn| db::measured_boot::journal::get_all(txn).boxed())
+            .await?
             .map_err(|e| Status::internal(format!("failed to fetch journals: {e}")))?
             .drain(..)
             .map(|journal| journal.into())
@@ -141,6 +144,8 @@ pub async fn handle_list_measurement_journal(
             .map(|journal| journal.into())
             .collect(),
     };
+
+    txn.commit().await?;
 
     Ok(ListMeasurementJournalResponse { journals })
 }

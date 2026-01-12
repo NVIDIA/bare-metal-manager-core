@@ -15,7 +15,7 @@ use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::OutputFormat;
 
 use super::args::{DeleteRack, ShowRack};
-use crate::cfg::cli_options::{AvailableFwImages, FirmwareInventory, PowerState, RemoveNode};
+use crate::rms::args::{AvailableFwImages, FirmwareInventory, PowerState, RemoveNode};
 use crate::rpc::ApiClient;
 
 pub async fn show_rack(api_client: &ApiClient, show_opts: &ShowRack) -> Result<()> {

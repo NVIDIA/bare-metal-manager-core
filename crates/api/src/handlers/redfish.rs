@@ -14,12 +14,13 @@ use std::str::FromStr;
 
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Local};
-use db::Transaction;
 use db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
 };
+use db::{Transaction, WithTransaction};
 use forge_secrets::credentials::CredentialProvider;
+use futures_util::FutureExt;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Uri};
 use model::redfish::BMCResponse;
@@ -101,9 +102,9 @@ pub async fn redfish_list_actions(
 
     let request = request.into_inner();
 
-    let mut txn = api.txn_begin().await?;
-
-    let result = list_requests(request, &mut txn).await?;
+    let result = api
+        .with_txn(|txn| list_requests(request, txn).boxed())
+        .await??;
 
     Ok(tonic::Response::new(
         rpc::forge::RedfishListActionsResponse {

@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::sync::atomic::Ordering;
 
 use ::rpc::forge::dpu_extension_service_observability_config::Config;
 use ::rpc::forge::forge_server::Forge;
@@ -17,9 +18,11 @@ use ::rpc::forge::{
     DpuExtensionServiceObservabilityConfigLogging,
 };
 use config_version::ConfigVersion;
+use forge_secrets::credentials::{CredentialKey, Credentials};
 use tonic::Request;
 use uuid::Uuid;
 
+use crate::api::Api;
 use crate::tests::common::api_fixtures::{TestEnv, create_managed_host, create_test_env};
 
 const TEST_SERVICE_DATA: &str = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27";
@@ -86,28 +89,34 @@ async fn create_test_tenants(env: &TestEnv) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-async fn create_test_extension_service(
+async fn create_test_extension_service_and_tenants(
     env: &TestEnv,
 ) -> Result<rpc::DpuExtensionService, eyre::Report> {
     create_test_tenants(env).await?;
+    create_test_extension_service(&env.api, "test-service", None).await
+}
+
+async fn create_test_extension_service(
+    api: &Api,
+    name: &str,
+    credential: Option<rpc::DpuExtensionServiceCredential>,
+) -> Result<rpc::DpuExtensionService, eyre::Report> {
     let extension_service = rpc::CreateDpuExtensionServiceRequest {
         service_id: None,
-        service_name: "test-service".to_string(),
+        service_name: name.to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
         service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
-        credential: None,
+        credential,
         observability: None,
     };
 
-    let create_resp = env
-        .api
+    let create_resp = api
         .create_dpu_extension_service(Request::new(extension_service))
         .await;
 
-    assert!(create_resp.is_ok());
-    Ok(create_resp.unwrap().into_inner())
+    Ok(create_resp?.into_inner())
 }
 
 async fn create_test_extension_service_with_three_versions(
@@ -225,6 +234,33 @@ async fn create_test_extension_service_with_ten_versions(
     Ok(service_id)
 }
 
+async fn get_credentials_for_extension_service(
+    env: &TestEnv,
+    extension_service: &rpc::DpuExtensionService,
+) -> Result<Credentials, eyre::Report> {
+    // Verify the credential is stored correctly in Vault
+    let credential_key = forge_secrets::credentials::CredentialKey::ExtensionService {
+        service_id: extension_service.service_id.clone(),
+        version: extension_service
+            .latest_version_info
+            .as_ref()
+            .unwrap()
+            .version
+            .clone()
+            .parse::<config_version::ConfigVersion>()
+            .unwrap()
+            .version_nr()
+            .to_string(),
+    };
+
+    let stored_credential = env
+        .api
+        .credential_provider
+        .get_credentials(&credential_key)
+        .await?;
+    stored_credential.ok_or_else(|| eyre::eyre!("Could not find the credential"))
+}
+
 #[crate::sqlx_test]
 async fn test_extension_service_creation(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool).await;
@@ -283,6 +319,52 @@ async fn test_extension_service_create_with_credential(
     assert!(create_resp.is_ok());
 
     let extension_service = create_resp.unwrap().into_inner();
+
+    assert!(
+        extension_service
+            .latest_version_info
+            .as_ref()
+            .unwrap()
+            .has_credential
+    );
+
+    // Verify the credential is stored correctly in Vault
+    let Credentials::UsernamePassword { username, password } =
+        get_credentials_for_extension_service(&env, &extension_service).await?;
+
+    assert_eq!(
+        username,
+        "url: https://registry.test.com, username: test-username"
+    );
+    assert_eq!(password, "test-password");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_extension_service_create_failure(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+
+    create_test_tenants(&env).await?;
+
+    let requested_extension_service = rpc::CreateDpuExtensionServiceRequest {
+        service_id: None,
+        service_name: "test-service".to_string(),
+        description: Some("Test service".to_string()),
+        tenant_organization_id: "best_org".to_string(),
+        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        data: TEST_SERVICE_DATA.to_string(),
+        credential: Some(create_credential()),
+        observability: Some(create_observability()),
+    };
+
+    let create_resp = env
+        .api
+        .create_dpu_extension_service(Request::new(requested_extension_service.clone()))
+        .await;
+    assert!(create_resp.is_ok());
+
+    let extension_service = create_resp.unwrap().into_inner();
     let latest_version = extension_service.latest_version_info.unwrap();
 
     assert!(latest_version.has_credential);
@@ -302,21 +384,304 @@ async fn test_extension_service_create_with_credential(
         .api
         .credential_provider
         .get_credentials(&credential_key)
-        .await?;
+        .await?
+        .expect("creating an extension service should have created a credential");
 
-    match stored_credential {
-        Some(forge_secrets::credentials::Credentials::UsernamePassword { username, password }) => {
-            // The username should be formatted as "url: {registry_url}, username: {username}"
+    // Try to create an identical extension service
+    let create_resp_2 = env
+        .api
+        .create_dpu_extension_service(Request::new(requested_extension_service))
+        .await;
+    assert!(
+        create_resp_2.is_err(),
+        "creating a second identical extension service should have failed"
+    );
+
+    let stored_credential_2 = env
+        .api
+        .credential_provider
+        .get_credentials(&credential_key)
+        .await?
+        .expect("Failing to create a second extension should not delete existing credentials");
+
+    assert_eq!(
+        stored_credential, stored_credential_2,
+        "Failing to create a second extension should not have changed the credentials"
+    );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_extension_service_update_race_condition(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+
+    create_test_tenants(&env).await?;
+
+    let credential = {
+        let mut c = create_credential();
+        c.r#type = Some(
+            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
+                username: "test-username-1".to_string(),
+                password: "test-password-1".to_string(),
+            }),
+        );
+        c
+    };
+
+    // When updating we will try to set the credentials to this for both services.
+    let updated_credential = {
+        let mut c = create_credential();
+        c.r#type = Some(
+            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
+                username: "test-username-updated".to_string(),
+                password: "test-password-updated".to_string(),
+            }),
+        );
+        c
+    };
+
+    // Create an original service, then create another, then update the second service to collide with the first one, which will fail.
+    let service = create_test_extension_service(&env.api, "test-service-1", Some(credential))
+        .await
+        .unwrap();
+
+    // Make the credential writes slow so that the database can conflict
+    env.test_credential_provider
+        .set_credentials_sleep_time_ms
+        .store(1000, Ordering::SeqCst);
+
+    // Make both requests at the same time
+    let (update_1, update_2) = {
+        let join_handle_1 = tokio::spawn({
+            let api = env.api.clone();
+            let request = Request::new(rpc::UpdateDpuExtensionServiceRequest {
+                service_id: service.service_id.clone(),
+                service_name: Some("test-service-updated".to_string()), // should cause collision
+                description: Some(service.description.clone()),
+                data: TEST_SERVICE_DATA.to_string(),
+                credential: Some(updated_credential.clone()),
+                if_version_ctr_match: None,
+                observability: None,
+            });
+            async move { api.update_dpu_extension_service(request).await }
+        });
+        let join_handle_2 = tokio::spawn({
+            let api = env.api.clone();
+            let request = Request::new(rpc::UpdateDpuExtensionServiceRequest {
+                service_id: service.service_id.clone(),
+                service_name: Some("test-service-updated".to_string()), // should cause collision
+                description: Some(service.description.clone()),
+                data: TEST_SERVICE_DATA.to_string(),
+                credential: Some(updated_credential.clone()),
+                if_version_ctr_match: None,
+                observability: None,
+            });
+            async move { api.update_dpu_extension_service(request).await }
+        });
+        (join_handle_1.await.unwrap(), join_handle_2.await.unwrap())
+    };
+
+    match (update_1, update_2) {
+        (Ok(s), Err(_)) => {
+            let Credentials::UsernamePassword {
+                username: _,
+                password,
+            } = get_credentials_for_extension_service(&env, &s.into_inner())
+                .await
+                .unwrap();
             assert_eq!(
-                username,
-                "url: https://registry.test.com, username: test-username"
+                password, "test-password-updated",
+                "update_1 won the race but the password did not get updated: {password}"
             );
-            assert_eq!(password, "test-password");
+
+            let Credentials::UsernamePassword {
+                username: _,
+                password,
+            } = get_credentials_for_extension_service(&env, &service)
+                .await
+                .unwrap();
+            assert_eq!(
+                password, "test-password-1",
+                "update_2 lost the race but the password got updated: {password}"
+            );
         }
-        _ => {
-            return Err(eyre::eyre!("Could not find the credential"));
+        (Err(_), Ok(s)) => {
+            let Credentials::UsernamePassword {
+                username: _,
+                password,
+            } = get_credentials_for_extension_service(&env, &service)
+                .await
+                .unwrap();
+            assert_eq!(
+                password, "test-password-1",
+                "update_1 lost the race but the password got updated: {password}"
+            );
+
+            let Credentials::UsernamePassword {
+                username: _,
+                password,
+            } = get_credentials_for_extension_service(&env, &s.into_inner())
+                .await
+                .unwrap();
+            assert_eq!(
+                password, "test-password-updated",
+                "update_2 won the race but the password did not get updated: {password}"
+            );
         }
-    }
+        (Err(e1), Err(e2)) => {
+            panic!("Both services failed in updating, this should not happen: {e1:?}, {e2:?}")
+        }
+        (Ok(s1), Ok(s2)) => {
+            panic!("Both services succeeded in updating, this should not happen: {s1:?}, {s2:?}")
+        }
+    };
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_extension_service_update_failure(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+
+    create_test_tenants(&env).await?;
+
+    let credentials = create_credential();
+
+    // Create 2 services, then create another, then try to update them both to the same new name at the same time
+    let service_1 =
+        create_test_extension_service(&env.api, "test-service-1", Some(credentials.clone()))
+            .await
+            .unwrap();
+    let service_2 =
+        create_test_extension_service(&env.api, "test-service-2", Some(credentials.clone()))
+            .await
+            .unwrap();
+
+    let service_2_credentials_before =
+        get_credentials_for_extension_service(&env, &service_2).await?;
+
+    let updated_credentials = {
+        let mut c = credentials.clone();
+        c.r#type = Some(
+            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
+                username: "test-username-updated".to_string(),
+                password: "test-password-updated".to_string(),
+            }),
+        );
+        c
+    };
+
+    let update_response = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_2.service_id.clone(),
+            service_name: Some("test-service-1".to_string()), // should cause collision
+            description: Some(service_1.description.clone()),
+            data: TEST_SERVICE_DATA.to_string(),
+            credential: Some(updated_credentials.clone()),
+            if_version_ctr_match: None,
+            observability: None,
+        }))
+        .await;
+
+    assert!(
+        update_response.is_err(),
+        "update_dpu_extension_service should have failed, got: {update_response:?}"
+    );
+
+    let service_2_credentials_after =
+        get_credentials_for_extension_service(&env, &service_2).await?;
+    assert_eq!(
+        service_2_credentials_before, service_2_credentials_after,
+        "Failing to update should not have changed the credentials in vault"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_extension_service_create_race_condition(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+
+    create_test_tenants(&env).await?;
+
+    let credential_1 = {
+        let mut c = create_credential();
+        c.r#type = Some(
+            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
+                username: "test-username-1".to_string(),
+                password: "test-password-1".to_string(),
+            }),
+        );
+        c
+    };
+    let credential_2 = {
+        let mut c = create_credential();
+        c.r#type = Some(
+            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
+                username: "test-username-2".to_string(),
+                password: "test-password-2".to_string(),
+            }),
+        );
+        c
+    };
+
+    // Make the credential writes slow so that the database can conflict
+    env.test_credential_provider
+        .set_credentials_sleep_time_ms
+        .store(1000, Ordering::SeqCst);
+
+    // Make both requests at the same time
+    let (service_1, service_2) = {
+        let join_handle_1 = tokio::spawn({
+            let api = env.api.clone();
+            async move {
+                create_test_extension_service(&api, "test-service-1", Some(credential_1.clone()))
+                    .await
+            }
+        });
+        let join_handle_2 = tokio::spawn({
+            let api = env.api.clone();
+            async move {
+                create_test_extension_service(&api, "test-service-1", Some(credential_2.clone()))
+                    .await
+            }
+        });
+        (join_handle_1.await.unwrap(), join_handle_2.await.unwrap())
+    };
+
+    match (service_1, service_2) {
+        (Ok(s), Err(_)) => {
+            let Credentials::UsernamePassword {
+                username: _,
+                password,
+            } = get_credentials_for_extension_service(&env, &s).await?;
+            assert_eq!(
+                password, "test-password-1",
+                "service_1 won the race but the password does not match: {password}"
+            );
+        }
+        (Err(_), Ok(s)) => {
+            let Credentials::UsernamePassword {
+                username: _,
+                password,
+            } = get_credentials_for_extension_service(&env, &s).await?;
+            assert_eq!(
+                password, "test-password-2",
+                "service_2 won the race but the password does not match: {password}"
+            );
+        }
+        (Err(e1), Err(e2)) => {
+            panic!("Both services failed in creation, this should not happen: {e1:?}, {e2:?}")
+        }
+        (Ok(s1), Ok(s2)) => {
+            panic!("Both services succeeded in creation, this should not happen: {s1:?}, {s2:?}")
+        }
+    };
 
     Ok(())
 }
@@ -602,7 +967,7 @@ async fn test_extension_service_creation_with_same_name(
 #[crate::sqlx_test]
 async fn test_extension_service_update(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool).await;
-    let service_version = create_test_extension_service(&env).await?;
+    let service_version = create_test_extension_service_and_tenants(&env).await?;
     let service_id = service_version.service_id;
 
     let update_resp = env
@@ -716,7 +1081,7 @@ async fn test_extension_service_update_invalid_arg(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool).await;
-    let service_version = create_test_extension_service(&env).await?;
+    let service_version = create_test_extension_service_and_tenants(&env).await?;
     let service_id = service_version.service_id;
 
     // Create another extension service with a different name
@@ -736,7 +1101,29 @@ async fn test_extension_service_update_invalid_arg(
         .await;
     assert!(create_resp.is_ok());
 
-    // Update with wrong version number
+    // Update with empty service name
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: Some("".to_string()),
+            description: None,
+            data: TEST_SERVICE_DATA_VERSION_3.to_string(),
+            credential: None,
+            observability: None,
+
+            if_version_ctr_match: None,
+        }))
+        .await;
+    assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("service_name cannot be empty")
+    );
+
+    // Update with wrong version match number
     let update_resp = env
         .api
         .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
@@ -760,12 +1147,19 @@ async fn test_extension_service_update_invalid_arg(
             service_name: None,
             description: None,
             data: TEST_SERVICE_DATA.to_string(),
-            credential: Some(create_credential()),
+            credential: None,
             observability: Some(create_observability()),
-            if_version_ctr_match: Some(2),
+
+            if_version_ctr_match: None,
         }))
         .await;
     assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("No changes to data or credential from latest version")
+    );
 
     // Update with empty data format
     let update_resp = env
@@ -778,10 +1172,16 @@ async fn test_extension_service_update_invalid_arg(
             credential: None,
             observability: None,
 
-            if_version_ctr_match: Some(2),
+            if_version_ctr_match: None,
         }))
         .await;
     assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("Invalid empty data for KubernetesPod service, need a valid pod manifest")
+    );
 
     // Update with invalid data format
     let update_resp = env
@@ -794,10 +1194,16 @@ async fn test_extension_service_update_invalid_arg(
             credential: None,
             observability: None,
 
-            if_version_ctr_match: Some(2),
+            if_version_ctr_match: None,
         }))
         .await;
     assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("Pod manifest must be a valid mapping object")
+    );
 
     // Update with wrong service id
     let update_resp = env
@@ -810,10 +1216,16 @@ async fn test_extension_service_update_invalid_arg(
             credential: None,
             observability: None,
 
-            if_version_ctr_match: Some(2),
+            if_version_ctr_match: None,
         }))
         .await;
     assert!(update_resp.is_err());
+    assert!(
+        update_resp
+            .unwrap_err()
+            .message()
+            .contains("extension_service not found:")
+    );
 
     // Update to a name that's already taken
     let update_resp = env
@@ -867,9 +1279,123 @@ async fn test_extension_service_update_invalid_arg(
 }
 
 #[crate::sqlx_test]
+async fn test_extension_service_update_metadata(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+    let service_version = create_test_extension_service_and_tenants(&env).await?;
+    let service_id = service_version.service_id;
+
+    // Create another extension service with a different name
+    let other_extension_service = rpc::CreateDpuExtensionServiceRequest {
+        service_id: None,
+        service_name: "other-test-service".to_string(),
+        description: Some("Other test service".to_string()),
+        tenant_organization_id: "best_org".to_string(),
+        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        data: TEST_SERVICE_DATA.to_string(),
+        credential: None,
+        observability: None,
+    };
+    let create_resp = env
+        .api
+        .create_dpu_extension_service(Request::new(other_extension_service))
+        .await;
+    assert!(create_resp.is_ok());
+
+    // Update only name
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: Some("updated-service".to_string()),
+            description: None,
+            data: "".to_string(),
+            credential: None,
+            observability: None,
+            if_version_ctr_match: None,
+        }))
+        .await;
+    assert!(update_resp.is_ok());
+
+    let extension_service = update_resp.unwrap().into_inner();
+    assert_eq!(extension_service.service_name, "updated-service");
+    assert_eq!(extension_service.description, "Test service");
+    assert_eq!(extension_service.version_ctr, 1);
+    let latest_version = extension_service.latest_version_info.unwrap();
+    // Expect no version increment
+    assert_eq!(
+        latest_version
+            .version
+            .parse::<config_version::ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        1
+    );
+
+    // Normal update should still work
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: None,
+            description: None,
+            data: TEST_SERVICE_DATA_VERSION_2.to_string(),
+            credential: Some(create_credential()),
+            observability: None,
+            if_version_ctr_match: Some(1),
+        }))
+        .await;
+    assert!(update_resp.is_ok());
+    let extension_service = update_resp.unwrap().into_inner();
+    assert_eq!(extension_service.service_name, "updated-service");
+    assert_eq!(extension_service.description, "Test service");
+    assert_eq!(extension_service.version_ctr, 2);
+    let latest_version = extension_service.latest_version_info.unwrap();
+    assert_eq!(
+        latest_version
+            .version
+            .parse::<config_version::ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        2
+    );
+
+    // Update both name and description
+    let update_resp = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: Some("updated-service-2".to_string()),
+            description: Some("Updated description".to_string()),
+            data: "".to_string(),
+            credential: None,
+            observability: None,
+            if_version_ctr_match: None,
+        }))
+        .await;
+    assert!(update_resp.is_ok());
+
+    let extension_service = update_resp.unwrap().into_inner();
+    assert_eq!(extension_service.service_name, "updated-service-2");
+    assert_eq!(extension_service.description, "Updated description");
+    assert_eq!(extension_service.version_ctr, 2);
+    let latest_version = extension_service.latest_version_info.unwrap();
+    // Expect no version increment
+    assert_eq!(
+        latest_version
+            .version
+            .parse::<config_version::ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        2
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_extension_service_find_ids(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool).await;
-    let service_version = create_test_extension_service(&env).await?;
+    let service_version = create_test_extension_service_and_tenants(&env).await?;
     let service_id = service_version.service_id;
 
     // Find the extension service by name
@@ -917,7 +1443,7 @@ async fn test_extension_service_find_ids(db_pool: sqlx::PgPool) -> Result<(), ey
 #[crate::sqlx_test]
 async fn test_extension_service_find_by_ids(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool).await;
-    let service_version = create_test_extension_service(&env).await?;
+    let service_version = create_test_extension_service_and_tenants(&env).await?;
     let service_id = service_version.service_id;
     let service_ids = vec![
         service_id,
@@ -1294,7 +1820,7 @@ async fn test_extension_service_create_update_delete_credential(
     assert!(latest_version.has_credential);
 
     // Verify the credential is stored correctly in Vault
-    let credential_key = forge_secrets::credentials::CredentialKey::ExtensionService {
+    let credential_key = CredentialKey::ExtensionService {
         service_id: service_id.clone(),
         version: 4.to_string(),
     };
@@ -1306,7 +1832,7 @@ async fn test_extension_service_create_update_delete_credential(
         .await?;
 
     match stored_credential {
-        Some(forge_secrets::credentials::Credentials::UsernamePassword { username, password }) => {
+        Some(Credentials::UsernamePassword { username, password }) => {
             assert_eq!(
                 username,
                 "url: https://registry.test.com, username: test-username"
@@ -1515,7 +2041,7 @@ async fn test_find_instances_by_extension_service(
     let mh2 = create_managed_host(&env).await;
 
     // Create an extension service with two versions
-    let service = create_test_extension_service(&env).await?;
+    let service = create_test_extension_service_and_tenants(&env).await?;
     let service_id = service.service_id.clone();
     let version1 = service
         .latest_version_info
@@ -1681,7 +2207,7 @@ async fn test_find_instances_by_extension_service_multiple_services_per_instance
     let mh = create_managed_host(&env).await;
 
     // Create two extension services
-    let service1 = create_test_extension_service(&env).await?;
+    let service1 = create_test_extension_service_and_tenants(&env).await?;
     let service1_id = service1.service_id.clone();
     let service1_version = service1
         .latest_version_info

@@ -1,5 +1,0 @@
-#!/usr/bin/env sh
-
-cd /opt/benchpress && ./setup.sh || exit 1
-
-cd /opt/benchpress && ./benchpress install mm_mem_latency || exit 1

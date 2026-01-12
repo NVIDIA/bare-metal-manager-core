@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::forge as rpc;
 use db::resource_pool::ResourcePoolDatabaseError;
-use db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
+use db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, WithTransaction, network_segment};
 use forge_network::virtualization::VpcVirtualizationType;
+use futures_util::FutureExt;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
     NewNetworkSegment,
@@ -30,11 +30,11 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NetworkSegmentIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
 
-    let network_segments_ids = db::network_segment::find_ids(&mut txn, filter).await?;
+    let network_segments_ids = api
+        .with_txn(|txn| db::network_segment::find_ids(txn, filter).boxed())
+        .await??;
 
     Ok(Response::new(rpc::NetworkSegmentIdList {
         network_segments_ids,
@@ -46,8 +46,6 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::NetworkSegmentsByIdsRequest>,
 ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin().await?;
-
     let rpc::NetworkSegmentsByIdsRequest {
         network_segments_ids,
         include_history,
@@ -67,15 +65,19 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let segments = db::network_segment::find_by(
-        &mut txn,
-        ObjectColumnFilter::List(network_segment::IdColumn, &network_segments_ids),
-        NetworkSegmentSearchConfig {
-            include_history,
-            include_num_free_ips,
-        },
-    )
-    .await?;
+    let segments = api
+        .with_txn(|txn| {
+            db::network_segment::find_by(
+                txn,
+                ObjectColumnFilter::List(network_segment::IdColumn, &network_segments_ids),
+                NetworkSegmentSearchConfig {
+                    include_history,
+                    include_num_free_ips,
+                },
+            )
+            .boxed()
+        })
+        .await??;
 
     let mut result = Vec::with_capacity(segments.len());
     for seg in segments {
@@ -199,13 +201,13 @@ pub(crate) async fn for_vpc(
 ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let rpc::VpcSearchQuery { id, .. } = request.into_inner();
 
     let uuid = id.ok_or_else(|| CarbideError::InvalidArgument("id".to_string()))?;
 
-    let results = db::network_segment::for_vpc(&mut txn, uuid).await?;
+    let results = api
+        .with_txn(|txn| db::network_segment::for_vpc(txn, uuid).boxed())
+        .await??;
 
     let mut network_segments = Vec::with_capacity(results.len());
 

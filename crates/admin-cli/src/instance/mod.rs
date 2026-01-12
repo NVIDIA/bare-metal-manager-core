@@ -13,46 +13,49 @@
 pub mod args;
 pub mod cmds;
 
-use std::pin::Pin;
+#[cfg(test)]
+mod tests;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::cfg::cli_options::SortField;
-use crate::rpc::ApiClient;
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 
-pub async fn dispatch(
-    cmd: Cmd,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    page_size: usize,
-    sort_by: &SortField,
-    cloud_unsafe_op: Option<String>,
-) -> CarbideCliResult<()> {
-    let opts = args::GlobalOptions {
-        format,
-        page_size,
-        sort_by,
-        cloud_unsafe_op,
-    };
+impl Dispatch for Cmd {
+    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
+        // Build the internal GlobalOptions from RuntimeContext for handlers that need it
+        let opts = args::GlobalOptions {
+            format: ctx.config.format.clone(),
+            page_size: ctx.config.page_size,
+            sort_by: &ctx.config.sort_by,
+            cloud_unsafe_op: if ctx.config.cloud_unsafe_op_enabled {
+                Some("enabled".to_string())
+            } else {
+                None
+            },
+        };
 
-    match cmd {
-        Cmd::Show(args) => {
-            cmds::handle_show(
-                args,
-                output_file,
-                &opts.format,
-                api_client,
-                opts.page_size,
-                opts.sort_by,
-            )
-            .await
+        match self {
+            Cmd::Show(args) => {
+                cmds::handle_show(
+                    args,
+                    &mut ctx.output_file,
+                    &opts.format,
+                    &ctx.api_client,
+                    opts.page_size,
+                    opts.sort_by,
+                )
+                .await?
+            }
+            Cmd::Reboot(args) => cmds::handle_reboot(args, &ctx.api_client).await?,
+            Cmd::Release(args) => cmds::release(&ctx.api_client, args, &opts).await?,
+            Cmd::Allocate(args) => cmds::allocate(&ctx.api_client, args, &opts).await?,
+            Cmd::UpdateOS(args) => cmds::update_os(&ctx.api_client, args, &opts).await?,
+            Cmd::UpdateIbConfig(args) => {
+                cmds::update_ib_config(&ctx.api_client, args, &opts).await?
+            }
         }
-        Cmd::Reboot(args) => cmds::handle_reboot(args, api_client).await,
-        Cmd::Release(args) => cmds::release(api_client, args, &opts).await,
-        Cmd::Allocate(args) => cmds::allocate(api_client, args, &opts).await,
-        Cmd::UpdateOS(args) => cmds::update_os(api_client, args, &opts).await,
-        Cmd::UpdateIbConfig(args) => cmds::update_ib_config(api_client, args, &opts).await,
+        Ok(())
     }
 }

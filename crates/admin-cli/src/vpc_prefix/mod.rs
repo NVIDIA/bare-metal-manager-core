@@ -13,21 +13,29 @@
 pub mod args;
 pub mod cmds;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+#[cfg(test)]
+mod tests;
+
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes vpc_prefix commands.
-pub async fn dispatch(
-    cmd: &Cmd,
-    api_client: &ApiClient,
-    format: OutputFormat,
-    page_size: usize,
-) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Create(args) => cmds::create(args, format, api_client).await,
-        Cmd::Show(args) => cmds::show(args, format, api_client, page_size).await,
-        Cmd::Delete(args) => cmds::delete(args, api_client).await,
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Create(args) => cmds::create(&args, ctx.config.format, &ctx.api_client).await,
+            Cmd::Show(args) => {
+                cmds::show(
+                    &args,
+                    ctx.config.format,
+                    &ctx.api_client,
+                    ctx.config.page_size,
+                )
+                .await
+            }
+            Cmd::Delete(args) => cmds::delete(&args, &ctx.api_client).await,
+        }
     }
 }

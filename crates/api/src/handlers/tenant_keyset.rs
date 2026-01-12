@@ -10,9 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fmt::{Display, Formatter, Result as FmtResult};
+
 use ::rpc::forge as rpc;
+use db::WithTransaction;
+use futures_util::FutureExt;
+use itertools::Itertools;
 use model::tenant::{
-    TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest, UpdateTenantKeyset,
+    PublicKey, TenantKeyset, TenantKeysetIdentifier, TenantPublicKey,
+    TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
 use tonic::{Request, Response, Status};
 
@@ -36,6 +42,16 @@ pub(crate) async fn create(
 
     txn.commit().await?;
 
+    let public_keys = &keyset_request.keyset_content.public_keys;
+    tracing::info!(
+        organization_id = keyset_request.keyset_identifier.organization_id.to_string(),
+        keyset_id = keyset_request.keyset_identifier.keyset_id,
+        public_key_suffixes = PublicKeySuffixes(public_keys).to_string(),
+        public_key_suffixes_num = public_keys.len(),
+        version = keyset_request.version,
+        "Tenant keyset created"
+    );
+
     Ok(Response::new(rpc::CreateTenantKeysetResponse {
         keyset: Some(keyset.into()),
     }))
@@ -47,11 +63,11 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
-    let keyset_ids = db::tenant_keyset::find_ids(&mut txn, filter).await?;
+    let keyset_ids = api
+        .with_txn(|txn| db::tenant_keyset::find_ids(txn, filter).boxed())
+        .await??;
 
     Ok(Response::new(rpc::TenantKeysetIdList {
         keyset_ids: keyset_ids
@@ -66,7 +82,6 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::TenantKeysetsByIdsRequest>,
 ) -> Result<Response<rpc::TenantKeySetList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin().await?;
 
     let rpc::TenantKeysetsByIdsRequest {
         keyset_ids,
@@ -86,7 +101,9 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let keysets = db::tenant_keyset::find_by_ids(&mut txn, keyset_ids, include_key_data).await;
+    let keysets = api
+        .with_txn(|txn| db::tenant_keyset::find_by_ids(txn, keyset_ids, include_key_data).boxed())
+        .await?;
 
     let result = keysets
         .map(|vpc| rpc::TenantKeySetList {
@@ -113,6 +130,16 @@ pub(crate) async fn update(
     db::tenant_keyset::update(&update_request, &mut txn).await?;
 
     txn.commit().await?;
+
+    let public_keys = &update_request.keyset_content.public_keys;
+    tracing::info!(
+        organization_id = update_request.keyset_identifier.organization_id.to_string(),
+        keyset_id = update_request.keyset_identifier.keyset_id,
+        public_key_suffixes = PublicKeySuffixes(public_keys).to_string(),
+        public_key_suffixes_num = public_keys.len(),
+        version = update_request.version,
+        "Tenant keyset updated"
+    );
 
     Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
 }
@@ -143,6 +170,11 @@ pub(crate) async fn delete(
     }
 
     txn.commit().await?;
+    tracing::info!(
+        organization_id = keyset_identifier.organization_id.to_string(),
+        keyset_id = keyset_identifier.keyset_id,
+        "Tenant keyset deleted"
+    );
 
     Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
 }
@@ -161,4 +193,34 @@ pub(crate) async fn validate_public_key(
     txn.commit().await?;
 
     Ok(Response::new(rpc::ValidateTenantPublicKeyResponse {}))
+}
+
+struct PublicKeySuffixes<'a>(&'a Vec<TenantPublicKey>);
+
+impl Display for PublicKeySuffixes<'_> {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        self.0
+            .iter()
+            .map(|v| PublicKeySuffix(&v.public_key))
+            .join(",")
+            .fmt(fmt)
+    }
+}
+
+struct PublicKeySuffix<'a>(&'a PublicKey);
+
+impl Display for PublicKeySuffix<'_> {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        const PUB_KEY_SUFFIX_LEN: usize = 8;
+        self.0
+            .key
+            .chars()
+            .rev()
+            .take(PUB_KEY_SUFFIX_LEN)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<String>()
+            .fmt(fmt)
+    }
 }

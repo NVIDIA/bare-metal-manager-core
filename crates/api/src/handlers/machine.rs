@@ -17,7 +17,9 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use db::WithTransaction;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use futures_util::FutureExt;
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -36,11 +38,11 @@ pub(crate) async fn find_machine_ids(
 ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let search_config = request.into_inner().try_into()?;
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, search_config).await?;
+    let machine_ids = api
+        .with_txn(|txn| db::machine::find_machine_ids(txn, search_config).boxed())
+        .await??;
 
     Ok(Response::new(::rpc::common::MachineIdList {
         machine_ids: machine_ids.into_iter().collect(),
@@ -53,11 +55,11 @@ pub(crate) async fn find_machine_ids_by_bmc_ips(
 ) -> Result<Response<rpc::MachineIdBmcIpPairs>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
-    let pairs =
-        db::machine_topology::find_machine_bmc_pairs(&mut txn, request.into_inner().bmc_ips)
-            .await?;
+    let pairs = api
+        .with_txn(|txn| {
+            db::machine_topology::find_machine_bmc_pairs(txn, request.into_inner().bmc_ips).boxed()
+        })
+        .await??;
     let rpc_pairs = rpc::MachineIdBmcIpPairs {
         pairs: pairs
             .into_iter()
@@ -261,7 +263,6 @@ pub(crate) async fn update_machine_metadata(
     Ok(tonic::Response::new(()))
 }
 
-#[allow(txn_held_across_await)]
 pub(crate) async fn admin_force_delete_machine(
     api: &Api,
     request: Request<rpc::AdminForceDeleteMachineRequest>,
@@ -384,24 +385,13 @@ pub(crate) async fn admin_force_delete_machine(
         .await?;
     }
 
+    // Commit the transaction to make the the ForceDeletion state visible to other consumers, and to
+    // avoid holding a long-running transaction while we issue redfish calls.
     txn.commit().await?;
 
-    // We start a new transaction
-    // This makeas the ForceDeletion state visible to other consumers
-
     // Note: The following deletion steps are all ordered in an idempotent fashion
-
-    let mut txn = api.txn_begin().await?;
-
     if let Some(instance_id) = instance_id {
-        crate::handlers::instance::force_delete_instance(
-            instance_id,
-            &api.ib_fabric_manager,
-            &api.common_pools,
-            &mut response,
-            &mut txn,
-        )
-        .await?;
+        crate::handlers::instance::force_delete_instance(instance_id, api, &mut response).await?;
     }
 
     if let Some(machine) = &host_machine {
@@ -500,6 +490,9 @@ pub(crate) async fn admin_force_delete_machine(
         }
     }
 
+    let mut txn = api.txn_begin().await?;
+    let mut machines_to_clear_credentials = Vec::new();
+
     if let Some(machine) = &host_machine {
         if request.delete_bmc_interfaces
             && let Some(bmc_ip) = &machine.bmc_info.ip
@@ -533,7 +526,7 @@ pub(crate) async fn admin_force_delete_machine(
         }
 
         if request.delete_bmc_credentials {
-            clear_bmc_credentials(api, machine).await?;
+            machines_to_clear_credentials.push(machine);
         }
 
         if let Err(e) =
@@ -552,11 +545,7 @@ pub(crate) async fn admin_force_delete_machine(
         }
     }
 
-    txn.commit().await?;
-
     for dpu_machine in dpu_machines.iter() {
-        let mut txn = api.txn_begin().await?;
-
         // Free up all loopback IPs allocated for this DPU.
         db::vpc_dpu_loopback::delete_and_deallocate(
             &api.common_pools,
@@ -623,10 +612,15 @@ pub(crate) async fn admin_force_delete_machine(
         }
 
         if request.delete_bmc_credentials {
-            clear_bmc_credentials(api, dpu_machine).await?;
+            machines_to_clear_credentials.push(dpu_machine);
         }
+    }
 
-        txn.commit().await?;
+    txn.commit().await?;
+
+    // Do BMC operations outside a transaction to avoid long-running transactions
+    for machine in machines_to_clear_credentials {
+        clear_bmc_credentials(api, machine).await?;
     }
 
     Ok(Response::new(response))

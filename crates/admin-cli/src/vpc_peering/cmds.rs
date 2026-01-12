@@ -13,7 +13,10 @@
 use ::rpc::admin_cli::output::OutputFormat;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use prettytable::{Table, row};
-use rpc::forge::{VpcPeering, VpcPeeringIdList};
+use rpc::forge::{
+    VpcPeering, VpcPeeringCreationRequest, VpcPeeringIdList, VpcPeeringSearchFilter,
+    VpcPeeringsByIdsRequest,
+};
 
 use super::args::{CreateVpcPeering, DeleteVpcPeering, ShowVpcPeering};
 use crate::rpc::ApiClient;
@@ -25,13 +28,13 @@ pub async fn create(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let vpc_peering = match api_client
-        .create_vpc_peering(Some(args.vpc1_id), Some(args.vpc2_id))
-        .await
-    {
-        Ok(vpc_peering) => vpc_peering,
-        Err(e) => return Err(e),
-    };
+    let vpc_peering = api_client
+        .0
+        .create_vpc_peering(VpcPeeringCreationRequest {
+            vpc_id: Some(args.vpc1_id),
+            peer_vpc_id: Some(args.vpc2_id),
+        })
+        .await?;
 
     if is_json {
         println!(
@@ -57,8 +60,12 @@ pub async fn show(
             vpc_peering_ids: vec![*id],
         },
         (None, _) => {
-            let vpc_id = args.vpc_id;
-            api_client.find_vpc_peering_ids(vpc_id).await?
+            api_client
+                .0
+                .find_vpc_peering_ids(VpcPeeringSearchFilter {
+                    vpc_id: args.vpc_id,
+                })
+                .await?
         }
         _ => unreachable!(
             "`--id` and `--vpc-id` are mutually exclusive and enforced by clap via `conflicts_with`"
@@ -66,7 +73,10 @@ pub async fn show(
     };
 
     let vpc_peering_list = api_client
-        .find_vpc_peerings_by_ids(vpc_peering_ids.vpc_peering_ids)
+        .0
+        .find_vpc_peerings_by_ids(VpcPeeringsByIdsRequest {
+            vpc_peering_ids: vpc_peering_ids.vpc_peering_ids,
+        })
         .await?;
 
     if is_json {

@@ -15,7 +15,9 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use db::WithTransaction;
 use db::machine_interface::find_by_ip;
+use futures_util::FutureExt;
 use libredfish::RoleId;
 use mac_address::MacAddress;
 use model::machine::machine_id::try_parse_machine_id;
@@ -596,16 +598,15 @@ async fn resolve_bmc_interface(
     let bmc_mac_address: MacAddress;
     if let Some(mac_str) = &request.mac_address {
         bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
+    } else if let Some(bmc_machine_interface) = api
+        .with_txn(|txn| find_by_ip(txn, bmc_addr.ip()).boxed())
+        .await??
+    {
+        bmc_mac_address = bmc_machine_interface.mac_address;
     } else {
-        let mut txn = api.txn_begin().await?;
-
-        if let Some(bmc_machine_interface) = find_by_ip(&mut txn, bmc_addr.ip()).await? {
-            bmc_mac_address = bmc_machine_interface.mac_address;
-        } else {
-            return Err(Status::invalid_argument(format!(
-                "could not find a mac address for the specified IP: {request:#?}"
-            )));
-        }
+        return Err(Status::invalid_argument(format!(
+            "could not find a mac address for the specified IP: {request:#?}"
+        )));
     };
 
     Ok((bmc_addr, bmc_mac_address))

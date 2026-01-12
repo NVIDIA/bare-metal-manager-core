@@ -15,7 +15,9 @@ use std::pin::Pin;
 use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
-use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
+use ::rpc::forge::{
+    BuildInfo, DpuReprovisioningRequest, ManagedHostNetworkConfigResponse, UpdateInitiator,
+};
 use carbide_uuid::machine::{MachineId, MachineType};
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
@@ -173,7 +175,14 @@ pub async fn trigger_reprovisioning(
         }
     }
     api_client
-        .trigger_dpu_reprovisioning(id, mode, update_firmware)
+        .0
+        .trigger_dpu_reprovisioning(DpuReprovisioningRequest {
+            dpu_id: Some(id),
+            machine_id: Some(id),
+            mode: mode as i32,
+            initiator: UpdateInitiator::AdminCli as i32,
+            update_firmware,
+        })
         .await?;
 
     Ok(())

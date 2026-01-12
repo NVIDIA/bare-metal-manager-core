@@ -13,6 +13,10 @@ use std::collections::HashMap;
 use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::forge::{
+    BmcEndpointRequest, CopyBfbToDpuRshimRequest, PauseExploredEndpointRemediationRequest,
+    ReExploreEndpointRequest, SshRequest,
+};
 use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
 use mac_address::MacAddress;
 use prettytable::{Cell, Row, Table, format, row};
@@ -674,13 +678,25 @@ pub async fn explore(
     address: &str,
     mac: Option<MacAddress>,
 ) -> CarbideCliResult<()> {
-    let report = api_client.explore(address, mac).await?;
+    let report = api_client
+        .0
+        .explore(BmcEndpointRequest {
+            ip_address: address.to_string(),
+            mac_address: mac.map(|m| m.to_string()),
+        })
+        .await?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
 
 pub async fn re_explore(api_client: &ApiClient, opts: ReExploreOptions) -> CarbideCliResult<()> {
-    api_client.re_explore_endpoint(&opts.address).await?;
+    api_client
+        .0
+        .re_explore_endpoint(ReExploreEndpointRequest {
+            ip_address: opts.address,
+            if_version_match: None,
+        })
+        .await?;
     Ok(())
 }
 
@@ -716,12 +732,20 @@ pub async fn delete_endpoint(
 pub async fn remediation(api_client: &ApiClient, opts: RemediationOptions) -> CarbideCliResult<()> {
     if opts.pause {
         api_client
-            .pause_explored_endpoint_remediation(&opts.address, true)
+            .0
+            .pause_explored_endpoint_remediation(PauseExploredEndpointRemediationRequest {
+                ip_address: opts.address.clone(),
+                pause: true,
+            })
             .await?;
         println!("Remediation paused for endpoint {}", opts.address);
     } else if opts.resume {
         api_client
-            .pause_explored_endpoint_remediation(&opts.address, false)
+            .0
+            .pause_explored_endpoint_remediation(PauseExploredEndpointRemediationRequest {
+                ip_address: opts.address.clone(),
+                pause: false,
+            })
             .await?;
         println!("Remediation resumed for endpoint {}", opts.address);
     } else {
@@ -737,7 +761,13 @@ pub async fn is_bmc_in_managed_host(
     address: &str,
     mac: Option<MacAddress>,
 ) -> CarbideCliResult<()> {
-    let is_bmc_in_managed_host = api_client.is_bmc_in_managed_host(address, mac).await?;
+    let is_bmc_in_managed_host = api_client
+        .0
+        .is_bmc_in_managed_host(BmcEndpointRequest {
+            ip_address: address.to_string(),
+            mac_address: mac.map(|m| m.to_string()),
+        })
+        .await?;
     println!(
         "Is {} in a managed host?: {}",
         address, is_bmc_in_managed_host.in_managed_host
@@ -750,7 +780,13 @@ pub async fn have_credentials(
     address: &str,
     mac: Option<MacAddress>,
 ) -> CarbideCliResult<()> {
-    let have_credentials = api_client.bmc_credential_status(address, mac).await?;
+    let have_credentials = api_client
+        .0
+        .bmc_credential_status(BmcEndpointRequest {
+            ip_address: address.to_string(),
+            mac_address: mac.map(|m| m.to_string()),
+        })
+        .await?;
     println!("{}", have_credentials.have_credentials);
     Ok(())
 }
@@ -799,7 +835,15 @@ pub async fn copy_bfb_to_dpu_rshim(
     tracing::info!("Follow SCP progress in the carbide-api logs...");
 
     api_client
-        .copy_bfb_to_dpu_rshim(args.address, args.mac)
+        .0
+        .copy_bfb_to_dpu_rshim(CopyBfbToDpuRshimRequest {
+            ssh_request: Some(SshRequest {
+                endpoint_request: Some(BmcEndpointRequest {
+                    ip_address: args.address.to_string(),
+                    mac_address: args.mac.map(|m| m.to_string()),
+                }),
+            }),
+        })
         .await?;
     Ok(())
 }

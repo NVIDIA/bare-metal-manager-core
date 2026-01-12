@@ -14,11 +14,13 @@
  * gRPC handlers for measurement bundle related API calls.
  */
 
+use db::WithTransaction;
 use db::measured_boot::bundle;
 use db::measured_boot::interface::bundle::{
     get_machines_for_bundle_id, get_machines_for_bundle_name,
     get_measurement_bundle_records_with_txn,
 };
+use futures_util::FutureExt;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 use rpc::protos::measured_boot::{
@@ -186,6 +188,7 @@ pub async fn handle_show_measurement_bundle(
         }
         None => return Err(Status::invalid_argument("selector must be provided")),
     };
+    txn.commit().await?;
 
     Ok(ShowMeasurementBundleResponse {
         bundle: Some(bundle.into()),
@@ -198,12 +201,12 @@ pub async fn handle_show_measurement_bundles(
     api: &Api,
     _req: ShowMeasurementBundlesRequest,
 ) -> Result<ShowMeasurementBundlesResponse, Status> {
-    let mut txn = api.txn_begin().await?;
     Ok(ShowMeasurementBundlesResponse {
-        bundles: db::measured_boot::bundle::get_all(&mut txn)
-            .await
+        bundles: api
+            .with_txn(|txn| db::measured_boot::bundle::get_all(txn).boxed())
+            .await?
             .map_err(|e| Status::internal(format!("{e}")))?
-            .drain(..)
+            .into_iter()
             .map(|bundle| bundle.into())
             .collect(),
     })
@@ -215,11 +218,11 @@ pub async fn handle_list_measurement_bundles(
     api: &Api,
     _req: ListMeasurementBundlesRequest,
 ) -> Result<ListMeasurementBundlesResponse, Status> {
-    let mut txn = api.txn_begin().await?;
-    let bundles: Vec<MeasurementBundleRecordPb> = get_measurement_bundle_records_with_txn(&mut txn)
-        .await
+    let bundles: Vec<MeasurementBundleRecordPb> = api
+        .with_txn(|txn| get_measurement_bundle_records_with_txn(txn).boxed())
+        .await?
         .map_err(|e| Status::internal(format!("{e}")))?
-        .drain(..)
+        .into_iter()
         .map(|record| record.into())
         .collect();
 
@@ -256,6 +259,8 @@ pub async fn handle_list_measurement_bundle_machines(
         None => return Err(Status::invalid_argument("selector required")),
     };
 
+    txn.commit().await?;
+
     Ok(ListMeasurementBundleMachinesResponse { machine_ids })
 }
 
@@ -291,6 +296,8 @@ pub async fn handle_find_closest_match(
             return Ok(ShowMeasurementBundleResponse { bundle: None });
         }
     };
+
+    txn.commit().await?;
 
     Ok(ShowMeasurementBundleResponse {
         bundle: Some(bundle.into()),

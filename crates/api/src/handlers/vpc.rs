@@ -9,14 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::network_security_group::NetworkSecurityGroupId;
 use carbide_uuid::vpc::VpcId;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::vpc::{self};
-use db::{self, ObjectColumnFilter, network_security_group};
+use db::{self, ObjectColumnFilter, WithTransaction, network_security_group};
+use futures_util::FutureExt;
 use model::resource_pool;
 use model::tenant::{InvalidTenantOrg, RoutingProfileType};
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization};
@@ -328,11 +328,11 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::VpcIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let filter: rpc::VpcSearchFilter = request.into_inner();
 
-    let vpc_ids = db::vpc::find_ids(&mut txn, filter).await?;
+    let vpc_ids = api
+        .with_txn(|txn| db::vpc::find_ids(txn, filter).boxed())
+        .await??;
 
     Ok(Response::new(rpc::VpcIdList { vpc_ids }))
 }
@@ -342,7 +342,6 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::VpcsByIdsRequest>,
 ) -> Result<Response<rpc::VpcList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin().await?;
 
     let vpc_ids = request.into_inner().vpc_ids;
 
@@ -358,8 +357,11 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let db_vpcs =
-        db::vpc::find_by(&mut txn, ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids)).await;
+    let db_vpcs = api
+        .with_txn(|txn| {
+            db::vpc::find_by(txn, ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids)).boxed()
+        })
+        .await?;
 
     let result = db_vpcs
         .map(|vpc| rpc::VpcList {

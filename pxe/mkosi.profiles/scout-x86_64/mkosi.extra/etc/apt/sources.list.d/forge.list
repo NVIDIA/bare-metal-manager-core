@@ -1,3 +1,0 @@
-
-deb [trusted=yes] http://carbide-pxe.forge/public/blobs/internal/apt/ focal main
-

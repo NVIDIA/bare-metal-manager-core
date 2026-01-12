@@ -11,14 +11,14 @@
  */
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
-use db::{extension_service, network_security_group};
+use db::{DatabaseError, WithTransaction, extension_service, network_security_group};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use futures_util::FutureExt;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
 };
@@ -38,13 +38,11 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::os::OperatingSystem;
-use model::resource_pool::common::CommonPools;
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::ib::IBFabricManager;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
     validate_ib_partition_ownership,
@@ -135,11 +133,11 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::InstanceIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
     let filter: rpc::InstanceSearchFilter = request.into_inner();
 
-    let instance_ids = db::instance::find_ids(&mut txn, filter).await?;
+    let instance_ids = api
+        .with_txn(|txn| db::instance::find_ids(txn, filter).boxed())
+        .await??;
 
     Ok(tonic::Response::new(rpc::InstanceIdList { instance_ids }))
 }
@@ -729,6 +727,35 @@ pub(crate) async fn invoke_power(
         })
         .unwrap_or_default();
 
+    // Determine if we should let the state machine handle the reboot.
+    // This is true when:
+    // 1. The machine is in Assigned/Ready state, AND
+    // 2. The instance needs to PXE boot (either always-PXE or explicit request)
+    //
+    // In this case, we set the custom_pxe_reboot_requested flag and return early.
+    // The Assigned/Ready handler will pick up the flag, verify boot order via
+    // HostPlatformConfiguration, and initiate the reboot.
+    //
+    // Otherwise, we issue a synchronous Redfish reboot directly.
+    // Determine how to handle the reboot based on the instance configuration and request.
+    //
+    // For custom PXE or always-PXE instances in Ready state, we use the state machine to
+    // verify boot order before rebooting. For regular reboots, we clear the use_custom_pxe_on_boot
+    // flag so the iPXE handler returns "exit" (boot from disk).
+    let use_state_machine_for_reboot = matches!(
+        snapshot.managed_state,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    ) && (run_provisioning_instructions_on_every_boot
+        || request.boot_with_custom_ipxe);
+
+    if use_state_machine_for_reboot {
+        db::instance::set_custom_pxe_reboot_requested(&machine_id, true, &mut txn).await?;
+    }
+
+    // For non-always-PXE instances, set use_custom_pxe_on_boot based on the request.
+    // This tells the iPXE handler whether to serve the custom script or return "exit".
     if !run_provisioning_instructions_on_every_boot {
         db::instance::use_custom_ipxe_on_next_boot(
             &machine_id,
@@ -789,6 +816,18 @@ pub(crate) async fn invoke_power(
 
     if reprovision_handled {
         // Host will reboot once DPU reprovisioning is successfully finished.
+        return Ok(Response::new(rpc::InstancePowerResult {}));
+    }
+
+    // If using state machine for reboot, return early. The flag was set above and the
+    // Assigned/Ready handler will pick it up, verify BIOS boot order, and initiate the reboot.
+    if use_state_machine_for_reboot {
+        tracing::info!(
+            machine_id = %machine_id,
+            run_provisioning_instructions_on_every_boot,
+            boot_with_custom_ipxe = request.boot_with_custom_ipxe,
+            "Delegating reboot to state machine for boot order verification"
+        );
         return Ok(Response::new(rpc::InstancePowerResult {}));
     }
 
@@ -1321,55 +1360,25 @@ fn snapshot_to_instance(
         })
 }
 
-#[allow(txn_held_across_await)]
 pub async fn force_delete_instance(
     instance_id: InstanceId,
-    ib_fabric_manager: &Arc<dyn IBFabricManager>,
-    common_pools: &Arc<CommonPools>,
+    api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> CarbideResult<()> {
-    let instance = db::instance::find_by_id(txn, instance_id)
-        .await?
+    let instance = api
+        .with_txn(|txn| db::instance::find_by_id(txn, instance_id).boxed())
+        .await??
         .ok_or_else(|| {
             CarbideError::internal(format!("Could not find an instance for {instance_id}"))
         })?
         .to_owned();
 
-    let ib_fabric = ib_fabric_manager
-        .new_client(model::ib::DEFAULT_IB_FABRIC_NAME)
-        .await?;
-
-    // Collect the ib partition and ib ports information about this machine
-    let mut ib_config_map: HashMap<IBPartitionId, Vec<String>> = HashMap::new();
-    let infiniband = instance.config.infiniband.ib_interfaces;
-    for ib in &infiniband {
-        let ib_partition_id = ib.ib_partition_id;
-        if let Some(guid) = ib.guid.as_deref() {
-            ib_config_map
-                .entry(ib_partition_id)
-                .or_default()
-                .push(guid.to_string());
-        }
-    }
-
-    response.ufm_unregistration_pending = true;
-    // unbind ib ports from UFM
-    for (ib_partition_id, guids) in ib_config_map.iter() {
-        if let Some(pkey) =
-            db::ib_partition::find_pkey_by_partition_id(txn, *ib_partition_id).await?
-        {
-            ib_fabric.unbind_ib_ports(pkey, guids.to_vec()).await?;
-            response.ufm_unregistrations += 1;
-
-            //TODO: release VF GUID resource when VF supported.
-        }
-    }
-    response.ufm_unregistration_pending = false;
+    response.ufm_unregistrations += unbind_all_instance_ib_ports(api, &instance).await?;
 
     // Delete the instance and allocated address
     // TODO: This might need some changes with the new state machine
-    db::instance::delete(instance_id, txn).await?;
+    let mut txn = api.txn_begin().await?;
+    db::instance::delete(instance_id, &mut txn).await?;
 
     let mut network_segment_ids_with_vpc = vec![];
     if let Some(update_network_req) = &instance.update_network_config_request {
@@ -1389,7 +1398,7 @@ pub async fn force_delete_instance(
                 .flat_map(|x| x.ip_addrs.values().collect_vec()),
         );
 
-        db::instance_address::delete_addresses(txn, &addresses).await?;
+        db::instance_address::delete_addresses(&mut txn, &addresses).await?;
 
         network_segment_ids_with_vpc = update_network_req
             .new_config
@@ -1425,25 +1434,30 @@ pub async fn force_delete_instance(
 
     // Mark all network ready for delete which were created for vpc_prefixes.
     if !network_segment_ids_with_vpc.is_empty() {
-        db::network_segment::mark_as_deleted_no_validation(txn, &network_segment_ids_with_vpc)
+        db::network_segment::mark_as_deleted_no_validation(&mut txn, &network_segment_ids_with_vpc)
             .await?;
     }
 
-    let snapshot =
-        db::managed_host::load_snapshot(txn, &instance.machine_id, LoadSnapshotOptions::default())
-            .await?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "machine",
-                id: instance.machine_id.to_string(),
-            })?;
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &instance.machine_id,
+        LoadSnapshotOptions::default(),
+    )
+    .await?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: instance.machine_id.to_string(),
+    })?;
 
     crate::state_controller::machine::handler::release_vpc_dpu_loopback(
         &snapshot,
-        &Some(common_pools.clone()),
-        txn,
+        &Some(api.common_pools.clone()),
+        &mut txn,
     )
     .await
     .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    txn.commit().await?;
 
     Ok(())
 }
@@ -1486,4 +1500,60 @@ pub async fn update_instance_nvlink_config(
     .await?;
 
     Ok(())
+}
+
+async fn unbind_all_instance_ib_ports(
+    api: &Api,
+    instance: &InstanceSnapshot,
+) -> Result<u32, CarbideError> {
+    // Create an index of PartitionId -> GUID from the instance's ib_interfaces
+    let ib_config_map: HashMap<IBPartitionId, Vec<String>> = instance
+        .config
+        .infiniband
+        .ib_interfaces
+        .iter()
+        .filter_map(|ib| {
+            ib.guid
+                .as_ref()
+                .map(|guid| (ib.ib_partition_id, guid.to_string()))
+        })
+        .into_group_map();
+    // No need to proceed if there's nothing to do
+    if ib_config_map.is_empty() {
+        return Ok(0);
+    }
+
+    // Get the infiniband info from UFM, being careful not to call UFM while holding an open db
+    // transaction.
+    // First, look up the pkey in the database for each partition ID, in one transaction
+    let pkeys_with_guids_to_unbind: Vec<(u16, Vec<String>)> = api
+        .with_txn(|txn| {
+            async move {
+                let mut result = Vec::with_capacity(ib_config_map.len());
+                for (ib_partition_id, guids) in ib_config_map.into_iter() {
+                    if let Some(pkey) =
+                        db::ib_partition::find_pkey_by_partition_id(txn, ib_partition_id).await?
+                    {
+                        result.push((pkey, guids))
+                    }
+                }
+                Ok::<_, DatabaseError>(result)
+            }
+            .boxed()
+        })
+        .await??;
+
+    // Then, tell UFM to unbind the port for each pkey we found
+    let ib_fabric = api
+        .ib_fabric_manager
+        .new_client(model::ib::DEFAULT_IB_FABRIC_NAME)
+        .await?;
+
+    let mut ufm_unregistrations = 0;
+    for (pkey, guids) in pkeys_with_guids_to_unbind {
+        ib_fabric.unbind_ib_ports(pkey, guids).await?;
+        ufm_unregistrations += 1;
+        //TODO: release VF GUID resource when VF supported.
+    }
+    Ok(ufm_unregistrations)
 }

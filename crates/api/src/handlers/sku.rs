@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use carbide_uuid::machine::MachineId;
+use db::WithTransaction;
 use db::machine::find_machine_ids_by_sku_id;
+use futures_util::FutureExt;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;
@@ -87,9 +89,9 @@ pub(crate) async fn generate_from_machine(
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.txn_begin().await?;
-
-    let sku = db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
+    let sku = api
+        .with_txn(|txn| db::sku::generate_sku_from_machine(txn, &machine_id).boxed())
+        .await??;
 
     Ok(Response::new(sku.into()))
 }
@@ -247,9 +249,9 @@ pub(crate) async fn get_all_ids(
     request: Request<()>,
 ) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
     log_request_data(&request);
-    let mut txn = api.txn_begin().await?;
-
-    let sku_ids = db::sku::get_sku_ids(&mut txn).await?;
+    let sku_ids = api
+        .with_txn(|txn| db::sku::get_sku_ids(txn).boxed())
+        .await??;
 
     Ok(Response::new(::rpc::forge::SkuIdList {
         ids: sku_ids.into_iter().collect(),
@@ -288,6 +290,8 @@ pub(crate) async fn find_skus_by_ids(
             .into_iter()
             .collect();
     }
+
+    txn.commit().await?;
 
     Ok(Response::new(rpc::forge::SkuList { skus: rpc_skus }))
 }

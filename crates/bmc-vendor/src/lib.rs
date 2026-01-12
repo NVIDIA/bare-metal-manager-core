@@ -34,6 +34,7 @@ pub enum BMCVendor {
     Supermicro,
     Hpe,
     Nvidia, // DPU, Viking, Oberon
+    Liteon,
     #[serde(other)]
     #[default]
     Unknown,
@@ -54,6 +55,7 @@ impl From<&str> for BMCVendor {
             "supermicro" => BMCVendor::Supermicro,
             "hpe" => BMCVendor::Hpe,
             "nvidia" => BMCVendor::Nvidia,
+            "liteon" => BMCVendor::Liteon,
             _ => BMCVendor::Unknown,
         }
     }
@@ -94,6 +96,7 @@ impl BMCVendor {
             BMCVendor::Supermicro => "Supermicro",
             BMCVendor::Hpe => "Hpe",
             BMCVendor::Nvidia => "Nvidia",
+            BMCVendor::Liteon => "Liteon",
             BMCVendor::Unknown => "Unknown",
         }
         .to_string()
@@ -118,6 +121,10 @@ impl BMCVendor {
         *self == Self::Hpe
     }
 
+    pub fn is_liteon(&self) -> bool {
+        *self == Self::Liteon
+    }
+
     pub fn is_unknown(&self) -> bool {
         *self == Self::Unknown
     }
@@ -135,6 +142,7 @@ impl From<RedfishVendor> for BMCVendor {
             RedfishVendor::Dell => BMCVendor::Dell,
             RedfishVendor::Hpe => BMCVendor::Hpe,
             RedfishVendor::Lenovo => BMCVendor::Lenovo,
+            RedfishVendor::LiteOnPowerShelf => BMCVendor::Liteon,
             RedfishVendor::Supermicro => BMCVendor::Supermicro,
             RedfishVendor::Unknown => BMCVendor::Unknown,
         }

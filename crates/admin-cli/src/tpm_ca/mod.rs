@@ -13,18 +13,23 @@
 pub mod args;
 pub mod cmds;
 
+#[cfg(test)]
+mod tests;
+
 use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
-use crate::rpc::ApiClient;
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 
-// dispatch routes tpm-ca commands.
-pub async fn dispatch(cmd: &Cmd, api_client: &ApiClient) -> CarbideCliResult<()> {
-    match cmd {
-        Cmd::Show => cmds::show(api_client).await,
-        Cmd::Delete(delete_opts) => cmds::delete(delete_opts.ca_id, api_client).await,
-        Cmd::Add(add_opts) => cmds::add_filename(&add_opts.filename, api_client).await,
-        Cmd::AddBulk(add_opts) => cmds::add_bulk(&add_opts.dirname, api_client).await,
-        Cmd::ShowUnmatchedEk => cmds::show_unmatched_ek(api_client).await,
+impl Dispatch for Cmd {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Show => cmds::show(&ctx.api_client).await,
+            Cmd::Delete(delete_opts) => cmds::delete(delete_opts.ca_id, &ctx.api_client).await,
+            Cmd::Add(add_opts) => cmds::add_filename(&add_opts.filename, &ctx.api_client).await,
+            Cmd::AddBulk(add_opts) => cmds::add_bulk(&add_opts.dirname, &ctx.api_client).await,
+            Cmd::ShowUnmatchedEk => cmds::show_unmatched_ek(&ctx.api_client).await,
+        }
     }
 }

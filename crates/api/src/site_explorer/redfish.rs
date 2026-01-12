@@ -152,6 +152,7 @@ impl RedfishClient {
             | RedfishVendor::NvidiaGH200
             | RedfishVendor::NvidiaGBSwitch
             | RedfishVendor::P3809
+            | RedfishVendor::LiteOnPowerShelf
             | RedfishVendor::NvidiaGBx00 => {
                 // change_password does things that require a password and DPUs need a first
                 // password use to be change, so just change it directly

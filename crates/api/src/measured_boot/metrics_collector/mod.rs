@@ -137,6 +137,8 @@ impl MeasuredBootMetricsCollector {
         // Those will be queried by OTEL on demand
         self.metric_holder.update_metrics(metrics);
 
+        txn.commit().await?;
+
         Ok(())
     }
 }

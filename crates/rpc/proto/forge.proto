@@ -3057,6 +3057,18 @@ message ManagedHostNetworkConfigResponse {
   //       This does _not_ replace additional_route_target_imports, which are global
   //       imports 
   optional RoutingProfile routing_profile = 114;
+
+  // List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned 
+  // to tenants so that they themselves can announce to the DPU.  E.g., BYOIP
+  repeated string  anycast_site_prefixes = 115;
+
+  // An ASN allocated for tenants to use
+  // when they peer with the DPU.
+  // If configured, the DPU will expect the host
+  // to peer with this ASN.  If left unset
+  // remote-as external will be used, allowing
+  // any ASN.
+  optional uint32 tenant_host_asn = 116;  
 }
 
 message TrafficInterceptConfig {

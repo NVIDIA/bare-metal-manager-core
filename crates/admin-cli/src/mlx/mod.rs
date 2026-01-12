@@ -10,11 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::admin_cli::OutputFormat;
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use clap::Parser;
 use mlxconfig_runner::{ComparisonResult, SyncResult};
 use prettytable::{Cell, Row, Table};
 
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 use crate::rpc::ApiClient;
 
 mod config;
@@ -50,25 +52,22 @@ pub struct CliContext<'g, 'a> {
     pub format: &'a OutputFormat,
 }
 
-// dispatch routes mlx subcommands to their respective module dispatchers.
-pub async fn dispatch(
-    command: MlxAction,
-    api_client: &ApiClient,
-    format: &OutputFormat,
-) -> eyre::Result<()> {
-    let mut ctxt = CliContext {
-        grpc_conn: api_client,
-        format,
-    };
-    match command {
-        MlxAction::Profile(cmd) => profile::cmds::dispatch(cmd, &mut ctxt).await?,
-        MlxAction::Lockdown(cmd) => lockdown::cmds::dispatch(cmd, &mut ctxt).await?,
-        MlxAction::Info(cmd) => info::cmds::dispatch(cmd, &mut ctxt).await?,
-        MlxAction::Connections(cmd) => connections::cmds::dispatch(cmd, &mut ctxt).await?,
-        MlxAction::Registry(cmd) => registry::cmds::dispatch(cmd, &mut ctxt).await?,
-        MlxAction::Config(cmd) => config::cmds::dispatch(cmd, &mut ctxt).await?,
+impl Dispatch for MlxAction {
+    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+        let mut ctxt = CliContext {
+            grpc_conn: &ctx.api_client,
+            format: &ctx.config.format,
+        };
+        match self {
+            MlxAction::Profile(cmd) => profile::cmds::dispatch(cmd, &mut ctxt).await?,
+            MlxAction::Lockdown(cmd) => lockdown::cmds::dispatch(cmd, &mut ctxt).await?,
+            MlxAction::Info(cmd) => info::cmds::dispatch(cmd, &mut ctxt).await?,
+            MlxAction::Connections(cmd) => connections::cmds::dispatch(cmd, &mut ctxt).await?,
+            MlxAction::Registry(cmd) => registry::cmds::dispatch(cmd, &mut ctxt).await?,
+            MlxAction::Config(cmd) => config::cmds::dispatch(cmd, &mut ctxt).await?,
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 // wrap_text wraps text to a specified width for table display.
