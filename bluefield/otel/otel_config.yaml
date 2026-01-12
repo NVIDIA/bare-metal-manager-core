@@ -352,24 +352,6 @@ processors:
             where metric.name == "hw_port_state"
             or metric.name == "ib_port_state"
 
-exporters:
-  otlp/site:
-    endpoint: otel-receiver.forge:443
-    tls:
-      ca_file: /opt/forge/forge_root.pem
-      cert_file: /etc/ssl/certs/forge-dpu-otel-agent.pem
-      key_file: /etc/ssl/private/forge-dpu-otel-agent.key
-      reload_interval: 1h
-    retry_on_failure:
-      enabled: true
-      initial_interval: 5s
-      max_interval: 30s
-      max_elapsed_time: 1h
-  prometheus:
-    endpoint: "127.0.0.1:9999"
-    resource_to_telemetry_conversion:
-      enabled: true
-
 service:
   pipelines:
     logs/journald:
@@ -382,7 +364,7 @@ service:
         - transform/journald
         - telemetry_stats
         - batch/logs
-      exporters: [otlp/site]
+      exporters: ${env:OTELCOL_LOGS_EXPORTERS_LIST}
     logs/journald-kernel:
       receivers: [journald/kernel]
       processors:
@@ -393,7 +375,7 @@ service:
         - transform/journald-kernel
         - telemetry_stats
         - batch/logs
-      exporters: [otlp/site]
+      exporters: ${env:OTELCOL_LOGS_EXPORTERS_LIST}
     logs/hbn:
       receivers: [filelog/doca]
       processors:
@@ -403,7 +385,7 @@ service:
         - resource/logs-hbn
         - telemetry_stats
         - batch/logs
-      exporters: [otlp/site]
+      exporters: ${env:OTELCOL_LOGS_EXPORTERS_LIST}
     logs/auth:
       receivers: [filelog/auth]
       processors:
@@ -413,7 +395,7 @@ service:
         - resource/logs-auth
         - telemetry_stats
         - batch/logs
-      exporters: [otlp/site]
+      exporters: ${env:OTELCOL_LOGS_EXPORTERS_LIST}
     metrics/fmds:
       receivers: [prometheus/fmds]
       processors:
@@ -422,7 +404,7 @@ service:
         - resource/metrics-fmds
         - telemetry_stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: ${env:OTELCOL_METRICS_EXPORTERS_LIST}
     metrics/node-exporter:
       receivers: [prometheus/node]
       processors:
@@ -431,7 +413,7 @@ service:
         - resource/metrics-node-exporter
         - telemetry_stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: ${env:OTELCOL_METRICS_EXPORTERS_LIST}
     metrics/dts:
       receivers: [prometheus/dts]
       processors:
@@ -441,7 +423,7 @@ service:
         - transform/metrics-dts
         - telemetry_stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: ${env:OTELCOL_METRICS_EXPORTERS_LIST}
     metrics/transceiver-exporter:
       receivers: [prometheus/transceiver]
       processors:
@@ -450,7 +432,7 @@ service:
         - resource/metrics-transceiver
         - telemetry_stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: ${env:OTELCOL_METRICS_EXPORTERS_LIST}
     metrics/hostmetrics:
       receivers: [hostmetrics]
       processors:
@@ -459,7 +441,7 @@ service:
         - resource/hostmetrics
         - telemetry_stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: ${env:OTELCOL_METRICS_EXPORTERS_LIST}
     metrics/hostmetrics-disk:
       receivers: [hostmetrics/disk]
       processors:
@@ -468,7 +450,7 @@ service:
         - resource/hostmetrics-disk
         - telemetry_stats
         - batch/metrics-disk
-      exporters: [otlp/site, prometheus]
+      exporters: ${env:OTELCOL_METRICS_EXPORTERS_LIST}
     metrics/log-stats:
       receivers: [prometheus/log-stats]
       processors:
@@ -476,7 +458,7 @@ service:
         - resourcedetection
         - resource/log-stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: ${env:OTELCOL_METRICS_EXPORTERS_LIST}
   extensions: [file_storage/cursors]
   # Internal otel collector metrics by default are exposed on port 8888,
   # already in use by Forge, causing otelcol-contrib to terminate with an
