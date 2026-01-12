@@ -12,6 +12,17 @@ set -Eeux
 # We install these in postinst to avoid double-triggering the DKMS build
 NV_PACKAGES="cuda-drivers-575=575.57.08-0ubuntu1 datacenter-gpu-manager-4-cuda12=1:4.2.3-2 datacenter-gpu-manager-4-core=1:4.2.3-2 datacenter-gpu-manager-4-proprietary-cuda12=1:4.2.3-2 libnvidia-cfg1-575=575.57.08-0ubuntu1 libnvidia-common-575=575.57.08-0ubuntu1 libnvidia-compute-575=575.57.08-0ubuntu1 libnvidia-decode-575=575.57.08-0ubuntu1 libnvidia-encode-575=575.57.08-0ubuntu1 libnvidia-extra-575=575.57.08-0ubuntu1 libnvidia-fbc1-575=575.57.08-0ubuntu1 libnvidia-gl-575=575.57.08-0ubuntu1 libnvidia-gpucomp-575=575.57.08-0ubuntu1 nvidia-compute-utils-575=575.57.08-0ubuntu1 nvidia-dkms-575-open=575.57.08-0ubuntu1 nvidia-driver-575-open=575.57.08-0ubuntu1 nvidia-fabricmanager-575=575.57.08-1 nvidia-firmware-575=575.57.08-0ubuntu1 nvidia-kernel-common-575=575.57.08-0ubuntu1 nvidia-kernel-source-575-open=575.57.08-0ubuntu1 nvidia-modprobe=575.57.08-0ubuntu1 nvidia-persistenced=575.57.08-1ubuntu1 nvidia-utils-575=575.57.08-0ubuntu1 xserver-xorg-video-nvidia-575=575.57.08-0ubuntu1 libxnvctrl0=575.57.08-0ubuntu1 nvidia-settings=575.57.08-0ubuntu1 nvidia-imex-575=575.57.08-1"
 export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+
+# Debug: Check what NVIDIA driver packages are actually available
+echo "=== Checking NVIDIA repository status ==="
+apt-cache policy cuda-drivers-575 || echo "cuda-drivers-575 not found"
+echo "=== Available cuda-drivers versions ==="
+apt-cache search cuda-drivers | head -20
+echo "=== Available nvidia-driver versions ==="
+apt-cache search nvidia-driver | grep "^nvidia-driver" | head -20
+
 apt-get -y install ${NV_PACKAGES}
 
 # ============================================================================

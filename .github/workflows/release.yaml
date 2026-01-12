@@ -1,9 +1,7 @@
 name: Carbide Release new version
 
 on:
-  push:
-    tags:
-      - 'v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+'
+  workflow_dispatch:
 
 jobs:
   # ============================================================================
