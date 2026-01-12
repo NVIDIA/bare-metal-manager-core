@@ -296,7 +296,7 @@ impl ApiClient {
         Ok(self.0.find_network_segment_ids(request).await?)
     }
 
-    async fn get_segments_by_ids(
+    pub async fn get_segments_by_ids(
         &self,
         network_segments_ids: &[NetworkSegmentId],
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {

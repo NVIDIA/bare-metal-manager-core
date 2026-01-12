@@ -43,6 +43,8 @@
 	<tr><th>MAC Address</th><td>{{ interface.mac_address }}</td></tr>
 	<tr><th>IP Addresses</th><td>{{ interface.addresses }}</td></tr>
 	<tr><th>Gateways</th><td>{{ interface.gateways }}</td></tr>
+	<tr><th>VPC Id</th><td><a href="/admin/vpc/{{ interface.vpc_id }}">{{ interface.vpc_id }}</a></td></tr>
+	<tr><th>VPC Name</th><td>{{ interface.vpc_name }}</td></tr>
 </table>
 {% endfor %}
 
