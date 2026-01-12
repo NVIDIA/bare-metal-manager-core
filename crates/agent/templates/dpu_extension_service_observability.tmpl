@@ -47,7 +47,7 @@ service:
                     - resource/metrics-{{ .Id }}
                     - telemetry_stats
                     - batch/metrics
-                exporters: [otlp/site, prometheus]
+                exporters: [otlp/site, otlp/site/augtera, prometheus]
             {{- end }}
             {{- range $obsvConfig.Logging}}
             logs/{{ .Id }}:

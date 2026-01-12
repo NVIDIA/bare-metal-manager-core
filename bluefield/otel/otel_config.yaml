@@ -365,6 +365,17 @@ exporters:
       initial_interval: 5s
       max_interval: 30s
       max_elapsed_time: 1h
+  otlp/site/augtera:
+    # LoadBalancer service augtera/otel-collector-relay
+    endpoint: 10.91.192.144:4317
+    tls:
+      insecure: true
+      # TODO: Add cert and key files
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 1h
   prometheus:
     endpoint: "127.0.0.1:9999"
     resource_to_telemetry_conversion:
@@ -431,7 +442,7 @@ service:
         - resource/metrics-node-exporter
         - telemetry_stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: [otlp/site, otlp/site/augtera, prometheus]
     metrics/dts:
       receivers: [prometheus/dts]
       processors:
@@ -441,7 +452,7 @@ service:
         - transform/metrics-dts
         - telemetry_stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: [otlp/site, otlp/site/augtera, prometheus]
     metrics/transceiver-exporter:
       receivers: [prometheus/transceiver]
       processors:
@@ -450,7 +461,7 @@ service:
         - resource/metrics-transceiver
         - telemetry_stats
         - batch/metrics
-      exporters: [otlp/site, prometheus]
+      exporters: [otlp/site, otlp/site/augtera, prometheus]
     metrics/hostmetrics:
       receivers: [hostmetrics]
       processors:
