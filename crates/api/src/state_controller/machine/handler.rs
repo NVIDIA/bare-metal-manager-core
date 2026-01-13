@@ -1661,11 +1661,30 @@ async fn handle_restart_verification(
     {
         let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
 
-        let host_redfish_client = ctx
+        let host_redfish_client = match ctx
             .services
             .redfish_client_pool
             .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
-            .await?;
+            .await
+        {
+            Ok(client) => client,
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to create Redfish client for host {} during force-restart verification: {}",
+                    mh_snapshot.host_snapshot.id,
+                    err
+                );
+                update_restart_verification_status(
+                    &mh_snapshot.host_snapshot.id,
+                    last_reboot.clone(),
+                    None,
+                    0,
+                    txn,
+                )
+                .await?;
+                return Ok(None); // Skip verification, continue with state transition
+            }
+        };
 
         let restart_found = match check_restart_in_logs(
             host_redfish_client.as_ref(),
@@ -1757,11 +1776,24 @@ async fn handle_restart_verification(
         {
             let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
 
-            let dpu_redfish_client = ctx
+            let dpu_redfish_client = match ctx
                 .services
                 .redfish_client_pool
                 .create_client_from_machine(dpu, txn)
-                .await?;
+                .await
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to create Redfish client for DPU {} during force-restart verification: {}",
+                        dpu.id,
+                        err
+                    );
+                    update_restart_verification_status(&dpu.id, last_reboot.clone(), None, 0, txn)
+                        .await?;
+                    continue; // Skip verification, continue with state transition
+                }
+            };
 
             let restart_found = match check_restart_in_logs(
                 dpu_redfish_client.as_ref(),
