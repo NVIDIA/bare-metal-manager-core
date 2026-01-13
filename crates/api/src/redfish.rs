@@ -452,6 +452,12 @@ pub async fn host_power_control(
                 && system.id == "DGX"
                 && manager.id == "BMC";
 
+            /*
+                TODO: This logic has been here for a while, and we have upgraded the Vikings many times since.
+                See if we can remove the ipmitool path here and instead use standard redfish power control for Vikings.
+                Previous investigation seemed to indicate that using SystemPowerControl::GracefulRestart
+                instead of ForceRestart avoids bringing down the DPUs, but we need more testing.
+            */
             if is_viking {
                 // vikings reboot their DPU's if redfish reset is used. \
                 // ipmitool is verified to not cause it to reset, so we use it, hackily, here.

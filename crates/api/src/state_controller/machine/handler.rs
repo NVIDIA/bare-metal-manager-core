@@ -4090,12 +4090,13 @@ pub async fn trigger_reboot_if_needed(
                 if target.id.machine_type().is_dpu() {
                     handler_restart_dpu(target, services, txn).await?;
                 } else {
-                    let power_control_action = match target.bmc_vendor() {
-                        bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-                        _ => SystemPowerControl::ForceRestart,
-                    };
-
-                    handler_host_power_control(state, services, power_control_action, txn).await?;
+                    handler_host_power_control(
+                        state,
+                        services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
                 }
                 format!(
                     "Has not come up after {time_elapsed_since_state_change} minutes. Rebooting again, cycle: {cycle}."
@@ -8656,11 +8657,6 @@ async fn configure_host_bios(
         None
     };
 
-    let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
-        bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-        _ => SystemPowerControl::ForceRestart,
-    };
-
     if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
         redfish_client,
         boot_interface_mac.as_deref(),
@@ -8684,8 +8680,13 @@ async fn configure_host_bios(
         // As of July 2024, Josh Price said there's an NBU FR to fix
         // this, but it wasn't target to a release yet.
         let reboot_status = if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
-            handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn)
-                .await?;
+            handler_host_power_control(
+                mh_snapshot,
+                ctx.services,
+                SystemPowerControl::ForceRestart,
+                txn,
+            )
+            .await?;
 
             RebootStatus {
                 increase_retry_count: true,
@@ -8711,7 +8712,13 @@ async fn configure_host_bios(
     };
 
     // Host needs to be rebooted to pick up the changes after calling machine_setup
-    handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn).await?;
+    handler_host_power_control(
+        mh_snapshot,
+        ctx.services,
+        SystemPowerControl::ForceRestart,
+        txn,
+    )
+    .await?;
     Ok(BiosConfigOutcome::Done)
 }
 
@@ -8758,17 +8765,12 @@ async fn set_host_boot_order(
                             e
                         );
 
-                        let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
-                            bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-                            _ => SystemPowerControl::ForceRestart,
-                        };
-
                         let reboot_status =
                             if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
                                 handler_host_power_control(
                                     mh_snapshot,
                                     ctx.services,
-                                    power_control_action,
+                                    SystemPowerControl::ForceRestart,
                                     txn,
                                 )
                                 .await?;
@@ -8826,14 +8828,14 @@ async fn set_host_boot_order(
             }))
         }
         SetBootOrderState::RebootHost => {
-            let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
-                bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-                _ => SystemPowerControl::ForceRestart,
-            };
-
             // Host needs to be rebooted to pick up the changes after calling machine_setup
-            handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn)
-                .await?;
+            handler_host_power_control(
+                mh_snapshot,
+                ctx.services,
+                SystemPowerControl::ForceRestart,
+                txn,
+            )
+            .await?;
 
             Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
                 set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),
