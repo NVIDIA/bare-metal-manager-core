@@ -37,5 +37,6 @@ define_sqlx_fixtures!(
     "create_machine_validation_tests",
     "create_tpm_ca_cert_invalid",
     "create_tpm_ca_wrong_cert",
-    "create_sku"
+    "create_sku",
+    "create_expected_machine_no_default_poweron"
 );

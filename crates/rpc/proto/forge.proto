@@ -563,6 +563,8 @@ service Forge {
   // Power Options
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
   rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
+  rpc AllowIngestionAndPowerOn(BmcEndpointRequest) returns (google.protobuf.Empty);
+  rpc DetermineMachineIngestionState(BmcEndpointRequest) returns (MachineIngestionStateResponse);
 
   // Rack
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
@@ -759,6 +761,23 @@ message AttestationResponse {
     repeated AttestationDeviceData device_data = 9;
   }
   repeated AttestationMachineData machines = 1;
+}
+
+// Determines machine ingestion state in relation to the power on gate
+// NotDiscovered - the machine has not been discovered.
+// WaitingForIngestion - the machine is stuck at the gate, will not be powered on yet.
+// IngestionMachineCreated - the machine is past the gate and has been ingested.
+// IngestionMachineNotCreated - the machine is past the gate, but the entry
+// in the DB hasn't been created yet.
+enum MachineIngestionState {
+  NotDiscovered = 0;
+  WaitingForIngestion = 1;
+  IngestionMachineNotCreated = 2;
+  IngestionMachineCreated = 3;
+}
+
+message MachineIngestionStateResponse{
+  MachineIngestionState machine_ingestion_state = 1;
 }
 
 message TpmCaAddedCaStatus{
@@ -4407,6 +4426,7 @@ message ExpectedMachine {
   optional common.UUID id = 8;
   repeated ExpectedHostNic host_nics = 9;
   optional string rack_id = 10;
+  optional bool default_pause_ingestion_and_poweron = 11;
 }
 
 message ExpectedMachineRequest {

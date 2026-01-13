@@ -197,6 +197,8 @@ pub struct ExploredEndpoint {
     pub last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     /// Last Powercycle issued through redfish
     pub last_redfish_powercycle: Option<chrono::DateTime<chrono::Utc>>,
+    /// whether this host is allowed to power on
+    pub pause_ingestion_and_poweron: bool,
     /// Flag to prevent site explorer from taking remediation actions on redfish errors
     pub pause_remediation: bool,
     /// The MAC address of the boot interface (primary interface) for this host endpoint

@@ -498,6 +498,8 @@ impl InternalRBACRules {
         x.perm("FindAppliedRemediationIds", vec![ForgeAdminCLI]);
         x.perm("GetNextRemediationForMachine", vec![Agent]);
         x.perm("RemediationApplied", vec![Agent]);
+        x.perm("DetermineMachineIngestionState", vec![ForgeAdminCLI, Rla]);
+        x.perm("AllowIngestionAndPowerOn", vec![ForgeAdminCLI, Rla]);
         x.perm("SetPrimaryDpu", vec![ForgeAdminCLI]);
         x.perm("CreateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);

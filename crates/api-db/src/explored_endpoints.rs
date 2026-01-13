@@ -47,6 +47,8 @@ struct DbExploredEndpoint {
     last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     /// The last time site explorer issued a redfish call to power cycle this endpoint
     last_redfish_powercycle: Option<chrono::DateTime<chrono::Utc>>,
+    /// whether this host is allowed to power on
+    pause_ingestion_and_poweron: bool,
     /// Flag to prevent site explorer from taking remediation actions on redfish errors
     pause_remediation: bool,
     /// The MAC address of the boot interface (primary interface) for this host endpoint
@@ -65,6 +67,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
         let last_ipmitool_bmc_reset = row.try_get("last_ipmitool_bmc_reset")?;
         let last_redfish_reboot = row.try_get("last_redfish_reboot")?;
         let last_redfish_powercycle = row.try_get("last_redfish_powercycle")?;
+        let pause_ingestion_and_poweron = row.try_get("pause_ingestion_and_poweron")?;
         let pause_remediation = row.try_get("pause_remediation")?;
         let boot_interface_mac = row.try_get("boot_interface_mac")?;
         Ok(DbExploredEndpoint {
@@ -78,6 +81,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
             last_ipmitool_bmc_reset,
             last_redfish_reboot,
             last_redfish_powercycle,
+            pause_ingestion_and_poweron,
             pause_remediation,
             boot_interface_mac,
         })
@@ -97,6 +101,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
             last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
             last_redfish_reboot: endpoint.last_redfish_reboot,
             last_redfish_powercycle: endpoint.last_redfish_powercycle,
+            pause_ingestion_and_poweron: endpoint.pause_ingestion_and_poweron,
             pause_remediation: endpoint.pause_remediation,
             boot_interface_mac: endpoint.boot_interface_mac,
         }
@@ -423,16 +428,18 @@ pub async fn set_preingestion_failed(
 pub async fn insert(
     address: IpAddr,
     exploration_report: &EndpointExplorationReport,
+    pause_ingestion_and_poweron: bool,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = "
-        INSERT INTO explored_endpoints (address, exploration_report, version, exploration_requested, preingestion_state)
-        VALUES ($1, $2::json, $3, false, '{\"state\":\"initial\"}')
+        INSERT INTO explored_endpoints (address, exploration_report, version, exploration_requested, preingestion_state, pause_ingestion_and_poweron)
+        VALUES ($1, $2::json, $3, false, '{\"state\":\"initial\"}', $4)
         ON CONFLICT DO NOTHING";
     sqlx::query(query)
         .bind(address)
         .bind(sqlx::types::Json(&exploration_report))
         .bind(ConfigVersion::initial())
+        .bind(pause_ingestion_and_poweron)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -554,6 +561,22 @@ pub async fn set_boot_interface_mac(
     let query = "UPDATE explored_endpoints SET boot_interface_mac = $1 WHERE address = $2";
     sqlx::query(query)
         .bind(mac)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+pub async fn set_pause_ingestion_and_poweron(
+    address: IpAddr,
+    value: bool,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query =
+        "UPDATE explored_endpoints SET pause_ingestion_and_poweron = $1 WHERE address = $2;";
+    sqlx::query(query)
+        .bind(value)
         .bind(address)
         .execute(txn)
         .await

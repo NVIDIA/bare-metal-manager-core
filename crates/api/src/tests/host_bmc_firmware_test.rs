@@ -340,6 +340,7 @@ async fn insert_endpoint(
     db::explored_endpoints::insert(
         IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
         &build_exploration_report(vendor, model, bmc_version, uefi_version, machine_id_str),
+        false,
         txn,
     )
     .await

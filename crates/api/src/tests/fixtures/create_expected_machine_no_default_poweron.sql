@@ -1,0 +1,1 @@
+INSERT INTO expected_machines (bmc_mac_address, serial_number, bmc_username, bmc_password, metadata_name, metadata_description, metadata_labels, default_pause_ingestion_and_poweron) VALUES ('6a:6b:6c:6d:6e:6f', 'VVG121GL', 'ADMIN', 'Pwd2023x0x0x0x0x7', '', '', '{}', true);

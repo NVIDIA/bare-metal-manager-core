@@ -182,6 +182,10 @@ pub struct StartUpdates {
 pub enum PowerOptions {
     Show(ShowPowerOptions),
     Update(UpdatePowerOptions),
+    #[clap(about = "Get machine ingestion state")]
+    GetMachineIngestionState(BmcMacAddress),
+    #[clap(about = "Allow a machine to power on")]
+    AllowIngestionAndPowerOn(BmcMacAddress),
 }
 
 #[derive(Parser, Debug)]
@@ -257,4 +261,10 @@ pub struct DebugBundle {
         help = "Batch size for log collection (default: 5000, max: 5000)"
     )]
     pub batch_size: u32,
+}
+
+#[derive(Parser, Debug)]
+pub struct BmcMacAddress {
+    #[clap(short, long, help = "MAC Address of host BMC endpoint")]
+    pub mac_address: mac_address::MacAddress,
 }

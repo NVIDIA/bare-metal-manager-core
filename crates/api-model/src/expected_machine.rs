@@ -59,6 +59,7 @@ pub struct ExpectedMachineData {
     #[serde(default)]
     pub host_nics: Vec<ExpectedHostNic>,
     pub rack_id: Option<String>,
+    pub default_pause_ingestion_and_poweron: Option<bool>,
 }
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
@@ -89,6 +90,8 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 override_id: None,
                 rack_id: row.try_get("rack_id")?,
                 host_nics,
+                default_pause_ingestion_and_poweron: row
+                    .try_get("default_pause_ingestion_and_poweron")?,
             },
         })
     }
@@ -139,6 +142,9 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             sku_id: expected_machine.data.sku_id,
             rack_id: expected_machine.data.rack_id,
             host_nics,
+            default_pause_ingestion_and_poweron: expected_machine
+                .data
+                .default_pause_ingestion_and_poweron,
         }
     }
 }
@@ -182,6 +188,7 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             override_id: em.id.and_then(|u| Uuid::parse_str(&u.value).ok()),
             host_nics: em.host_nics.into_iter().map(|nic| nic.into()).collect(),
             rack_id: em.rack_id,
+            default_pause_ingestion_and_poweron: em.default_pause_ingestion_and_poweron,
         })
     }
 }
