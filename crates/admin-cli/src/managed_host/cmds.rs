@@ -18,8 +18,9 @@ use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use carbide_uuid::machine::MachineId;
 use health_report::HealthProbeAlert;
+use mac_address::MacAddress;
 use prettytable::{Cell, Row, Table};
-use rpc::forge::{self as forgerpc, PowerOptionUpdateRequest, PowerOptions};
+use rpc::forge::{self as forgerpc, BmcEndpointRequest, PowerOptionUpdateRequest, PowerOptions};
 use serde::Serialize;
 use tracing::warn;
 
@@ -873,5 +874,42 @@ pub async fn set_primary_dpu(api_client: &ApiClient, args: SetPrimaryDpu) -> Car
             reboot: args.reboot,
         })
         .await?;
+    Ok(())
+}
+
+pub(crate) async fn get_machine_state(
+    api_client: &ApiClient,
+    mac_address: &MacAddress,
+) -> Result<(), CarbideCliError> {
+    let machine_state = api_client
+        .0
+        .determine_machine_ingestion_state(BmcEndpointRequest {
+            mac_address: Some(mac_address.to_string()),
+            ip_address: "".to_string(),
+        })
+        .await?;
+
+    println!(
+        "Machine ingestion state is: {:#?}",
+        machine_state.machine_ingestion_state()
+    );
+
+    Ok(())
+}
+
+pub(crate) async fn allow_ingestion_and_power_on(
+    api_client: &ApiClient,
+    mac_address: &MacAddress,
+) -> Result<(), CarbideCliError> {
+    api_client
+        .0
+        .allow_ingestion_and_power_on(BmcEndpointRequest {
+            mac_address: Some(mac_address.to_string()),
+            ip_address: "".to_string(),
+        })
+        .await?;
+
+    println!("Command completed without errors");
+
     Ok(())
 }

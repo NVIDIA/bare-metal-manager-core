@@ -173,7 +173,7 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 
     // Fake some explored endpoints
     for addr in &bmc_addrs {
-        db::explored_endpoints::insert(*addr, &Default::default(), &mut txn)
+        db::explored_endpoints::insert(*addr, &Default::default(), false, &mut txn)
             .await
             .unwrap();
     }

@@ -10,7 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
+
 use ::rpc::forge as rpc;
+use db::DatabaseError;
+use mac_address::MacAddress;
 use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
 
@@ -124,4 +128,148 @@ pub(crate) async fn update_power_option(
     Ok(Response::new(rpc::PowerOptionResponse {
         response: vec![updated_value.into()],
     }))
+}
+
+/// Determines machine ingestion state in relation to the power on gate
+/// NotDiscovered - the machine has not been discovered.
+/// WaitingForIngestion - the machine is stuck at the gate, will not be powered on yet.
+/// IngestionMachineCreated - the machine is past the gate and has been ingested.
+/// IngestionMachineNotCreated - the machine is past the gate, but the entry
+/// in the DB hasn't been created yet.
+#[allow(txn_without_commit)]
+pub(crate) async fn determine_machine_ingestion_state(
+    api: &Api,
+    request: &rpc::BmcEndpointRequest,
+) -> Result<tonic::Response<rpc::MachineIngestionStateResponse>, tonic::Status> {
+    // 1. Has it been ingested at all?
+    //.   Look up machine interface by mac address, then find explored endpoint by ip
+    //.   No explored endpoint -> NotDisovered
+    // 2. If yes, do we have an entry in the explored_managed_hosts?
+    //.   Yes -> Has the machine been created?
+    //           Yes -> IngestionMachineCreated
+    //           No -> IngestionMachineNotCreated
+    //.   Nope -> WaitingForIngestion
+
+    let mac_address = MacAddress::from_str(&request.mac_address.clone().ok_or(
+        CarbideError::InvalidArgument("No MAC address suplied".to_string()),
+    )?)
+    .map_err(CarbideError::MacAddressParseError)?;
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            "begin determine_machine_ingestion_state",
+            e,
+        ))
+    })?;
+
+    let explored_endpoint = match find_explored_endpoint(&mut txn, &mac_address).await? {
+        FindExploredEndpoint::Found(explored_endpoint) => *explored_endpoint,
+        FindExploredEndpoint::NotFound => {
+            return Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
+                machine_ingestion_state: rpc::MachineIngestionState::NotDiscovered.into(),
+            }));
+        }
+        FindExploredEndpoint::MoreThanOneEndpoint => {
+            return Err(CarbideError::Internal {
+                message: format!(
+                    "More than one explored enpoint found for MAC {}",
+                    mac_address
+                ),
+            }
+            .into());
+        }
+    };
+
+    // now check if we have an entry in explored_managed_hosts
+    let explored_managed_hosts =
+        db::explored_managed_host::find_by_ips(&mut txn, vec![explored_endpoint.address]).await?;
+
+    if !explored_managed_hosts.is_empty() {
+        let machine_created = db::machine::find_id_by_bmc_ip(&mut txn, &explored_endpoint.address)
+            .await
+            .map_err(|e| CarbideError::internal(e.to_string()))?
+            .is_some();
+        if machine_created {
+            Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
+                machine_ingestion_state: rpc::MachineIngestionState::IngestionMachineCreated.into(),
+            }))
+        } else {
+            Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
+                machine_ingestion_state: rpc::MachineIngestionState::IngestionMachineNotCreated
+                    .into(),
+            }))
+        }
+    } else {
+        Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
+            machine_ingestion_state: rpc::MachineIngestionState::WaitingForIngestion.into(),
+        }))
+    }
+}
+
+pub(crate) async fn allow_ingestion_and_power_on(
+    api: &Api,
+    request: &rpc::BmcEndpointRequest,
+) -> Result<tonic::Response<()>, tonic::Status> {
+    // flip a flag in explored_endpoints and allow a power on
+    let mac_address = MacAddress::from_str(&request.mac_address.clone().ok_or(
+        CarbideError::InvalidArgument("No MAC address suplied".to_string()),
+    )?)
+    .map_err(CarbideError::MacAddressParseError)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let explored_endpoint = match find_explored_endpoint(&mut txn, &mac_address).await? {
+        FindExploredEndpoint::Found(explored_endpoint) => *explored_endpoint,
+        FindExploredEndpoint::NotFound => {
+            return Err(CarbideError::NotFoundError {
+                kind: "ExploredEndpoint",
+                id: mac_address.to_string(), //power_on_request.mac_address.clone(),
+            }
+            .into());
+        }
+        FindExploredEndpoint::MoreThanOneEndpoint => {
+            return Err(CarbideError::Internal {
+                message: format!(
+                    "More than one explored enpoint found for MAC {}",
+                    mac_address
+                ),
+            }
+            .into());
+        }
+    };
+
+    // flip the flag now
+    db::explored_endpoints::set_pause_ingestion_and_poweron(
+        explored_endpoint.address,
+        false,
+        &mut txn,
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
+}
+
+enum FindExploredEndpoint {
+    Found(Box<model::site_explorer::ExploredEndpoint>),
+    NotFound,
+    MoreThanOneEndpoint,
+}
+
+async fn find_explored_endpoint(
+    txn: &mut sqlx::PgConnection,
+    mac_address: &MacAddress,
+) -> Result<FindExploredEndpoint, CarbideError> {
+    let explored_endpoints = db::explored_endpoints::find_by_mac_address(txn, *mac_address).await?;
+
+    let explored_endpoint = match explored_endpoints.len() {
+        0 => return Ok(FindExploredEndpoint::NotFound),
+        1 => &explored_endpoints[0],
+        _ => return Ok(FindExploredEndpoint::MoreThanOneEndpoint),
+    };
+
+    Ok(FindExploredEndpoint::Found(Box::new(
+        explored_endpoint.clone(),
+    )))
 }

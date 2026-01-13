@@ -2886,6 +2886,29 @@ impl Forge for Api {
     ) -> Result<Response<rpc::MachinePositionInfoList>, Status> {
         crate::handlers::machine::get_machine_position_info(self, request).await
     }
+
+    async fn determine_machine_ingestion_state(
+        &self,
+        request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::MachineIngestionStateResponse>, Status> {
+        crate::api::log_request_data(&request);
+
+        crate::handlers::power_options::determine_machine_ingestion_state(
+            self,
+            &request.into_inner(),
+        )
+        .await
+    }
+
+    async fn allow_ingestion_and_power_on(
+        &self,
+        request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::api::log_request_data(&request);
+
+        crate::handlers::power_options::allow_ingestion_and_power_on(self, &request.into_inner())
+            .await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

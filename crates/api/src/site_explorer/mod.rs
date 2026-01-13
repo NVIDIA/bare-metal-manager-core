@@ -1610,7 +1610,9 @@ impl SiteExplorer {
             expected_count - unique_matched_expected_machines.len();
 
         for endpoint in explore_endpoint_data.iter_mut() {
-            endpoint.expected = expected_machines_by_mac.remove(&endpoint.iface.mac_address);
+            endpoint.expected = expected_machines_by_mac
+                .get(&endpoint.iface.mac_address)
+                .cloned();
             endpoint.expected_power_shelf =
                 expected_power_shelves_by_mac.remove(&endpoint.iface.mac_address);
             endpoint.expected_switch = expected_switches_by_mac.remove(&endpoint.iface.mac_address);
@@ -1799,6 +1801,10 @@ impl SiteExplorer {
                     }
                 }
                 None => {
+                    let should_pause_ingestion_and_poweron = pause_ingestion_and_poweron(
+                        &expected_machines_by_mac,
+                        &endpoint.iface.mac_address,
+                    );
                     match result {
                         Ok(mut report) => {
                             report.last_exploration_latency = Some(exploration_duration);
@@ -1807,14 +1813,26 @@ impl SiteExplorer {
                                 exploration_report = ?report,
                                 "Initial exploration of endpoint"
                             );
-                            db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                            db::explored_endpoints::insert(
+                                address,
+                                &report,
+                                should_pause_ingestion_and_poweron,
+                                &mut txn,
+                            )
+                            .await?;
                         }
                         Err(e) => {
                             // If an endpoint exploration failed we still track the result in the database
                             // That will avoid immmediatly retrying the exploration in the next run
                             let mut report = EndpointExplorationReport::new_with_error(e);
                             report.last_exploration_latency = Some(exploration_duration);
-                            db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                            db::explored_endpoints::insert(
+                                address,
+                                &report,
+                                should_pause_ingestion_and_poweron,
+                                &mut txn,
+                            )
+                            .await?;
                         }
                     }
                     if !self.config.create_machines.load(Ordering::Relaxed) {
@@ -2229,12 +2247,12 @@ impl SiteExplorer {
                             exploration_report = ?report,
                             "Initial exploration of power shelf endpoint"
                         );
-                        db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                        db::explored_endpoints::insert(address, &report, false, &mut txn).await?;
                     }
                     Err(e) => {
                         let mut report = EndpointExplorationReport::new_with_error(e);
                         report.last_exploration_latency = Some(exploration_duration);
-                        db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                        db::explored_endpoints::insert(address, &report, false, &mut txn).await?;
                     }
                 },
             }
@@ -2701,6 +2719,16 @@ impl SiteExplorer {
             return Ok(false);
         };
 
+        // if we are explicitly forbidden from powering on in the expected_machines,
+        // then don't do it
+        if host_endpoint.pause_ingestion_and_poweron {
+            tracing::warn!(
+                "Host with bmc_ip_address: {} is configured to pause on ingestion",
+                host_endpoint.address
+            );
+            return Ok(false);
+        }
+
         let mut ingest_host = true;
 
         if !matches!(system.power_state, PowerState::On) {
@@ -3040,6 +3068,20 @@ pub async fn get_machine_state_by_bmc_ip(
     Ok(state)
 }
 
+fn pause_ingestion_and_poweron(
+    expected_machines_by_mac: &HashMap<MacAddress, ExpectedMachine>,
+    mac_address: &mac_address::MacAddress,
+) -> bool {
+    if let Some(expected_machine) = expected_machines_by_mac.get(mac_address) {
+        return expected_machine
+            .data
+            .default_pause_ingestion_and_poweron
+            .unwrap_or(false);
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use model::site_explorer::PreingestionState;
@@ -3093,6 +3135,7 @@ mod tests {
             last_ipmitool_bmc_reset: None,
             last_redfish_reboot: None,
             last_redfish_powercycle: None,
+            pause_ingestion_and_poweron: false,
             pause_remediation: false,
             boot_interface_mac: None,
         };
