@@ -183,6 +183,7 @@ impl TryFrom<Switch> for rpc::Switch {
             status,
             deleted,
             controller_state,
+            ip_address: None,
         })
     }
 }

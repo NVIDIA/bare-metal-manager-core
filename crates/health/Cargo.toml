@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 base64 = { workspace = true }
 chrono = { workspace = true }
+reqwest = { workspace = true }
 dashmap = { workspace = true }
 figment = { workspace = true, features = ["toml", "env"] }
 futures = { workspace = true }

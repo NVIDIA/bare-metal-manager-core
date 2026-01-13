@@ -575,7 +575,7 @@ impl InternalRBACRules {
             "FindPowerShelfStateHistories",
             vec![ForgeAdminCLI, Machineatron, Rla],
         );
-        x.perm("FindSwitches", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm("FindSwitches", vec![ForgeAdminCLI, Machineatron, Rla, Health]);
         x.perm("CreateSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AddExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
