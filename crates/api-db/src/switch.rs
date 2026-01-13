@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
@@ -17,7 +19,6 @@ use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::switch::{NewSwitch, Switch, SwitchControllerState};
 use sqlx::PgConnection;
-use std::net::IpAddr;
 
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,

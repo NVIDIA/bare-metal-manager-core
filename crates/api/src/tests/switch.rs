@@ -11,15 +11,14 @@
  */
 use std::net::IpAddr;
 
-use crate::db::expected_switch::ExpectedSwitch;
-use crate::db::explored_endpoints::DbExploredEndpoint;
-use crate::model::metadata::Metadata;
-use crate::model::site_explorer::{
-    EndpointExplorationReport, EndpointType, EthernetInterface, Manager,
-};
 use carbide_uuid::switch::SwitchId;
-use db::switch as db_switch;
+use db::{
+    expected_switch as db_expected_switch, explored_endpoints as db_explored_endpoints,
+    switch as db_switch,
+};
 use mac_address::MacAddress;
+use model::metadata::Metadata;
+use model::site_explorer::{EndpointExplorationReport, EndpointType, EthernetInterface, Manager};
 use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{SwitchDeletionRequest, SwitchQuery};
@@ -599,7 +598,7 @@ async fn test_find_switch_with_ip_addresses_matching_data(
     let mut txn = env.pool.begin().await?;
 
     // Insert expected_switch
-    ExpectedSwitch::create(
+    db_expected_switch::create(
         &mut txn,
         bmc_mac,
         "admin".to_string(),
@@ -633,14 +632,14 @@ async fn test_find_switch_with_ip_addresses_matching_data(
     };
 
     // Insert explored_endpoint
-    DbExploredEndpoint::insert(switch_ip, &exploration_report, &mut txn).await?;
+    db_explored_endpoints::insert(switch_ip, &exploration_report, &mut txn).await?;
 
     txn.commit().await?;
 
     // Verify the data was inserted correctly by querying directly
     let mut verify_txn = env.pool.begin().await?;
-    let ip_map =
-        Switch::get_switch_ips_by_serials(&mut verify_txn, &[switch_serial.clone()]).await?;
+    let ip_map: std::collections::HashMap<String, IpAddr> =
+        db_switch::get_switch_ips_by_serials(&mut verify_txn, &[switch_serial.clone()]).await?;
     verify_txn.commit().await?;
 
     // Debug: Check if the direct query returns the IP
