@@ -248,8 +248,12 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                 let switch_registry = registry.clone();
 
                 Some(tokio::spawn(async move {
-                    switch_collector::run_switch_collector(api_client, switch_config, &switch_registry)
-                        .await
+                    switch_collector::run_switch_collector(
+                        api_client,
+                        switch_config,
+                        &switch_registry,
+                    )
+                    .await
                 }))
             } else {
                 tracing::warn!(

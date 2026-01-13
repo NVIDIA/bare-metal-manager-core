@@ -11,19 +11,19 @@
  */
 use std::net::IpAddr;
 
-use mac_address::MacAddress;
-use carbide_uuid::switch::SwitchId;
-use db::switch as db_switch;
-use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{SwitchDeletionRequest, SwitchQuery};
-use tonic::Code;
 use crate::db::expected_switch::ExpectedSwitch;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::model::metadata::Metadata;
 use crate::model::site_explorer::{
     EndpointExplorationReport, EndpointType, EthernetInterface, Manager,
 };
+use carbide_uuid::switch::SwitchId;
+use db::switch as db_switch;
+use mac_address::MacAddress;
+use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{SwitchDeletionRequest, SwitchQuery};
+use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::new_switch;

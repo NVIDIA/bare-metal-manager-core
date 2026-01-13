@@ -25,9 +25,9 @@ use std::time::Duration;
 
 use prometheus::{GaugeVec, Opts, Registry};
 
+use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::{Configurable, SwitchCollectorConfig};
-use crate::HealthError;
 
 /// NMX-T telemetry port
 const NMXT_PORT: u16 = 9352;
@@ -159,7 +159,9 @@ impl SwitchCollector {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
             .build()
-            .map_err(|e| HealthError::GenericError(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         let effective_ber_gauge = GaugeVec::new(
             Opts::new(
@@ -207,7 +209,10 @@ impl SwitchCollector {
             return Ok(());
         }
 
-        tracing::info!("Scraping {} ready switches for NMX-T metrics", switches.len());
+        tracing::info!(
+            "Scraping {} ready switches for NMX-T metrics",
+            switches.len()
+        );
 
         for switch in &switches {
             let switch_ip = match &switch.ip_address {
@@ -233,18 +238,9 @@ impl SwitchCollector {
                             .cloned()
                             .unwrap_or_default();
 
-                        let node_guid = sample
-                            .labels
-                            .get("Node_GUID")
-                            .cloned()
-                            .unwrap_or_default();
+                        let node_guid = sample.labels.get("Node_GUID").cloned().unwrap_or_default();
 
-                        let labels = [
-                            switch_id.as_str(),
-                            switch_ip,
-                            &node_guid,
-                            &port_num,
-                        ];
+                        let labels = [switch_id.as_str(), switch_ip, &node_guid, &port_num];
 
                         match sample.name.as_str() {
                             "Effective_BER" => {

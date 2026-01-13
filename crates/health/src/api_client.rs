@@ -259,7 +259,9 @@ impl ApiClientWrapper {
         let ready_switches: Vec<_> = response
             .switches
             .into_iter()
-            .filter(|s| s.controller_state == "ready" || s.controller_state == "{\"state\":\"ready\"}")
+            .filter(|s| {
+                s.controller_state == "ready" || s.controller_state == "{\"state\":\"ready\"}"
+            })
             .filter(|s| s.ip_address.is_some())
             .collect();
 
