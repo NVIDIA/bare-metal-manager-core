@@ -297,7 +297,7 @@ impl TestEnv {
             ib_pools: self.common_pools.infiniband.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.clone(),
-            mqtt_client: None,
+            dpa_info: None,
         }
     }
 
@@ -1045,6 +1045,8 @@ pub fn get_config() -> CarbideConfig {
             mqtt_endpoint: "mqtt.forge".to_string(),
             mqtt_broker_port: 1884_u16,
             hb_interval: Duration::minutes(2),
+            subnet_ip: Ipv4Addr::UNSPECIFIED,
+            subnet_mask: 0_i32,
         }),
         power_manager_options: PowerManagerOptions {
             enabled: false,
@@ -1359,7 +1361,7 @@ pub async fn create_test_env_with_overrides(
         ib_pools: common_pools.infiniband.clone(),
         ipmi_tool: ipmi_tool.clone(),
         site_config: config.clone(),
-        mqtt_client: None,
+        dpa_info: None,
     });
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()

@@ -78,6 +78,9 @@ pub struct Discovery {
 
     #[builder(setter(into, strip_option), default)]
     pub(crate) remote_id: Option<String>,
+
+    #[builder(setter(into, strip_option), default)]
+    pub(crate) desired_address: Option<String>,
 }
 
 #[repr(C)]
@@ -178,6 +181,27 @@ pub unsafe extern "C" fn discovery_set_link_select(
     unsafe {
         marshal_discovery_ffi(ctx, |builder| {
             builder.link_select_address(Ipv4Addr::from(link_select.to_be_bytes()));
+            DiscoveryBuilderResult::Success
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn discovery_set_desired_address(
+    ctx: *mut DiscoveryBuilderFFI,
+    desired_address: *const libc::c_char,
+) -> DiscoveryBuilderResult {
+    unsafe {
+        let desired_address = match CStr::from_ptr(desired_address).to_str() {
+            Ok(string) => string.to_owned(),
+            Err(error) => {
+                log::error!("Invalid UTF-8 byte string for desired_address: {error}");
+                return DiscoveryBuilderResult::InvalidVendorClass;
+            }
+        };
+
+        marshal_discovery_ffi(ctx, |builder| {
+            builder.desired_address(desired_address);
             DiscoveryBuilderResult::Success
         })
     }
@@ -339,6 +363,7 @@ unsafe fn discovery_fetch_machine_at(
             let mac_address = discovery.mac_address;
             let circuit_id = discovery.circuit_id.clone();
             let remote_id = discovery.remote_id.clone();
+            let desired_address = discovery.desired_address.clone();
             let addr_for_dhcp = IpAddr::V4(
                 discovery
                     .link_select_address
@@ -361,6 +386,11 @@ unsafe fn discovery_fetch_machine_at(
                 None => "",
             };
 
+            let desired_ip = match &desired_address {
+                Some(di) => di.as_str(),
+                None => "",
+            };
+
             let mut cache_entry_status = cache::CacheEntryStatus::DiscoveryFailing(0);
             if let Some(cache_entry) = cache::get(
                 mac_address,
@@ -373,20 +403,20 @@ unsafe fn discovery_fetch_machine_at(
                 match cache_entry.status {
                     cache::CacheEntryStatus::ValidEntry(machine) => {
                         log::info!(
-                            "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})."
+                            "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id} {desired_ip})."
                         );
                         *machine_ptr_out = Box::into_raw(machine);
                         return DiscoveryBuilderResult::Success;
                     }
                     cache::CacheEntryStatus::DiscoveryFailing(count) => {
                         log::info!(
-                            "retrying carbide-api for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id}). failure count: {count}."
+                            "retrying carbide-api for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id} {desired_ip}). failure count: {count}."
                         );
                         cache_entry_status = cache_entry.status;
                     }
                     cache::CacheEntryStatus::DiscoveryFailed => {
                         log::info!(
-                            "too many failures for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})."
+                            "too many failures for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id} {desired_ip})."
                         );
                         return DiscoveryBuilderResult::TooManyFailuresError;
                     }

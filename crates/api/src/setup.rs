@@ -39,6 +39,7 @@ use tracing_log::AsLog as _;
 
 use crate::api::Api;
 use crate::cfg::file::{CarbideConfig, ListenMode};
+use crate::dpa::DpaInfo;
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::firmware_downloader::FirmwareDownloader;
@@ -519,11 +520,22 @@ pub async fn initialize_and_start_controllers(
     let downloader = FirmwareDownloader::new();
     let upload_limiter = Arc::new(Semaphore::new(carbide_config.firmware_global.max_uploads));
 
-    let mqtt_client = if carbide_config.is_dpa_enabled() {
-        Some(dpa::start_dpa_handler(api_service.clone()).await?)
-    } else {
-        None
-    };
+    let mut dpa_info: Option<Arc<DpaInfo>> = None;
+
+    if carbide_config.is_dpa_enabled() {
+        let mqtt_client = Some(dpa::start_dpa_handler(api_service.clone()).await?);
+        let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
+
+        let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
+
+        let info: DpaInfo = DpaInfo {
+            subnet_ip,
+            subnet_mask,
+            mqtt_client,
+        };
+
+        dpa_info = Some(Arc::new(info));
+    }
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: db_pool.clone().into(),
@@ -532,7 +544,7 @@ pub async fn initialize_and_start_controllers(
         ib_pools: common_pools.infiniband.clone(),
         ipmi_tool: ipmi_tool.clone(),
         site_config: carbide_config.clone(),
-        mqtt_client,
+        dpa_info,
     });
 
     // handles need to be stored in a variable

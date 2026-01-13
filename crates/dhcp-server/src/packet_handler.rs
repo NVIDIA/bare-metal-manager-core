@@ -171,6 +171,7 @@ impl DecodedPacket {
             link_address: self.get_link_select(),
             circuit_id: handler.get_circuit_id(self, circuit_id),
             remote_id: self.get_remote_id(),
+            desired_address: None,
         }
     }
 

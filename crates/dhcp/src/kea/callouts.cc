@@ -3,6 +3,8 @@
 
 isc::log::Logger logger("carbide-callouts");
 
+const int IPV4_ADDR_SIZEB = 4;
+
 void CDHCPOptionsHandler<Option>::resetOption(boost::any param) {
   switch (option) {
   case DHO_SUBNET_MASK:
@@ -331,6 +333,9 @@ int pkt4_receive(CalloutHandle &handle) {
 
   handle.getArgument("query4", query4_ptr);
 
+  LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE)
+      .arg(query4_ptr->toText());
+
   /*
    * Call to increment total requests counter
    */
@@ -378,6 +383,33 @@ int pkt4_receive(CalloutHandle &handle) {
   if (builder_result == DiscoveryBuilderResult::Success) {
     builder_result = update_discovery_parameters<OptionString>(
         query4_ptr, discovery.get(), DHO_VENDOR_CLASS_IDENTIFIER);
+  }
+
+  if (builder_result == DiscoveryBuilderResult::Success) {
+    OptionPtr opt = query4_ptr->getOption(DHO_DHCP_REQUESTED_ADDRESS);
+    if (opt) {
+      OptionBuffer buf = opt->getData();
+      auto bufSize = buf.size();
+
+      if (bufSize == IPV4_ADDR_SIZEB) {
+        uint32_t temp = 0;
+        memcpy(&temp, buf.data(), IPV4_ADDR_SIZEB);
+        uint32_t v4 = htonl(temp);
+
+        isc::asiolink::IOAddress addr(v4);
+
+        auto desired = addr.toText();
+
+        discovery_set_desired_address(discovery.get(), desired.c_str());
+
+        LOG_INFO(logger,
+                "LOG_CARBIDE_PKT4_RECEIVE: Desired Address [%1] set")
+          .arg(desired);
+      } else {
+        LOG_ERROR(logger, "LOG_CARBIDE_PKT4_RECEIVE: Desired addr buf len wrong: [%1]")
+          .arg(bufSize);
+      }
+    }
   }
 
   /*

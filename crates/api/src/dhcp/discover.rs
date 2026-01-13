@@ -9,18 +9,150 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use db::dhcp_entry::DhcpEntry;
 use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
+use model::dpa_interface::DpaInterface;
 use model::expected_machine::ExpectedHostNic;
+use sqlx::PgConnection;
 use tonic::{Request, Response};
 
 use crate::CarbideError;
 use crate::api::Api;
+
+// MTU for both the underlay and overlay networks on
+// the E/W Fabric
+const SPX_MTU: i32 = 9000;
+
+/// Given a desired IP address, compute the relay address by toggling the LSB.
+fn get_relay_from_desired(desired: Ipv4Addr) -> Ipv4Addr {
+    let ip_u32 = u32::from(desired);
+    let relay_u32 = ip_u32 ^ 1;
+    Ipv4Addr::from(relay_u32)
+}
+
+// Overlay IP address request from DPA. DPA tells us
+// what IP address it wants (calculated algorithmically
+// from the underlay IP address). So we just allocate
+// that desired address and update the DB.
+async fn handle_overlay_from_dpa(
+    txn: &mut PgConnection,
+    dpa_if: &mut DpaInterface,
+    macaddr: MacAddress,
+    desired_addr: IpAddr,
+) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
+    let IpAddr::V4(ip_v4_addr) = desired_addr else {
+        return Err(CarbideError::internal(
+            "IPv6 not supported for DPA overlay".to_string(),
+        ));
+    };
+
+    let relay_addr = get_relay_from_desired(ip_v4_addr);
+
+    let prefix = format!("{relay_addr}/31");
+
+    dpa_if.overlay_ip = Some(desired_addr);
+
+    db::dpa_interface::update_ip(dpa_if.clone(), false, txn).await?;
+
+    Ok(Some(Response::new(rpc::DhcpRecord {
+        machine_id: Some(dpa_if.get_machine_id()),
+        machine_interface_id: None,
+        segment_id: None,
+        subdomain_id: None,
+        address: desired_addr.to_string(),
+        mac_address: macaddr.to_string(),
+        booturl: None,
+        last_invalidation_time: None,
+        gateway: Some(relay_addr.to_string()),
+        mtu: SPX_MTU,
+        fqdn: String::new(),
+        prefix,
+    })))
+}
+
+// DPA is asking for an underlay IP address. The underlay IP
+// address is just the relay address with the LSB toggled.
+async fn handle_underlay_from_dpa(
+    txn: &mut PgConnection,
+    dpa_if: &mut DpaInterface,
+    macaddr: MacAddress,
+    relay_address: String,
+) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
+    // The relay address and the mac address should differ only in bit 0
+    let relay_addr = Ipv4Addr::from_str(&relay_address)?;
+
+    let ip_u32 = u32::from(relay_addr);
+
+    let retaddr = ip_u32 ^ 1;
+
+    let ret_addr = Ipv4Addr::from(retaddr);
+
+    let prefix = format!("{relay_addr}/31");
+
+    dpa_if.underlay_ip = Some(IpAddr::from(ret_addr));
+
+    db::dpa_interface::update_ip(dpa_if.clone(), true, txn).await?;
+
+    Ok(Some(Response::new(rpc::DhcpRecord {
+        machine_id: Some(dpa_if.get_machine_id()),
+        machine_interface_id: None,
+        segment_id: None,
+        subdomain_id: None,
+        address: ret_addr.to_string(),
+        mac_address: macaddr.to_string(),
+        booturl: None,
+        last_invalidation_time: None,
+        gateway: Some(relay_address),
+        mtu: SPX_MTU,
+        fqdn: String::new(),
+        prefix,
+    })))
+}
+
+// See if this is a underlay/overlay IP allocation request
+// from a DPA. If the specified macaddr belongs to any DPA
+// object, we know it's a request from a DPA. And the presence
+// of desired ip (option 50) means it's overlay request, and
+// the absence of option 50 means it's an underlay request.
+async fn handle_dhcp_from_dpa(
+    api: &Api,
+    txn: &mut PgConnection,
+    macaddr: MacAddress,
+    relay_address: String,
+    desired_address: Option<IpAddr>,
+) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
+    if !api.runtime_config.is_dpa_enabled() {
+        return Ok(None);
+    }
+
+    let mut dpa_ifs = db::dpa_interface::find_by_mac_addr(txn, &macaddr).await?;
+
+    if dpa_ifs.len() != 1 {
+        // If the MAC address does not belong to any DPA object, len will be 0.
+        // Log cases where len is neither 0 nor 1.
+        if !dpa_ifs.is_empty() {
+            tracing::error!(
+                "handle_dpa_message -  invalid dpa_ifs len from find_by_mac_addr maddr: {} len: {}",
+                macaddr,
+                dpa_ifs.len()
+            );
+        }
+        return Ok(None);
+    }
+
+    let mut dpa_if = dpa_ifs.remove(0);
+
+    if let Some(addr) = desired_address {
+        return handle_overlay_from_dpa(txn, &mut dpa_if, macaddr, addr).await;
+    }
+
+    handle_underlay_from_dpa(txn, &mut dpa_if, macaddr, relay_address).await
+}
 
 pub async fn discover_dhcp(
     api: &Api,
@@ -34,6 +166,7 @@ pub async fn discover_dhcp(
         relay_address,
         link_address,
         vendor_string,
+        desired_address,
         ..
     } = request.into_inner();
 
@@ -45,6 +178,9 @@ pub async fn discover_dhcp(
     let mut host_nic: Option<ExpectedHostNic> = None;
 
     let parsed_mac: MacAddress = mac_address.parse()?;
+
+    let desired_address_ip: Option<IpAddr> =
+        desired_address.map(|addr| addr.parse()).transpose()?;
 
     let existing_machine_id =
         match db::machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay).await? {
@@ -62,6 +198,19 @@ pub async fn discover_dhcp(
                     .await?;
                     Some(expected_interface.machine_id)
                 } else {
+                    if let Some(resp) = handle_dhcp_from_dpa(
+                        api,
+                        &mut txn,
+                        parsed_mac,
+                        relay_address,
+                        desired_address_ip,
+                    )
+                    .await?
+                    {
+                        txn.commit().await?;
+                        return Ok(resp);
+                    }
+
                     if let Some(x) = rack_level_service {
                         // check expected machines. all mac addresses we should respond to should be
                         // added in there for unknown machines that have not been discovered yet.

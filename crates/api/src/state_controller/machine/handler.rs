@@ -741,9 +741,19 @@ impl MachineStateHandler {
                     // Clear if any reprovision (dpu or host) is set due to race scenario.
                     Self::clear_host_update_alert_and_reprov(mh_snapshot, txn).await?;
 
-                    let next_state = ManagedHostState::Assigned {
+                    let mut next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::DpaProvisioning,
                     };
+
+                    if !ctx.services.site_config.is_dpa_enabled() {
+                        // If DPA is not enabled, we don't need to do any DPA provisioning.
+                        // So go directly to WaitingForDpaToBeReady state, where we will change
+                        // the network status of our DPUs.
+                        next_state = ManagedHostState::Assigned {
+                            instance_state: InstanceState::WaitingForDpaToBeReady,
+                        };
+                    }
+
                     return Ok(StateHandlerOutcome::transition(next_state));
                 }
 
