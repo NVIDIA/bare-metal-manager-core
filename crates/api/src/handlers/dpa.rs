@@ -248,14 +248,18 @@ pub(crate) async fn process_scout_req(
                 | DpaInterfaceControllerState::Assigned
                 | DpaInterfaceControllerState::WaitingForResetVNI => return None,
 
-                DpaInterfaceControllerState::Unlocking => DpaCommand {
-                    op: OpCode::Unlock {
-                        key: "12345678".to_string(), // XXX TODO: get actual key
-                    },
-                },
+                DpaInterfaceControllerState::Unlocking => {
+                    tracing::info!("Unlocking DPA {:#?}", dev_name);
+                    DpaCommand {
+                        op: OpCode::Unlock {
+                            key: "12345678".to_string(), // XXX TODO: get actual key
+                        },
+                    }
+                }
 
                 DpaInterfaceControllerState::ApplyProfile => {
                     let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
+                    tracing::info!("Applying profile for DPA {:#?}", dev_name);
                     DpaCommand {
                         op: OpCode::ApplyProfile {
                             profile_str: profstr,
@@ -263,11 +267,14 @@ pub(crate) async fn process_scout_req(
                     }
                 }
 
-                DpaInterfaceControllerState::Locking => DpaCommand {
-                    op: OpCode::Lock {
-                        key: "12345678".to_string(), // XXX TODO: get actual key
-                    },
-                },
+                DpaInterfaceControllerState::Locking => {
+                    tracing::info!("Locking DPA {:#?}", dev_name);
+                    DpaCommand {
+                        op: OpCode::Lock {
+                            key: "12345678".to_string(), // XXX TODO: get actual key
+                        },
+                    }
+                }
             };
 
             match serde_json::to_string(&dpa_cmd) {

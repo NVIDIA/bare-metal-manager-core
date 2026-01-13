@@ -153,6 +153,7 @@ enum Finder {
     LoopbackIp,
     NetworkSegment,
     RouteServers,
+    DpaAddresses,
     // TorLldp,
     // There is also this but seems currently unused / unpopulated:
     //  TopologyData->discovery_data(DiscoveryData)->info(HardwareInfo)
@@ -177,6 +178,7 @@ async fn by_ip(api: &Api, ip: &str) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideErr
         search(LoopbackIp, api, ip),
         search(NetworkSegment, api, ip),
         search(RouteServers, api, ip),
+        search(DpaAddresses, api, ip),
     ];
     let results = futures::future::join_all(futures).await;
     let mut out = vec![];
@@ -366,6 +368,16 @@ async fn search(
                 ),
             })
         }
+
+        DpaAddresses => {
+            let out = db::dpa_interface::find_by_ip(&mut txn, addr).await?;
+
+            out.first().map(|dpa| rpc::IpAddressMatch {
+                ip_type: rpc::IpType::DpaInterface as i32,
+                owner_id: Some(dpa.id.to_string()),
+                message: format!("{ip} is underlay or overlay IP of DPA {0}", dpa.id),
+            })
+        }
     };
 
     // not strictly necessary, we could drop the txn and it would rollback
@@ -484,6 +496,18 @@ async fn by_mac(
             rpc::MacOwner::ExpectedMachine,
         )));
     }
+
+    match db::dpa_interface::find_by_mac_addr(&mut txn, &mac).await {
+        Ok(ifs) => match ifs.as_slice() {
+            [iface] => return Ok(Some((iface.id.to_string(), rpc::MacOwner::DpaInterface))),
+            [] => {} // expected, continue to search other object types
+            _ => tracing::error!(
+                "Found {} DpaInterfaces entries for MAC address {mac}. Should be impossible",
+                ifs.len()
+            ),
+        },
+        Err(e) => tracing::error!("by_mac - Error from find_by_mac_addr for DPA: {e}"),
+    };
 
     // Any other MAC addresses to search?
     txn.commit().await?;

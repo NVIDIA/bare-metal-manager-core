@@ -108,7 +108,7 @@ async fn test_power_shelf_state_transitions(
         ib_pools: env.common_pools.infiniband.clone(),
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
-        mqtt_client: None,
+        dpa_info: None,
     });
 
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
@@ -177,7 +177,7 @@ async fn test_power_shelf_deletion_flow(
         ib_pools: env.common_pools.infiniband.clone(),
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
-        mqtt_client: None,
+        dpa_info: None,
     });
 
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
@@ -268,7 +268,7 @@ async fn test_power_shelf_error_state_handling(
         ib_pools: env.common_pools.infiniband.clone(),
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
-        mqtt_client: None,
+        dpa_info: None,
     });
 
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
@@ -392,7 +392,7 @@ async fn test_power_shelf_deletion_with_state_controller(
         ib_pools: env.common_pools.infiniband.clone(),
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
-        mqtt_client: None,
+        dpa_info: None,
     });
 
     let handle = StateController::<PowerShelfStateControllerIO>::builder()

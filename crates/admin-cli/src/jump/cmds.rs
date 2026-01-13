@@ -173,6 +173,19 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     .await?
                 }
                 ResourcePool => resource_pool::cmds::list(&ctx.api_client).await?,
+                DpaInterface =>  {
+                    dpa::cmds::show(
+                        &dpa::args::ShowDpa {
+                            id: Some(m.owner_id.ok_or(CarbideCliError::GenericError(
+                                "failed to unwrap owner_id after dpa interface for IP".to_string(),
+                            ))?.parse()?),
+                        },
+                        config_format,
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                    )
+                    .await?
+                }
             };
         }
 
@@ -302,6 +315,17 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     color_eyre::eyre::bail!(
                         "Searching expected-machines from MAC not yet implemented"
                     );
+                }
+                forgerpc::MacOwner::DpaInterface => {
+                    dpa::cmds::show(
+                        &dpa::args::ShowDpa {
+                            id: Some(primary_key.parse()?),
+                        },
+                        ctx.config.format.clone(),
+                        &ctx.api_client,
+                        1,
+                    )
+                    .await?
                 }
             },
             Err(e) => {

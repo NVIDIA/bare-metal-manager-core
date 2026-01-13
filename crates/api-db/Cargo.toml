@@ -67,10 +67,10 @@ uuid = { features = ["v4", "serde"], workspace = true }
 [features]
 default = ["linux-build"]
 linux-build = [
-    "tss-esapi",
-    "carbide-sqlx-testing/linux-build",
-    "carbide-host-support/linux-build",
-    "carbide-api-model/linux-build",
+  "tss-esapi",
+  "carbide-sqlx-testing/linux-build",
+  "carbide-host-support/linux-build",
+  "carbide-api-model/linux-build",
 ]
 
 [build-dependencies]

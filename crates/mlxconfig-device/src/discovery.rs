@@ -110,9 +110,11 @@ pub fn discover_devices() -> Result<Vec<MlxDeviceInfo>, String> {
         ));
     }
 
-    let xml_content = String::from_utf8_lossy(&output.stdout);
-    warn!("mlxfwmanager XML output: {}", xml_content);
-    parse_mlxfwmanager_xml(&xml_content)
+    {
+        let xml_content = String::from_utf8_lossy(&output.stdout);
+        warn!("mlxfwmanager XML output: {}", xml_content);
+        parse_mlxfwmanager_xml(&xml_content)
+    }
 }
 
 // discover_device loads a specific device using mlxfwmanager.

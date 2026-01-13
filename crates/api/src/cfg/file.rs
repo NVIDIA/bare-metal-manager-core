@@ -13,7 +13,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -538,6 +538,27 @@ impl CarbideConfig {
         let conf = self.dpa_config.clone().unwrap();
 
         conf.enabled
+    }
+
+    pub fn get_dpa_subnet_ip(&self) -> Result<Ipv4Addr, eyre::Report> {
+        if self.dpa_config.is_none() {
+            tracing::error!("get_dpa_subnet_ip: DPA config missing");
+            return Err(eyre::eyre!("get_dpa_subnet_ip: DPA config missing"));
+        }
+
+        let conf = self.dpa_config.clone().unwrap();
+        Ok(conf.subnet_ip)
+    }
+
+    pub fn get_dpa_subnet_mask(&self) -> Result<i32, eyre::Report> {
+        if self.dpa_config.is_none() {
+            tracing::error!("get_dpa_subnet_mask: DPA config missing");
+            return Err(eyre::eyre!("get_dpa_subnet_mask: DPA config missing"));
+        }
+
+        let conf = self.dpa_config.clone().unwrap();
+
+        Ok(conf.subnet_mask)
     }
 
     pub fn mqtt_broker_host(&self) -> Option<String> {
@@ -1230,6 +1251,23 @@ impl SiteExplorerConfig {
 impl DpaConfig {
     pub const fn default_hb_interval() -> chrono::Duration {
         Duration::minutes(2)
+    }
+
+    pub const fn default_subnet_ip() -> Ipv4Addr {
+        Ipv4Addr::UNSPECIFIED
+    }
+}
+
+impl Default for DpaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mqtt_endpoint: default_mqtt_endpoint(),
+            mqtt_broker_port: default_mqtt_broker_port(),
+            subnet_ip: Self::default_subnet_ip(),
+            subnet_mask: 0,
+            hb_interval: Self::default_hb_interval(),
+        }
     }
 }
 
@@ -2144,7 +2182,12 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .clone()
                 .unwrap_or_default()
                 .mqtt_broker_port as i32,
-            mqtt_hb_interval: value.dpa_config.unwrap_or_default().hb_interval.to_string(),
+            mqtt_hb_interval: value
+                .dpa_config
+                .clone()
+                .unwrap_or_default()
+                .hb_interval
+                .to_string(),
             bom_validation_auto_generate_missing_sku: value
                 .bom_validation
                 .auto_generate_missing_sku,
@@ -2153,6 +2196,13 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .auto_generate_missing_sku_interval
                 .as_secs(),
             dpu_secure_boot_enabled: value.dpu_config.dpu_enable_secure_boot,
+            dpa_subnet_ip: value
+                .dpa_config
+                .clone()
+                .unwrap_or_default()
+                .subnet_ip
+                .to_string(),
+            dpa_subnet_mask: value.dpa_config.unwrap_or_default().subnet_mask,
         }
     }
 }
@@ -2192,12 +2242,12 @@ fn default_mqtt_endpoint() -> String {
 fn default_mqtt_broker_port() -> u16 {
     1884
 }
+
 /// DPA (aka Cluster Ineteconnect Network) related configuration
 /// In addition to enabling DPA and specifying
 /// the mqtt endpoint, you need to specify the vni range to
 /// be used by DPA as pools.dpa-vni
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct DpaConfig {
     /// Global enable/disable of Cluster Interconnect Network
     #[serde(default)]
@@ -2210,6 +2260,12 @@ pub struct DpaConfig {
     /// MQTT broker port to use to estabilsh client connections
     #[serde(default = "default_mqtt_broker_port")]
     pub mqtt_broker_port: u16,
+
+    #[serde(default = "DpaConfig::default_subnet_ip")]
+    pub subnet_ip: Ipv4Addr,
+
+    #[serde(default)]
+    pub subnet_mask: i32,
 
     /// hb_interval is the interval at which we issue heartbeat
     /// requests to the DPA.
@@ -3420,6 +3476,8 @@ mqtt_endpoint = "mqtt.forge"
                 mqtt_endpoint: "mqtt.forge".to_string(),
                 mqtt_broker_port: 1884,
                 hb_interval: Duration::minutes(2),
+                subnet_ip: Ipv4Addr::UNSPECIFIED,
+                subnet_mask: 0_i32,
             }
         );
     }

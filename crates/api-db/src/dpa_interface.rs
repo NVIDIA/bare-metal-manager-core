@@ -11,6 +11,7 @@
  */
 
 use std::collections::HashSet;
+use std::net::IpAddr;
 
 use carbide_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use carbide_uuid::machine::MachineId;
@@ -91,12 +92,61 @@ pub async fn update_last_hb_time(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+// Update the underlay or the overlay ip address of the given DPA interface object
+pub async fn update_ip(
+    value: DpaInterface,
+    underlay: bool,
+    txn: &mut PgConnection,
+) -> Result<DpaInterfaceId, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("Update dpa_interfaces SET ");
+
+    if underlay {
+        builder.push(" underlay_ip=");
+        builder.push_bind(value.underlay_ip.unwrap());
+    } else {
+        builder.push(" overlay_ip=");
+        builder.push_bind(value.overlay_ip.unwrap());
+    }
+
+    builder.push(" WHERE id=");
+    builder.push_bind(value.id);
+
+    builder.push(" RETURNING id");
+
+    builder
+        .build_query_as()
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(builder.sql(), e))
+}
+
 pub async fn find_ids(txn: &mut PgConnection) -> Result<Vec<DpaInterfaceId>, DatabaseError> {
     let query = "SELECT id from dpa_interfaces WHERE deleted is NULL";
 
     let results: Vec<DpaInterfaceId> = {
         sqlx::query_as(query)
             .fetch_all(txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?
+    };
+
+    Ok(results)
+}
+
+// Given an IP address, find and return the DPA interface that has the given IP
+// as its underlay or overlay IP address.
+pub async fn find_by_ip(
+    txn: &mut PgConnection,
+    ipaddr: IpAddr,
+) -> Result<Vec<DpaInterface>, DatabaseError> {
+    let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces
+        WHERE deleted is NULL AND underlay_ip = $1 or overlay_ip = $2) m";
+
+    let results: Vec<DpaInterface> = {
+        sqlx::query_as(query)
+            .bind(ipaddr)
+            .bind(ipaddr)
+            .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?
     };

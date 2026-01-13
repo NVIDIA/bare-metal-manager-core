@@ -130,6 +130,9 @@ pub async fn handle_show_version(
         r!(table, config, mqtt_endpoint);
         r!(table, config, mqtt_broker_port);
         r!(table, config, mqtt_hb_interval);
+        r!(table, config, dpa_subnet_ip);
+        r!(table, config, dpa_subnet_mask);
+
         r!(table, config, dpu_secure_boot_enabled);
 
         _ = table.print_tty(true);

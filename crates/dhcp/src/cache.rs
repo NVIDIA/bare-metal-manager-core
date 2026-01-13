@@ -93,8 +93,8 @@ pub fn get(
 /// Insert or update an item in the cache
 pub fn put(
     mac_address: MacAddress,
-    link_address: IpAddr,
-    circuit_id: Option<String>,
+    link_address: IpAddr,       // relay address
+    circuit_id: Option<String>, // vlan id
     remote_id: Option<String>,
     vendor_id: &str,
     status: CacheEntryStatus,

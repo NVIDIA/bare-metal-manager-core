@@ -187,6 +187,7 @@ async fn test_discover_dpu_by_source_ip(
             link_address: None,
             circuit_id: None,
             remote_id: None,
+            desired_address: None,
         }))
         .await
         .unwrap()
@@ -225,6 +226,7 @@ async fn test_discover_dpu_not_create_machine(
             link_address: None,
             circuit_id: None,
             remote_id: None,
+            desired_address: None,
         }))
         .await
         .unwrap()

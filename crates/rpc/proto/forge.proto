@@ -947,6 +947,9 @@ message RuntimeConfig {
   bool dpu_secure_boot_enabled = 45;
   
   bool bom_validation_allow_allocation_on_validation_failure = 46;
+
+  string dpa_subnet_ip = 47;
+  int32 dpa_subnet_mask = 48;
 }
 
 message EchoRequest {
@@ -2796,6 +2799,7 @@ message DhcpDiscovery {
   optional string link_address = 4;
   optional string circuit_id = 5;
   optional string remote_id = 6;
+  optional string desired_address = 7;
 }
 
 message DhcpRecord {
@@ -4085,6 +4089,7 @@ enum MacOwner {
   MacOwnerMachineInterface = 0;
   MacOwnerExploredEndpoint = 1;
   MacOwnerExpectedMachine = 2;
+  MacOwnerDpaInterface = 3;
 }
 
 message IdentifySerialRequest {
@@ -4205,6 +4210,7 @@ enum IpType {
   // table that have been added via forge-admin-cli calls. Their
   // DB records specifically say their source type is `admin`.
   IpTypeRouteServerFromAdminApi = 10;
+  IpTypeDpaInterface = 11;
 }
 
 message MachineBootOverride {
@@ -5438,6 +5444,9 @@ message DpaInterface {
 
   string card_state = 15;
   string pci_name = 16;
+
+  string underlay_ip = 17;
+  string overlay_ip = 18;
 }
 
 

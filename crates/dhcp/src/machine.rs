@@ -51,6 +51,7 @@ impl Machine {
                     vendor_string: discovery.vendor_class.clone(),
                     circuit_id: discovery.circuit_id.clone(),
                     remote_id: discovery.remote_id.clone(),
+                    desired_address: discovery.desired_address.clone(),
                 });
 
                 client
@@ -473,6 +474,7 @@ mod test {
                 link_select_address: "127.0.0.1".parse().ok(),
                 circuit_id: None,
                 remote_id: None,
+                desired_address: None,
             },
             vendor_class: VendorClass::from_str("HTTPClient:Arch:00011:UNDI:003000")
                 .unwrap()
@@ -508,6 +510,7 @@ mod test {
                 link_select_address: "127.0.0.1".parse::<Ipv4Addr>().ok(),
                 circuit_id: None,
                 remote_id: None,
+                desired_address: None,
             },
             vendor_class: VendorClass::from_str("HTTPClient:Arch:00011:UNDI:003000")
                 .unwrap()
