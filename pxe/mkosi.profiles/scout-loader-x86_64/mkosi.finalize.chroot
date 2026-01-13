@@ -1,10 +1,11 @@
 #!/bin/bash
 
+APT_SANDBOX_OPTS="-o APT::Sandbox::User=root"
 export DEBIAN_FRONTEND=noninteractive
 
 # Clean up unneeded packages and clean up apt
-apt-get -y --purge autoremove
-apt-get -y clean
+apt-get ${APT_SANDBOX_OPTS} -y --purge autoremove
+apt-get ${APT_SANDBOX_OPTS} -y clean
 rm -rf /var/lib/apt/lists/*
 rm -rf /var/cache/debconf/*
 
