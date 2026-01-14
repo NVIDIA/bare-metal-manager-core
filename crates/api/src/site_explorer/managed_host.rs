@@ -41,9 +41,20 @@ impl<'a> ManagedHost<'a> {
     }
 }
 
+/// Checks if an ingested machine (host or DPU) exists with the given BMC IP address.
+///
+/// This queries the `machine_topologies` table which stores actual ingested machines,
+/// rather than the `explored_managed_hosts` staging table which gets wiped and rebuilt
+/// on every site explorer update.
+///
+/// This prevents site explorer from triggering unintended actions (like power cycles
+/// or re-ingestion) on machines that have already been ingested, even if the host's
+/// BMC temporarily stops reporting DPUs in its PCIe device list.
 pub async fn is_endpoint_in_managed_host(
     bmc_ip_address: IpAddr,
     txn: &mut PgConnection,
 ) -> Result<bool, DatabaseError> {
-    db::explored_managed_host::is_managed_host_created_for_endpoint(txn, bmc_ip_address).await
+    let machine_id =
+        db::machine_topology::find_machine_id_by_bmc_ip(txn, &bmc_ip_address.to_string()).await?;
+    Ok(machine_id.is_some())
 }

@@ -125,19 +125,3 @@ pub async fn delete_by_host_bmc_addr(
         .map(|_| ())
         .map_err(|e| DatabaseError::query(query, e))
 }
-
-pub async fn is_managed_host_created_for_endpoint(
-    txn: &mut PgConnection,
-    bmc_ip: IpAddr,
-) -> Result<bool, DatabaseError> {
-    let query = r#"SELECT COUNT(*) FROM explored_managed_hosts,jsonb_array_elements(explored_dpus)
-            WHERE value->>'BmcIp'=$1 or host_bmc_ip=$2;"#;
-    let (count,): (i64,) = sqlx::query_as(query)
-        .bind(bmc_ip.to_string())
-        .bind(bmc_ip)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    Ok(count > 0)
-}
