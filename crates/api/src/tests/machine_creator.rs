@@ -104,7 +104,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
     let Err(CarbideError::NoDpusInMachine(_)) = machine_creator
         .create_managed_host(
             &exploration_report,
-            EndpointExplorationReport::default(),
+            &mut EndpointExplorationReport::default(),
             None,
             &env.pool,
         )
@@ -218,7 +218,7 @@ async fn test_site_explorer_creates_managed_host(
         machine_creator
             .create_managed_host(
                 &exploration_report,
-                EndpointExplorationReport::default(),
+                &mut EndpointExplorationReport::default(),
                 None,
                 &env.pool,
             )
@@ -316,7 +316,7 @@ async fn test_site_explorer_creates_managed_host(
         !machine_creator
             .create_managed_host(
                 &exploration_report,
-                EndpointExplorationReport::default(),
+                &mut EndpointExplorationReport::default(),
                 None,
                 &env.pool,
             )
@@ -648,7 +648,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         machine_creator
             .create_managed_host(
                 &exploration_report,
-                EndpointExplorationReport::default(),
+                &mut EndpointExplorationReport::default(),
                 None,
                 &env.pool,
             )
@@ -660,7 +660,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         !machine_creator
             .create_managed_host(
                 &exploration_report,
-                EndpointExplorationReport::default(),
+                &mut EndpointExplorationReport::default(),
                 None,
                 &env.pool,
             )
@@ -916,7 +916,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         machine_creator
             .create_managed_host(
                 &exploration_report,
-                EndpointExplorationReport::default(),
+                &mut EndpointExplorationReport::default(),
                 None,
                 &env.pool
             )
@@ -1016,7 +1016,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         machine_creator
             .create_managed_host(
                 &exploration_report,
-                EndpointExplorationReport::default(),
+                &mut EndpointExplorationReport::default(),
                 None,
                 &env.pool,
             )
@@ -1059,7 +1059,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         !machine_creator
             .create_managed_host(
                 &exploration_report,
-                EndpointExplorationReport::default(),
+                &mut EndpointExplorationReport::default(),
                 None,
                 &env.pool,
             )

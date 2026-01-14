@@ -61,7 +61,7 @@ impl MachineCreator {
     pub(crate) async fn create_machines(
         &self,
         metrics: &mut SiteExplorationMetrics,
-        explored_managed_hosts: Vec<(ExploredManagedHost, EndpointExplorationReport)>,
+        explored_managed_hosts: &mut [(ExploredManagedHost, EndpointExplorationReport)],
         matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
     ) -> CarbideResult<()> {
         // TODO: Improve the efficiency of this method. Right now we perform 3 database transactions
@@ -71,7 +71,7 @@ impl MachineCreator {
             let expected_machine = matched_expected_machines.get(&host.host_bmc_ip);
 
             match self
-                .create_managed_host(&host, report, expected_machine, &self.database_connection)
+                .create_managed_host(host, report, expected_machine, &self.database_connection)
                 .await
             {
                 Ok(true) => {
@@ -94,7 +94,7 @@ impl MachineCreator {
     pub async fn create_managed_host(
         &self,
         explored_host: &ExploredManagedHost,
-        mut report: EndpointExplorationReport,
+        report: &mut EndpointExplorationReport,
         expected_machine: Option<&ExpectedMachine>,
         pool: &PgPool,
     ) -> CarbideResult<bool> {
@@ -118,7 +118,7 @@ impl MachineCreator {
                 .create_zero_dpu_machine(
                     &mut txn,
                     &managed_host,
-                    &mut report,
+                    report,
                     metadata.unwrap_or(&Metadata::default()),
                 )
                 .await?

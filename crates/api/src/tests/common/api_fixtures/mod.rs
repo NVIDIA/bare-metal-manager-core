@@ -573,7 +573,7 @@ impl TestEnv {
             .run_single_iteration()
             .boxed()
             .await
-            .unwrap()
+            .unwrap();
     }
 
     pub async fn run_ib_fabric_monitor_iteration(&self) {
