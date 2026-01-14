@@ -17,6 +17,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::panic::Location;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::network::NetworkSegmentId;
@@ -61,6 +62,8 @@ pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
+mod boot_order_tracker;
+use boot_order_tracker::BootOrderTracker;
 
 mod machine_creator;
 pub use machine_creator::MachineCreator;
@@ -123,6 +126,8 @@ impl Endpoint {
     }
 }
 
+pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationReport)>;
+
 /// The SiteExplorer periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the SiteExplorer will:
 /// 1. collect the number of outstanding updates from all modules.
@@ -141,6 +146,7 @@ pub struct SiteExplorer {
     firmware_config: Arc<FirmwareConfig>,
     work_lock_manager_handle: WorkLockManagerHandle,
     machine_creator: MachineCreator,
+    boot_order_tracker: BootOrderTracker,
 }
 
 impl SiteExplorer {
@@ -177,11 +183,12 @@ impl SiteExplorer {
             endpoint_explorer,
             firmware_config,
             work_lock_manager_handle,
+            boot_order_tracker: BootOrderTracker::default(),
         }
     }
 
     /// Start the SiteExplorer and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the SiteExplorer when dropped.
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
+    pub fn start(mut self) -> eyre::Result<oneshot::Sender<i32>> {
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if self.enabled {
@@ -193,10 +200,15 @@ impl SiteExplorer {
         Ok(stop_sender)
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&mut self, mut stop_receiver: oneshot::Receiver<i32>) {
         loop {
-            if let Err(e) = self.run_single_iteration().await {
-                tracing::warn!("SiteExplorer error: {}", e);
+            match self.run_single_iteration().await {
+                Ok(identified_hosts) => self
+                    .boot_order_tracker
+                    .track_hosts(Instant::now(), &identified_hosts),
+                Err(e) => {
+                    tracing::warn!("SiteExplorer error: {}", e);
+                }
             }
 
             tokio::select! {
@@ -218,7 +230,7 @@ impl SiteExplorer {
         db::Transaction::begin_with_location(&self.database_connection, loc).map_err(Into::into)
     }
 
-    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+    pub async fn run_single_iteration(&self) -> CarbideResult<SiteIdentifiedHosts> {
         let mut metrics = SiteExplorationMetrics::new();
 
         let _work_lock = match self
@@ -284,7 +296,7 @@ impl SiteExplorer {
         );
 
         match &res {
-            Ok(()) => {
+            Ok(_) => {
                 explore_site_span.record("otel.status_code", "ok");
             }
             Err(e) => {
@@ -482,7 +494,10 @@ impl SiteExplorer {
         Ok(())
     }
 
-    async fn explore_site(&self, metrics: &mut SiteExplorationMetrics) -> CarbideResult<()> {
+    async fn explore_site(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+    ) -> CarbideResult<SiteIdentifiedHosts> {
         self.check_preconditions(metrics).await?;
 
         let (
@@ -517,7 +532,7 @@ impl SiteExplorer {
         // This is improvable
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
-        let identified_hosts = self
+        let mut identified_hosts = self
             .identify_managed_hosts(
                 metrics,
                 &matched_expected_machines,
@@ -530,7 +545,7 @@ impl SiteExplorer {
             let start_create_machines = std::time::Instant::now();
             let create_machines_res = self
                 .machine_creator
-                .create_machines(metrics, identified_hosts, &matched_expected_machines)
+                .create_machines(metrics, &mut identified_hosts, &matched_expected_machines)
                 .await;
             metrics.create_machines_latency = Some(start_create_machines.elapsed());
             create_machines_res?;
@@ -568,7 +583,7 @@ impl SiteExplorer {
         self.audit_exploration_results(metrics, &matched_expected_machines)
             .await?;
 
-        Ok(())
+        Ok(identified_hosts)
     }
 
     async fn create_power_shelves(
