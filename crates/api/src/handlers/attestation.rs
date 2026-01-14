@@ -1,11 +1,9 @@
 use ::rpc::common::MachineIdList;
 use ::rpc::forge::{self as rpc, AttestationResponse};
 use config_version::ConfigVersion;
-use db::WithTransaction;
 use db::attestation::spdm::{
     insert_or_update_machine_attestation_request, load_details_for_machine_ids,
 };
-use futures_util::FutureExt;
 use itertools::Itertools;
 use model::attestation::spdm::SpdmMachineAttestation;
 use tonic::{Request, Response, Status};
@@ -104,6 +102,9 @@ pub(crate) async fn attest_quote(
     api: &Api,
     request: Request<rpc::AttestQuoteRequest>,
 ) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
+    use db::WithTransaction;
+    use futures_util::FutureExt;
+
     log_request_data(&request);
 
     let mut request = request.into_inner();
