@@ -46,7 +46,7 @@ lazy_static! {
 const MAT_DPU_PCIE_DEVICE_PREFIX: &str = "mat_dpu";
 
 #[derive(Debug, Clone)]
-struct MockWrapperState {
+pub(crate) struct MockWrapperState {
     machine_info: MachineInfo,
     inner_router: Router,
     command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
@@ -70,6 +70,18 @@ pub enum SetSystemPowerError {
     BadRequest(String),
 }
 
+trait AddRoutes {
+    fn add_routes(self, f: impl FnOnce(Self) -> Self) -> Self
+    where
+        Self: Sized;
+}
+
+impl AddRoutes for Router<MockWrapperState> {
+    fn add_routes(self, f: impl FnOnce(Self) -> Self) -> Self {
+        f(self)
+    }
+}
+
 /// Return an axum::Router that mocks various redfish calls to match the provided MachineInfo.
 /// Any redfish calls not explicitly mocked will be delegated to inner_router (typically a tar_router.)
 ///
@@ -82,7 +94,7 @@ pub fn wrap_router_with_mock_machine(
     command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
     mock_power_state: Arc<dyn PowerStateQuerying>,
 ) -> Router {
-    Router::new()
+    let router = Router::new()
         .route(
             rf!("Managers/{manager_id}/EthernetInterfaces/{interface_id}"),
             get(get_managers_ethernet_interface),
@@ -169,10 +181,6 @@ pub fn wrap_router_with_mock_machine(
             rf!("Systems/Bluefield/SecureBoot"),
             patch(patch_dpu_secure_boot),
         )
-        .route(
-            rf!("Systems/1/Bios/Actions/Bios.ChangePassword"),
-            post(post_password_change),
-        )
         .route(rf!("Managers/{manager_id}/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue"),
                post(post_delete_job_queue),
         )
@@ -193,13 +201,22 @@ pub fn wrap_router_with_mock_machine(
         .route(rf!("Systems/Bluefield/Oem/Nvidia"), get(get_oem_nvidia))
         // Couple routes for bug injection.
         .route("/InjectedBugs", get(get_injected_bugs). post(post_injected_bugs))
+        .add_routes(crate::redfish::account_service::add_routes)
+        .add_routes(crate::redfish::bios::add_routes);
+    let router = match &machine_info {
+        MachineInfo::Dpu(_) => {
+            router.add_routes(crate::redfish::oem::nvidia::bluefield::add_routes)
+        }
+        MachineInfo::Host(_) => router.add_routes(crate::redfish::oem::dell::idrac::add_routes),
+    };
+    router
         .fallback(fallback_to_inner_router)
         .with_state(MockWrapperState {
             machine_info,
             command_channel,
             inner_router,
             mock_power_state,
-            bmc_state: BmcState{
+            bmc_state: BmcState {
                 jobs: Arc::new(Mutex::new(HashMap::new())),
                 secure_boot_enabled: Arc::new(AtomicBool::new(false)),
                 bios: Arc::new(Mutex::new(serde_json::json!({}))),
@@ -1336,14 +1353,6 @@ async fn get_oem_nvidia(
 }
 
 async fn patch_dpu_settings(
-    State(_state): State<MockWrapperState>,
-    _path: Path<()>,
-    _request: Request<Body>,
-) -> impl IntoResponse {
-    StatusCode::OK
-}
-
-async fn post_password_change(
     State(_state): State<MockWrapperState>,
     _path: Path<()>,
     _request: Request<Body>,
