@@ -274,7 +274,12 @@ impl<IO: StateControllerIO> StateController<IO> {
     ) -> Result<(), IterationError> {
         let _lock = match self
             .work_lock_manager_handle
-            .acquire_lock_or_wait(self.work_key.into())
+            // Wait for a max timeout before failing the iteration, equal to the max object handling
+            // time.
+            .acquire_lock_or_wait(
+                self.work_key.into(),
+                self.iteration_config.max_object_handling_time,
+            )
             .await
         {
             Ok(lock) => {
@@ -501,7 +506,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                             };
 
                             if is_success {
-                                // Commit transaction only when handler returned the Success. 
+                                // Commit transaction only when handler returned the Success.
                                 if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted { .. })) {
                                     let db_outcome = PersistentStateHandlerOutcome::from_result(handler_outcome.as_ref());
                                     io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
