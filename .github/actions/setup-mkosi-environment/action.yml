@@ -82,6 +82,8 @@ runs:
           libprotobuf-dev \
           liblzma-dev \
           protobuf-compiler
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
     - name: Install Rust toolchain
       shell: bash
