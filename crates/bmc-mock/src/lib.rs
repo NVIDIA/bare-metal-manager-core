@@ -43,6 +43,7 @@ mod bug;
 mod json;
 mod machine_info;
 mod mock_machine_router;
+mod redfish;
 mod redfish_expander;
 mod tar_router;
 
