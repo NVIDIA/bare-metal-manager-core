@@ -686,7 +686,7 @@ pub mod test_support {
     use forge_secrets::credentials::TestCredentialProvider;
     use libredfish::model::certificate::Certificate;
     use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
-    use libredfish::model::oem::nvidia_dpu::NicMode;
+    use libredfish::model::oem::nvidia_dpu::{HostPrivilegeLevel, NicMode};
     use libredfish::model::secure_boot::SecureBootMode;
     use libredfish::model::sensor::GPUSensors;
     use libredfish::model::service_root::ServiceRoot;
@@ -1944,6 +1944,13 @@ pub mod test_support {
   "SigningAlgorithm": "TPM_ALG_ECDSA_ECC_NIST_P384",
   "Version": "1.1.0"
 }"#).unwrap())
+        }
+
+        async fn set_host_privilege_level(
+            &self,
+            _level: HostPrivilegeLevel,
+        ) -> Result<(), RedfishError> {
+            Ok(())
         }
     }
 
