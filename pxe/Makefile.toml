@@ -200,12 +200,9 @@ dependencies = [
   "mkosi-copy-qcow-imager-to-webroot-x86_64",
   "mkosi-copy-scout-to-webroot-x86_64",
   "mkosi-copy-scout-loader-to-webroot-x86_64",
-  # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in CI.
-  # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
-  # TODO: Need to double confirm
-  # "mkosi-clean-qcow-imager",
-  # "mkosi-clean-scout-x86_64",
-  # "mkosi-clean-scout-loader-x86_64",
+  "mkosi-clean-qcow-imager",
+  "mkosi-clean-scout-x86_64",
+  "mkosi-clean-scout-loader-x86_64",
 ]
 
 [tasks.create-ephemeral-image-x86-host]
@@ -246,12 +243,9 @@ dependencies = [
   "mkosi-copy-scout-to-webroot-aarch64",
   "mkosi-copy-scout-loader-to-webroot-aarch64",
   "mkosi-copy-qcow-imager-to-webroot-aarch64",
-  # Note: Cleanup tasks disabled - mkosi v25 clean requires namespace sandboxing which fails in Github CI.
-  # Since GitHub Actions uses ephemeral runners that are destroyed after the job, cleanup is unnecessary.
-  # TODO: Need to double confirm
-  # "mkosi-clean-scout-aarch64",
-  # "mkosi-clean-scout-loader-aarch64",
-  # "mkosi-clean-qcow-imager-aarch64",
+  "mkosi-clean-scout-aarch64",
+  "mkosi-clean-scout-loader-aarch64",
+  "mkosi-clean-qcow-imager-aarch64",
 ]
 
 [tasks.create-ephemeral-image-arm-host]
@@ -430,7 +424,6 @@ set_env MKOSI_BUILD_TMP ${tmp_name}
 '''
 
 # `depmod` on our runners is in `/sbin`, so add to PATH
-# Note: mkosi requires root permissions, so we use sudo in GitHub Actions
 # Note: mkosi v25 uses built-in sandboxing via Linux namespaces (not bwrap)
 # which should work on GitHub Actions managed runners.
 [tasks.mkosi-build-scout-x86_64]
@@ -446,7 +439,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-scout-aarch64]
@@ -462,7 +455,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-qcow-imager]
@@ -470,7 +463,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-build-qcow-imager-aarch64]
@@ -478,7 +471,7 @@ category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
   "-c",
-  "export PATH=${CARGO_HOME}/bin:${PATH}:/sbin:/usr/sbin && sudo -E PATH=\"${PATH}\" REPO_ROOT=\"${REPO_ROOT}\" MKOSI_BUILD_TMP=\"${MKOSI_BUILD_TMP}\" ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-copy-qcow-imager-to-webroot-x86_64]
