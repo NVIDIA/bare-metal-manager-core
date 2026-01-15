@@ -44,6 +44,7 @@ struct InstanceDisplay {
     num_eth_ifs: usize,
     num_ib_ifs: usize,
     num_keysets: usize,
+    num_nvlink_gpus: usize,
 }
 
 impl From<forgerpc::Instance> for InstanceDisplay {
@@ -99,6 +100,12 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .and_then(|config| config.tenant.as_ref())
             .map(|tenant: &rpc::TenantConfig| tenant.tenant_keyset_ids.len())
             .unwrap_or_default();
+        let num_nvlink_gpus = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.nvlink.as_ref())
+            .map(|nvl| nvl.gpu_configs.len())
+            .unwrap_or_default();
 
         Self {
             id: instance.id.unwrap_or_default().to_string(),
@@ -114,6 +121,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             num_eth_ifs,
             num_ib_ifs,
             num_keysets,
+            num_nvlink_gpus,
         }
     }
 }
@@ -215,6 +223,9 @@ struct InstanceDetail {
     ib_interfaces: Vec<InstanceIbInterface>,
     os: InstanceOs,
     keysets: Vec<String>,
+    nvlink_gpus: Vec<InstanceNvLinkGpu>,
+    nvlink_config_synced: String,
+    nvlink_config_version: String,
     metadata: rpc::forge::Metadata,
 }
 
@@ -248,6 +259,12 @@ struct InstanceIbInterface {
     pf_guid: String,
     guid: String,
     lid: u32,
+}
+
+struct InstanceNvLinkGpu {
+    device_instance: u32,
+    device_guid: String,
+    logical_partition_id: String,
 }
 
 impl From<forgerpc::Instance> for InstanceDetail {
@@ -290,6 +307,34 @@ impl From<forgerpc::Instance> for InstanceDetail {
                     pf_guid: status.pf_guid.clone().unwrap_or_default(),
                     guid: status.guid.clone().unwrap_or_default(),
                     lid: status.lid,
+                })
+            }
+        }
+
+        let mut nvlink_gpus = Vec::new();
+        let nvlink_configs = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.nvlink.as_ref())
+            .map(|config| config.gpu_configs.as_slice())
+            .unwrap_or_default();
+        let nvlink_status = instance
+            .status
+            .as_ref()
+            .and_then(|status| status.nvlink.as_ref())
+            .map(|status: &rpc::InstanceNvLinkStatus| status.gpu_statuses.as_slice())
+            .unwrap_or_default();
+
+        if nvlink_configs.len() == nvlink_status.len() {
+            for (i, config) in nvlink_configs.iter().enumerate() {
+                let status = &nvlink_status[i];
+                nvlink_gpus.push(InstanceNvLinkGpu {
+                    device_instance: config.device_instance,
+                    device_guid: status.gpu_guid.clone().unwrap_or_default(),
+                    logical_partition_id: config
+                        .logical_partition_id
+                        .unwrap_or_default()
+                        .to_string(),
                 })
             }
         }
@@ -382,6 +427,15 @@ impl From<forgerpc::Instance> for InstanceDetail {
             interfaces,
             ib_interfaces,
             keysets,
+            nvlink_gpus,
+            nvlink_config_synced: instance
+                .status
+                .as_ref()
+                .and_then(|status| status.nvlink.as_ref())
+                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .map(|state| format!("{state:?}"))
+                .unwrap_or_default(),
+            nvlink_config_version: instance.nvlink_config_version,
         }
     }
 }

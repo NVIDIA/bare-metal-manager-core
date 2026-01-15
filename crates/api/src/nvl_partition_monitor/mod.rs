@@ -394,6 +394,7 @@ pub struct NvlPartitionMonitor {
     host_health: HostHealthConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     work_lock_manager_handle: WorkLockManagerHandle,
+    last_nvlink_info_validation: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 impl NvlPartitionMonitor {
@@ -420,6 +421,7 @@ impl NvlPartitionMonitor {
             host_health,
             metric_holder,
             work_lock_manager_handle,
+            last_nvlink_info_validation: std::sync::Mutex::new(None),
         }
     }
 
@@ -540,6 +542,29 @@ impl NvlPartitionMonitor {
             CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
         })?;
 
+        let nmx_m_gpus = nmxm_client.get_gpu(None).await.map_err(|e| {
+            metrics.nmxm.connect_error = "Failed to get NMXM gpu list".to_string();
+            check_nvl_partition_span.record("otel.status_code", "error");
+            check_nvl_partition_span.record(
+                "otel.status_message",
+                format!("Failed to get NMXM gpu list {e:?}"),
+            );
+
+            CarbideError::internal(format!("Failed to get NMXM gpu list: {e}"))
+        })?;
+
+        // Validate machine_nvlink_info is consistent with nmx-m get_gpu information.
+        // This runs at most once per hour to avoid unnecessary DB updates.
+        let (machine_nvlink_info, db_nvl_partitions) = self
+            .validate_and_sync_nmxm_info(
+                machine_nvlink_info,
+                &nmx_m_gpus,
+                db_nvl_partitions,
+                &nmx_m_partitions,
+                &mut metrics,
+            )
+            .await?;
+
         metrics.num_logical_partitions = db_nvl_logical_partitions.len();
         metrics.num_physical_partitions = db_nvl_partitions.len();
         metrics.nmxm.num_partitions = nmx_m_partitions.len();
@@ -620,6 +645,163 @@ impl NvlPartitionMonitor {
         Ok(num_completed_operations)
     }
 
+    /// Validate that machine_nvlink_info from the DB is consistent with NMX-M get_gpu information.
+    /// Matches GPUs by domain_uuid, guid (device_uid), and device_id, then verifies nmx_m_id matches.
+    /// If nmx_m_id doesn't match, updates the DB to match NMX-M and returns the corrected data.
+    /// Also checks for stale partitions in DB that no longer exist in NMX-M and deletes them.
+    /// This validation only runs once per hour to avoid unnecessary overhead.
+    async fn validate_and_sync_nmxm_info(
+        &self,
+        machine_nvlink_info: HashMap<MachineId, Option<MachineNvLinkInfo>>,
+        nmx_m_gpus: &[libnmxm::nmxm_model::Gpu],
+        db_nvl_partitions: Vec<db::nvl_partition::NvlPartition>,
+        nmx_m_partitions: &[libnmxm::nmxm_model::Partition],
+        metrics: &mut NvlPartitionMonitorMetrics,
+    ) -> CarbideResult<(
+        HashMap<MachineId, Option<MachineNvLinkInfo>>,
+        Vec<db::nvl_partition::NvlPartition>,
+    )> {
+        // Only run validation once per hour.
+        {
+            let last_validation = self.last_nvlink_info_validation.lock().unwrap();
+            if let Some(last_time) = *last_validation
+                && last_time.elapsed() < std::time::Duration::from_secs(3600)
+            {
+                return Ok((machine_nvlink_info, db_nvl_partitions));
+            }
+        }
+
+        // Build a map of NMX-M GPUs by (domain_uuid, device_uid, device_id) for matching.
+        // device_uid in NMX-M corresponds to guid in nvlink_info.
+        let nmx_m_gpu_map: HashMap<(uuid::Uuid, u64, i32), &libnmxm::nmxm_model::Gpu> = nmx_m_gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.domain_uuid
+                    .map(|domain| ((domain, gpu.device_uid, gpu.device_id), gpu))
+            })
+            .collect();
+
+        // Track machines that need DB updates for nmx_m_id corrections.
+        let mut machines_to_update: Vec<(MachineId, MachineNvLinkInfo)> = Vec::new();
+
+        // Check each machine's nvlink info for consistency with NMX-M.
+        for (machine_id, nvlink_info_opt) in &machine_nvlink_info {
+            let Some(nvlink_info) = nvlink_info_opt else {
+                continue;
+            };
+
+            let mut needs_update = false;
+            let mut updated_gpus: Vec<NvLinkGpu> = Vec::new();
+
+            for db_gpu in &nvlink_info.gpus {
+                let mut updated_gpu = db_gpu.clone();
+
+                // Match GPU by domain_uuid, guid (device_uid), and device_id
+                let key = (nvlink_info.domain_uuid.0, db_gpu.guid, db_gpu.device_id);
+                match nmx_m_gpu_map.get(&key) {
+                    Some(nmx_m_gpu) => {
+                        let nmx_m_id = nmx_m_gpu.id.as_deref().unwrap_or_default();
+                        // Verify nmx_m_id matches
+                        if db_gpu.nmx_m_id != nmx_m_id {
+                            tracing::warn!(
+                                machine_id = %machine_id,
+                                device_id = db_gpu.device_id,
+                                guid = db_gpu.guid,
+                                db_nmx_m_id = %db_gpu.nmx_m_id,
+                                nmx_m_nmx_m_id = %nmx_m_id,
+                                "NvLink GPU nmx_m_id mismatch between DB and NMX-M, updating DB"
+                            );
+                            updated_gpu.nmx_m_id = nmx_m_id.to_string();
+                            needs_update = true;
+                            metrics.num_nvlink_info_mismatches += 1;
+                        }
+                    }
+                    None => {
+                        tracing::warn!(
+                            machine_id = %machine_id,
+                            device_id = db_gpu.device_id,
+                            guid = db_gpu.guid,
+                            domain_uuid = %nvlink_info.domain_uuid,
+                            "NvLink GPU from DB not found in NMX-M gpu list by domain_uuid, guid, and device_id"
+                        );
+                    }
+                }
+                updated_gpus.push(updated_gpu);
+            }
+
+            if needs_update {
+                let updated_nvlink_info = MachineNvLinkInfo {
+                    domain_uuid: nvlink_info.domain_uuid,
+                    gpus: updated_gpus,
+                };
+                machines_to_update.push((*machine_id, updated_nvlink_info));
+            }
+        }
+
+        // Build a set of nmx_m_ids from NMX-M partitions for stale partition detection.
+        let nmx_m_partition_ids: std::collections::HashSet<&str> =
+            nmx_m_partitions.iter().map(|p| p.id.as_str()).collect();
+
+        // Find DB partitions that no longer exist in NMX-M (by nmx_m_id).
+        let stale_partition_ids: std::collections::HashSet<_> = db_nvl_partitions
+            .iter()
+            .filter(|db_partition| !nmx_m_partition_ids.contains(db_partition.nmx_m_id.as_str()))
+            .map(|p| p.id)
+            .collect();
+
+        // Update the DB: update machine nvlink_info and delete stale partitions.
+        let needs_db_update = !machines_to_update.is_empty() || !stale_partition_ids.is_empty();
+
+        if needs_db_update {
+            let mut txn = self.db_pool.txn_begin().await?;
+
+            // Update machine nvlink_info for nmx_m_id mismatches.
+            for (machine_id, updated_nvlink_info) in &machines_to_update {
+                tracing::info!(
+                    machine_id = %machine_id,
+                    "Updating machine nvlink_info in DB to match NMX-M nmx_m_id"
+                );
+                db::machine::update_nvlink_info(&mut txn, machine_id, updated_nvlink_info.clone())
+                    .await?;
+            }
+
+            // Delete stale partitions that no longer exist in NMX-M.
+            for stale_partition in db_nvl_partitions
+                .iter()
+                .filter(|p| stale_partition_ids.contains(&p.id))
+            {
+                tracing::info!(
+                    partition_id = %stale_partition.id,
+                    nmx_m_id = %stale_partition.nmx_m_id,
+                    domain_uuid = %stale_partition.domain_uuid,
+                    "Deleting stale nvlink partition from DB - not found in NMX-M"
+                );
+                db::nvl_partition::final_delete(stale_partition.id, &mut txn).await?;
+                metrics.num_stale_partitions_deleted += 1;
+            }
+
+            txn.commit().await?;
+
+            // Update the in-memory map with the corrected values.
+            let mut updated_map = machine_nvlink_info;
+            for (machine_id, updated_nvlink_info) in machines_to_update {
+                updated_map.insert(machine_id, Some(updated_nvlink_info));
+            }
+
+            // Filter out stale partitions from the returned list.
+            let good_partitions: Vec<_> = db_nvl_partitions
+                .into_iter()
+                .filter(|p| !stale_partition_ids.contains(&p.id))
+                .collect();
+
+            *self.last_nvlink_info_validation.lock().unwrap() = Some(std::time::Instant::now());
+            Ok((updated_map, good_partitions))
+        } else {
+            *self.last_nvlink_info_validation.lock().unwrap() = Some(std::time::Instant::now());
+            Ok((machine_nvlink_info, db_nvl_partitions))
+        }
+    }
+
     // Check the passed NvLink partition "observations" (physical partition info from NMX-M supplemented by physical and logical partition info from DB)
     // against the instance config and generate NMX-M operations to bring the observations into alignment with the config.
     fn check_nv_link_partitions(
@@ -668,8 +850,9 @@ impl NvlPartitionMonitor {
                         Some(info) => info,
                         None => {
                             tracing::error!(
-                                "NMX-M GPU not found for machine {}",
-                                instance.machine_id
+                                machine_id = %instance.machine_id,
+                                device_instance = instance_gpu_config.device_instance,
+                                "NMX-M GPU not found for machine"
                             );
                             instance_gpu_statuses.push(gpu_status_observation);
                             continue;
@@ -881,6 +1064,13 @@ impl NvlPartitionMonitor {
                     continue;
                 };
 
+                tracing::info!(
+                    machine_id = %mh.host_snapshot.id,
+                    gpu_nmx_m_id = %gpu.nmx_m_id,
+                    logical_partition_id = %logical_id,
+                    gpus_to_keep = ?gpus_to_keep,
+                    "Handling GPU removal for machine in admin network"
+                );
                 partition_ctx.handle_gpu_removal(&gpu_ctx, gpus_to_keep)?;
             }
         }
@@ -1289,7 +1479,7 @@ impl NvlPartitionMonitor {
         // walk the logical partition list and check if any logical partitions need to be cleaned up
         for lp in db_nvl_logical_partitions {
             if db::nvl_logical_partition::is_marked_as_deleted(lp) {
-                println!("\n\nDeleting parition with id {:?}", lp.id);
+                tracing::info!(logical_partition_id = %lp.id, "Deleting logical partition");
                 db::nvl_logical_partition::final_delete(lp.id, txn).await?;
             }
         }

@@ -57,6 +57,7 @@ struct MachineRowDisplay {
     metadata: rpc::forge::Metadata,
     instance_type_id: String,
     instance_type: String,
+    num_nvlink_gpus: usize,
 }
 
 impl PartialOrd for MachineRowDisplay {
@@ -90,6 +91,7 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
         let mut product_serial = String::new();
         let mut num_gpus = 0;
         let mut num_ib_ifs = 0;
+        let mut num_nvlink_gpus = 0;
         if let Some(di) = m.discovery_info.as_ref() {
             if let Some(dmi) = di.dmi_data.as_ref() {
                 sys_vendor = dmi.sys_vendor.clone();
@@ -97,6 +99,9 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             }
             num_gpus = di.gpus.len();
             num_ib_ifs = di.infiniband_interfaces.len();
+        }
+        if let Some(nvlink_info) = m.nvlink_info.as_ref() {
+            num_nvlink_gpus = nvlink_info.gpus.len();
         }
         let replace_count = m
             .health_overrides
@@ -156,6 +161,7 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             metadata: m.metadata.unwrap_or_default(),
             instance_type_id: m.instance_type_id.unwrap_or_default(),
             instance_type: String::new(),
+            num_nvlink_gpus,
         }
     }
 }
@@ -435,6 +441,7 @@ struct MachineDetail {
     instance_type_id: String,
     instance_type: String,
     has_instance_type: bool,
+    nvlink_gpus: Vec<MachineNvLinkGpuDisplay>,
 }
 
 struct MachineCapability {
@@ -466,6 +473,16 @@ struct MachineIbInterfaceDisplay {
     associated_pkeys: Option<Vec<String>>,
     associated_partitions: Option<Vec<String>>,
     observed_at: String,
+}
+
+#[derive(Debug, Default)]
+struct MachineNvLinkGpuDisplay {
+    domain_uuid: String,
+    nmx_m_id: String,
+    tray_index: i32,
+    slot_id: i32,
+    device_instance: i32,
+    guid: u64,
 }
 
 pub struct ValidationRun {
@@ -519,6 +536,7 @@ impl From<forgerpc::Machine> for MachineDetail {
         let mut sys_vendor = String::new();
         let mut ib_interfaces = Vec::new();
         let mut inventory = Vec::new();
+        let mut nvlink_gpus = Vec::new();
 
         let discovery_info_json = m
             .discovery_info
@@ -580,6 +598,21 @@ impl From<forgerpc::Machine> for MachineDetail {
         }
         if let Some(inv) = m.inventory {
             inventory.extend(inv.components);
+        }
+
+        if let Some(nvlink_info) = m.nvlink_info {
+            nvlink_gpus = nvlink_info
+                .gpus
+                .into_iter()
+                .map(|gpu| MachineNvLinkGpuDisplay {
+                    domain_uuid: nvlink_info.domain_uuid.unwrap_or_default().to_string(),
+                    nmx_m_id: gpu.nmx_m_id,
+                    tray_index: gpu.tray_index,
+                    slot_id: gpu.slot_id,
+                    guid: gpu.guid,
+                    device_instance: gpu.device_id,
+                })
+                .collect();
         }
 
         let quarantine_state = m
@@ -720,6 +753,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             has_instance_type: m.instance_type_id.is_some(),
             instance_type_id: m.instance_type_id.unwrap_or_default(),
             instance_type: "".to_string(),
+            nvlink_gpus,
         }
     }
 }
