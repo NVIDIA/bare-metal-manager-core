@@ -386,6 +386,16 @@ pub struct CarbideConfig {
     // SPDM Config
     #[serde(default)]
     pub spdm: SpdmConfig,
+
+    // DPF Config
+    #[serde(default)]
+    pub dpf: DpfConfig,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfConfig {
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

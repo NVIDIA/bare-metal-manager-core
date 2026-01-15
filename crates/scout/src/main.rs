@@ -97,14 +97,6 @@ async fn main() -> Result<(), eyre::Report> {
 }
 
 async fn initial_setup(config: &Options) -> Result<(uuid::Uuid, MachineId), eyre::Report> {
-    let machine_interface_id = if let Some(id) = config.machine_interface_id {
-        id
-    } else {
-        return Err(eyre::eyre!(
-            "--machine-interface-id=<uuid> is required for this subcommand."
-        ));
-    };
-
     // we use the same retry params for both: retrying the discover_machine
     // call, as well as retrying the whole attestation sequence: discover_machine + attest_quote
     let retry = registration::DiscoveryRetry {
@@ -112,12 +104,12 @@ async fn initial_setup(config: &Options) -> Result<(uuid::Uuid, MachineId), eyre
         max: config.discovery_retries_max,
     };
 
-    let machine_id = match tryhard::retry_fn(|| {
+    let (machine_id, interface_id) = match tryhard::retry_fn(|| {
         tracing::info!("Trying to register the machine");
         register::run(
             &config.api,
             config.root_ca.clone(),
-            machine_interface_id,
+            config.machine_interface_id,
             &retry,
             &config.tpm_path,
         )
@@ -139,7 +131,7 @@ async fn initial_setup(config: &Options) -> Result<(uuid::Uuid, MachineId), eyre
     {
         Ok(machine_id) => machine_id,
         Err(e) => {
-            report_scout_error(config, None, machine_interface_id, &e).await?;
+            report_scout_error(config, None, config.machine_interface_id, &e).await?;
             return Err(e.into());
         }
     };
@@ -149,6 +141,17 @@ async fn initial_setup(config: &Options) -> Result<(uuid::Uuid, MachineId), eyre
         let mut data_file = File::create(REBOOT_COMPLETED_PATH).expect("creation failed");
         data_file.write_all(format!("Reboot completed at {}", chrono::Utc::now()).as_bytes())?;
     }
+
+    let machine_interface_id = if let Some(interface_id) = config.machine_interface_id {
+        interface_id
+    } else if let Some(interface_id) = interface_id {
+        interface_id
+    } else {
+        return Err(eyre::eyre!(
+            "machine_interface_id is unknown. Can't continue."
+        ));
+    };
+
     Ok((machine_interface_id, machine_id))
 }
 
@@ -190,7 +193,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
         let controller_response = match query_api_with_retries(config, &machine_id).await {
             Ok(action) => action,
             Err(e) => {
-                report_scout_error(config, None, machine_interface_id, &e).await?;
+                report_scout_error(config, None, Some(machine_interface_id), &e).await?;
                 rpc_forge::ForgeAgentControlResponse {
                     action: Action::Noop as i32,
                     data: None,
@@ -267,7 +270,7 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
     let controller_response = match query_api_with_retries(config, &machine_id).await {
         Ok(controller_response) => controller_response,
         Err(e) => {
-            report_scout_error(config, None, machine_interface_id, &e).await?;
+            report_scout_error(config, None, Some(machine_interface_id), &e).await?;
             ForgeAgentControlResponse {
                 action: Action::Noop as i32,
                 data: None,
@@ -344,7 +347,7 @@ async fn handle_action(
             register::run(
                 &config.api,
                 config.root_ca.clone(),
-                machine_interface_id,
+                Some(machine_interface_id),
                 &retry,
                 &config.tpm_path,
             )
@@ -609,13 +612,13 @@ async fn logerror_to_carbide(
 async fn report_scout_error(
     config: &Options,
     machine_id: Option<MachineId>,
-    machine_interface_id: uuid::Uuid,
+    machine_interface_id: Option<uuid::Uuid>,
     error: &impl std::error::Error,
 ) -> CarbideClientResult<()> {
     let request: tonic::Request<ForgeScoutErrorReport> =
         tonic::Request::new(ForgeScoutErrorReport {
             machine_id,
-            machine_interface_id: Some(machine_interface_id.into()),
+            machine_interface_id: machine_interface_id.map(|x| x.into()),
             error: format!("{error:#}"), // Alternate representation also prints inner errors
         });
 

@@ -289,6 +289,9 @@ pub enum CliCommand {
     )]
     LogicalPartition(nvl_logical_partition::Cmd),
 
+    #[clap(about = "DPF management", subcommand)]
+    Dpf(crate::dpf::args::Cmd),
+
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
     Tenant(tenant::Cmd),
 }

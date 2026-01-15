@@ -1070,6 +1070,7 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             nras_config: Some(nras::Config::default()),
         },
+        dpf: crate::cfg::file::DpfConfig::default(),
     }
 }
 
