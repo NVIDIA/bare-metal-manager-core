@@ -343,6 +343,32 @@ Missing BMC Data
 	{% endfor %}
 	</tbody>
 </table>
+<h3>NVLink GPUs</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>Device Instance</th>
+			<th>Domain UUID</th>
+			<th>Device UID</th>
+			<th>Tray Index</th>
+			<th>Slot ID</th>
+			<th>NMX-M ID</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for gpu in nvlink_gpus %}
+		<tr>
+			<td>{{ gpu.device_instance}}</td>
+			<td>{{ gpu.domain_uuid }}</td>
+			<td>{{ gpu.guid }}</td>
+			<td>{{ gpu.tray_index }}</td>
+			<td>{{ gpu.slot_id }}</td>
+			<td>{{ gpu.nmx_m_id }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
 {% endif %}
 
 <div class="section">

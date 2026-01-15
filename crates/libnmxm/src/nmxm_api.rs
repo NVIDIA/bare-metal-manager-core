@@ -68,8 +68,7 @@ impl Nmxm for NmxmApi {
     }
 
     async fn raw_get(&self, api: &str) -> Result<RawResponse, NmxmApiError> {
-        let url = format!("{}/{}", "nmx/v1", api);
-        let response = self.client.get_raw(&url).await?;
+        let response = self.client.get_raw(api).await?;
 
         Ok(response)
     }

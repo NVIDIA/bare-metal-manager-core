@@ -25,6 +25,7 @@
 			{% if machine.is_host %}
 				<th>GPU #</th>
 				<th>IB IFs #</th>
+				<th>NVLink GPUs #</th>
 			{% endif %}
 		{% endif %}
 	</tr>
@@ -91,6 +92,7 @@
 			{% if m.is_host %}
 				<td>{{ m.num_gpus }}</td>
 				<td>{{ m.num_ib_ifs }}</td>
+				<td>{{ m.num_nvlink_gpus }}</td>
 			{% endif %}
 		</tr>
 	{% endfor %}

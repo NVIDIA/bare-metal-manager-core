@@ -8,12 +8,13 @@
 <p>
 This page allows to send queries to NMX-M server.
 Enter a valid NMX-M path below to send a query and display the response.<br>
+For valid path, please refer to the <a href="https://docs.nvidia.com/networking-ethernet-software/nmx-api-8511000/#/">NMX Manager Rest API specification</a>
 </p>
 
 <form id="nmxm_console" method="GET" action="/admin/nmxm-browser">
 	<div>
 		<label for="path_input">Path to query:</label>
-		<input type=text size="80" id="path_input" name="path" placeholder="services" value="{{ path }}" />
+		<input type=text size="80" id="path_input" name="path" placeholder="/nmx/v1/services" value="{{ path }}" />
 	</div>
 	<input type="submit" value="Start query">
 </form>
