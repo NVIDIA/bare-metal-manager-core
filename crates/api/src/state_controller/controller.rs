@@ -31,7 +31,7 @@ use crate::state_controller::metrics::{IterationMetrics, MetricHolder, ObjectHan
 use crate::state_controller::state_change_emitter::{StateChangeEmitter, StateChangeEvent};
 use crate::state_controller::state_handler::{
     FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerContextObjects,
-    StateHandlerError, StateHandlerOutcome,
+    StateHandlerError, StateHandlerOutcome, StateHandlerOutcomeWithTransaction,
 };
 
 mod builder;
@@ -356,7 +356,6 @@ impl<IO: StateControllerIO> StateController<IO> {
 
     /// Executes the state handling function for all objects for which it has
     /// been enqueued
-    #[allow(txn_held_across_await)]
     async fn process_enqueued_objects(
         &mut self,
         iteration_metrics: &mut IterationMetrics<IO>,
@@ -435,9 +434,14 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     object_id: object_id.to_string(),
                                     missing: "object_state",
                                 })?;
+
                             let controller_state = io
                                 .load_controller_state(&mut txn, &object_id, &snapshot)
                                 .await?;
+
+                            // Commit the transaction now, since we don't want to leave a txn open
+                            // throughout handle_object_state.
+                            txn.commit().await?;
 
                             metrics.common.initial_state = Some(controller_state.value.clone());
                             // Unwrap uses a very large duration as default to show something is wrong
@@ -455,15 +459,31 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 metrics: &mut metrics.specific,
                             };
 
-                            let handler_outcome = handler
+                            let handler_output = handler
                                 .handle_object_state(
                                     &object_id,
                                     &mut snapshot,
                                     &controller_state.value,
-                                    &mut txn,
                                     &mut ctx,
                                 )
                                 .await;
+
+                            // What transaction should we use for persisting the outcome? If the
+                            // handler was successful and gave us back a transaction, use that,
+                            // otherwise make our own.
+                            let (handler_outcome, mut txn) = match handler_output {
+                                Ok(StateHandlerOutcomeWithTransaction { outcome, transaction }) => {
+                                    if let Some(txn) = transaction {
+                                        (Ok(outcome), txn)
+                                    } else {
+                                        (Ok(outcome), pool.begin().await?)
+                                    }
+
+                                }
+                                Err(e) => {
+                                    (Err(e), pool.begin().await?)
+                                }
+                            };
 
                             let mut next_state = None;
                             if let Ok(StateHandlerOutcome::Transition { next_state: next, .. }) = &handler_outcome {
