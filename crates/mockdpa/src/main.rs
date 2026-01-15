@@ -171,8 +171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.port,
         &client_id,
         Some(ClientOptions::default().with_qos(qos)),
-    )
-    .await?;
+    )?;
 
     let mystate = InterfaceState {
         client: client.clone(),

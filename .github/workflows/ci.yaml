@@ -8,7 +8,7 @@ on:
       - "pull-request/[0-9]+"
     tags:
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
-      - "v[0-9].[0-9].[0-9]*"
+      - "v[0-9].[0-9].[0-9]-rc[0-9]*"
 
 env:
   # Build configuration
@@ -50,6 +50,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Detect build-container-x86_64 changes
         id: build-container-changes
@@ -85,17 +86,7 @@ jobs:
           # Get short SHA
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-
-          # Calculate VERSION using the same logic as GitLab CI
-          # From gitlab-templates/scripts/get-version.sh line 15:
-          # FIXME: Remove this once we have a proper versioning system
-          # VERSION=dev-${SHORT_SHA}
-          #if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-          #  VERSION="main-${SHORT_SHA}"
-          #fi
-          # If triggered by a tag and USE_GIT_HASH_VERSION is not set, use the tag directly
-
-          echo "Using Git hash version as VERSION and HELM_VERSION"
+          echo "Using Git describe to extract version as VERSION and HELM_VERSION"
           VERSION=$(git describe --tags --first-parent --always --long)
           # HELM_VERSION replaces the last '-' with '.' for Helm compatibility
           HELM_VERSION=$(echo "$VERSION" | sed 's/\(.*\)-/\1./')
@@ -104,6 +95,13 @@ jobs:
           echo "helm_version=${HELM_VERSION}" >> $GITHUB_OUTPUT
           echo "Calculated VERSION: ${VERSION}"
           echo "Calculated HELM_VERSION: ${HELM_VERSION}"
+
+          # Output to GitHub Summary
+          echo "## 📦 Build Version" >> $GITHUB_STEP_SUMMARY
+          echo "| Variable | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| VERSION | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| HELM_VERSION | \`${HELM_VERSION}\` |" >> $GITHUB_STEP_SUMMARY
 
       - name: Decide if build-container-x86_64 must run
         id: base-container-gate
@@ -526,7 +524,7 @@ jobs:
       build_type: boot
       cargo_make_task: build-boot-artifacts-bfb-ci
       build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
-      runner: linux-arm64-cpu4
+      runner: linux-arm64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
     secrets: inherit
@@ -852,16 +850,50 @@ jobs:
       - name: Generate summary
         run: |
           NEEDS='${{ toJson(needs) }}'
-          echo "## build-* jobs" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Build Jobs Summary" >> "$GITHUB_STEP_SUMMARY"
           echo >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
           echo "$NEEDS" | jq -r '
             to_entries[]
             | select(.key | startswith("build-"))
-            | "- **\(.key)** → `\(.value.result)`"
+            | "| \(.key) | \(if .value.result == "failure" then "**\(.value.result)**" else .value.result end) |"
           ' >> "$GITHUB_STEP_SUMMARY"
 
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "## Docker Images Built" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Image |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
+
+          # Collect image_ref from docker-build jobs
+          declare -A IMAGES
+          IMAGES["build-container-x86_64"]="${{ needs.build-container-x86_64.outputs.image_ref }}"
+          IMAGES["build-container-aarch64"]="${{ needs.build-container-aarch64.outputs.image_ref }}"
+          IMAGES["build-runtime-container-x86_64"]="${{ needs.build-runtime-container-x86_64.outputs.image_ref }}"
+          IMAGES["build-runtime-container-aarch64"]="${{ needs.build-runtime-container-aarch64.outputs.image_ref }}"
+          IMAGES["build-artifacts-container-x86_64"]="${{ needs.build-artifacts-container-x86_64.outputs.image_ref }}"
+          IMAGES["build-artifacts-container-aarch64"]="${{ needs.build-artifacts-container-aarch64.outputs.image_ref }}"
+          IMAGES["build-release-container-x86_64"]="${{ needs.build-release-container-x86_64.outputs.image_ref }}"
+          IMAGES["build-release-container-aarch64"]="${{ needs.build-release-container-aarch64.outputs.image_ref }}"
+          IMAGES["build-forge-cli-x86_64"]="${{ needs.build-forge-cli-x86_64.outputs.image_ref }}"
+          IMAGES["build-forge-cli-aarch64"]="${{ needs.build-forge-cli-aarch64.outputs.image_ref }}"
+          IMAGES["build-release-machine-validation-runner"]="${{ needs.build-release-machine-validation-runner.outputs.image_ref }}"
+          IMAGES["build-release-machine-validation-artifacts-x86-host"]="${{ needs.build-release-machine-validation-artifacts-x86-host.outputs.image_ref }}"
+          IMAGES["build-powerdns-container"]="${{ needs.build-powerdns-container.outputs.image_ref }}"
+          IMAGES["build-release-artifacts-x86-host"]="${{ needs.build-release-artifacts-x86-host.outputs.image_ref }}"
+          IMAGES["build-release-artifacts-arm-host"]="${{ needs.build-release-artifacts-arm-host.outputs.image_ref }}"
+
+          for job in "${!IMAGES[@]}"; do
+            image="${IMAGES[$job]}"
+            if [[ -n "$image" ]]; then
+              echo "| $job | \`$image\` |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
   promote-to-be-scanned-image:
-    if: ${{ !cancelled() && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' }}
+    # Skip for pull-request/* branches (main, release/*, and tags are allowed by workflow trigger)
+    if: ${{ !cancelled() && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') }}
     needs:
       - prepare
       - build-release-container-x86_64
@@ -931,6 +963,7 @@ jobs:
       - build-release-artifacts-arm-host
       - build-release-artifacts-x86-host
       - build-release-container-x86_64
+      - build-release-container-aarch64
       - security-trivy-scan
     if: ${{ !cancelled() && github.event_name != 'schedule' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) }}
     uses: ./.github/workflows/promotion-rc.yaml
