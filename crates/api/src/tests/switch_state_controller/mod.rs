@@ -19,13 +19,13 @@ use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{Switch, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
-use sqlx::PgConnection;
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::StateController;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandlerOutcomeWithTransaction,
 };
 use crate::state_controller::switch::context::SwitchStateHandlerContextObjects;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
@@ -55,9 +55,8 @@ impl StateHandler for TestSwitchStateHandler {
         switch_id: &SwitchId,
         state: &mut Switch,
         _controller_state: &Self::ControllerState,
-        _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *switch_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
@@ -65,7 +64,7 @@ impl StateHandler for TestSwitchStateHandler {
             *guard.entry(switch_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(StateHandlerOutcome::do_nothing())
+        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
     }
 }
 
@@ -99,7 +98,7 @@ async fn test_switch_state_transitions(
     const TEST_TIME: Duration = Duration::from_secs(5);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -167,7 +166,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     const TEST_TIME: Duration = Duration::from_secs(2);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -258,7 +257,7 @@ async fn test_switch_error_state_handling(
     const TEST_TIME: Duration = Duration::from_secs(5);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -377,7 +376,7 @@ async fn test_switch_deletion_with_state_controller(
     const TEST_TIME: Duration = Duration::from_secs(2);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),

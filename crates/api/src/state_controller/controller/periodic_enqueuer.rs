@@ -160,7 +160,6 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         iteration_result
     }
 
-    #[allow(txn_held_across_await)]
     async fn lock_and_handle_iteration(
         &mut self,
         iteration_metrics: &mut PeriodicEnqueuerMetrics,

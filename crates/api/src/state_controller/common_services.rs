@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use db::safe_pg_pool::SafePgPool;
 use model::resource_pool::common::IbPools;
+use sqlx::PgPool;
 
 use crate::cfg::file::CarbideConfig;
 use crate::dpa::DpaInfo;
@@ -26,7 +26,7 @@ use crate::redfish::RedfishClientPool;
 #[derive(Clone)]
 pub struct CommonStateHandlerServices {
     /// Postgres database pool
-    pub db_pool: SafePgPool,
+    pub db_pool: PgPool,
 
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,

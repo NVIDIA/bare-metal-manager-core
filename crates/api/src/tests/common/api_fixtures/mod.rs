@@ -64,8 +64,8 @@ use rpc::forge::{
 };
 use rpc_instance::RpcInstance;
 use site_explorer::new_host_with_machine_validation;
+use sqlx::PgPool;
 use sqlx::postgres::PgConnectOptions;
-use sqlx::{PgConnection, PgPool};
 use tokio::sync::Mutex;
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
@@ -109,7 +109,7 @@ use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
 use crate::state_controller::spdm::handler::SpdmAttestationStateHandler;
 use crate::state_controller::spdm::io::SpdmStateControllerIO;
 use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcomeWithTransaction,
 };
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
@@ -292,7 +292,7 @@ impl TestEnv {
     /// test environment
     pub fn state_handler_services(&self) -> CommonStateHandlerServices {
         CommonStateHandlerServices {
-            db_pool: self.pool.clone().into(),
+            db_pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             ib_pools: self.common_pools.infiniband.clone(),
@@ -1361,7 +1361,7 @@ pub async fn create_test_env_with_overrides(
     };
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: db_pool.clone().into(),
+        db_pool: db_pool.clone(),
         redfish_client_pool: redfish_sim.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),
@@ -2439,13 +2439,12 @@ where
         object_id: &Self::ObjectId,
         state: &mut Self::State,
         controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
         self.inner
             .lock()
             .await
-            .handle_object_state(object_id, state, controller_state, txn, ctx)
+            .handle_object_state(object_id, state, controller_state, ctx)
             .await
     }
 }
