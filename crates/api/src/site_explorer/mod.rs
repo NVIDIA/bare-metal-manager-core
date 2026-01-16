@@ -75,7 +75,7 @@ use model::expected_machine::ExpectedMachine;
 use model::firmware::FirmwareComponentType;
 use model::network_segment::NetworkSegmentType;
 
-use self::metrics::exploration_error_to_metric_label;
+use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
 
 #[derive(Debug)]
 pub struct Endpoint {
@@ -524,7 +524,7 @@ impl SiteExplorer {
         // If site explorer is unable to retrieve this mac address, there is no point in creating a managed host: we will not be able to configure the host appropriately.
         // 2b) If the endpoint is for a host: make sure that the host is on and that infinite boot is enabled. Otherwise, we will not be able to provision the DPU appropriately
         // once we create a managed host and add it to the state machine.
-        let (explored_dpus, explored_hosts) = self.identify_machines_to_ingest().await?;
+        let (explored_dpus, explored_hosts) = self.identify_machines_to_ingest(metrics).await?;
 
         // Note/TODO:
         // Since we generate the managed-host pair in a different transaction than endpoint discovery,
@@ -859,6 +859,7 @@ impl SiteExplorer {
     /// Both map from machine BMC IP address to the corresponding explored endpoint.
     async fn identify_machines_to_ingest(
         &self,
+        metrics: &mut SiteExplorationMetrics,
     ) -> CarbideResult<(
         HashMap<IpAddr, ExploredEndpoint>,
         HashMap<IpAddr, ExploredEndpoint>,
@@ -889,10 +890,10 @@ impl SiteExplorer {
             }
 
             if ep.report.is_dpu() {
-                if self.can_ingest_dpu_endpoint(&ep).await? {
+                if self.can_ingest_dpu_endpoint(metrics, &ep).await? {
                     explored_dpus.insert(ep.address, ep);
                 }
-            } else if self.can_ingest_host_endpoint(&ep).await? {
+            } else if self.can_ingest_host_endpoint(metrics, &ep).await? {
                 explored_hosts.insert(ep.address, ep);
             }
         }
@@ -1135,6 +1136,9 @@ impl SiteExplorer {
                                     ep.address,
                                     ep.report.vendor
                                 );
+                                metrics.increment_host_dpu_pairing_blocker(
+                                    PairingBlockerReason::ManualPowerCycleRequired,
+                                );
                             }
                         }
 
@@ -1144,6 +1148,9 @@ impl SiteExplorer {
                             address = %ep.address,
                             exploration_report = ?ep,
                             "cannot identify managed host because the site explorer does not see any DPUs on this host, and zero-DPU hosts are not allowed by configuration; expected_num_dpus_attached_to_host: {expected_num_dpus_attached_to_host}; dpus_explored_for_host: {dpus_explored_for_host:#?}",
+                        );
+                        metrics.increment_host_dpu_pairing_blocker(
+                            PairingBlockerReason::NoDpuReportedByHost,
                         );
                         continue;
                     }
@@ -1183,6 +1190,9 @@ impl SiteExplorer {
                     tracing::error!(
                         "Could not find mac_address {mac_address} in discovered DPU's list {all_mac}, host bmc: {}.",
                         ep.address
+                    );
+                    metrics.increment_host_dpu_pairing_blocker(
+                        PairingBlockerReason::BootInterfaceMacMismatch,
                     );
                     continue;
                 }
@@ -2576,6 +2586,7 @@ impl SiteExplorer {
     /// it will always return true for a DPU that has already been ingested.
     async fn can_ingest_dpu_endpoint(
         &self,
+        metrics: &mut SiteExplorationMetrics,
         dpu_endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         let is_managed_host_created_for_endpoint = match self
@@ -2612,6 +2623,7 @@ impl SiteExplorer {
                 "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
                 dpu_endpoint.address
             );
+            metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
             return Ok(false);
         }
 
@@ -2620,6 +2632,7 @@ impl SiteExplorer {
             Ok(_) => Ok(true),
             Err(error) => {
                 tracing::error!(%error, "Site explorer found an uningested DPU (bmc ip: {}): failed to find the MAC address of the pf0 interface that the DPU exposes to the host", dpu_endpoint.address);
+                metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuPf0MacMissing);
                 Ok(false)
             }
         }
@@ -2704,6 +2717,7 @@ impl SiteExplorer {
     /// Otherwise, the function will return true.
     async fn can_ingest_host_endpoint(
         &self,
+        metrics: &mut SiteExplorationMetrics,
         host_endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         let is_managed_host_created_for_endpoint = match self
@@ -2730,7 +2744,8 @@ impl SiteExplorer {
                 "Site Explorer could not find the system report for a host (bmc_ip_address: {})",
                 host_endpoint.address,
             );
-
+            metrics
+                .increment_host_dpu_pairing_blocker(PairingBlockerReason::HostSystemReportMissing);
             return Ok(false);
         };
 
@@ -2805,7 +2820,9 @@ impl SiteExplorer {
                                         "Site Explorer found a Viking (bmc_ip_address: {}) with a CPLDMB_0 version of {current_cpldmb_0_version}, which is less than the expected version of {expected_cpldmb_0_version}. A DC Power Cycle may be needed",
                                         host_endpoint.address,
                                     );
-
+                                    metrics.increment_host_dpu_pairing_blocker(
+                                        PairingBlockerReason::VikingCpldVersionIssue,
+                                    );
                                     return Ok(false);
                                 }
                             }
@@ -2814,7 +2831,9 @@ impl SiteExplorer {
                                     "Site Explorer found a Viking (bmc_ip_address: {}) with a CPLDMB_0 version of {current_cpldmb_0_version} and could not compare it to the current CPLDMB_0 version of {expected_cpldmb_0_version}: {e:#?}",
                                     host_endpoint.address,
                                 );
-
+                                metrics.increment_host_dpu_pairing_blocker(
+                                    PairingBlockerReason::VikingCpldVersionIssue,
+                                );
                                 return Ok(false);
                             }
                         }
@@ -2822,6 +2841,9 @@ impl SiteExplorer {
                         tracing::warn!(
                             "Site Explorer could not find the CPLDMB_0 inventory for a Viking (bmc_ip_address: {})",
                             host_endpoint.address,
+                        );
+                        metrics.increment_host_dpu_pairing_blocker(
+                            PairingBlockerReason::VikingCpldVersionIssue,
                         );
                         return Ok(false);
                     };

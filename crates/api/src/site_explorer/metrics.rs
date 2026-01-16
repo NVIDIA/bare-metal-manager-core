@@ -11,6 +11,7 @@
  */
 
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
 use carbide_uuid::machine::MachineType;
@@ -19,6 +20,41 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
+
+/// Reasons why a host fails to pair with its DPU(s).
+/// These are issues that require manual intervention.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PairingBlockerReason {
+    /// Non-Dell host needs power cycle after DPU mode change
+    ManualPowerCycleRequired,
+    /// Viking CPLDMB_0 version too old, needs data center power cycle
+    VikingCpldVersionIssue,
+    /// Cannot determine DPU's NIC/DPU mode (likely BMC firmware too old)
+    DpuNicModeUnknown,
+    /// Cannot retrieve DPU's pf0 MAC address
+    DpuPf0MacMissing,
+    /// Cannot get system info from host BMC
+    HostSystemReportMissing,
+    /// Host's boot MAC not found in any discovered DPU
+    BootInterfaceMacMismatch,
+    /// Host BMC did not report any DPUs in its PCIE device list
+    NoDpuReportedByHost,
+}
+
+impl Display for PairingBlockerReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::ManualPowerCycleRequired => "manual_power_cycle_required",
+            Self::VikingCpldVersionIssue => "viking_cpld_version_issue",
+            Self::DpuNicModeUnknown => "dpu_nic_mode_unknown",
+            Self::DpuPf0MacMissing => "dpu_pf0_mac_missing",
+            Self::HostSystemReportMissing => "host_system_report_missing",
+            Self::BootInterfaceMacMismatch => "boot_interface_mac_mismatch",
+            Self::NoDpuReportedByHost => "no_dpu_reported_by_host",
+        };
+        write!(f, "{s}")
+    }
+}
 
 /// Metrics that are gathered in one site exploration run
 #[derive(Clone, Debug)]
@@ -79,6 +115,10 @@ pub struct SiteExplorationMetrics {
     pub endpoint_explorations_expected_power_shelves_missing_overall_count: usize,
     /// Total count of expected machines by SKU ID and device type
     pub expected_machines_sku_count: HashMap<(String, String), usize>, // (sku_id, device_type)
+    /// Total count of host+dpu pairing blockers by reason.
+    /// These are issues that prevent a host from being paired with its dpu(s)
+    /// and require manual intervention.
+    pub host_dpu_pairing_blockers: HashMap<String, usize>,
 }
 
 impl Default for SiteExplorationMetrics {
@@ -112,6 +152,7 @@ impl SiteExplorationMetrics {
             bmc_reboot_count: 0,
             endpoint_explorations_expected_power_shelves_missing_overall_count: 0,
             expected_machines_sku_count: HashMap::new(),
+            host_dpu_pairing_blockers: HashMap::new(),
         }
     }
 
@@ -187,6 +228,14 @@ impl SiteExplorationMetrics {
         *self
             .expected_machines_sku_count
             .entry((sku_id_key, device_type_key))
+            .or_default() += 1;
+    }
+
+    /// Increment the count of host+dpu pairing blockers for a given reason.
+    pub fn increment_host_dpu_pairing_blocker(&mut self, reason: PairingBlockerReason) {
+        *self
+            .host_dpu_pairing_blockers
+            .entry(reason.to_string())
             .or_default() += 1;
     }
 }
@@ -499,6 +548,27 @@ impl SiteExplorerInstruments {
                                     ],
                                 ]
                                 .concat(),
+                            );
+                        }
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_host_dpu_pairing_blockers_count")
+                .with_description(
+                    "Count of host+dpu pairing blockers by reason. These are issues that prevent \
+                     a host from being paired with its dpu(s) and require manual intervention.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (reason, &count) in metrics.host_dpu_pairing_blockers.iter() {
+                            observer.observe(
+                                count as u64,
+                                &[attrs, &[KeyValue::new("reason", reason.clone())]].concat(),
                             );
                         }
                     })
