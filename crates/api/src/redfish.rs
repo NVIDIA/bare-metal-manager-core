@@ -1316,7 +1316,7 @@ pub mod test_support {
         }
 
         async fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
-            Ok(serde_json::from_str(
+            let mut manager: libredfish::model::Manager = serde_json::from_str(
                 r##"{
             "@odata.id": "/redfish/v1/Managers/Bluefield_BMC",
             "@odata.type": "#Manager.v1_14_0.Manager",
@@ -1397,7 +1397,10 @@ pub mod test_support {
               "UUID": "0b623306-fa7f-42d2-809d-a63a13d49c8d"
         }"##,
             )
-            .unwrap())
+            .unwrap();
+            // Update the date_time to current time for tests
+            manager.date_time = Some(chrono::Utc::now());
+            Ok(manager)
         }
 
         async fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {

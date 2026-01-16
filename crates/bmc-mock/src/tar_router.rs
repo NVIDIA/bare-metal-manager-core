@@ -27,8 +27,10 @@ use axum::http::{Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use bytes::Buf;
+use chrono::Utc;
 use eyre::Context;
 use flate2::read::GzDecoder;
+use regex::Regex;
 
 pub type EntryMap = Arc<Mutex<HashMap<String, String>>>;
 
@@ -120,6 +122,12 @@ pub fn tar_router(
         .with_state(cache))
 }
 
+lazy_static::lazy_static! {
+    static ref GET_MANAGER_RE: Regex = Regex::new(r#"Managers/[A-Za-z0-9\-_.~]+$"#).unwrap();
+    // Match DateTime field in JSON format: "DateTime": "YYYY-MM-DDTHH:MM:SS+/-HH:MM"
+    static ref DATETIME_RE: Regex = Regex::new(r#""DateTime":\s*"[^"]+""#).unwrap();
+}
+
 /// Read redfish data from the tar
 async fn get_from_tar(
     AxumState(cache): AxumState<TarRouterCache>,
@@ -135,7 +143,21 @@ async fn get_from_tar(
             tracing::trace!("Not found: {path}");
             (StatusCode::NOT_FOUND, path)
         }
-        Some(s) => (StatusCode::OK, s.clone()),
+        Some(s) => {
+            let mut response = s.clone();
+
+            // Replace DateTime with current time for Manager resources
+            // This prevents BMC time sync issues in tests
+            if GET_MANAGER_RE.is_match(&path) {
+                let current_time = Utc::now().format("%Y-%m-%dT%H:%M:%S+00:00");
+                let new_datetime = format!(r#""DateTime": "{current_time}""#);
+                response = DATETIME_RE
+                    .replace(&response, new_datetime.as_str())
+                    .to_string();
+            }
+
+            (StatusCode::OK, response)
+        }
     }
 }
 
