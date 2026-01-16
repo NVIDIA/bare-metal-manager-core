@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -24,6 +25,12 @@ use tokio::time::{Duration, sleep};
 use tracing::error;
 
 use crate::api::Api;
+
+pub struct DpaInfo {
+    pub subnet_ip: Ipv4Addr,
+    pub subnet_mask: i32,
+    pub mqtt_client: Option<Arc<MqtteaClient>>,
+}
 
 // We just received a message from a DPA via the MQTT broker. Handle that message here.
 async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) {
@@ -120,6 +127,7 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
 // The SetVni command to contain the given vni and revision string.
 pub async fn send_dpa_command(
     client: Arc<MqtteaClient>,
+    dpa_info: &Arc<DpaInfo>,
     macaddr: String,
     revision: String,
     vni: i32,
@@ -128,8 +136,8 @@ pub async fn send_dpa_command(
         pf_id: 0,
         mac: macaddr.clone(),
         vni,
-        subnet_ip: String::new(),
-        subnet_mask: 0,
+        subnet_ip: dpa_info.subnet_ip.to_string(),
+        subnet_mask: dpa_info.subnet_mask,
         dhcp_ip: String::new(),
         host_ip: String::new(),
     };

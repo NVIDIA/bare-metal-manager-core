@@ -246,7 +246,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_expand() {
-        let tar_router = default_host_tar_router(false, None);
+        let tar_router = default_host_tar_router(None);
         let mut subject = wrap_router_with_redfish_expander(tar_router.clone());
 
         let response_body = subject

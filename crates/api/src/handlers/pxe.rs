@@ -13,7 +13,7 @@
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
-use db::{ObjectColumnFilter, domain};
+use db;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -72,16 +72,13 @@ pub(crate) async fn get_cloud_init_instructions(
                 ))
             })?;
 
-            let domain = domain::find_by(
-                &mut txn,
-                ObjectColumnFilter::One(domain::IdColumn, &domain_id),
-            )
-            .await?
-            .first()
-            .ok_or_else(|| {
-                CarbideError::internal(format!("Could not find a domain for {domain_id}"))
-            })?
-            .to_owned();
+            let domain = db::dns::domain::find_by_uuid(&mut txn, domain_id)
+                .await
+                .map_err(CarbideError::from)?
+                .ok_or_else(|| {
+                    CarbideError::internal(format!("Could not find domain with id {domain_id}"))
+                })?
+                .to_owned();
 
             // This custom pxe is different from a customer instance of pxe. It is more for testing one off
             // changes until a real dev env is established and we can just override our existing code to test
@@ -108,7 +105,9 @@ pub(crate) async fn get_cloud_init_instructions(
                 custom_cloud_init,
                 discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
                     machine_interface: Some(machine_interface.into()),
-                    domain: Some(domain.into()),
+                    domain: Some(rpc::PxeDomain {
+                        domain: Some(rpc::pxe_domain::Domain::NewDomain(domain.into())),
+                    }),
                     hbn_reps: api
                         .runtime_config
                         .vmaas_config

@@ -345,7 +345,7 @@
         evpn:
           enable: on
           vni:
-            '1025186': {} 
+            '3109': {} 
         loopback:
           ip:
             address:
@@ -423,7 +423,7 @@
         evpn:
           enable: on
           vni:
-            '1025197': {} 
+            '3109': {} 
         loopback:
           ip:
             address:

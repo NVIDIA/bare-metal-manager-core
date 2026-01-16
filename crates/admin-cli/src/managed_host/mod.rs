@@ -49,6 +49,13 @@ impl Dispatch for Cmd {
                 args::PowerOptions::Update(args) => {
                     cmds::update_power_option(args, &ctx.api_client).await?
                 }
+                args::PowerOptions::GetMachineIngestionState(mac_address) => {
+                    cmds::get_machine_state(&ctx.api_client, &mac_address.mac_address).await?
+                }
+                args::PowerOptions::AllowIngestionAndPowerOn(mac_address) => {
+                    cmds::allow_ingestion_and_power_on(&ctx.api_client, &mac_address.mac_address)
+                        .await?
+                }
             },
             Cmd::StartUpdates(options) => {
                 firmware::cmds::start_updates(&ctx.api_client, options).await?

@@ -61,7 +61,13 @@ docker build --build-arg "CONTAINER_RUNTIME_X86_64=alpine:latest" -t boot-artifa
 ```sh
 docker build --build-arg CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64 -t machine-validation-runner -f dev/docker/Dockerfile.machine-validation-runner .
 
+docker save --output crates/machine-validation/images/machine-validation-runner.tar machine-validation-runner:latest 
+
+// This copies `machine-validation-runner.tar` into the `/images` directory on the `machine-validation-config` container.  When using a kubernetes deployment model
+// this is the only `machine-validation` container you need to configure on the `carbide-pxe` pod.
+
 docker build --build-arg CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64 -t machine-validation-config -f dev/docker/Dockerfile.machine-validation-config .
+
 ```
 
 ## Building carbide-core container

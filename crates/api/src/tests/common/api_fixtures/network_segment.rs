@@ -160,7 +160,7 @@ pub async fn create_network_segment(
     include_subdomain: bool,
 ) -> NetworkSegmentId {
     let subdomain_id = if include_subdomain {
-        let request = rpc::forge::DomainSearchQuery {
+        let request = ::rpc::protos::dns::DomainSearchQuery {
             id: None,
             name: Some("dwrt1.com".to_string()),
         };

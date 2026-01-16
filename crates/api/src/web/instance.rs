@@ -10,12 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
+use forgerpc::NetworkSegment;
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -40,6 +44,7 @@ struct InstanceDisplay {
     num_eth_ifs: usize,
     num_ib_ifs: usize,
     num_keysets: usize,
+    num_nvlink_gpus: usize,
 }
 
 impl From<forgerpc::Instance> for InstanceDisplay {
@@ -93,7 +98,13 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .config
             .as_ref()
             .and_then(|config| config.tenant.as_ref())
-            .map(|tenant: &rpc::TenantConfig| tenant.tenant_keyset_ids.len())
+            .map(|tenant: &rpc::forge::TenantConfig| tenant.tenant_keyset_ids.len())
+            .unwrap_or_default();
+        let num_nvlink_gpus = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.nvlink.as_ref())
+            .map(|nvl| nvl.gpu_configs.len())
             .unwrap_or_default();
 
         Self {
@@ -110,6 +121,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             num_eth_ifs,
             num_ib_ifs,
             num_keysets,
+            num_nvlink_gpus,
         }
     }
 }
@@ -211,6 +223,9 @@ struct InstanceDetail {
     ib_interfaces: Vec<InstanceIbInterface>,
     os: InstanceOs,
     keysets: Vec<String>,
+    nvlink_gpus: Vec<InstanceNvLinkGpu>,
+    nvlink_config_synced: String,
+    nvlink_config_version: String,
     metadata: rpc::forge::Metadata,
 }
 
@@ -229,6 +244,8 @@ struct InstanceInterface {
     mac_address: String,
     addresses: String,
     gateways: String,
+    vpc_id: String,
+    vpc_name: String,
 }
 
 struct InstanceIbInterface {
@@ -244,46 +261,15 @@ struct InstanceIbInterface {
     lid: u32,
 }
 
+struct InstanceNvLinkGpu {
+    device_instance: u32,
+    device_guid: String,
+    logical_partition_id: String,
+}
+
 impl From<forgerpc::Instance> for InstanceDetail {
     fn from(instance: forgerpc::Instance) -> Self {
-        let mut interfaces = Vec::new();
-        let if_configs = instance
-            .config
-            .as_ref()
-            .and_then(|config| config.network.as_ref())
-            .map(|config| config.interfaces.as_slice())
-            .unwrap_or_default();
-        let if_status = instance
-            .status
-            .as_ref()
-            .and_then(|status| status.network.as_ref())
-            .map(|status| status.interfaces.as_slice())
-            .unwrap_or_default();
-        if if_configs.len() == if_status.len() {
-            for (i, interface) in if_configs.iter().enumerate() {
-                let status = &if_status[i];
-                let mac_address = status
-                    .mac_address
-                    .clone()
-                    .unwrap_or("<unknown>".to_string());
-                interfaces.push(InstanceInterface {
-                    function_type: forgerpc::InterfaceFunctionType::try_from(
-                        interface.function_type,
-                    )
-                    .ok()
-                    .map(|ty| format!("{ty:?}"))
-                    .unwrap_or_else(|| "INVALID".to_string()),
-                    vf_id: status
-                        .virtual_function_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_default(),
-                    segment_id: interface.network_segment_id.unwrap_or_default().to_string(),
-                    mac_address,
-                    addresses: status.addresses.clone().join(", "),
-                    gateways: status.gateways.clone().join(", "),
-                });
-            }
-        }
+        let interfaces = Vec::new();
 
         let mut ib_interfaces = Vec::new();
         let ib_if_configs = instance
@@ -321,6 +307,34 @@ impl From<forgerpc::Instance> for InstanceDetail {
                     pf_guid: status.pf_guid.clone().unwrap_or_default(),
                     guid: status.guid.clone().unwrap_or_default(),
                     lid: status.lid,
+                })
+            }
+        }
+
+        let mut nvlink_gpus = Vec::new();
+        let nvlink_configs = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.nvlink.as_ref())
+            .map(|config| config.gpu_configs.as_slice())
+            .unwrap_or_default();
+        let nvlink_status = instance
+            .status
+            .as_ref()
+            .and_then(|status| status.nvlink.as_ref())
+            .map(|status: &rpc::InstanceNvLinkStatus| status.gpu_statuses.as_slice())
+            .unwrap_or_default();
+
+        if nvlink_configs.len() == nvlink_status.len() {
+            for (i, config) in nvlink_configs.iter().enumerate() {
+                let status = &nvlink_status[i];
+                nvlink_gpus.push(InstanceNvLinkGpu {
+                    device_instance: config.device_instance,
+                    device_guid: status.gpu_guid.clone().unwrap_or_default(),
+                    logical_partition_id: config
+                        .logical_partition_id
+                        .unwrap_or_default()
+                        .to_string(),
                 })
             }
         }
@@ -413,8 +427,132 @@ impl From<forgerpc::Instance> for InstanceDetail {
             interfaces,
             ib_interfaces,
             keysets,
+            nvlink_gpus,
+            nvlink_config_synced: instance
+                .status
+                .as_ref()
+                .and_then(|status| status.nvlink.as_ref())
+                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .map(|state| format!("{state:?}"))
+                .unwrap_or_default(),
+            nvlink_config_version: instance.nvlink_config_version,
         }
     }
+}
+
+async fn get_network_segments_map_for_instance(
+    state: Arc<Api>,
+    if_configs: &[forgerpc::InstanceInterfaceConfig],
+) -> Result<HashMap<NetworkSegmentId, NetworkSegment>, tonic::Status> {
+    let network_segment_ids: Vec<NetworkSegmentId> = if_configs
+        .iter()
+        .filter_map(|iface| iface.network_segment_id)
+        .collect();
+
+    let ns_req = tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
+        network_segments_ids: network_segment_ids,
+        include_history: false,
+        include_num_free_ips: false,
+    });
+
+    let network_segments = state
+        .find_network_segments_by_ids(ns_req)
+        .await?
+        .into_inner()
+        .network_segments;
+
+    let network_segments_map: HashMap<NetworkSegmentId, NetworkSegment> = network_segments
+        .into_iter()
+        .filter_map(|ns| ns.id.map(|id| (id, ns)))
+        .collect();
+
+    Ok(network_segments_map)
+}
+
+async fn get_vpc_map_for_instance(
+    state: Arc<Api>,
+    network_segments_map: &HashMap<NetworkSegmentId, NetworkSegment>,
+) -> Result<HashMap<VpcId, forgerpc::Vpc>, tonic::Status> {
+    let vpc_ids: Vec<VpcId> = network_segments_map
+        .values()
+        .filter_map(|ns| ns.vpc_id)
+        .collect();
+
+    let vpc_req = tonic::Request::new(forgerpc::VpcsByIdsRequest { vpc_ids });
+
+    let vpcs = state.find_vpcs_by_ids(vpc_req).await?.into_inner().vpcs;
+
+    let vpc_map: HashMap<VpcId, forgerpc::Vpc> = vpcs
+        .into_iter()
+        .filter_map(|vpc| vpc.id.map(|id| (id, vpc)))
+        .collect();
+
+    Ok(vpc_map)
+}
+
+async fn get_interfaces_for_instance_detail(
+    state: Arc<Api>,
+    instance: &forgerpc::Instance,
+) -> Result<Vec<InstanceInterface>, tonic::Status> {
+    let mut interfaces = Vec::new();
+    let if_configs = instance
+        .config
+        .as_ref()
+        .and_then(|config| config.network.as_ref())
+        .map(|config| config.interfaces.as_slice())
+        .unwrap_or_default();
+    let if_status = instance
+        .status
+        .as_ref()
+        .and_then(|status| status.network.as_ref())
+        .map(|status| status.interfaces.as_slice())
+        .unwrap_or_default();
+
+    if if_configs.len() != if_status.len() {
+        return Ok(interfaces);
+    }
+
+    let network_segments_map =
+        get_network_segments_map_for_instance(state.clone(), if_configs).await?;
+
+    let vpc_map = get_vpc_map_for_instance(state, &network_segments_map).await?;
+
+    for (i, interface) in if_configs.iter().enumerate() {
+        let mut vpc_id = "".to_string();
+        let mut vpc_name = "".to_string();
+
+        if let Some(ns_id) = interface.network_segment_id
+            && let Some(ns) = network_segments_map.get(&ns_id)
+            && let Some(vpc_id_val) = ns.vpc_id
+            && let Some(vpc) = vpc_map.get(&vpc_id_val)
+        {
+            vpc_id = vpc.id.map(|id| id.to_string()).unwrap_or_default();
+            vpc_name = vpc.name.clone();
+        }
+
+        let status = &if_status[i];
+        let mac_address = status
+            .mac_address
+            .clone()
+            .unwrap_or("<unknown>".to_string());
+        interfaces.push(InstanceInterface {
+            function_type: forgerpc::InterfaceFunctionType::try_from(interface.function_type)
+                .ok()
+                .map(|ty| format!("{ty:?}"))
+                .unwrap_or_else(|| "INVALID".to_string()),
+            vf_id: status
+                .virtual_function_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
+            segment_id: interface.network_segment_id.unwrap_or_default().to_string(),
+            mac_address,
+            addresses: status.addresses.clone().join(", "),
+            gateways: status.gateways.clone().join(", "),
+            vpc_id,
+            vpc_name,
+        });
+    }
+    Ok(interfaces)
 }
 
 /// View instance
@@ -473,6 +611,10 @@ pub async fn detail(
         return (StatusCode::OK, Json(instance)).into_response();
     }
 
-    let instance_detail: InstanceDetail = instance.into();
+    let instance_detail_interfaces = get_interfaces_for_instance_detail(state.clone(), &instance)
+        .await
+        .unwrap_or_else(|_| Vec::new());
+    let mut instance_detail: InstanceDetail = instance.into();
+    instance_detail.interfaces = instance_detail_interfaces;
     (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
 }

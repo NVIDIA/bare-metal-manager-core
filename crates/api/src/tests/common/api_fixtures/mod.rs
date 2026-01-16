@@ -297,7 +297,7 @@ impl TestEnv {
             ib_pools: self.common_pools.infiniband.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.clone(),
-            mqtt_client: None,
+            dpa_info: None,
         }
     }
 
@@ -573,7 +573,7 @@ impl TestEnv {
             .run_single_iteration()
             .boxed()
             .await
-            .unwrap()
+            .unwrap();
     }
 
     pub async fn run_ib_fabric_monitor_iteration(&self) {
@@ -919,6 +919,7 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
 
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
+        site_global_vpc_vni: None,
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
         metrics_endpoint: None,
         database_url: "pgsql:://localhost".to_string(),
@@ -1045,6 +1046,8 @@ pub fn get_config() -> CarbideConfig {
             mqtt_endpoint: "mqtt.forge".to_string(),
             mqtt_broker_port: 1884_u16,
             hb_interval: Duration::minutes(2),
+            subnet_ip: Ipv4Addr::UNSPECIFIED,
+            subnet_mask: 0_i32,
         }),
         power_manager_options: PowerManagerOptions {
             enabled: false,
@@ -1070,6 +1073,7 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             nras_config: Some(nras::Config::default()),
         },
+        dsx_exchange_event_bus: None,
     }
 }
 
@@ -1359,7 +1363,7 @@ pub async fn create_test_env_with_overrides(
         ib_pools: common_pools.infiniband.clone(),
         ipmi_tool: ipmi_tool.clone(),
         site_config: config.clone(),
-        mqtt_client: None,
+        dpa_info: None,
     });
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
@@ -1495,13 +1499,9 @@ pub async fn create_test_env_with_overrides(
     txn.commit().await.unwrap();
 
     // Create domain
-    let domain: uuid::Uuid = api
-        .create_domain(Request::new(rpc::forge::Domain {
-            id: None,
+    let domain: carbide_uuid::domain::DomainId = api
+        .create_domain(Request::new(rpc::protos::dns::CreateDomainRequest {
             name: "dwrt1.com".to_string(),
-            created: None,
-            updated: None,
-            deleted: None,
         }))
         .await
         .unwrap()
@@ -1509,8 +1509,7 @@ pub async fn create_test_env_with_overrides(
         .id
         .map(::carbide_uuid::domain::DomainId::try_from)
         .unwrap()
-        .unwrap()
-        .into();
+        .unwrap();
 
     let (admin_segment, underlay_segment) = if overrides.create_network_segments.unwrap_or(true) {
         // Create admin network
@@ -1554,7 +1553,7 @@ pub async fn create_test_env_with_overrides(
         endpoint_explorer: fake_endpoint_explorer,
         admin_segment,
         underlay_segment,
-        domain,
+        domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
         test_credential_provider: credential_provider.clone(),
     }

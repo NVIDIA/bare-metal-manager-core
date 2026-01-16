@@ -17,6 +17,12 @@ use std::sync::Arc;
 
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
+use ::rpc::protos::dns::{
+    CreateDomainRequest, DnsResourceRecordLookupRequest, DnsResourceRecordLookupResponse, Domain,
+    DomainDeletionRequest, DomainDeletionResult, DomainList, DomainMetadataRequest,
+    DomainMetadataResponse, DomainSearchQuery, GetAllDomainsRequest, GetAllDomainsResponse,
+    UpdateDomainRequest,
+};
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -78,30 +84,60 @@ impl Forge for Api {
 
     async fn create_domain(
         &self,
-        request: Request<rpc::Domain>,
-    ) -> Result<Response<rpc::Domain>, Status> {
+        request: Request<CreateDomainRequest>,
+    ) -> Result<Response<Domain>, Status> {
         crate::handlers::domain::create(self, request).await
     }
 
     async fn update_domain(
         &self,
-        request: Request<rpc::Domain>,
-    ) -> Result<Response<rpc::Domain>, Status> {
+        request: Request<UpdateDomainRequest>,
+    ) -> Result<Response<Domain>, Status> {
         crate::handlers::domain::update(self, request).await
     }
 
     async fn delete_domain(
         &self,
-        request: Request<rpc::DomainDeletion>,
-    ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
+        request: Request<DomainDeletionRequest>,
+    ) -> Result<Response<DomainDeletionResult>, Status> {
         crate::handlers::domain::delete(self, request).await
     }
 
     async fn find_domain(
         &self,
-        request: Request<rpc::DomainSearchQuery>,
-    ) -> Result<Response<rpc::DomainList>, Status> {
+        request: Request<DomainSearchQuery>,
+    ) -> Result<Response<DomainList>, Status> {
         crate::handlers::domain::find(self, request).await
+    }
+
+    // Legacy domain methods for backward compatibility
+    // TODO: Remove this after clients have migrated
+    async fn create_domain_legacy(
+        &self,
+        request: Request<rpc::DomainLegacy>,
+    ) -> Result<Response<rpc::DomainLegacy>, Status> {
+        crate::handlers::domain::create_legacy_compat(self, request).await
+    }
+
+    async fn update_domain_legacy(
+        &self,
+        request: Request<rpc::DomainLegacy>,
+    ) -> Result<Response<rpc::DomainLegacy>, Status> {
+        crate::handlers::domain::update_legacy_compat(self, request).await
+    }
+
+    async fn delete_domain_legacy(
+        &self,
+        request: Request<rpc::DomainDeletionLegacy>,
+    ) -> Result<Response<rpc::DomainDeletionResultLegacy>, Status> {
+        crate::handlers::domain::delete_legacy_compat(self, request).await
+    }
+
+    async fn find_domain_legacy(
+        &self,
+        request: Request<rpc::DomainSearchQueryLegacy>,
+    ) -> Result<Response<rpc::DomainListLegacy>, Status> {
+        crate::handlers::domain::find_legacy_compat(self, request).await
     }
 
     async fn create_vpc(
@@ -439,11 +475,33 @@ impl Forge for Api {
         crate::handlers::health::remove_health_report_override(self, request).await
     }
 
+    async fn get_all_domain_metadata(
+        &self,
+        request: Request<DomainMetadataRequest>,
+    ) -> Result<Response<DomainMetadataResponse>, tonic::Status> {
+        crate::handlers::dns::get_all_domain_metadata(self, request).await
+    }
+
+    async fn get_all_domains(
+        &self,
+        request: Request<GetAllDomainsRequest>,
+    ) -> Result<Response<GetAllDomainsResponse>, tonic::Status> {
+        crate::handlers::dns::get_all_domains(self, request).await
+    }
+
     async fn lookup_record(
+        &self,
+        request: Request<DnsResourceRecordLookupRequest>,
+    ) -> Result<Response<DnsResourceRecordLookupResponse>, Status> {
+        crate::handlers::dns::lookup_record(self, request).await
+    }
+
+    // Legacy DNS lookup method for backward compatibility
+    async fn lookup_record_legacy(
         &self,
         request: Request<rpc::dns_message::DnsQuestion>,
     ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
-        crate::handlers::dns::lookup_record(self, request).await
+        crate::handlers::dns::lookup_record_legacy_compat(self, request).await
     }
 
     async fn invoke_instance_power(
@@ -2885,6 +2943,29 @@ impl Forge for Api {
         request: Request<rpc::MachinePositionQuery>,
     ) -> Result<Response<rpc::MachinePositionInfoList>, Status> {
         crate::handlers::machine::get_machine_position_info(self, request).await
+    }
+
+    async fn determine_machine_ingestion_state(
+        &self,
+        request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::MachineIngestionStateResponse>, Status> {
+        crate::api::log_request_data(&request);
+
+        crate::handlers::power_options::determine_machine_ingestion_state(
+            self,
+            &request.into_inner(),
+        )
+        .await
+    }
+
+    async fn allow_ingestion_and_power_on(
+        &self,
+        request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        crate::api::log_request_data(&request);
+
+        crate::handlers::power_options::allow_ingestion_and_power_on(self, &request.into_inner())
+            .await
     }
 }
 

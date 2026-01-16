@@ -19,6 +19,7 @@ carbide-http-connector = { path = "../http-connector" }
 carbide-tls = { path = "../tls" }
 carbide-health-report = { path = "../health-report" }
 tonic-client-wrapper = { path = "../tonic-client-wrapper", default-features = false }
+dns-record = { path = "../dns-record" }
 carbide-uuid = { path = "../uuid" }
 
 chrono = { features = ["serde"], workspace = true }

@@ -17,6 +17,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::panic::Location;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::network::NetworkSegmentId;
@@ -61,6 +62,8 @@ pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
+mod boot_order_tracker;
+use boot_order_tracker::BootOrderTracker;
 
 mod machine_creator;
 pub use machine_creator::MachineCreator;
@@ -72,7 +75,7 @@ use model::expected_machine::ExpectedMachine;
 use model::firmware::FirmwareComponentType;
 use model::network_segment::NetworkSegmentType;
 
-use self::metrics::exploration_error_to_metric_label;
+use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
 
 #[derive(Debug)]
 pub struct Endpoint {
@@ -123,6 +126,8 @@ impl Endpoint {
     }
 }
 
+pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationReport)>;
+
 /// The SiteExplorer periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the SiteExplorer will:
 /// 1. collect the number of outstanding updates from all modules.
@@ -141,6 +146,7 @@ pub struct SiteExplorer {
     firmware_config: Arc<FirmwareConfig>,
     work_lock_manager_handle: WorkLockManagerHandle,
     machine_creator: MachineCreator,
+    boot_order_tracker: BootOrderTracker,
 }
 
 impl SiteExplorer {
@@ -177,11 +183,12 @@ impl SiteExplorer {
             endpoint_explorer,
             firmware_config,
             work_lock_manager_handle,
+            boot_order_tracker: BootOrderTracker::default(),
         }
     }
 
     /// Start the SiteExplorer and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the SiteExplorer when dropped.
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
+    pub fn start(mut self) -> eyre::Result<oneshot::Sender<i32>> {
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if self.enabled {
@@ -193,10 +200,15 @@ impl SiteExplorer {
         Ok(stop_sender)
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&mut self, mut stop_receiver: oneshot::Receiver<i32>) {
         loop {
-            if let Err(e) = self.run_single_iteration().await {
-                tracing::warn!("SiteExplorer error: {}", e);
+            match self.run_single_iteration().await {
+                Ok(identified_hosts) => self
+                    .boot_order_tracker
+                    .track_hosts(Instant::now(), &identified_hosts),
+                Err(e) => {
+                    tracing::warn!("SiteExplorer error: {}", e);
+                }
             }
 
             tokio::select! {
@@ -218,7 +230,7 @@ impl SiteExplorer {
         db::Transaction::begin_with_location(&self.database_connection, loc).map_err(Into::into)
     }
 
-    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+    pub async fn run_single_iteration(&self) -> CarbideResult<SiteIdentifiedHosts> {
         let mut metrics = SiteExplorationMetrics::new();
 
         let _work_lock = match self
@@ -284,7 +296,7 @@ impl SiteExplorer {
         );
 
         match &res {
-            Ok(()) => {
+            Ok(_) => {
                 explore_site_span.record("otel.status_code", "ok");
             }
             Err(e) => {
@@ -482,7 +494,10 @@ impl SiteExplorer {
         Ok(())
     }
 
-    async fn explore_site(&self, metrics: &mut SiteExplorationMetrics) -> CarbideResult<()> {
+    async fn explore_site(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+    ) -> CarbideResult<SiteIdentifiedHosts> {
         self.check_preconditions(metrics).await?;
 
         let (
@@ -509,7 +524,7 @@ impl SiteExplorer {
         // If site explorer is unable to retrieve this mac address, there is no point in creating a managed host: we will not be able to configure the host appropriately.
         // 2b) If the endpoint is for a host: make sure that the host is on and that infinite boot is enabled. Otherwise, we will not be able to provision the DPU appropriately
         // once we create a managed host and add it to the state machine.
-        let (explored_dpus, explored_hosts) = self.identify_machines_to_ingest().await?;
+        let (explored_dpus, explored_hosts) = self.identify_machines_to_ingest(metrics).await?;
 
         // Note/TODO:
         // Since we generate the managed-host pair in a different transaction than endpoint discovery,
@@ -517,7 +532,7 @@ impl SiteExplorer {
         // This is improvable
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
-        let identified_hosts = self
+        let mut identified_hosts = self
             .identify_managed_hosts(
                 metrics,
                 &matched_expected_machines,
@@ -530,7 +545,7 @@ impl SiteExplorer {
             let start_create_machines = std::time::Instant::now();
             let create_machines_res = self
                 .machine_creator
-                .create_machines(metrics, identified_hosts, &matched_expected_machines)
+                .create_machines(metrics, &mut identified_hosts, &matched_expected_machines)
                 .await;
             metrics.create_machines_latency = Some(start_create_machines.elapsed());
             create_machines_res?;
@@ -568,7 +583,7 @@ impl SiteExplorer {
         self.audit_exploration_results(metrics, &matched_expected_machines)
             .await?;
 
-        Ok(())
+        Ok(identified_hosts)
     }
 
     async fn create_power_shelves(
@@ -844,6 +859,7 @@ impl SiteExplorer {
     /// Both map from machine BMC IP address to the corresponding explored endpoint.
     async fn identify_machines_to_ingest(
         &self,
+        metrics: &mut SiteExplorationMetrics,
     ) -> CarbideResult<(
         HashMap<IpAddr, ExploredEndpoint>,
         HashMap<IpAddr, ExploredEndpoint>,
@@ -874,10 +890,10 @@ impl SiteExplorer {
             }
 
             if ep.report.is_dpu() {
-                if self.can_ingest_dpu_endpoint(&ep).await? {
+                if self.can_ingest_dpu_endpoint(metrics, &ep).await? {
                     explored_dpus.insert(ep.address, ep);
                 }
-            } else if self.can_ingest_host_endpoint(&ep).await? {
+            } else if self.can_ingest_host_endpoint(metrics, &ep).await? {
                 explored_hosts.insert(ep.address, ep);
             }
         }
@@ -1120,6 +1136,9 @@ impl SiteExplorer {
                                     ep.address,
                                     ep.report.vendor
                                 );
+                                metrics.increment_host_dpu_pairing_blocker(
+                                    PairingBlockerReason::ManualPowerCycleRequired,
+                                );
                             }
                         }
 
@@ -1129,6 +1148,9 @@ impl SiteExplorer {
                             address = %ep.address,
                             exploration_report = ?ep,
                             "cannot identify managed host because the site explorer does not see any DPUs on this host, and zero-DPU hosts are not allowed by configuration; expected_num_dpus_attached_to_host: {expected_num_dpus_attached_to_host}; dpus_explored_for_host: {dpus_explored_for_host:#?}",
+                        );
+                        metrics.increment_host_dpu_pairing_blocker(
+                            PairingBlockerReason::NoDpuReportedByHost,
                         );
                         continue;
                     }
@@ -1168,6 +1190,9 @@ impl SiteExplorer {
                     tracing::error!(
                         "Could not find mac_address {mac_address} in discovered DPU's list {all_mac}, host bmc: {}.",
                         ep.address
+                    );
+                    metrics.increment_host_dpu_pairing_blocker(
+                        PairingBlockerReason::BootInterfaceMacMismatch,
                     );
                     continue;
                 }
@@ -1610,7 +1635,9 @@ impl SiteExplorer {
             expected_count - unique_matched_expected_machines.len();
 
         for endpoint in explore_endpoint_data.iter_mut() {
-            endpoint.expected = expected_machines_by_mac.remove(&endpoint.iface.mac_address);
+            endpoint.expected = expected_machines_by_mac
+                .get(&endpoint.iface.mac_address)
+                .cloned();
             endpoint.expected_power_shelf =
                 expected_power_shelves_by_mac.remove(&endpoint.iface.mac_address);
             endpoint.expected_switch = expected_switches_by_mac.remove(&endpoint.iface.mac_address);
@@ -1799,6 +1826,10 @@ impl SiteExplorer {
                     }
                 }
                 None => {
+                    let should_pause_ingestion_and_poweron = pause_ingestion_and_poweron(
+                        &expected_machines_by_mac,
+                        &endpoint.iface.mac_address,
+                    );
                     match result {
                         Ok(mut report) => {
                             report.last_exploration_latency = Some(exploration_duration);
@@ -1807,14 +1838,26 @@ impl SiteExplorer {
                                 exploration_report = ?report,
                                 "Initial exploration of endpoint"
                             );
-                            db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                            db::explored_endpoints::insert(
+                                address,
+                                &report,
+                                should_pause_ingestion_and_poweron,
+                                &mut txn,
+                            )
+                            .await?;
                         }
                         Err(e) => {
                             // If an endpoint exploration failed we still track the result in the database
                             // That will avoid immmediatly retrying the exploration in the next run
                             let mut report = EndpointExplorationReport::new_with_error(e);
                             report.last_exploration_latency = Some(exploration_duration);
-                            db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                            db::explored_endpoints::insert(
+                                address,
+                                &report,
+                                should_pause_ingestion_and_poweron,
+                                &mut txn,
+                            )
+                            .await?;
                         }
                     }
                     if !self.config.create_machines.load(Ordering::Relaxed) {
@@ -2229,12 +2272,12 @@ impl SiteExplorer {
                             exploration_report = ?report,
                             "Initial exploration of power shelf endpoint"
                         );
-                        db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                        db::explored_endpoints::insert(address, &report, false, &mut txn).await?;
                     }
                     Err(e) => {
                         let mut report = EndpointExplorationReport::new_with_error(e);
                         report.last_exploration_latency = Some(exploration_duration);
-                        db::explored_endpoints::insert(address, &report, &mut txn).await?;
+                        db::explored_endpoints::insert(address, &report, false, &mut txn).await?;
                     }
                 },
             }
@@ -2543,6 +2586,7 @@ impl SiteExplorer {
     /// it will always return true for a DPU that has already been ingested.
     async fn can_ingest_dpu_endpoint(
         &self,
+        metrics: &mut SiteExplorationMetrics,
         dpu_endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         let is_managed_host_created_for_endpoint = match self
@@ -2579,6 +2623,7 @@ impl SiteExplorer {
                 "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
                 dpu_endpoint.address
             );
+            metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
             return Ok(false);
         }
 
@@ -2587,6 +2632,7 @@ impl SiteExplorer {
             Ok(_) => Ok(true),
             Err(error) => {
                 tracing::error!(%error, "Site explorer found an uningested DPU (bmc ip: {}): failed to find the MAC address of the pf0 interface that the DPU exposes to the host", dpu_endpoint.address);
+                metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuPf0MacMissing);
                 Ok(false)
             }
         }
@@ -2671,6 +2717,7 @@ impl SiteExplorer {
     /// Otherwise, the function will return true.
     async fn can_ingest_host_endpoint(
         &self,
+        metrics: &mut SiteExplorationMetrics,
         host_endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         let is_managed_host_created_for_endpoint = match self
@@ -2697,9 +2744,20 @@ impl SiteExplorer {
                 "Site Explorer could not find the system report for a host (bmc_ip_address: {})",
                 host_endpoint.address,
             );
-
+            metrics
+                .increment_host_dpu_pairing_blocker(PairingBlockerReason::HostSystemReportMissing);
             return Ok(false);
         };
+
+        // if we are explicitly forbidden from powering on in the expected_machines,
+        // then don't do it
+        if host_endpoint.pause_ingestion_and_poweron {
+            tracing::warn!(
+                "Host with bmc_ip_address: {} is configured to pause on ingestion",
+                host_endpoint.address
+            );
+            return Ok(false);
+        }
 
         let mut ingest_host = true;
 
@@ -2762,7 +2820,9 @@ impl SiteExplorer {
                                         "Site Explorer found a Viking (bmc_ip_address: {}) with a CPLDMB_0 version of {current_cpldmb_0_version}, which is less than the expected version of {expected_cpldmb_0_version}. A DC Power Cycle may be needed",
                                         host_endpoint.address,
                                     );
-
+                                    metrics.increment_host_dpu_pairing_blocker(
+                                        PairingBlockerReason::VikingCpldVersionIssue,
+                                    );
                                     return Ok(false);
                                 }
                             }
@@ -2771,7 +2831,9 @@ impl SiteExplorer {
                                     "Site Explorer found a Viking (bmc_ip_address: {}) with a CPLDMB_0 version of {current_cpldmb_0_version} and could not compare it to the current CPLDMB_0 version of {expected_cpldmb_0_version}: {e:#?}",
                                     host_endpoint.address,
                                 );
-
+                                metrics.increment_host_dpu_pairing_blocker(
+                                    PairingBlockerReason::VikingCpldVersionIssue,
+                                );
                                 return Ok(false);
                             }
                         }
@@ -2779,6 +2841,9 @@ impl SiteExplorer {
                         tracing::warn!(
                             "Site Explorer could not find the CPLDMB_0 inventory for a Viking (bmc_ip_address: {})",
                             host_endpoint.address,
+                        );
+                        metrics.increment_host_dpu_pairing_blocker(
+                            PairingBlockerReason::VikingCpldVersionIssue,
                         );
                         return Ok(false);
                     };
@@ -3040,6 +3105,20 @@ pub async fn get_machine_state_by_bmc_ip(
     Ok(state)
 }
 
+fn pause_ingestion_and_poweron(
+    expected_machines_by_mac: &HashMap<MacAddress, ExpectedMachine>,
+    mac_address: &mac_address::MacAddress,
+) -> bool {
+    if let Some(expected_machine) = expected_machines_by_mac.get(mac_address) {
+        return expected_machine
+            .data
+            .default_pause_ingestion_and_poweron
+            .unwrap_or(false);
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use model::site_explorer::PreingestionState;
@@ -3093,6 +3172,7 @@ mod tests {
             last_ipmitool_bmc_reset: None,
             last_redfish_reboot: None,
             last_redfish_powercycle: None,
+            pause_ingestion_and_poweron: false,
             pause_remediation: false,
             boot_interface_mac: None,
         };

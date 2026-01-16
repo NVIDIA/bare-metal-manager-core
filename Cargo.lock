@@ -1301,6 +1301,7 @@ dependencies = [
  "ctor",
  "dashmap",
  "data-encoding",
+ "dns-record",
  "duration-str",
  "eyre",
  "figment",
@@ -1393,10 +1394,12 @@ dependencies = [
  "chrono",
  "config-version",
  "ctor",
+ "dns-record",
  "domain",
  "eyre",
  "futures",
  "futures-util",
+ "hickory-proto",
  "ipnetwork",
  "itertools 0.14.0",
  "lazy_static",
@@ -1459,6 +1462,7 @@ dependencies = [
  "casbin",
  "chrono",
  "config-version",
+ "dns-record",
  "duration-str",
  "eyre",
  "ipnetwork",
@@ -1546,7 +1550,7 @@ dependencies = [
  "cbindgen",
  "cc",
  "chrono",
- "derive_builder",
+ "derive_builder 0.12.0",
  "dhcproto",
  "eyre",
  "http-body-util",
@@ -1600,17 +1604,29 @@ name = "carbide-dns"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "carbide-host-support",
  "carbide-rpc",
  "carbide-tls",
  "carbide-version",
  "clap",
+ "dns-record",
  "eyre",
+ "local-ip-address",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
  "tokio",
+ "toml 0.8.23",
  "tonic 0.14.2",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "trust-dns-resolver",
  "trust-dns-server",
+ "uuid",
 ]
 
 [[package]]
@@ -2081,6 +2097,7 @@ dependencies = [
  "clap",
  "csv",
  "data-encoding",
+ "dns-record",
  "eyre",
  "hickory-resolver",
  "hyper",
@@ -3224,7 +3241,16 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d67778784b508018359cbc8696edb3db78160bab2c2a28ba7f56ef6932997f8"
 dependencies = [
- "derive_builder_macro",
+ "derive_builder_macro 0.12.0",
+]
+
+[[package]]
+name = "derive_builder"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "507dfb09ea8b7fa618fcf76e953f4f5e192547945816d5358edffe39f6f94947"
+dependencies = [
+ "derive_builder_macro 0.20.2",
 ]
 
 [[package]]
@@ -3240,13 +3266,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_builder_core"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8"
+dependencies = [
+ "darling 0.20.11",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.108",
+]
+
+[[package]]
 name = "derive_builder_macro"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebcda35c7a396850a55ffeac740804b40ffec779b98fffbb1738f4033f0ee79e"
 dependencies = [
- "derive_builder_core",
+ "derive_builder_core 0.12.0",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "derive_builder_macro"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
+dependencies = [
+ "derive_builder_core 0.20.2",
+ "syn 2.0.108",
 ]
 
 [[package]]
@@ -3333,6 +3381,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.108",
+]
+
+[[package]]
+name = "dns-record"
+version = "0.1.0"
+dependencies = [
+ "assert-json-diff",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3954,6 +4014,18 @@ dependencies = [
  "r-efi",
  "wasip2",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "getset"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cf0fc11e47561d47397154977bc219f4cf809b2974facc3ccb3b89e2436f912"
+dependencies = [
+ "proc-macro-error2",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.108",
 ]
 
 [[package]]
@@ -5015,7 +5087,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.35.0#b040d6dfa7e8cbe0250aafc6ed442163f4113bea"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.36.0#2ad9985c08317fe9b60dbcb9d3fd198a6905ea4f"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5103,6 +5175,18 @@ name = "litrs"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+
+[[package]]
+name = "local-ip-address"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a60bf300a990b2d1ebdde4228e873e8e4da40d834adbf5265f3da1457ede652"
+dependencies = [
+ "libc",
+ "neli",
+ "thiserror 2.0.17",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "lock_api"
@@ -5491,6 +5575,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7bddcd3bf5144b6392de80e04c347cd7fab2508f6df16a85fc496ecd5cec39bc"
 dependencies = [
  "rand 0.8.5",
+]
+
+[[package]]
+name = "neli"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e23bebbf3e157c402c4d5ee113233e5e0610cc27453b2f07eefce649c7365dcc"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "derive_builder 0.20.2",
+ "getset",
+ "libc",
+ "log",
+ "neli-proc-macros",
+ "parking_lot",
+]
+
+[[package]]
+name = "neli-proc-macros"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05d8d08c6e98f20a62417478ebf7be8e1425ec9acecc6f63e22da633f6b71609"
+dependencies = [
+ "either",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 2.0.108",
 ]
 
 [[package]]
@@ -9497,6 +9610,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9506,6 +9629,8 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
@@ -9513,6 +9638,7 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]
@@ -9880,7 +10006,7 @@ checksum = "f81eb4d9221ca29bad43d4b6871b6d2e7656e1af2cfca624a87e5d17880d831d"
 dependencies = [
  "async-trait",
  "bytes",
- "derive_builder",
+ "derive_builder 0.12.0",
  "http",
  "reqwest",
  "rustify",

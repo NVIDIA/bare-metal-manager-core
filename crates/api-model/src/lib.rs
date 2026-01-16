@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -34,7 +34,7 @@ pub mod bmc_info;
 pub mod controller_outcome;
 pub mod dhcp_entry;
 pub mod dhcp_record;
-pub mod domain;
+pub mod dns;
 pub mod dpa_interface;
 pub mod dpu_machine_update;
 pub mod dpu_remediation;
@@ -72,7 +72,6 @@ pub mod rack;
 pub mod rack_state_history;
 pub mod redfish;
 pub mod resource_pool;
-pub mod resource_record;
 pub mod route_server;
 pub mod site_explorer;
 pub mod sku;

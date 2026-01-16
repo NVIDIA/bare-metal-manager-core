@@ -6,6 +6,7 @@ package forge;
 // message types!
 
 import "common.proto";
+import "dns.proto";
 import "dpa_rpc.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
@@ -22,10 +23,28 @@ service Forge {
   rpc Version(VersionRequest) returns (BuildInfo);
 
   // Domain
-  rpc CreateDomain(Domain) returns (Domain);
-  rpc UpdateDomain(Domain) returns (Domain);
-  rpc DeleteDomain(DomainDeletion) returns (DomainDeletionResult);
-  rpc FindDomain(DomainSearchQuery) returns (DomainList);
+  rpc CreateDomain(dns.CreateDomainRequest) returns (dns.Domain);
+  rpc UpdateDomain(dns.UpdateDomainRequest) returns (dns.Domain);
+  rpc DeleteDomain(dns.DomainDeletionRequest)
+      returns (dns.DomainDeletionResult);
+  rpc FindDomain(dns.DomainSearchQuery) returns (dns.DomainList);
+
+  // DEPRECATED Domain RPCs - for backward compatibility
+  // Use the non-Legacy versions above instead
+  rpc CreateDomainLegacy(DomainLegacy) returns (DomainLegacy) {
+    option deprecated = true;
+  }
+  rpc UpdateDomainLegacy(DomainLegacy) returns (DomainLegacy) {
+    option deprecated = true;
+  }
+  rpc DeleteDomainLegacy(DomainDeletionLegacy)
+      returns (DomainDeletionResultLegacy) {
+    option deprecated = true;
+  }
+  rpc FindDomainLegacy(DomainSearchQueryLegacy) returns (DomainListLegacy) {
+    option deprecated = true;
+  }
+
   // VPC
   rpc CreateVpc(VpcCreationRequest) returns (Vpc);
   rpc UpdateVpc(VpcUpdateRequest) returns (VpcUpdateResult);
@@ -117,7 +136,18 @@ service Forge {
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
   // Looks up a DNS record for DNS names assigned by Forge
-  rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
+  rpc LookupRecord(dns.DnsResourceRecordLookupRequest)returns (dns.DnsResourceRecordLookupResponse);
+
+  // DEPRECATED DNS Lookup RPC - for backward compatibility
+  // Use LookupRecord with DnsResourceRecordLookupRequest instead
+  rpc LookupRecordLegacy(DNSMessage.DNSQuestion)returns (DNSMessage.DNSResponse) {
+    option deprecated = true;
+  }
+
+  // Get all DNS domains
+  rpc GetAllDomains(dns.GetAllDomainsRequest) returns (dns.GetAllDomainsResponse);
+  // Get metadata for a specific DNS domain
+  rpc GetAllDomainMetadata(dns.DomainMetadataRequest) returns (dns.DomainMetadataResponse);
 
   // TODO(ajf): Harder to implement bi-directional streaming, commented out for now
   // rpc StreamConsole(stream ConsoleInput) returns (stream ConsoleOutput);
@@ -563,6 +593,8 @@ service Forge {
   // Power Options
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
   rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
+  rpc AllowIngestionAndPowerOn(BmcEndpointRequest) returns (google.protobuf.Empty);
+  rpc DetermineMachineIngestionState(BmcEndpointRequest) returns (MachineIngestionStateResponse);
 
   // Rack
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
@@ -704,7 +736,7 @@ service Forge {
   // variable values for the provided target machine device, reporting back
   // specifics of what would change.
   rpc MlxAdminConfigCompare(mlx_device.MlxAdminConfigCompareRequest) returns (mlx_device.MlxAdminConfigCompareResponse);
-  
+
   // NVL Partition
   rpc FindNVLinkPartitionIds(NVLinkPartitionSearchFilter) returns (NVLinkPartitionIdList);
   rpc FindNVLinkPartitionsByIds(NVLinkPartitionsByIdsRequest) returns (NVLinkPartitionList);
@@ -759,6 +791,23 @@ message AttestationResponse {
     repeated AttestationDeviceData device_data = 9;
   }
   repeated AttestationMachineData machines = 1;
+}
+
+// Determines machine ingestion state in relation to the power on gate
+// NotDiscovered - the machine has not been discovered.
+// WaitingForIngestion - the machine is stuck at the gate, will not be powered on yet.
+// IngestionMachineCreated - the machine is past the gate and has been ingested.
+// IngestionMachineNotCreated - the machine is past the gate, but the entry
+// in the DB hasn't been created yet.
+enum MachineIngestionState {
+  NotDiscovered = 0;
+  WaitingForIngestion = 1;
+  IngestionMachineNotCreated = 2;
+  IngestionMachineCreated = 3;
+}
+
+message MachineIngestionStateResponse{
+  MachineIngestionState machine_ingestion_state = 1;
 }
 
 message TpmCaAddedCaStatus{
@@ -947,6 +996,9 @@ message RuntimeConfig {
   bool dpu_secure_boot_enabled = 45;
   
   bool bom_validation_allow_allocation_on_validation_failure = 46;
+
+  string dpa_subnet_ip = 47;
+  int32 dpa_subnet_mask = 48;
 }
 
 message EchoRequest {
@@ -956,6 +1008,7 @@ message EchoRequest {
 message EchoResponse {
   string message = 1;
 }
+// Deprecated DNSMessage format used by Forge DNS service
 message DNSMessage {
 
   message DNSQuestion {
@@ -2338,7 +2391,7 @@ message InstanceIBInterfaceStatus {
 
 // The actual status of a single gpu of an instance
 message InstanceNVLinkGpuStatus {
-  /// fabric guid of this GPU 
+  /// fabric guid of this GPU
   optional string gpu_guid = 1;
 
   /// The NVLink domain this GPU is physically a part of
@@ -2796,6 +2849,7 @@ message DhcpDiscovery {
   optional string link_address = 4;
   optional string circuit_id = 5;
   optional string remote_id = 6;
+  optional string desired_address = 7;
 }
 
 message DhcpRecord {
@@ -3040,7 +3094,7 @@ message ManagedHostNetworkConfigResponse {
   // Rules to be inserted before any other NSG rules.Action
   // This should land in a separate policy on the DPU that is
   // evaluated before any user-defined rules but after deny_prefixes.
-  repeated ResolvedNetworkSecurityGroupRule network_security_policy_overrides = 111;  
+  repeated ResolvedNetworkSecurityGroupRule network_security_policy_overrides = 111;
 
   // Extension services that should be deployed on this DPU
   repeated ManagedHostDpuExtensionServiceConfig dpu_extension_services = 112;
@@ -3055,10 +3109,10 @@ message ManagedHostNetworkConfigResponse {
   //       common_internal_route_target to be renamed/repurposed as a site-level RT.
   //       to become a site-level common route target.
   //       This does _not_ replace additional_route_target_imports, which are global
-  //       imports 
+  //       imports
   optional RoutingProfile routing_profile = 114;
 
-  // List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned 
+  // List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned
   // to tenants so that they themselves can announce to the DPU.  E.g., BYOIP
   repeated string  anycast_site_prefixes = 115;
 
@@ -3069,6 +3123,13 @@ message ManagedHostNetworkConfigResponse {
   // remote-as external will be used, allowing
   // any ASN.
   optional uint32 tenant_host_asn = 116;  
+
+  // Due to limitations in Cumulus Linux route-leaking,
+  // some sites may require all VRFs to use the same VNI.
+  // Isolation is still possible via ACLs, and route-imports
+  // will still use the dynamically allocated VNI for deriving
+  // route-targets.  
+  optional uint32 site_global_vpc_vni = 117;
 }
 
 message TrafficInterceptConfig {
@@ -3111,7 +3172,7 @@ message TrafficInterceptBridging {
 
   // Name of SF used for routing VMaaS VF traffic into
   // the HBN pod.
-  string vf_intercept_bridge_sf          = 6;  
+  string vf_intercept_bridge_sf          = 6;
 }
 
 message ManagedHostDpuExtensionServiceConfig {
@@ -3655,11 +3716,11 @@ message PxeInstructions {
 
 message CloudInitDiscoveryInstructions {
   MachineInterface machine_interface = 1;
-  Domain domain = 2;
+  PxeDomain domain = 2;
   optional string hbn_reps = 3;
   optional string hbn_sfs = 4;
   optional string vf_intercept_bridge_name = 5;
-  optional string host_intercept_bridge_name = 6; 
+  optional string host_intercept_bridge_name = 6;
   // The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
   // This will be the side owned by the <vf_intercept_bridge_name> bridge
   optional string vf_intercept_bridge_port   = 7;
@@ -4085,6 +4146,7 @@ enum MacOwner {
   MacOwnerMachineInterface = 0;
   MacOwnerExploredEndpoint = 1;
   MacOwnerExpectedMachine = 2;
+  MacOwnerDpaInterface = 3;
 }
 
 message IdentifySerialRequest {
@@ -4205,6 +4267,7 @@ enum IpType {
   // table that have been added via forge-admin-cli calls. Their
   // DB records specifically say their source type is `admin`.
   IpTypeRouteServerFromAdminApi = 10;
+  IpTypeDpaInterface = 11;
 }
 
 message MachineBootOverride {
@@ -4407,6 +4470,7 @@ message ExpectedMachine {
   optional common.UUID id = 8;
   repeated ExpectedHostNic host_nics = 9;
   optional string rack_id = 10;
+  optional bool default_pause_ingestion_and_poweron = 11;
 }
 
 message ExpectedMachineRequest {
@@ -4789,7 +4853,7 @@ message MachineValidationRunResponse {
 enum MachineCapabilityDeviceType {
   MACHINE_CAPABILITY_DEVICE_TYPE_UNKNOWN = 0;
   MACHINE_CAPABILITY_DEVICE_TYPE_DPU = 1;
-  MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK = 2; 
+  MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK = 2;
 }
 
 message MachineCapabilityAttributesCpu {
@@ -5438,6 +5502,9 @@ message DpaInterface {
 
   string card_state = 15;
   string pci_name = 16;
+
+  string underlay_ip = 17;
+  string overlay_ip = 18;
 }
 
 
@@ -6202,6 +6269,53 @@ message RoutingProfile {
   repeated common.RouteTarget route_target_imports     = 1;
   repeated common.RouteTarget route_targets_on_exports = 2;
 }
+
+// ============================================================================
+// LEGACY DNS/DOMAIN TYPES - DEPRECATED
+// These types are maintained for backward compatibility
+// New code should use the types defined in dns.proto
+// TODO : Remove these types after migration is complete
+// ============================================================================
+
+// DEPRECATED: Use dns.Domain instead
+message DomainLegacy {
+  common.DomainId id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created = 3;
+  google.protobuf.Timestamp updated = 4;
+  google.protobuf.Timestamp deleted = 5;
+}
+
+// DEPRECATED: Use dns.DomainList instead
+message DomainListLegacy {
+  repeated DomainLegacy domains = 1;
+}
+
+// DEPRECATED: Use dns.DomainDeletionRequest instead
+message DomainDeletionLegacy {
+  common.DomainId id = 1;
+}
+
+// DEPRECATED: Use dns.DomainDeletionResult instead
+message DomainDeletionResultLegacy {
+
+}
+
+// DEPRECATED: Use dns.DomainSearchQuery instead
+message DomainSearchQueryLegacy {
+  optional common.DomainId id = 1;
+  optional string name = 2;
+}
+
+// Temporary wrapper around both domain types while we transition
+// TODO: Remove after migration is complete
+message PxeDomain {
+  oneof domain {
+    dns.Domain new_domain = 1;
+    Domain legacy_domain = 2;
+  }
+}
+
 
 message MachinePositionQuery {
   repeated common.MachineId machine_ids = 1;

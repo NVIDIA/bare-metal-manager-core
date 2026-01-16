@@ -74,6 +74,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             metadata: Metadata::new_with_default_name(),
             sku_id: None,
             override_id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         },
@@ -174,6 +175,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             id: Some(::rpc::common::Uuid {
                 value: Uuid::new_v4().to_string(),
             }),
+            default_pause_ingestion_and_poweron: Some(true),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -186,6 +188,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             id: Some(::rpc::common::Uuid {
                 value: Uuid::new_v4().to_string(),
             }),
+            default_pause_ingestion_and_poweron: Some(false),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -211,6 +214,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
                 value: Uuid::new_v4().to_string(),
             }),
             sku_id: Some("sku_id".to_string()),
+            default_pause_ingestion_and_poweron: None,
             ..Default::default()
         },
     ] {
@@ -238,6 +242,12 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             .sort_by(|l1, l2| l1.key.cmp(&l2.key));
         if expected_machine.metadata.is_none() {
             expected_machine.metadata = Some(Default::default());
+        }
+        if expected_machine
+            .default_pause_ingestion_and_poweron
+            .is_none()
+        {
+            expected_machine.default_pause_ingestion_and_poweron = Some(false);
         }
         assert_eq!(retrieved_expected_machine, expected_machine);
     }
@@ -315,6 +325,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             bmc_password: "PASS_UPDATE".into(),
             chassis_serial_number: "VVG121GI".into(),
             metadata: None,
+            default_pause_ingestion_and_poweron: Some(true),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -323,6 +334,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             bmc_password: "PASS_UPDATE".into(),
             chassis_serial_number: "VVG121GJ".into(),
             metadata: Some(Default::default()),
+            default_pause_ingestion_and_poweron: Some(false),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -344,6 +356,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
                     },
                 ],
             }),
+            default_pause_ingestion_and_poweron: None,
             ..Default::default()
         },
     ] {
@@ -374,6 +387,13 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
         retrieved_expected_machine.id = None;
         if updated_machine.metadata.is_none() {
             updated_machine.metadata = Some(Default::default());
+        }
+
+        if updated_machine
+            .default_pause_ingestion_and_poweron
+            .is_none()
+        {
+            updated_machine.default_pause_ingestion_and_poweron = Some(false);
         }
 
         assert_eq!(retrieved_expected_machine, updated_machine);
@@ -464,6 +484,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         bmc_password: "PASS_NEW".into(),
         chassis_serial_number: "SERIAL_NEW".into(),
         metadata: Some(rpc::Metadata::default()),
+        default_pause_ingestion_and_poweron: Some(true),
         ..Default::default()
     };
 
@@ -473,6 +494,17 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         bmc_password: "PASS_NEW".into(),
         chassis_serial_number: "SERIAL_NEW".into(),
         metadata: Some(rpc::Metadata::default()),
+        default_pause_ingestion_and_poweron: Some(false),
+        ..Default::default()
+    };
+
+    let expected_machine_3 = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "6A:6B:6C:6D:6E:6F".into(),
+        bmc_username: "ADMIN_NEW".into(),
+        bmc_password: "PASS_NEW".into(),
+        chassis_serial_number: "SERIAL_NEW".into(),
+        metadata: Some(rpc::Metadata::default()),
+        default_pause_ingestion_and_poweron: None,
         ..Default::default()
     };
 
@@ -482,6 +514,9 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
     expected_machine_list
         .expected_machines
         .push(expected_machine_2.clone());
+    expected_machine_list
+        .expected_machines
+        .push(expected_machine_3.clone());
 
     env.api
         .replace_all_expected_machines(tonic::Request::new(expected_machine_list))
@@ -498,13 +533,21 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         .expected_machines;
     expected_machines.sort_by_key(|e| e.bmc_mac_address.clone());
 
-    assert_eq!(expected_machines.len(), 2);
+    assert_eq!(expected_machines.len(), 3);
     let mut resulting_machine_1 = expected_machines[0].clone();
     resulting_machine_1.id = None;
     let mut resulting_machine_2 = expected_machines[1].clone();
     resulting_machine_2.id = None;
+    let mut resulting_machine_3 = expected_machines[2].clone();
+    resulting_machine_3.id = None;
+
+    // None will become Some(false), so we have to make the adjustment
+    let mut expected_machine_3_clone = expected_machine_3.clone();
+    expected_machine_3_clone.default_pause_ingestion_and_poweron = Some(false);
+
     assert_eq!(expected_machine_1, resulting_machine_1);
     assert_eq!(expected_machine_2, resulting_machine_2);
+    assert_eq!(expected_machine_3_clone, resulting_machine_3);
 }
 
 #[crate::sqlx_test()]
@@ -578,6 +621,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
     db::explored_endpoints::insert(
         bmc_ip.parse().unwrap(),
         &EndpointExplorationReport::default(),
+        false,
         &mut txn,
     )
     .await
@@ -647,6 +691,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         metadata: Some(rpc::Metadata::default()),
         sku_id: None,
         id: None,
+        default_pause_ingestion_and_poweron: Some(true),
         host_nics: vec![],
         rack_id: None,
     };
@@ -687,6 +732,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             metadata: Some(invalid_metadata.clone()),
             sku_id: None,
             id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         };
@@ -718,6 +764,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
         metadata: None,
         sku_id: None,
         id: None,
+        default_pause_ingestion_and_poweron: None,
         host_nics: vec![],
         rack_id: None,
     };
@@ -737,6 +784,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             metadata: Some(invalid_metadata.clone()),
             sku_id: None,
             id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         };
@@ -810,6 +858,7 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         metadata: None,
         sku_id: None,
         id: None,
+        default_pause_ingestion_and_poweron: None,
         host_nics: vec![],
         rack_id: None,
     };

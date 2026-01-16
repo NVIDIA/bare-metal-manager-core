@@ -13,12 +13,10 @@
 use std::sync::Arc;
 
 use askama::Template;
-//use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
 use crate::api::Api;
@@ -37,8 +35,8 @@ struct DomainRowDisplay {
     deleted: String,
 }
 
-impl From<forgerpc::Domain> for DomainRowDisplay {
-    fn from(d: forgerpc::Domain) -> Self {
+impl From<::rpc::protos::dns::Domain> for DomainRowDisplay {
+    fn from(d: ::rpc::protos::dns::Domain) -> Self {
         Self {
             id: d.id.unwrap_or_default().to_string(),
             name: d.name,
@@ -82,8 +80,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(domains)).into_response()
 }
 
-async fn fetch_domains(api: Arc<Api>) -> Result<forgerpc::DomainList, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::DomainSearchQuery {
+async fn fetch_domains(api: Arc<Api>) -> Result<::rpc::protos::dns::DomainList, tonic::Status> {
+    let request = tonic::Request::new(rpc::protos::dns::DomainSearchQuery {
         id: None,
         name: None,
     });

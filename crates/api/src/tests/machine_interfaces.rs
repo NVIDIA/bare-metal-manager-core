@@ -16,7 +16,7 @@ use std::str::FromStr;
 
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
 use db::dhcp_entry::DhcpEntry;
-use db::{self, ObjectColumnFilter, domain};
+use db::{self, ObjectColumnFilter};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
@@ -169,7 +169,11 @@ async fn find_all_interfaces_test_cases(
     let mut txn = env.pool.begin().await?;
 
     let network_segment = db::network_segment::admin(&mut txn).await?;
-    let domain_ids = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+    let domain_ids = db::dns::domain::find_by(
+        &mut txn,
+        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+    )
+    .await?;
     let domain_id = domain_ids[0].id;
     let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
     for i in 0..2 {
@@ -247,7 +251,11 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let network_segment = db::network_segment::admin(&mut txn).await?;
-    let domain_ids = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+    let domain_ids = db::dns::domain::find_by(
+        &mut txn,
+        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+    )
+    .await?;
     let domain_id = domain_ids[0].id;
     let new_interface = db::machine_interface::create(
         &mut txn,
@@ -411,6 +419,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
             vendor_string: None,
             circuit_id: None,
             remote_id: None,
+            desired_address: None,
         }))
         .await
         .unwrap()
@@ -460,6 +469,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
             vendor_string: None,
             circuit_id: None,
             remote_id: None,
+            desired_address: None,
         }))
         .await
         .unwrap()

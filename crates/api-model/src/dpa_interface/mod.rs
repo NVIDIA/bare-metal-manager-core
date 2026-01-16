@@ -12,6 +12,7 @@
 
 use std::convert::TryFrom;
 use std::fmt::Display;
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
@@ -113,7 +114,7 @@ impl TryFrom<i32> for DpaLockMode {
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(DpaLockMode::Locked),
-            2 => Ok(DpaLockMode::Locked),
+            2 => Ok(DpaLockMode::Unlocked),
             _ => Err("Invalid value for DpaLockMode"),
         }
     }
@@ -192,6 +193,9 @@ pub struct DpaInterface {
     pub mac_address: MacAddress,
     pub pci_name: String,
 
+    pub underlay_ip: Option<IpAddr>,
+    pub overlay_ip: Option<IpAddr>,
+
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
@@ -241,6 +245,10 @@ impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
 impl DpaInterface {
     pub fn use_admin_network(&self) -> bool {
         self.network_config.use_admin_network.unwrap_or(true)
+    }
+
+    pub fn get_machine_id(&self) -> MachineId {
+        self.machine_id
     }
 
     pub fn managed_host_network_config_version_synced(&self) -> bool {
@@ -298,6 +306,16 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             None => "None".to_string(),
         };
 
+        let underlay = match src.underlay_ip {
+            Some(ip) => ip.to_string(),
+            None => String::new(),
+        };
+
+        let overlay = match src.overlay_ip {
+            Some(ip) => ip.to_string(),
+            None => String::new(),
+        };
+
         let history: Vec<rpc::forge::DpaInterfaceStateHistory> = src
             .history
             .into_iter()
@@ -327,6 +345,8 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             history,
             card_state: cstate,
             pci_name: src.pci_name,
+            underlay_ip: underlay,
+            overlay_ip: overlay,
         }
     }
 }
@@ -373,6 +393,8 @@ pub struct DpaInterfaceSnapshotPgJson {
     pub network_status_observation: Option<DpaInterfaceNetworkStatusObservation>,
     pub card_state: Option<CardState>,
     pub pci_name: String,
+    pub underlay_ip: Option<IpAddr>,
+    pub overlay_ip: Option<IpAddr>,
     #[serde(default)]
     pub history: Vec<DpaInterfaceStateHistory>,
 }
@@ -412,6 +434,8 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
             card_state: value.card_state,
             history: value.history,
             pci_name: value.pci_name,
+            underlay_ip: value.underlay_ip,
+            overlay_ip: value.overlay_ip,
         })
     }
 }

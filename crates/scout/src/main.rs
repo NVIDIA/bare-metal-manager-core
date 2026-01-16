@@ -27,8 +27,7 @@ use mlxconfig_device::discovery::discover_device;
 use mlxconfig_lockdown::cmd::cmds::handle_lockdown as handle_mlx_lockdown;
 use once_cell::sync::Lazy;
 use rpc::forge::ForgeAgentControlResponse;
-use rpc::forge::forge_agent_control_response::Action;
-use rpc::forge_agent_control_response::ForgeAgentControlExtraInfo;
+use rpc::forge::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use rpc::protos::mlx_device::{
     LockStatus, MlxObservation, MlxObservationReport, PublishMlxObservationReportRequest,

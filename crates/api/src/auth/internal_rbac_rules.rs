@@ -54,6 +54,10 @@ impl InternalRBACRules {
         // Add additional permissions to the list below.
         x.perm("Version", vec![Anonymous]);
         x.perm("CreateDomain", vec![]);
+        x.perm("CreateDomainLegacy", vec![]);
+        x.perm("UpdateDomainLegacy", vec![]);
+        x.perm("DeleteDomainLegacy", vec![]);
+        x.perm("FindDomainLegacy", vec![ForgeAdminCLI]);
         x.perm("UpdateDomain", vec![]);
         x.perm("DeleteDomain", vec![]);
         x.perm("FindDomain", vec![ForgeAdminCLI]);
@@ -125,7 +129,10 @@ impl InternalRBACRules {
         x.perm("DpuAgentUpgradeCheck", vec![Scout]);
         x.perm("DpuAgentUpgradePolicyAction", vec![ForgeAdminCLI]);
         x.perm("LookupRecord", vec![Dns]);
-        x.perm("InvokeInstancePower", vec![ForgeAdminCLI, SiteAgent, Rla]);
+        x.perm("LookupRecordLegacy", vec![Dns]);
+        x.perm("GetAllDomainMetadata", vec![Dns]);
+        x.perm("GetAllDomains", vec![Dns]);
+        x.perm("InvokeInstancePower", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ForgeAgentControl", vec![Machineatron, Scout]);
         x.perm("DiscoverMachine", vec![Anonymous]);
         x.perm("RenewMachineCertificate", vec![Agent]);
@@ -498,6 +505,8 @@ impl InternalRBACRules {
         x.perm("FindAppliedRemediationIds", vec![ForgeAdminCLI]);
         x.perm("GetNextRemediationForMachine", vec![Agent]);
         x.perm("RemediationApplied", vec![Agent]);
+        x.perm("DetermineMachineIngestionState", vec![ForgeAdminCLI, Rla]);
+        x.perm("AllowIngestionAndPowerOn", vec![ForgeAdminCLI, Rla]);
         x.perm("SetPrimaryDpu", vec![ForgeAdminCLI]);
         x.perm("CreateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);

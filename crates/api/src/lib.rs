@@ -51,6 +51,7 @@ mod logging;
 mod machine_update_manager;
 mod machine_validation;
 mod measured_boot;
+mod mqtt_state_change_hook;
 mod network_segment;
 mod nvl_partition_monitor;
 mod nvlink;

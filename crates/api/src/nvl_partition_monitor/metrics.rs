@@ -39,6 +39,10 @@ pub struct NvlPartitionMonitorMetrics {
     pub num_physical_partitions: usize,
     /// Number of completed operations in this run
     pub num_completed_operations: usize,
+    /// Number of NvLink GPU nmx_m_id mismatches between DB and NMX-M
+    pub num_nvlink_info_mismatches: usize,
+    /// Number of stale partitions deleted from DB (not found in NMX-M)
+    pub num_stale_partitions_deleted: usize,
     pub applied_changes: HashMap<AppliedChange, usize>,
     pub operation_latencies: HashMap<AppliedChange, Vec<Duration>>,
 }
@@ -93,6 +97,8 @@ impl NvlPartitionMonitorMetrics {
             num_physical_partitions: 0,
             num_gpus_scanned: 0,
             num_completed_operations: 0,
+            num_nvlink_info_mismatches: 0,
+            num_stale_partitions_deleted: 0,
             applied_changes: HashMap::new(),
             operation_latencies: HashMap::new(),
             nmxm: NmxmMetrics {
@@ -110,13 +116,15 @@ impl Display for NvlPartitionMonitorMetrics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{{ machines_scanned: {}, instances_scanned: {}, nvl_status_updates: {}, num_logical_partitions: {}, num_physical_partitions:{}, num_gpus_scanned: {}, applied_changes: {}, nmxm_connect_err: {}, nmxm_num_partitions: {}, nmxm_num_gpus: {}, completed_operations: {}, duration: {} }}",
+            "{{ machines_scanned: {}, instances_scanned: {}, nvl_status_updates: {}, num_logical_partitions: {}, num_physical_partitions:{}, num_gpus_scanned: {}, nvlink_info_mismatches: {}, stale_partitions_deleted: {}, applied_changes: {}, nmxm_connect_err: {}, nmxm_num_partitions: {}, nmxm_num_gpus: {}, completed_operations: {}, duration: {} }}",
             self.num_machines_scanned,
             self.num_instances_scanned,
             self.num_machine_nvl_status_updates,
             self.num_logical_partitions,
             self.num_physical_partitions,
             self.num_gpus_scanned,
+            self.num_nvlink_info_mismatches,
+            self.num_stale_partitions_deleted,
             self.applied_changes.len(),
             self.nmxm.connect_error,
             self.nmxm.num_partitions,
@@ -238,13 +246,39 @@ impl NvlPartitionMonitorInstruments {
         }
 
         {
-            let metrics = shared_metrics;
+            let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxm_gpu_count")
                 .with_description("Number of GPUs NMX-M is reporting")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.nmxm.num_partitions as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("carbide_nvlink_partition_monitor_nvlink_info_mismatches")
+                .with_description("Number of NvLink GPU nmx_m_id mismatches between DB and NMX-M")
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        o.observe(metrics.num_nvlink_info_mismatches as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics;
+            meter
+                .u64_observable_gauge("carbide_nvlink_partition_monitor_stale_partitions_deleted")
+                .with_description("Number of stale partitions deleted from DB (not found in NMX-M)")
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        o.observe(metrics.num_stale_partitions_deleted as u64, attrs);
                     })
                 })
                 .build();

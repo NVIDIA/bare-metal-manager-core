@@ -23,6 +23,7 @@ pub struct DhcpDiscovery {
     pub link_address: ::core::option::Option<::prost::alloc::string::String>,
     pub circuit_id: ::core::option::Option<::prost::alloc::string::String>,
     pub remote_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub desired_address: ::core::option::Option<::prost::alloc::string::String>,
 }
 
 // Reflection of rpc::forge::VpcCreationRequest. It should contain exactly

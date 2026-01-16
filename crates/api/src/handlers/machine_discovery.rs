@@ -358,7 +358,6 @@ pub(crate) async fn discover_machine(
     // if attestation is not enabled, or it is a DPU, then issue machine certificates immediately
     #[cfg(feature = "linux-build")]
     let mut attest_key_bind_challenge_opt: Option<rpc::AttestKeyBindChallenge> = None;
-    #[cfg(feature = "linux-build")]
     let mut make_machine_certificate = false;
     #[cfg(not(feature = "linux-build"))]
     let attest_key_bind_challenge_opt: Option<rpc::AttestKeyBindChallenge> = None;
@@ -390,15 +389,7 @@ pub(crate) async fn discover_machine(
                 %stable_machine_id,
                 "Attestation enabled but linux-build feature disabled; vending certificate without attestation challenge"
             );
-            let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
-                forge_secrets::certificates::Certificate::default()
-            } else {
-                api.certificate_provider
-                    .get_certificate(&stable_machine_id.to_string(), None, None)
-                    .await
-                    .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
-            };
-            machine_certificate_opt = Some(certificate.into());
+            make_machine_certificate = true;
         }
     } else {
         tracing::info!(
@@ -421,7 +412,6 @@ pub(crate) async fn discover_machine(
 
     txn.commit().await?;
 
-    #[cfg(feature = "linux-build")]
     let machine_certificate = if make_machine_certificate {
         if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
             Some(forge_secrets::certificates::Certificate::default())
@@ -436,9 +426,6 @@ pub(crate) async fn discover_machine(
     } else {
         None
     };
-
-    #[cfg(not(feature = "linux-build"))]
-    let machine_certificate: Option<::rpc::forge::MachineCertificate> = None;
 
     let response = Ok(Response::new(rpc::MachineDiscoveryResult {
         machine_id: Some(stable_machine_id),

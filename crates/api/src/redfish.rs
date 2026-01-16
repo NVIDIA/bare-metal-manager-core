@@ -452,6 +452,12 @@ pub async fn host_power_control(
                 && system.id == "DGX"
                 && manager.id == "BMC";
 
+            /*
+                TODO: This logic has been here for a while, and we have upgraded the Vikings many times since.
+                See if we can remove the ipmitool path here and instead use standard redfish power control for Vikings.
+                Previous investigation seemed to indicate that using SystemPowerControl::GracefulRestart
+                instead of ForceRestart avoids bringing down the DPUs, but we need more testing.
+            */
             if is_viking {
                 // vikings reboot their DPU's if redfish reset is used. \
                 // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
@@ -680,7 +686,7 @@ pub mod test_support {
     use forge_secrets::credentials::TestCredentialProvider;
     use libredfish::model::certificate::Certificate;
     use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
-    use libredfish::model::oem::nvidia_dpu::NicMode;
+    use libredfish::model::oem::nvidia_dpu::{HostPrivilegeLevel, NicMode};
     use libredfish::model::secure_boot::SecureBootMode;
     use libredfish::model::sensor::GPUSensors;
     use libredfish::model::service_root::ServiceRoot;
@@ -1310,7 +1316,7 @@ pub mod test_support {
         }
 
         async fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
-            Ok(serde_json::from_str(
+            let mut manager: libredfish::model::Manager = serde_json::from_str(
                 r##"{
             "@odata.id": "/redfish/v1/Managers/Bluefield_BMC",
             "@odata.type": "#Manager.v1_14_0.Manager",
@@ -1391,7 +1397,10 @@ pub mod test_support {
               "UUID": "0b623306-fa7f-42d2-809d-a63a13d49c8d"
         }"##,
             )
-            .unwrap())
+            .unwrap();
+            // Update the date_time to current time for tests
+            manager.date_time = Some(chrono::Utc::now());
+            Ok(manager)
         }
 
         async fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {
@@ -1938,6 +1947,13 @@ pub mod test_support {
   "SigningAlgorithm": "TPM_ALG_ECDSA_ECC_NIST_P384",
   "Version": "1.1.0"
 }"#).unwrap())
+        }
+
+        async fn set_host_privilege_level(
+            &self,
+            _level: HostPrivilegeLevel,
+        ) -> Result<(), RedfishError> {
+            Ok(())
         }
     }
 

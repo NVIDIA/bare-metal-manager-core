@@ -55,6 +55,7 @@ services:
       - ./dev/certs:/opt/forge
       - .:/app/code
       - ca-certificate:/identity
+      - /var/run/carbide-dns.sock:/var/run/carbide-dns.sock
     environment:
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
@@ -144,7 +145,7 @@ services:
       - VAULT_ADDR=http://vault:8200
       - RUST_BACKTRACE=full
       - RUST_LIB_BACKTRACE=0
-      - RUST_LOG=$RUST_LOG
+      - RUST_LOG=DEBUG
     extra_hosts:
       - "host.docker.internal:host-gateway"
     logging:
@@ -195,7 +196,7 @@ services:
       - POSTGRES_USER=${DBUSER:-carbide_development}
       - POSTGRES_DB=${DBNAME:-carbide_development}
       - POSTGRES_PASSWORD=${DBPASSWD:-notforprod}
-    command: -c ssl=off
+    command: -c ssl=off -c max_connections=300 -c shared_buffers=256MB
     ports:
       - 5432:5432
     logging:
@@ -262,11 +263,13 @@ services:
   #  - >
   #    mkdir -p /etc/services.d/pdns
 
+  #    cp -f /app/code/dev/docker-env/pdns-run /etc/services.d/pdns/run
+
   #    cp -f /app/code/dev/docker-env/pdns.conf /etc/powerdns
 
   #    chmod +x /etc/services.d/pdns/run
 
-  #    /bin/s6-svscan /var/services
+  #    /bin/s6-svscan /etc/services.d/
   #  ports:
   #   - "1053:53/udp"
 

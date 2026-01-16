@@ -27,7 +27,7 @@ use mac_address::MacAddress;
 use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{Machine, ManagedHostStateSnapshot};
+use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
 use model::power_shelf::PowerShelfControllerState;
 use model::site_explorer::{
@@ -181,6 +181,158 @@ impl FakePowerShelf {
             rack_id: None,
         }
     }
+}
+
+#[crate::sqlx_test(fixtures("create_expected_machine_no_default_poweron"))]
+async fn test_site_explorer_default_pause_ingestion_and_poweron(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mut machines = vec![FakeMachine::new(
+        "6a:6b:6c:6d:6e:6f",
+        "Vendor1",
+        &env.underlay_segment,
+    )];
+    machines.discover_dhcp(&env).await?;
+
+    let mut txn = env.pool.begin().await?;
+    assert_eq!(
+        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+            .await
+            .unwrap(),
+        1
+    );
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    let mock_host = machines[0].as_mock_host(vec![]);
+
+    endpoint_explorer.insert_endpoint_results(vec![(
+        machines[0].ip.parse().unwrap(),
+        Ok(mock_host.clone().into()),
+    )]);
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        allow_zero_dpu_hosts: true,
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+    );
+
+    // check the ingestion state of the machine
+    let response = env
+        .api
+        .determine_machine_ingestion_state(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+            mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
+            ip_address: "".to_string(),
+        }))
+        .await?;
+    assert_eq!(
+        rpc::forge::MachineIngestionState::NotDiscovered,
+        response.into_inner().machine_ingestion_state()
+    );
+
+    // run the exploration cycle
+    explorer.run_single_iteration().await.unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let explored = db::explored_endpoints::find_all(&mut txn).await.unwrap();
+    assert_eq!(explored.len(), 1);
+    assert!(explored[0].pause_ingestion_and_poweron);
+
+    // make sure the machine has not been ingested
+    let response = env
+        .api
+        .determine_machine_ingestion_state(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+            mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
+            ip_address: "".to_string(),
+        }))
+        .await?;
+    assert_eq!(
+        rpc::forge::MachineIngestionState::WaitingForIngestion,
+        response.into_inner().machine_ingestion_state()
+    );
+
+    // now that the explored endpoint has been added to the DB, mark it as preingestion complete
+    db::explored_endpoints::set_preingestion_complete(explored[0].address, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await?;
+
+    // and run another exploration cycle
+    explorer.run_single_iteration().await.unwrap();
+
+    // make sure the machie still has not been ingested
+    let response = env
+        .api
+        .determine_machine_ingestion_state(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+            mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
+            ip_address: "".to_string(),
+        }))
+        .await?;
+    assert_eq!(
+        rpc::forge::MachineIngestionState::WaitingForIngestion,
+        response.into_inner().machine_ingestion_state()
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let machine_snapshots =
+        db::managed_host::load_all(&mut txn, LoadSnapshotOptions::default()).await?;
+    assert_eq!(machine_snapshots.len(), 0);
+    let explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
+    assert_eq!(explored_managed_hosts.len(), 0);
+
+    // now flip the flag and run another interation
+    let _ = env
+        .api
+        .allow_ingestion_and_power_on(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+            mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
+            ip_address: "".to_string(),
+        }))
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+
+    // run the exploration cycle
+    explorer.run_single_iteration().await.unwrap();
+
+    // the machine should be ingested now
+    // unfortunately, there is no way to test a hypothetical situation when
+    // an explored managed host has been created, but the machine has not
+    // been created yet as those are performed in the same site explorer
+    // iteration
+    let response = env
+        .api
+        .determine_machine_ingestion_state(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+            mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
+            ip_address: "".to_string(),
+        }))
+        .await?;
+    assert_eq!(
+        rpc::forge::MachineIngestionState::IngestionMachineCreated,
+        response.into_inner().machine_ingestion_state()
+    );
+
+    let explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
+    assert_eq!(explored_managed_hosts.len(), 1);
+    let machine_snapshots =
+        db::managed_host::load_all(&mut txn, LoadSnapshotOptions::default()).await?;
+    assert_eq!(machine_snapshots.len(), 1);
+
+    Ok(())
 }
 
 #[crate::sqlx_test]
@@ -1064,7 +1216,7 @@ async fn test_site_explorer_clear_last_known_error(
     .into();
     dpu_report1.generate_machine_id(false)?;
 
-    db::explored_endpoints::insert(bmc_ip, &dpu_report1, &mut txn).await?;
+    db::explored_endpoints::insert(bmc_ip, &dpu_report1, false, &mut txn).await?;
     txn.commit().await?;
 
     txn = db::Transaction::begin(&env.pool).await?;
@@ -1240,6 +1392,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             metadata: Metadata::new_with_default_name(),
             sku_id: Some("Sku1".to_string()),
             override_id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         },
@@ -1290,6 +1443,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             metadata: Metadata::new_with_default_name(),
             sku_id: None,
             override_id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         },
@@ -2039,6 +2193,7 @@ async fn test_delete_explored_endpoint(
     db::explored_endpoints::insert(
         IpAddr::from_str(standalone_endpoint_ip)?,
         &EndpointExplorationReport::default(),
+        false,
         &mut txn,
     )
     .await?;
@@ -2232,6 +2387,7 @@ async fn test_machine_creation_with_sku(
             metadata: Metadata::new_with_default_name(),
             sku_id: Some("Sku1".to_string()),
             override_id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         },
@@ -2361,6 +2517,7 @@ async fn test_expected_machine_device_type_metrics(
             metadata: Metadata::new_with_default_name(),
             sku_id: Some(test_sku_gpu_id.clone()),
             override_id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         },
@@ -2378,6 +2535,7 @@ async fn test_expected_machine_device_type_metrics(
             metadata: Metadata::new_with_default_name(),
             sku_id: Some(test_sku_no_type_id.clone()),
             override_id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         },
@@ -2395,6 +2553,7 @@ async fn test_expected_machine_device_type_metrics(
             metadata: Metadata::new_with_default_name(),
             sku_id: None, // No SKU
             override_id: None,
+            default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
         },
@@ -3408,6 +3567,7 @@ async fn test_site_explorer_creates_power_shelf(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        pause_ingestion_and_poweron: false,
     };
 
     // Test power shelf creation
@@ -3621,6 +3781,7 @@ async fn test_power_shelf_state_history(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        pause_ingestion_and_poweron: false,
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3882,6 +4043,7 @@ async fn test_power_shelf_state_history_multiple(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        pause_ingestion_and_poweron: false,
     };
 
     let explored_endpoint2 = ExploredEndpoint {
@@ -3897,6 +4059,7 @@ async fn test_power_shelf_state_history_multiple(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        pause_ingestion_and_poweron: false,
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -4128,6 +4291,7 @@ async fn test_power_shelf_state_history_error_handling(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        pause_ingestion_and_poweron: false,
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());

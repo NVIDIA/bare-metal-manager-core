@@ -371,7 +371,12 @@ args = [
 [tasks.mkosi-clean-scout-x86_64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = ["--profile", "scout-oss-x86_64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+args = [
+  "--profile",
+  "scout-oss-x86_64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
 
 [tasks.mkosi-clean-scout-loader-x86_64]
 category = "Ephemeral Image"

@@ -22,5 +22,6 @@ pub mod network_segment;
 pub mod power_shelf;
 pub mod rack;
 pub mod spdm;
+pub mod state_change_emitter;
 pub mod state_handler;
 pub mod switch;

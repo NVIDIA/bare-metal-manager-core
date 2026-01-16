@@ -46,11 +46,11 @@ lazy_static! {
 const MAT_DPU_PCIE_DEVICE_PREFIX: &str = "mat_dpu";
 
 #[derive(Debug, Clone)]
-struct MockWrapperState {
-    machine_info: MachineInfo,
+pub(crate) struct MockWrapperState {
+    pub machine_info: MachineInfo,
     inner_router: Router,
-    command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
-    bmc_state: BmcState,
+    command_channel: mpsc::UnboundedSender<BmcCommand>,
+    pub bmc_state: BmcState,
     mock_power_state: Arc<dyn PowerStateQuerying>,
 }
 
@@ -70,6 +70,18 @@ pub enum SetSystemPowerError {
     BadRequest(String),
 }
 
+trait AddRoutes {
+    fn add_routes(self, f: impl FnOnce(Self) -> Self) -> Self
+    where
+        Self: Sized;
+}
+
+impl AddRoutes for Router<MockWrapperState> {
+    fn add_routes(self, f: impl FnOnce(Self) -> Self) -> Self {
+        f(self)
+    }
+}
+
 /// Return an axum::Router that mocks various redfish calls to match the provided MachineInfo.
 /// Any redfish calls not explicitly mocked will be delegated to inner_router (typically a tar_router.)
 ///
@@ -79,21 +91,13 @@ pub enum SetSystemPowerError {
 pub fn wrap_router_with_mock_machine(
     inner_router: Router,
     machine_info: MachineInfo,
-    command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
+    command_channel: mpsc::UnboundedSender<BmcCommand>,
     mock_power_state: Arc<dyn PowerStateQuerying>,
 ) -> Router {
-    Router::new()
+    let router = Router::new()
         .route(
             rf!("Managers/{manager_id}/EthernetInterfaces/{interface_id}"),
             get(get_managers_ethernet_interface),
-        )
-        .route(
-            rf!("Managers/{manager_id}/Oem/Dell/DellAttributes/{manager_id}"),
-            get(get_managers_oem_dell_attributes),
-        )
-        .route(
-            rf!("Managers/{manager_id}/Oem/Dell/DellAttributes/{manager_id}"),
-            patch(patch_managers_oem_dell_attributes),
         )
         .route(
             rf!("Systems/{system_id}/EthernetInterfaces/{nic}"),
@@ -134,24 +138,8 @@ pub fn wrap_router_with_mock_machine(
             get(get_dpu_sys_image),
         )
         .route(
-            rf!("Systems/Bluefield/Bios"),
-            get(get_dpu_bios),
-        )
-        .route(
-            rf!("Systems/Bluefield/Bios/Settings"),
-            patch(patch_dpu_bios),
-        )
-        .route(
             rf!("Systems/{system_id}/Actions/ComputerSystem.Reset"),
             post(post_reset_system),
-        )
-        .route(
-            rf!("Systems/System.Embedded.1/Bios/Settings"),
-            patch(patch_bios_settings),
-        )
-        .route(
-            rf!("Systems/System.Embedded.1/Bios"),
-            get(get_bios),
         )
         .route(
             rf!("Systems/System.Embedded.1"),
@@ -169,20 +157,8 @@ pub fn wrap_router_with_mock_machine(
             rf!("Systems/Bluefield/SecureBoot"),
             patch(patch_dpu_secure_boot),
         )
-        .route(
-            rf!("Systems/1/Bios/Actions/Bios.ChangePassword"),
-            post(post_password_change),
-        )
-        .route(rf!("Managers/{manager_id}/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue"),
-               post(post_delete_job_queue),
-        )
         .route(rf!("Systems/Bluefield/Settings"),
                patch(patch_dpu_settings).get(fallback_to_inner_router),
-        )
-        .route(rf!("Managers/iDRAC.Embedded.1/Jobs"),
-               post(post_dell_create_bios_job),
-        )
-        .route(rf!("Managers/iDRAC.Embedded.1/Jobs/{job_id}"),get(get_dell_job),
         )
         .route(rf!("TaskService/Tasks/{task_id}"), get(get_task))
         .route(rf!("UpdateService/Actions/UpdateService.SimpleUpdate"), post(update_firmware_simple_update))
@@ -190,16 +166,24 @@ pub fn wrap_router_with_mock_machine(
         .route(rf!("UpdateService/FirmwareInventory/Bluefield_FW_ERoT"), get(get_dpu_erot_firmware))
         .route(rf!("UpdateService/FirmwareInventory/DPU_UEFI"), get(get_dpu_uefi_firmware))
         .route(rf!("UpdateService/FirmwareInventory/DPU_NIC"), get(get_dpu_nic_firmware))
-        .route(rf!("Systems/Bluefield/Oem/Nvidia"), get(get_oem_nvidia))
         // Couple routes for bug injection.
         .route("/InjectedBugs", get(get_injected_bugs). post(post_injected_bugs))
+        .add_routes(crate::redfish::account_service::add_routes)
+        .add_routes(crate::redfish::bios::add_routes);
+    let router = match &machine_info {
+        MachineInfo::Dpu(_) => {
+            router.add_routes(crate::redfish::oem::nvidia::bluefield::add_routes)
+        }
+        MachineInfo::Host(_) => router.add_routes(crate::redfish::oem::dell::idrac::add_routes),
+    };
+    router
         .fallback(fallback_to_inner_router)
         .with_state(MockWrapperState {
             machine_info,
             command_channel,
             inner_router,
             mock_power_state,
-            bmc_state: BmcState{
+            bmc_state: BmcState {
                 jobs: Arc::new(Mutex::new(HashMap::new())),
                 secure_boot_enabled: Arc::new(AtomicBool::new(false)),
                 bios: Arc::new(Mutex::new(serde_json::json!({}))),
@@ -212,7 +196,7 @@ pub fn wrap_router_with_mock_machine(
 
 impl MockWrapperState {
     /// See docs in `call_router_with_new_request`
-    async fn call_inner_router(&mut self, request: Request<Body>) -> MockWrapperResult {
+    pub(crate) async fn call_inner_router(&mut self, request: Request<Body>) -> MockWrapperResult {
         let (method, uri) = (request.method().clone(), request.uri().clone());
         let response = call_router_with_new_request(&mut self.inner_router, request).await;
         let status = response.status();
@@ -260,10 +244,10 @@ impl MockWrapperState {
     }
 }
 
-type MockWrapperResult = Result<Bytes, MockWrapperError>;
+pub(crate) type MockWrapperResult = Result<Bytes, MockWrapperError>;
 
 #[derive(thiserror::Error, Debug)]
-enum MockWrapperError {
+pub(crate) enum MockWrapperError {
     #[error("Serde error: {0}")]
     Serde(#[from] serde_json::Error),
     #[error("Axum error on inner request: {0}")]
@@ -346,28 +330,6 @@ async fn get_managers_ethernet_interface(
         }
     }
     Ok(Bytes::from(iface.to_string()))
-}
-
-async fn get_managers_oem_dell_attributes(
-    State(mut state): State<MockWrapperState>,
-    _path: Path<(String, String)>,
-    request: Request<Body>,
-) -> MockWrapperResult {
-    let inner_response = state.call_inner_router(request).await?;
-    let inner_json = serde_json::from_slice::<serde_json::Value>(&inner_response)?;
-    let patched_dell_attrs = state.bmc_state.get_dell_attrs(inner_json);
-    Ok(Bytes::from(patched_dell_attrs.to_string()))
-}
-
-async fn patch_managers_oem_dell_attributes(
-    State(mut state): State<MockWrapperState>,
-    _path: Path<(String, String)>,
-    request: Request<Body>,
-) -> MockWrapperResult {
-    let body = request.into_body().collect().await?.to_bytes();
-    let patch_dell_attrs: serde_json::Value = serde_json::from_slice(&body)?;
-    state.bmc_state.update_dell_attrs(patch_dell_attrs);
-    Ok(Bytes::from(""))
 }
 
 async fn get_systems_ethernet_interface(
@@ -945,65 +907,6 @@ async fn get_dpu_sys_image(
     Ok(Bytes::from(json.to_string()))
 }
 
-async fn get_dpu_bios(
-    State(mut state): State<MockWrapperState>,
-    _path: Path<()>,
-    request: Request<Body>,
-) -> MockWrapperResult {
-    let inner_response = state.call_inner_router(request).await?;
-    // We only rewrite this line if it's a DPU we're mocking
-    let MachineInfo::Dpu(dpu) = state.machine_info else {
-        return Ok(inner_response);
-    };
-    let inner_bios = serde_json::from_slice(inner_response.as_ref())?;
-    let patched_bios = state.bmc_state.get_bios(inner_bios);
-
-    // For DPUs in NicMode, rewrite the BIOS attributes to reflect as such
-    if dpu.nic_mode {
-        let serde_json::Value::Object(mut bios) = patched_bios else {
-            tracing::error!(
-                "Invalid JSON response, expected object, got {:?}",
-                inner_response
-            );
-            return Ok(inner_response);
-        };
-
-        let Some(serde_json::Value::Object(attributes)) = bios.get_mut("Attributes") else {
-            tracing::error!(
-                "Invalid Attributes, expected object, got {:?}",
-                inner_response
-            );
-            return Ok(inner_response);
-        };
-
-        if attributes.get("NicMode").is_none() {
-            tracing::warn!(
-                "DPU BIOS Attributes.NicMode is not present: {:?}",
-                inner_response
-            )
-        }
-
-        attributes.insert(
-            "NicMode".to_string(),
-            serde_json::Value::String("NicMode".to_string()),
-        );
-        Ok(Bytes::from(serde_json::to_string(&bios)?))
-    } else {
-        Ok(Bytes::from(serde_json::to_string(&patched_bios)?))
-    }
-}
-
-async fn patch_dpu_bios(
-    State(mut state): State<MockWrapperState>,
-    _path: Path<()>,
-    request: Request<Body>,
-) -> MockWrapperResult {
-    let body = request.into_body().collect().await?.to_bytes();
-    let patch_bios_request: serde_json::Value = serde_json::from_slice(&body)?;
-    state.bmc_state.update_bios(patch_bios_request);
-    Ok(Bytes::from(""))
-}
-
 async fn patch_dell_system(
     State(mut state): State<MockWrapperState>,
     _path: Path<()>,
@@ -1050,82 +953,6 @@ async fn patch_dell_system(
         }
     } else {
         StatusCode::OK.into_response()
-    }
-}
-
-async fn patch_bios_settings(
-    State(mut state): State<MockWrapperState>,
-    _path: Path<()>,
-    request: Request<Body>,
-) -> impl IntoResponse {
-    // Dell password change, needs a job ID to be returned in the Location: header
-    let body = match request.into_body().collect().await.map(|v| v.to_bytes()) {
-        Ok(v) => v,
-        Err(err) => return MockWrapperError::from(err).into_response(),
-    };
-    let mut patch_bios_request: serde_json::Value = match serde_json::from_slice(&body) {
-        Ok(r) => r,
-        Err(err) => return MockWrapperError::from(err).into_response(),
-    };
-    // Clear is transformed to Enabled state after reboot. Check if we
-    // need to apply this logic here.
-    const TPM2_HIERARCHY: &str = "Tpm2Hierarchy";
-    const ATTRIBUTES: &str = "Attributes";
-    let tpm2_clear_to_enabled = patch_bios_request
-        .as_object()
-        .and_then(|obj| obj.get(ATTRIBUTES))
-        .and_then(|v| v.as_object())
-        .and_then(|obj| obj.get(TPM2_HIERARCHY))
-        .and_then(|v| v.as_str())
-        .is_some_and(|v| v == "Clear");
-    if tpm2_clear_to_enabled {
-        json_patch(
-            &mut patch_bios_request,
-            serde_json::json!({ATTRIBUTES: {
-                TPM2_HIERARCHY: "Enabled"
-            }}),
-        );
-    }
-    state.bmc_state.update_bios(patch_bios_request);
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(
-            "Location",
-            "/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/JID_00000000001",
-        )
-        .body(Body::from(""))
-        .unwrap()
-}
-
-async fn get_bios(
-    State(mut state): State<MockWrapperState>,
-    _path: Path<()>,
-    request: Request<Body>,
-) -> MockWrapperResult {
-    let inner_response = state.call_inner_router(request).await?;
-    let inner_bios = serde_json::from_slice(inner_response.as_ref())?;
-    let patched_bios = state.bmc_state.get_bios(inner_bios);
-    Ok(Bytes::from(serde_json::to_string(&patched_bios)?))
-}
-
-async fn post_dell_create_bios_job(
-    State(mut state): State<MockWrapperState>,
-    _path: Path<()>,
-    _request: Request<Body>,
-) -> impl IntoResponse {
-    match state.bmc_state.add_job() {
-        Ok(job_id) => Response::builder()
-            .status(StatusCode::OK)
-            .header(
-                "location",
-                format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{job_id}"),
-            )
-            .body(Body::from(""))
-            .unwrap(),
-        Err(e) => Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::from(e.to_string()))
-            .unwrap(),
     }
 }
 
@@ -1207,50 +1034,6 @@ async fn get_dpu_secure_boot(
     ))?))
 }
 
-async fn get_dell_job(
-    State(state): State<MockWrapperState>,
-    Path(job_id): Path<String>,
-    _request: Request<Body>,
-) -> MockWrapperResult {
-    let job = state
-        .bmc_state
-        .get_job(&job_id)
-        .ok_or(MockWrapperError::NotFound(format!(
-            "could not find iDRAC job: {job_id}"
-        )))?;
-
-    // TODO (spyda): move this to libredfish
-    let job_state = match job.job_state {
-        libredfish::JobState::Scheduled => "Scheduled".to_string(),
-        libredfish::JobState::Completed => "Completed".to_string(),
-        _ => "Unknown".to_string(),
-    };
-
-    Ok(Bytes::from(serde_json::to_string(&serde_json::json!(
-          {
-    "@odata.context": "/redfish/v1/$metadata#DellJob.DellJob",
-    "@odata.id": format!("/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/Jobs/{job_id}"),
-    "@odata.type": "#DellJob.v1_5_0.DellJob",
-    "ActualRunningStartTime": format!("{}", job.start_time),
-    "ActualRunningStopTime": null,
-    "CompletionTime": null,
-    "Description": "Job Instance",
-    "EndTime": "TIME_NA",
-    "Id": job_id,
-    "JobState": job_state,
-    "JobType": job.job_type,
-    "Message": job_state,
-    "MessageArgs": [],
-    "MessageArgs@odata.count": 0,
-    "MessageId": "PR19",
-    "Name": job.job_type,
-    "PercentComplete": job.percent_complete(),
-    "StartTime": format!("{}", job.start_time),
-    "TargetSettingsURI": null
-        }
-      ))?))
-}
-
 async fn get_dpu_firmware(
     State(mut state): State<MockWrapperState>,
     request: Request<Body>,
@@ -1309,49 +1092,7 @@ async fn get_dpu_nic_firmware(
     get_dpu_firmware(state, request, "NIC", |m| m.firmware_versions.nic.as_ref()).await
 }
 
-async fn get_oem_nvidia(
-    State(mut state): State<MockWrapperState>,
-    request: Request<Body>,
-) -> MockWrapperResult {
-    let inner_response = state.call_inner_router(request).await?;
-    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
-        return Ok(inner_response);
-    };
-
-    let mut system: serde_json::Value = serde_json::from_slice(&inner_response)?;
-    json_patch(
-        &mut system,
-        serde_json::json!(
-        {
-            "@odata.id": "/redfish/v1/Systems/Bluefield/Oem/Nvidia",
-            "@odata.type": "#NvidiaComputerSystem.v1_0_0.NvidiaComputerSystem",
-            "Mode": if dpu_machine.nic_mode {
-                "NicMode"
-            } else {
-                "DpuMode"
-            }
-        }),
-    );
-    Ok(Bytes::from(serde_json::to_string(&system)?))
-}
-
 async fn patch_dpu_settings(
-    State(_state): State<MockWrapperState>,
-    _path: Path<()>,
-    _request: Request<Body>,
-) -> impl IntoResponse {
-    StatusCode::OK
-}
-
-async fn post_password_change(
-    State(_state): State<MockWrapperState>,
-    _path: Path<()>,
-    _request: Request<Body>,
-) -> impl IntoResponse {
-    StatusCode::OK
-}
-
-async fn post_delete_job_queue(
     State(_state): State<MockWrapperState>,
     _path: Path<()>,
     _request: Request<Body>,
@@ -1367,60 +1108,56 @@ async fn post_reset_system(
     // Dell specific call back after a reset -- sets the job status for all scheduled BIOS jobs to "Completed"
     state.bmc_state.complete_all_bios_jobs();
 
-    if let Some(command_channel) = &state.command_channel {
-        let body = request.into_body().collect().await?.to_bytes();
-        let power_request: SetSystemPowerReq = serde_json::from_slice(&body)?;
-        use crate::SystemPowerControl;
+    let command_channel = &state.command_channel;
+    let body = request.into_body().collect().await?.to_bytes();
+    let power_request: SetSystemPowerReq = serde_json::from_slice(&body)?;
+    use crate::SystemPowerControl;
 
-        // Reply with a failure if the power request is invalid for the current state.
-        // Note: This logic is duplicated with that in machine-a-tron's MachineStateMachine, because
-        // we don't want to block waiting for the BMC command_channel to reply. Doing so may
-        // introduce a deadlock if the API server holds a lock on the row for this machine
-        // while issuing a redfish call, and MachineStateMachine is blocked waiting for the row lock
-        // to be released.
-        match (
-            power_request.reset_type,
-            state.mock_power_state.get_power_state(),
-        ) {
-            (
-                SystemPowerControl::GracefulShutdown
-                | SystemPowerControl::ForceOff
-                | SystemPowerControl::GracefulRestart
-                | SystemPowerControl::ForceRestart,
-                MockPowerState::Off,
-            ) => {
-                return Err(MockWrapperError::SetSystemPower(
-                    SetSystemPowerError::BadRequest(
-                        "bmc-mock: cannot power off machine, it is already off".to_string(),
-                    ),
-                ));
-            }
-            (SystemPowerControl::On | SystemPowerControl::ForceOn, MockPowerState::On) => {
-                return Err(MockWrapperError::SetSystemPower(
-                    SetSystemPowerError::BadRequest(
-                        "bmc-mock: cannot power on machine, it is already on".to_string(),
-                    ),
-                ));
-            }
-            (_, MockPowerState::PowerCycling { since }) if since.elapsed() < POWER_CYCLE_DELAY => {
-                return Err(MockWrapperError::SetSystemPower(
-                    SetSystemPowerError::BadRequest(format!(
-                        "bmc-mock: cannot reset machine, it is in the middle of power cycling since {:?} ago",
-                        since.elapsed()
-                    )),
-                ));
-            }
-            _ => {}
+    // Reply with a failure if the power request is invalid for the current state.
+    // Note: This logic is duplicated with that in machine-a-tron's MachineStateMachine, because
+    // we don't want to block waiting for the BMC command_channel to reply. Doing so may
+    // introduce a deadlock if the API server holds a lock on the row for this machine
+    // while issuing a redfish call, and MachineStateMachine is blocked waiting for the row lock
+    // to be released.
+    match (
+        power_request.reset_type,
+        state.mock_power_state.get_power_state(),
+    ) {
+        (
+            SystemPowerControl::GracefulShutdown
+            | SystemPowerControl::ForceOff
+            | SystemPowerControl::GracefulRestart
+            | SystemPowerControl::ForceRestart,
+            MockPowerState::Off,
+        ) => {
+            return Err(MockWrapperError::SetSystemPower(
+                SetSystemPowerError::BadRequest(
+                    "bmc-mock: cannot power off machine, it is already off".to_string(),
+                ),
+            ));
         }
-        command_channel.send(BmcCommand::SetSystemPower {
-            request: power_request,
-            reply: None,
-        })?;
-        Ok("".into())
-    } else {
-        state.call_inner_router(request).await?;
-        Ok("".into())
+        (SystemPowerControl::On | SystemPowerControl::ForceOn, MockPowerState::On) => {
+            return Err(MockWrapperError::SetSystemPower(
+                SetSystemPowerError::BadRequest(
+                    "bmc-mock: cannot power on machine, it is already on".to_string(),
+                ),
+            ));
+        }
+        (_, MockPowerState::PowerCycling { since }) if since.elapsed() < POWER_CYCLE_DELAY => {
+            return Err(MockWrapperError::SetSystemPower(
+                SetSystemPowerError::BadRequest(format!(
+                    "bmc-mock: cannot reset machine, it is in the middle of power cycling since {:?} ago",
+                    since.elapsed()
+                )),
+            ));
+        }
+        _ => {}
     }
+    command_channel.send(BmcCommand::SetSystemPower {
+        request: power_request,
+        reply: None,
+    })?;
+    Ok("".into())
 }
 
 async fn get_injected_bugs(

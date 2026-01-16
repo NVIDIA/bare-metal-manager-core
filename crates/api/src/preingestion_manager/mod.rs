@@ -28,7 +28,7 @@ use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, RedfishError, SystemPowerControl};
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
-    ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState,
+    ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState, TimeSyncResetPhase,
 };
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
@@ -267,9 +267,48 @@ async fn one_endpoint(
     // Main state machine match.
     let delayed_upgrade = match &endpoint.preingestion_state {
         PreingestionState::Initial => {
-            static_info
-                .check_firmware_versions_below_preingestion(db, endpoint)
-                .await?
+            // Check BMC time sync first before proceeding with firmware checks
+            match static_info.check_bmc_time_sync(db, endpoint).await {
+                Ok(true) => {
+                    // Time is in sync, proceed with firmware version check
+                    static_info
+                        .check_firmware_versions_below_preingestion(db, endpoint)
+                        .await?
+                }
+                Ok(false) => {
+                    // Time is not in sync, initiate reset sequence
+                    tracing::warn!(
+                        "{} BMC time is out of sync, initiating reset to fix time synchronization",
+                        endpoint.address
+                    );
+                    static_info
+                        .time_sync_resets(db, endpoint, &TimeSyncResetPhase::Start, None)
+                        .await?
+                }
+                Err(e) => {
+                    if let CarbideError::Internal { message } = e {
+                        tracing::error!(
+                            "{} internal error checking BMC time sync: {message}, failing preingestion",
+                            endpoint.address
+                        );
+                        db.with_txn(|txn| {
+                            db::explored_endpoints::set_preingestion_failed(
+                                endpoint.address,
+                                format!("Failed to check BMC time sync: {message}"),
+                                txn,
+                            )
+                            .boxed()
+                        })
+                        .await??;
+                    } else {
+                        tracing::warn!(
+                            "{} retryable error checking BMC time sync: {e}, will retry later",
+                            endpoint.address
+                        );
+                    }
+                    false
+                }
+            }
         }
         PreingestionState::RecheckVersionsAfterFailure { .. } => {
             static_info
@@ -284,6 +323,12 @@ async fn one_endpoint(
         PreingestionState::InitialReset { phase, last_time } => {
             static_info
                 .pre_update_resets(db, endpoint, Some(phase), Some(last_time))
+                .await?;
+            false
+        }
+        PreingestionState::TimeSyncReset { phase, last_time } => {
+            static_info
+                .time_sync_resets(db, endpoint, phase, Some(last_time))
                 .await?;
             false
         }
@@ -1127,6 +1172,83 @@ impl PreingestionManagerStatic {
         Ok(())
     }
 
+    /// Helper: Execute power off and BMC reset sequence
+    /// Returns true if successful, false if any step failed
+    async fn execute_power_off_and_bmc_reset(
+        &self,
+        redfish_client: &dyn libredfish::Redfish,
+        endpoint: &ExploredEndpoint,
+    ) -> bool {
+        if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+            tracing::warn!("Could not turn off power on {}: {e}", endpoint.address);
+            return false;
+        }
+        let status = match redfish_client.get_power_state().await {
+            Ok(status) => status,
+            Err(e) => {
+                tracing::warn!("Could not get power of {}: {e}", endpoint.address);
+                return false;
+            }
+        };
+        if status != PowerState::Off {
+            tracing::warn!("Host {} did not turn off when requested", endpoint.address);
+            return false;
+        }
+        if let Err(e) = redfish_client.bmc_reset().await {
+            tracing::warn!("Could not reset BMC on {}: {e}", endpoint.address);
+            return false;
+        }
+        true
+    }
+
+    /// Helper: Wait for BMC reset and power on the host
+    /// Returns true if successful, false if any step failed
+    async fn execute_wait_bmc_and_power_on(
+        &self,
+        redfish_client: &dyn libredfish::Redfish,
+        endpoint: &ExploredEndpoint,
+    ) -> bool {
+        if let Err(e) = redfish_client.get_tasks().await {
+            tracing::info!(
+                "Waiting for {} BMC reset to complete: {e}",
+                endpoint.address
+            );
+            return false;
+        }
+        if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
+            tracing::warn!("Could not turn on power on {}: {e}", endpoint.address);
+            return false;
+        }
+        let status = match redfish_client.get_power_state().await {
+            Ok(status) => status,
+            Err(e) => {
+                tracing::warn!("Could not get power of {}: {e}", endpoint.address);
+                return false;
+            }
+        };
+        if status != PowerState::On {
+            tracing::warn!("Host {} did not turn on when requested", endpoint.address);
+            return false;
+        }
+        true
+    }
+
+    /// Helper: Check if we should proceed after the boot wait period
+    /// Returns true if 20 minutes have elapsed, false otherwise
+    fn should_proceed_after_boot_wait(
+        &self,
+        last_time: Option<&DateTime<Utc>>,
+        endpoint: &ExploredEndpoint,
+    ) -> bool {
+        if Utc::now().signed_duration_since(last_time.unwrap_or(&Utc::now()))
+            < chrono::TimeDelta::minutes(20)
+        {
+            tracing::trace!("Waiting for {} to complete boot sequence", endpoint.address);
+            return false;
+        }
+        true
+    }
+
     async fn pre_update_resets(
         &self,
         db: &mut SafePgPool,
@@ -1148,26 +1270,12 @@ impl PreingestionManagerStatic {
 
         match phase.unwrap_or(&InitialResetPhase::Start) {
             InitialResetPhase::Start => {
-                if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
-                    tracing::warn!("Could not turn off power on {}: {e}", endpoint.address);
+                if !self
+                    .execute_power_off_and_bmc_reset(redfish_client.as_ref(), endpoint)
+                    .await
+                {
                     return Ok(());
                 }
-                let status = match redfish_client.get_power_state().await {
-                    Ok(status) => status,
-                    Err(e) => {
-                        tracing::warn!("Could not get power of {}: {e}", endpoint.address);
-                        return Ok(());
-                    }
-                };
-                if status != PowerState::Off {
-                    tracing::warn!("Host {} did not turn off when requested", endpoint.address);
-                    return Ok(());
-                }
-                if let Err(e) = redfish_client.bmc_reset().await {
-                    tracing::warn!("Could not reset BMC on {}: {e}", endpoint.address);
-                    return Ok(());
-                };
-
                 tracing::info!("{} initial reset BMC reset intiated", endpoint.address);
                 db.with_txn(|txn| {
                     db::explored_endpoints::set_preingestion_initial_reset(
@@ -1181,26 +1289,10 @@ impl PreingestionManagerStatic {
                 Ok(())
             }
             InitialResetPhase::BMCWasReset => {
-                if let Err(e) = redfish_client.get_tasks().await {
-                    tracing::info!(
-                        "Waiting for {} BMC reset to complete: {e}",
-                        endpoint.address
-                    );
-                    return Ok(());
-                }
-                if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
-                    tracing::warn!("Could not turn on power on {}: {e}", endpoint.address);
-                    return Ok(());
-                }
-                let status = match redfish_client.get_power_state().await {
-                    Ok(status) => status,
-                    Err(e) => {
-                        tracing::warn!("Could not get power of {}: {e}", endpoint.address);
-                        return Ok(());
-                    }
-                };
-                if status != PowerState::On {
-                    tracing::warn!("Host {} did not turn on when requested", endpoint.address);
+                if !self
+                    .execute_wait_bmc_and_power_on(redfish_client.as_ref(), endpoint)
+                    .await
+                {
                     return Ok(());
                 }
                 tracing::info!(
@@ -1219,10 +1311,7 @@ impl PreingestionManagerStatic {
                 Ok(())
             }
             InitialResetPhase::WaitHostBoot => {
-                if Utc::now().signed_duration_since(last_time.unwrap_or(&Utc::now()))
-                    < chrono::TimeDelta::minutes(20)
-                {
-                    // Wait longer
+                if !self.should_proceed_after_boot_wait(last_time, endpoint) {
                     return Ok(());
                 }
                 // Now we can actually proceed with the upgrade.  Go back to checking firmware so we don't have to store all of that info.
@@ -1233,6 +1322,133 @@ impl PreingestionManagerStatic {
                 })
                 .await??;
                 Ok(())
+            }
+        }
+    }
+
+    async fn time_sync_resets(
+        &self,
+        db: &mut SafePgPool,
+        endpoint: &ExploredEndpoint,
+        phase: &TimeSyncResetPhase,
+        last_time: Option<&DateTime<Utc>>,
+    ) -> CarbideResult<bool> {
+        let redfish_client = match self
+            .redfish_client_pool
+            .create_client_for_ingested_host(endpoint.address, None, db)
+            .await
+        {
+            Ok(redfish_client) => redfish_client,
+            Err(e) => {
+                tracing::warn!("Redfish connection to {} failed: {e}", endpoint.address);
+                return Ok(false);
+            }
+        };
+
+        match phase {
+            TimeSyncResetPhase::Start => {
+                if !self
+                    .execute_power_off_and_bmc_reset(redfish_client.as_ref(), endpoint)
+                    .await
+                {
+                    return Ok(false);
+                }
+                tracing::info!("{} time sync reset BMC reset initiated", endpoint.address);
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_time_sync_reset(
+                        endpoint.address,
+                        TimeSyncResetPhase::BMCWasReset,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+                Ok(false)
+            }
+            TimeSyncResetPhase::BMCWasReset => {
+                if !self
+                    .execute_wait_bmc_and_power_on(redfish_client.as_ref(), endpoint)
+                    .await
+                {
+                    return Ok(false);
+                }
+                tracing::info!(
+                    "{} time sync reset BMC reset complete, started host reset",
+                    endpoint.address
+                );
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_time_sync_reset(
+                        endpoint.address,
+                        TimeSyncResetPhase::WaitHostBoot,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+                Ok(false)
+            }
+            TimeSyncResetPhase::WaitHostBoot => {
+                if !self.should_proceed_after_boot_wait(last_time, endpoint) {
+                    return Ok(false);
+                }
+
+                // Host has booted, now check time sync again
+                tracing::info!(
+                    "{} time sync reset complete, checking time sync",
+                    endpoint.address
+                );
+
+                match self.check_bmc_time_sync(db, endpoint).await {
+                    Ok(true) => {
+                        // Time is now in sync, proceed with firmware check
+                        tracing::info!("{} BMC time is now in sync after reset", endpoint.address);
+                        let delayed_upgrade = self
+                            .check_firmware_versions_below_preingestion(db, endpoint)
+                            .await?;
+                        Ok(delayed_upgrade)
+                    }
+                    Ok(false) => {
+                        // Time is still not in sync after reset, fail now
+                        tracing::error!(
+                            "{} BMC time is still out of sync after reset attempt, failing preingestion",
+                            endpoint.address
+                        );
+                        db.with_txn(|txn| {
+                            db::explored_endpoints::set_preingestion_failed(
+                                endpoint.address,
+                                "BMC time synchronization failed after reset attempt. Time difference exceeds 5 minutes threshold.".to_string(),
+                                txn,
+                            )
+                            .boxed()
+                        })
+                        .await??;
+                        Ok(false)
+                    }
+                    Err(e) => {
+                        if let CarbideError::Internal { message } = e {
+                            // Error checking time sync after reset, fail now
+                            tracing::error!(
+                                "{} internal error checking BMC time sync after reset: {message}, failing preingestion",
+                                endpoint.address
+                            );
+                            db.with_txn(|txn| {
+                                db::explored_endpoints::set_preingestion_failed(
+                                    endpoint.address,
+                                    format!("Failed to check BMC time sync after reset: {message}"),
+                                    txn,
+                                )
+                                .boxed()
+                            })
+                            .await??;
+                        } else {
+                            tracing::warn!(
+                                "{} retryable error checking BMC time sync after reset: {e}, will retry later",
+                                endpoint.address
+                            );
+                        }
+                        Ok(false)
+                    }
+                }
             }
         }
     }
@@ -1385,6 +1601,67 @@ impl PreingestionManagerStatic {
                 Ok(())
             }
         }.boxed()).await?
+    }
+
+    /// check_bmc_time_sync checks if the BMC's system time is synchronized with the local system time.
+    /// Returns true if the time difference is within the acceptable NTP drift threshold (5 minutes),
+    /// false otherwise.
+    async fn check_bmc_time_sync(
+        &self,
+        db: &mut SafePgPool,
+        endpoint: &ExploredEndpoint,
+    ) -> CarbideResult<bool> {
+        tracing::debug!("Checking BMC time sync for {:?}", endpoint);
+        let redfish_client = match self
+            .redfish_client_pool
+            .create_client_for_ingested_host(endpoint.address, None, db)
+            .await
+            .map_err(|e| match e {
+                RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
+                _ => CarbideError::internal(format!("{e}")),
+            }) {
+            Ok(redfish_client) => redfish_client,
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        // Get the manager's DateTime from Redfish
+        let bmc_time = match redfish_client
+            .get_manager()
+            .await
+            .map_err(CarbideError::RedfishError)?
+            .date_time
+        {
+            Some(time) => time,
+            None => {
+                return Err(CarbideError::internal("Failed to get BMC time".to_string()));
+            }
+        };
+
+        let system_time = Utc::now();
+        let time_diff = (system_time - bmc_time).num_seconds().abs();
+
+        // Reasonable NTP drift threshold: 5 minutes (300 seconds)
+        const NTP_DRIFT_THRESHOLD_SECONDS: i64 = 300;
+
+        if time_diff > NTP_DRIFT_THRESHOLD_SECONDS {
+            tracing::warn!(
+                "BMC time for {} is out of sync: BMC time: {}, System time: {}, Difference: {} seconds",
+                endpoint.address,
+                bmc_time,
+                system_time,
+                time_diff
+            );
+            Ok(false)
+        } else {
+            tracing::debug!(
+                "BMC time for {} is in sync: difference {} seconds",
+                endpoint.address,
+                time_diff
+            );
+            Ok(true)
+        }
     }
 }
 

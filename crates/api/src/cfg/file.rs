@@ -13,7 +13,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -306,6 +306,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dpa_config: Option<DpaConfig>,
 
+    /// DSX Exchange Event Bus configuration for publishing state change events via MQTT.
+    #[serde(default)]
+    pub dsx_exchange_event_bus: Option<DsxExchangeEventBusConfig>,
+
     /// FNN depends on various route-targets that
     /// are DC-specific.  This value is used to
     /// build those targets for import and,
@@ -386,6 +390,15 @@ pub struct CarbideConfig {
     // SPDM Config
     #[serde(default)]
     pub spdm: SpdmConfig,
+
+    /// Due to limitations in Cumulus Linux route-leaking,
+    /// some sites may require all VRFs to use the same VNI.
+    /// Isolation is still possible via ACLs, and route-imports
+    /// will still use the dynamically allocated VNI for deriving
+    /// route-targets.
+    /// This will limit the number of VRFs supported on the
+    /// DPU to a single VRF.
+    pub site_global_vpc_vni: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -540,6 +553,27 @@ impl CarbideConfig {
         conf.enabled
     }
 
+    pub fn get_dpa_subnet_ip(&self) -> Result<Ipv4Addr, eyre::Report> {
+        if self.dpa_config.is_none() {
+            tracing::error!("get_dpa_subnet_ip: DPA config missing");
+            return Err(eyre::eyre!("get_dpa_subnet_ip: DPA config missing"));
+        }
+
+        let conf = self.dpa_config.clone().unwrap();
+        Ok(conf.subnet_ip)
+    }
+
+    pub fn get_dpa_subnet_mask(&self) -> Result<i32, eyre::Report> {
+        if self.dpa_config.is_none() {
+            tracing::error!("get_dpa_subnet_mask: DPA config missing");
+            return Err(eyre::eyre!("get_dpa_subnet_mask: DPA config missing"));
+        }
+
+        let conf = self.dpa_config.clone().unwrap();
+
+        Ok(conf.subnet_mask)
+    }
+
     pub fn mqtt_broker_host(&self) -> Option<String> {
         self.dpa_config
             .as_ref()
@@ -552,6 +586,30 @@ impl CarbideConfig {
 
     pub fn get_hb_interval(&self) -> Option<Duration> {
         self.dpa_config.as_ref().map(|conf| conf.hb_interval)
+    }
+
+    /// Returns true if the DSX Exchange Event Bus is enabled.
+    pub fn is_dsx_exchange_event_bus_enabled(&self) -> bool {
+        self.dsx_exchange_event_bus
+            .as_ref()
+            .map(|conf| conf.enabled)
+            .unwrap_or(false)
+    }
+
+    /// Returns the DSX Exchange Event Bus MQTT broker endpoint if enabled.
+    pub fn dsx_exchange_event_bus_mqtt_endpoint(&self) -> Option<&str> {
+        self.dsx_exchange_event_bus
+            .as_ref()
+            .filter(|conf| conf.enabled)
+            .map(|conf| conf.mqtt_endpoint.as_str())
+    }
+
+    /// Returns the DSX Exchange Event Bus MQTT broker port if enabled.
+    pub fn dsx_exchange_event_bus_mqtt_broker_port(&self) -> Option<u16> {
+        self.dsx_exchange_event_bus
+            .as_ref()
+            .filter(|conf| conf.enabled)
+            .map(|conf| conf.mqtt_broker_port)
     }
 }
 
@@ -1230,6 +1288,23 @@ impl SiteExplorerConfig {
 impl DpaConfig {
     pub const fn default_hb_interval() -> chrono::Duration {
         Duration::minutes(2)
+    }
+
+    pub const fn default_subnet_ip() -> Ipv4Addr {
+        Ipv4Addr::UNSPECIFIED
+    }
+}
+
+impl Default for DpaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mqtt_endpoint: default_mqtt_endpoint(),
+            mqtt_broker_port: default_mqtt_broker_port(),
+            subnet_ip: Self::default_subnet_ip(),
+            subnet_mask: 0,
+            hb_interval: Self::default_hb_interval(),
+        }
     }
 }
 
@@ -2144,7 +2219,12 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .clone()
                 .unwrap_or_default()
                 .mqtt_broker_port as i32,
-            mqtt_hb_interval: value.dpa_config.unwrap_or_default().hb_interval.to_string(),
+            mqtt_hb_interval: value
+                .dpa_config
+                .clone()
+                .unwrap_or_default()
+                .hb_interval
+                .to_string(),
             bom_validation_auto_generate_missing_sku: value
                 .bom_validation
                 .auto_generate_missing_sku,
@@ -2153,6 +2233,13 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .auto_generate_missing_sku_interval
                 .as_secs(),
             dpu_secure_boot_enabled: value.dpu_config.dpu_enable_secure_boot,
+            dpa_subnet_ip: value
+                .dpa_config
+                .clone()
+                .unwrap_or_default()
+                .subnet_ip
+                .to_string(),
+            dpa_subnet_mask: value.dpa_config.unwrap_or_default().subnet_mask,
         }
     }
 }
@@ -2192,12 +2279,12 @@ fn default_mqtt_endpoint() -> String {
 fn default_mqtt_broker_port() -> u16 {
     1884
 }
+
 /// DPA (aka Cluster Ineteconnect Network) related configuration
 /// In addition to enabling DPA and specifying
 /// the mqtt endpoint, you need to specify the vni range to
 /// be used by DPA as pools.dpa-vni
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct DpaConfig {
     /// Global enable/disable of Cluster Interconnect Network
     #[serde(default)]
@@ -2211,6 +2298,12 @@ pub struct DpaConfig {
     #[serde(default = "default_mqtt_broker_port")]
     pub mqtt_broker_port: u16,
 
+    #[serde(default = "DpaConfig::default_subnet_ip")]
+    pub subnet_ip: Ipv4Addr,
+
+    #[serde(default)]
+    pub subnet_mask: i32,
+
     /// hb_interval is the interval at which we issue heartbeat
     /// requests to the DPA.
     /// Defaults to 120 if not specified.
@@ -2220,6 +2313,48 @@ pub struct DpaConfig {
         serialize_with = "as_duration"
     )]
     pub hb_interval: chrono::TimeDelta,
+}
+
+/// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
+///
+/// When configured, Carbide will publish `ManagedHostState` transitions to the
+/// topic `carbide/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct DsxExchangeEventBusConfig {
+    /// Enable/disable the DSX Exchange Event Bus.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// MQTT broker host (name or IP address) used to create client connections.
+    #[serde(default = "default_mqtt_endpoint")]
+    pub mqtt_endpoint: String,
+
+    /// MQTT broker port to use to establish client connections.
+    #[serde(default = "default_mqtt_broker_port")]
+    pub mqtt_broker_port: u16,
+
+    /// Timeout for MQTT publish operations. Defaults to 1 second.
+    #[serde(
+        default = "DsxExchangeEventBusConfig::default_publish_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub publish_timeout: std::time::Duration,
+
+    /// Queue capacity for buffering state change events while publishing.
+    /// Events are dropped if the queue is full. Defaults to 1024.
+    #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
+    pub queue_capacity: usize,
+}
+
+impl DsxExchangeEventBusConfig {
+    pub const fn default_publish_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(1)
+    }
+
+    pub const fn default_queue_capacity() -> usize {
+        1024
+    }
 }
 
 /// MachineValidation related configuration
@@ -3420,6 +3555,8 @@ mqtt_endpoint = "mqtt.forge"
                 mqtt_endpoint: "mqtt.forge".to_string(),
                 mqtt_broker_port: 1884,
                 hb_interval: Duration::minutes(2),
+                subnet_ip: Ipv4Addr::UNSPECIFIED,
+                subnet_mask: 0_i32,
             }
         );
     }

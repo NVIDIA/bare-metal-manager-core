@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+while ! [ -S /tmp/pdns.sock ]; do
+  echo "Waiting for socket..."
+  sleep 1
+done
+sleep 30  # hack while we wait for db migrations and seeding initial data in docker-compose env
+#chmod 777 /tmp/zeromq.sock
+exec s6-setuidgid pdns \
+  /usr/sbin/pdns_server \
+  --config-dir=/etc/powerdns \
+  --daemon=no
+done

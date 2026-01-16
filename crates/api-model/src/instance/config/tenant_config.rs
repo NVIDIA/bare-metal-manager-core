@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -35,10 +35,10 @@ pub struct TenantConfig {
 pub static HOSTNAME_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$").unwrap());
 
-impl TryFrom<rpc::TenantConfig> for TenantConfig {
+impl TryFrom<rpc::forge::TenantConfig> for TenantConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::TenantConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: rpc::forge::TenantConfig) -> Result<Self, Self::Error> {
         let truncated_hostname = config.hostname.map(|mut name| {
             if name.len() > 63 {
                 name.truncate(63);
@@ -58,10 +58,10 @@ impl TryFrom<rpc::TenantConfig> for TenantConfig {
     }
 }
 
-impl TryFrom<TenantConfig> for rpc::TenantConfig {
+impl TryFrom<TenantConfig> for rpc::forge::TenantConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: TenantConfig) -> Result<rpc::TenantConfig, Self::Error> {
+    fn try_from(config: TenantConfig) -> Result<rpc::forge::TenantConfig, Self::Error> {
         Ok(Self {
             tenant_organization_id: config.tenant_organization_id.to_string(),
             custom_ipxe: String::new(),

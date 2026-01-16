@@ -18,7 +18,10 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc, InstancePowerRequest, InstanceReleaseRequest};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use prettytable::{Table, row};
+use rpc::forge::{Vpc, VpcsByIdsRequest};
 
 use super::args::{
     AllocateInstance, GlobalOptions, RebootInstance, ReleaseInstance, ShowInstance, UpdateIbConfig,
@@ -28,7 +31,8 @@ use crate::cfg::cli_options::SortField;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln, invalid_machine_id, machine};
 
-fn convert_instance_to_nice_format(
+async fn convert_instance_to_nice_format(
+    api_client: &ApiClient,
     instance: &forgerpc::Instance,
     extrainfo: bool,
 ) -> CarbideCliResult<String> {
@@ -176,6 +180,13 @@ fn convert_instance_to_nice_format(
     } else {
         for (i, interface) in if_configs.iter().enumerate() {
             let status = &if_status[i];
+
+            let vpc = if let Some(network_segment_id) = interface.network_segment_id {
+                get_vpc_for_interface_network_segment(api_client, network_segment_id).await?
+            } else {
+                None
+            };
+
             let data = &[
                 (
                     "FUNCTION_TYPE",
@@ -209,6 +220,18 @@ fn convert_instance_to_nice_format(
                 ),
                 ("MAC ADDR", status.mac_address.clone().unwrap_or_default()),
                 ("ADDRESSES", status.addresses.clone().join(", ")),
+                (
+                    "VPC ID",
+                    vpc.as_ref()
+                        .map(|v| v.id.unwrap_or_default().to_string())
+                        .unwrap_or("<not found>".to_string()),
+                ),
+                (
+                    "VPC NAME",
+                    vpc.as_ref()
+                        .map(|v| v.name.clone())
+                        .unwrap_or("<not found>".to_string()),
+                ),
             ];
 
             for (key, value) in data {
@@ -399,7 +422,7 @@ async fn show_instance_details(
             async_write!(
                 output_file,
                 "{}",
-                convert_instance_to_nice_format(instance, extrainfo)?
+                convert_instance_to_nice_format(api_client, instance, extrainfo).await?
             )?;
         }
         OutputFormat::Csv => {
@@ -767,4 +790,31 @@ pub async fn update_ib_config(
         }
     };
     Ok(())
+}
+
+async fn get_vpc_for_interface_network_segment(
+    api_client: &ApiClient,
+    network_segment_id: NetworkSegmentId,
+) -> CarbideCliResult<Option<Vpc>> {
+    let network_segments = api_client
+        .get_segments_by_ids(&[network_segment_id])
+        .await?;
+
+    if !network_segments.network_segments.is_empty()
+        && let Some(vpc_id) = network_segments
+            .network_segments
+            .first()
+            .and_then(|s| s.vpc_id)
+    {
+        let vpc_ids: Vec<VpcId> = vec![vpc_id];
+        Ok(api_client
+            .0
+            .find_vpcs_by_ids(VpcsByIdsRequest { vpc_ids })
+            .await?
+            .vpcs
+            .into_iter()
+            .next())
+    } else {
+        Ok(None)
+    }
 }

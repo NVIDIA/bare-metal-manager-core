@@ -77,8 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.CredentialResponse", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.Domain", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.DomainList", "#[derive(serde::Serialize)]")
+        .type_attribute(".dns", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.InstanceInterfaceConfig",
@@ -744,6 +743,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/nmx_c.proto",
                 "proto/rack_manager.proto",
                 "proto/site_explorer.proto",
+                "proto/dns.proto",
             ],
             &["proto"],
         )

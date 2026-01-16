@@ -17,6 +17,9 @@
 	<tr><th>Network Config Version</th><td>{{ network_config_version|config_version|safe }}</td></tr>
 	<tr><th>InfiniBand Config Synced</th><td>{{ ib_config_synced }}</td></tr>
 	<tr><th>InfiniBand Config Version</th><td>{{ ib_config_version|config_version|safe }}</td></tr>
+	<tr><th>NvLink Config Synced</th><td>{{ nvlink_config_synced }}</td></tr>
+	<tr><th>NvLink Config Version</th><td>{{ nvlink_config_version|config_version|safe }}</td></tr>
+
 </table>
 
 <h2>Metadata</h2>
@@ -43,6 +46,8 @@
 	<tr><th>MAC Address</th><td>{{ interface.mac_address }}</td></tr>
 	<tr><th>IP Addresses</th><td>{{ interface.addresses }}</td></tr>
 	<tr><th>Gateways</th><td>{{ interface.gateways }}</td></tr>
+	<tr><th>VPC Id</th><td><a href="/admin/vpc/{{ interface.vpc_id }}">{{ interface.vpc_id }}</a></td></tr>
+	<tr><th>VPC Name</th><td>{{ interface.vpc_name }}</td></tr>
 </table>
 {% endfor %}
 
@@ -67,5 +72,15 @@
 	<tr><th>ID</th><td><a href="/admin/tenant_keyset/{{ tenant_org }}/{{ keyset }}">{{ keyset }}</a></td></tr>
 </table>
 {% endfor %}
+
+<h2>NVLink GPUs</h2>
+{% for gpu in nvlink_gpus %}
+<table class="detailsview">
+	<tr><th>Device Instance</th><td>{{ gpu.device_instance }}</td></tr>
+	<tr><th>Device UID</th><td>{{ gpu.device_guid}}</td></tr>
+	<tr><th>Logical Partition </th><td>{{ gpu.logical_partition_id}}</td></tr>
+</table>
+{% endfor %}
+
 
 {% endblock %}

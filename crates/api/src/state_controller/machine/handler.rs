@@ -741,9 +741,19 @@ impl MachineStateHandler {
                     // Clear if any reprovision (dpu or host) is set due to race scenario.
                     Self::clear_host_update_alert_and_reprov(mh_snapshot, txn).await?;
 
-                    let next_state = ManagedHostState::Assigned {
+                    let mut next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::DpaProvisioning,
                     };
+
+                    if !ctx.services.site_config.is_dpa_enabled() {
+                        // If DPA is not enabled, we don't need to do any DPA provisioning.
+                        // So go directly to WaitingForDpaToBeReady state, where we will change
+                        // the network status of our DPUs.
+                        next_state = ManagedHostState::Assigned {
+                            instance_state: InstanceState::WaitingForDpaToBeReady,
+                        };
+                    }
+
                     return Ok(StateHandlerOutcome::transition(next_state));
                 }
 
@@ -1661,11 +1671,30 @@ async fn handle_restart_verification(
     {
         let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
 
-        let host_redfish_client = ctx
+        let host_redfish_client = match ctx
             .services
             .redfish_client_pool
             .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
-            .await?;
+            .await
+        {
+            Ok(client) => client,
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to create Redfish client for host {} during force-restart verification: {}",
+                    mh_snapshot.host_snapshot.id,
+                    err
+                );
+                update_restart_verification_status(
+                    &mh_snapshot.host_snapshot.id,
+                    last_reboot.clone(),
+                    None,
+                    0,
+                    txn,
+                )
+                .await?;
+                return Ok(None); // Skip verification, continue with state transition
+            }
+        };
 
         let restart_found = match check_restart_in_logs(
             host_redfish_client.as_ref(),
@@ -1757,11 +1786,24 @@ async fn handle_restart_verification(
         {
             let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
 
-            let dpu_redfish_client = ctx
+            let dpu_redfish_client = match ctx
                 .services
                 .redfish_client_pool
                 .create_client_from_machine(dpu, txn)
-                .await?;
+                .await
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to create Redfish client for DPU {} during force-restart verification: {}",
+                        dpu.id,
+                        err
+                    );
+                    update_restart_verification_status(&dpu.id, last_reboot.clone(), None, 0, txn)
+                        .await?;
+                    continue; // Skip verification, continue with state transition
+                }
+            };
 
             let restart_found = match check_restart_in_logs(
                 dpu_redfish_client.as_ref(),
@@ -4058,12 +4100,13 @@ pub async fn trigger_reboot_if_needed(
                 if target.id.machine_type().is_dpu() {
                     handler_restart_dpu(target, services, txn).await?;
                 } else {
-                    let power_control_action = match target.bmc_vendor() {
-                        bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-                        _ => SystemPowerControl::ForceRestart,
-                    };
-
-                    handler_host_power_control(state, services, power_control_action, txn).await?;
+                    handler_host_power_control(
+                        state,
+                        services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
                 }
                 format!(
                     "Has not come up after {time_elapsed_since_state_change} minutes. Rebooting again, cycle: {cycle}."
@@ -7453,15 +7496,26 @@ impl HostUpgradeState {
                 state.managed_state.get_host_repro_retry_count(),
             );
         };
-        let Some(current_version) = endpoint.find_version(&fw_info, *firmware_type) else {
-            tracing::error!("Could no longer find current version for {machine_id}");
+
+        let current_versions = endpoint.find_all_versions(&fw_info, *firmware_type);
+        if current_versions.is_empty() {
+            tracing::error!("Could no longer find current versions for {machine_id}");
             return scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeat,
                 state.managed_state.get_host_repro_retry_count(),
             );
         };
 
-        if current_version == final_version {
+        let versions_match_final_version = current_versions.iter().all(|v| *v == final_version);
+        if !versions_match_final_version {
+            tracing::warn!(
+                "{}: Not all firmware versions match. Expected: {final_version}, Found: {:?}",
+                endpoint.address,
+                current_versions
+            );
+        };
+
+        if versions_match_final_version {
             // Done waiting, go back to overall checking of version`2s
             tracing::debug!("Done waiting for {machine_id} to reach version");
             scenario.actual_new_state(
@@ -7492,7 +7546,7 @@ impl HostUpgradeState {
                     .await;
             }
             tracing::info!(
-                "Waiting for {machine_id} {firmware_type:?} to reach version {final_version} currently {current_version}"
+                "Waiting for {machine_id} {firmware_type:?} to reach version {final_version} currently {current_versions:?}"
             );
             db::explored_endpoints::re_explore_if_version_matches(
                 endpoint.address,
@@ -8624,11 +8678,6 @@ async fn configure_host_bios(
         None
     };
 
-    let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
-        bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-        _ => SystemPowerControl::ForceRestart,
-    };
-
     if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
         redfish_client,
         boot_interface_mac.as_deref(),
@@ -8652,8 +8701,13 @@ async fn configure_host_bios(
         // As of July 2024, Josh Price said there's an NBU FR to fix
         // this, but it wasn't target to a release yet.
         let reboot_status = if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
-            handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn)
-                .await?;
+            handler_host_power_control(
+                mh_snapshot,
+                ctx.services,
+                SystemPowerControl::ForceRestart,
+                txn,
+            )
+            .await?;
 
             RebootStatus {
                 increase_retry_count: true,
@@ -8679,7 +8733,13 @@ async fn configure_host_bios(
     };
 
     // Host needs to be rebooted to pick up the changes after calling machine_setup
-    handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn).await?;
+    handler_host_power_control(
+        mh_snapshot,
+        ctx.services,
+        SystemPowerControl::ForceRestart,
+        txn,
+    )
+    .await?;
     Ok(BiosConfigOutcome::Done)
 }
 
@@ -8726,17 +8786,12 @@ async fn set_host_boot_order(
                             e
                         );
 
-                        let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
-                            bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-                            _ => SystemPowerControl::ForceRestart,
-                        };
-
                         let reboot_status =
                             if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
                                 handler_host_power_control(
                                     mh_snapshot,
                                     ctx.services,
-                                    power_control_action,
+                                    SystemPowerControl::ForceRestart,
                                     txn,
                                 )
                                 .await?;
@@ -8794,14 +8849,14 @@ async fn set_host_boot_order(
             }))
         }
         SetBootOrderState::RebootHost => {
-            let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
-                bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-                _ => SystemPowerControl::ForceRestart,
-            };
-
             // Host needs to be rebooted to pick up the changes after calling machine_setup
-            handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn)
-                .await?;
+            handler_host_power_control(
+                mh_snapshot,
+                ctx.services,
+                SystemPowerControl::ForceRestart,
+                txn,
+            )
+            .await?;
 
             Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
                 set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),

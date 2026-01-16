@@ -30,6 +30,9 @@ use crate::state_controller::controller::{
 };
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::NoopMetricsEmitter;
+use crate::state_controller::state_change_emitter::{
+    StateChangeEmitterBuilder, StateChangeEvent, StateChangeHook,
+};
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerContextObjects, StateHandlerError,
     StateHandlerOutcome,
@@ -616,6 +619,135 @@ async fn test_multiple_state_controllers_schedule_object_only_once(
             "Expected individual count of {expected_iterations}, but got {count} for {object_id}"
         );
     }
+
+    Ok(())
+}
+
+/// A state handler that transitions from A -> B -> C
+#[derive(Debug, Default, Clone)]
+pub struct TestTransitionStateHandler;
+
+#[async_trait::async_trait]
+impl StateHandler for TestTransitionStateHandler {
+    type State = TestObject;
+    type ControllerState = TestObjectControllerState;
+    type ObjectId = String;
+    type ContextObjects = TestStateControllerContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        _object_id: &String,
+        _state: &mut TestObject,
+        controller_state: &Self::ControllerState,
+        _txn: &mut PgConnection,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+        match controller_state {
+            TestObjectControllerState::A => Ok(StateHandlerOutcome::transition(
+                TestObjectControllerState::B,
+            )),
+            TestObjectControllerState::B => Ok(StateHandlerOutcome::transition(
+                TestObjectControllerState::C,
+            )),
+            TestObjectControllerState::C => Ok(StateHandlerOutcome::do_nothing()),
+        }
+    }
+}
+
+/// Captured state change data for test verification.
+#[derive(Debug, Clone)]
+struct CapturedStateChange {
+    object_id: String,
+    previous_state: Option<TestObjectControllerState>,
+    new_state: TestObjectControllerState,
+}
+
+/// A hook that sends events through a channel for deterministic test verification
+pub struct ChannelHook {
+    sender: tokio::sync::mpsc::UnboundedSender<CapturedStateChange>,
+}
+
+impl ChannelHook {
+    fn new() -> (
+        Self,
+        tokio::sync::mpsc::UnboundedReceiver<CapturedStateChange>,
+    ) {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        (Self { sender }, receiver)
+    }
+}
+
+impl StateChangeHook<String, TestObjectControllerState> for ChannelHook {
+    fn on_state_changed(&self, event: &StateChangeEvent<'_, String, TestObjectControllerState>) {
+        let captured = CapturedStateChange {
+            object_id: event.object_id.clone(),
+            previous_state: event.previous_state.cloned(),
+            new_state: event.new_state.clone(),
+        };
+        let _ = self.sender.send(captured);
+    }
+}
+
+#[crate::sqlx_test]
+async fn test_state_change_emitter_emits_events_on_transitions(
+    pool: sqlx::PgPool,
+) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
+
+    // Create a single test object in state A
+    let mut txn = pool.begin().await?;
+    let obj = create_test_object("test-obj-1".to_string(), &mut txn).await;
+    txn.commit().await?;
+
+    // Create a channel hook to receive events deterministically
+    let (hook, mut receiver) = ChannelHook::new();
+
+    // Build the emitter with our channel hook
+    let emitter = StateChangeEmitterBuilder::default()
+        .hook(Box::new(hook))
+        .build();
+
+    // Build the state controller with the emitter
+    let mut controller = StateController::<TestStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: Duration::from_millis(50),
+            ..Default::default()
+        })
+        .database(pool.clone(), work_lock_manager_handle.clone())
+        .services(Arc::new(()))
+        .state_handler(Arc::new(TestTransitionStateHandler))
+        .state_change_emitter(emitter)
+        .build_for_manual_iterations()?;
+
+    // Run first iteration: A -> B
+    controller.run_single_iteration().await;
+    let event1 = receiver
+        .recv()
+        .await
+        .expect("Expected first state change event");
+    assert_eq!(event1.object_id, obj.id);
+    assert_eq!(event1.previous_state, Some(TestObjectControllerState::A));
+    assert_eq!(event1.new_state, TestObjectControllerState::B);
+
+    // Run second iteration: B -> C
+    controller.run_single_iteration().await;
+    let event2 = receiver
+        .recv()
+        .await
+        .expect("Expected second state change event");
+    assert_eq!(event2.object_id, obj.id);
+    assert_eq!(event2.previous_state, Some(TestObjectControllerState::B));
+    assert_eq!(event2.new_state, TestObjectControllerState::C);
+
+    // Run third iteration: C -> do_nothing (no transition, no event)
+    controller.run_single_iteration().await;
+    // Verify no more events in the channel
+    assert!(
+        receiver.try_recv().is_err(),
+        "Expected no event for do_nothing outcome"
+    );
 
     Ok(())
 }

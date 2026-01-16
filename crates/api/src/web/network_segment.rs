@@ -172,7 +172,7 @@ async fn fetch_network_segments(
 }
 
 async fn get_domain_name(state: Arc<Api>, domain_id: &DomainId) -> eyre::Result<String> {
-    let request = tonic::Request::new(forgerpc::DomainSearchQuery {
+    let request = tonic::Request::new(rpc::protos::dns::DomainSearchQuery {
         id: Some(*domain_id),
         name: None,
     });

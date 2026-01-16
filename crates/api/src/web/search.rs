@@ -160,6 +160,8 @@ async fn find_by_mac(state: Arc<Api>, mac: mac_address::MacAddress) -> impl Into
         }
         // If the search got this far it doesn't have an machine_interface, so it's Unseen
         ExpectedMachine => Redirect::to("/admin/expected-machine?filter=unseen").into_response(),
+
+        DpaInterface => Redirect::to(&format!("/admin/dpa/{}", out.primary_key)).into_response(),
     }
 }
 
@@ -242,6 +244,7 @@ async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
             ),
             LoopbackIp => ("Loopback IP", format!("/admin/machine/{owner}")),
             NetworkSegment => ("Network Segment", format!("/admin/network-segment/{owner}")),
+            DpaInterface => ("Dpa Interface", format!("/admin/dpa/{owner}")),
         };
         found.push(IpMatch {
             name,
