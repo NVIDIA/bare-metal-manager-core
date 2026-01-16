@@ -1,4 +1,3 @@
-use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
 use sqlx::pool::PoolConnection;
@@ -100,14 +99,6 @@ async fn run_loop(
     mut cmd_rx: mpsc::Receiver<WorkLockManagerCommand>,
     keepalive_timeout: Duration,
 ) {
-    // For when workers want to wait for a lock to become available, keep a queue of which ones are
-    // waiting, for each WorkKey. The value is the `reply_tx` channel for the AcquireLock command
-    // for that callee.
-    let mut queues: HashMap<
-        WorkKey,
-        VecDeque<oneshot::Sender<Result<WorkerId, AcquireLockError>>>,
-    > = HashMap::new();
-
     while let Some(command) = cmd_rx.recv().await {
         if let Err(e) = db.ping().await {
             tracing::warn!("WorkLockManager database connection closed, trying to re-acquire: {e}");
@@ -121,11 +112,7 @@ async fn run_loop(
             }
         };
         match command {
-            WorkLockManagerCommand::AcquireLock {
-                work_key,
-                reply_tx,
-                block_until_acquired,
-            } => {
+            WorkLockManagerCommand::AcquireLock { work_key, reply_tx } => {
                 if reply_tx.is_closed() {
                     tracing::info!("Skipping AcquireLock command: caller already timed out");
                     continue;
@@ -136,16 +123,9 @@ async fn run_loop(
                         tracing::debug!("Acquired work lock {work_key}");
                     }
                     Ok(None) => {
-                        if block_until_acquired {
-                            queues
-                                .entry(work_key.clone())
-                                .or_default()
-                                .push_back(reply_tx);
-                        } else {
-                            reply_tx
-                                .send(Err(AcquireLockError::WorkAlreadyLocked(work_key)))
-                                .ok();
-                        }
+                        reply_tx
+                            .send(Err(AcquireLockError::WorkAlreadyLocked(work_key)))
+                            .ok();
                     }
                     Err(e) => {
                         reply_tx.send(Err(e.into())).ok();
@@ -163,29 +143,6 @@ async fn run_loop(
                         tracing::error!(%work_key, "Could not release work lock: {e}");
                     })
                     .ok();
-
-                // If some other worker is waiting for the lock to become available, try to acquire
-                // it now.
-                if let Some(queue) = queues.get_mut(&work_key)
-                    && let Some(next) = queue.pop_front()
-                {
-                    tracing::debug!(%work_key, "Work lock released while another lock is waiting, trying to reacquire");
-                    match try_acquire_lock(&mut db, &work_key, keepalive_timeout).await {
-                        Ok(Some(worker_id)) => {
-                            next.send(Ok(worker_id)).ok();
-                        }
-                        Ok(None) => {
-                            tracing::warn!(
-                                "work lock still not acquired after it was just released, likely multiple carbide instances running"
-                            );
-                            // Put it back
-                            queue.push_front(next);
-                        }
-                        Err(e) => {
-                            next.send(Err(e.into())).ok();
-                        }
-                    }
-                }
                 tracing::debug!(%work_key, "Released work lock");
             }
 
@@ -398,37 +355,11 @@ impl WorkLockManagerHandle {
         self.cmd_tx
             .try_send(WorkLockManagerCommand::AcquireLock {
                 work_key: work_key.clone(),
-                block_until_acquired: false,
                 reply_tx,
             })
             .map_err(|e| AcquireLockError::WorkLockManagerSend(e.to_string()))?;
 
         let worker_id = reply_rx.await??;
-
-        Ok(WorkLock::new(
-            self.clone(),
-            work_key,
-            worker_id,
-            self.keepalive_interval,
-        ))
-    }
-
-    pub async fn acquire_lock_or_wait(
-        &self,
-        work_key: WorkKey,
-        timeout: Duration,
-    ) -> Result<WorkLock, AcquireLockError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.cmd_tx
-            .try_send(WorkLockManagerCommand::AcquireLock {
-                work_key: work_key.clone(),
-                block_until_acquired: true,
-                reply_tx,
-            })
-            .map_err(|e| AcquireLockError::WorkLockManagerSend(e.to_string()))?;
-
-        // 3 nested levels of Result: Timeout, Channel, then the Result itself sent over the channel
-        let worker_id = tokio::time::timeout(timeout, reply_rx).await???;
 
         Ok(WorkLock::new(
             self.clone(),
@@ -462,7 +393,6 @@ enum WorkLockManagerCommand {
     AcquireLock {
         work_key: WorkKey,
         reply_tx: oneshot::Sender<Result<WorkerId, AcquireLockError>>,
-        block_until_acquired: bool,
     },
     KeepLockAlive {
         work_key: WorkKey,
@@ -634,101 +564,5 @@ WHERE datname = $1 AND pid <> pg_backend_pid()"#,
             "Old lock should be dead, since the new lock has taken its place."
         );
         assert!(new_lock.is_alive(), "New lock should be alive still");
-    }
-
-    #[crate::sqlx_test]
-    async fn test_wait(pool: PgPool) {
-        let manager = start(pool.clone(), Default::default()).await.unwrap();
-        let join_handles_and_cancels = (0..100)
-            .map(|i| {
-                let (drop_tx, drop_rx) = oneshot::channel::<()>();
-                (
-                    tokio::spawn({
-                        let manager = manager.clone();
-                        async move {
-                            manager
-                                .acquire_lock_or_wait("work_key_1".into(), Duration::from_secs(10))
-                                .await
-                                .unwrap();
-                            drop_rx.await.unwrap();
-                            i
-                        }
-                    }),
-                    drop_tx,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let mut results = Vec::new();
-        for (join_handle, cancel) in join_handles_and_cancels {
-            cancel.send(()).ok();
-            results.push(join_handle.await.unwrap());
-        }
-
-        assert!(results.is_sorted());
-    }
-
-    #[crate::sqlx_test]
-    async fn test_multiple_managers_wait_timeout(pool: PgPool) {
-        // Ensure that if multiple managers are running (like if we do a rolling restart of carbide
-        // via a k8s deployment), that the second instance will time out acquiring locks if the
-        // first instance hasn't expired yet.
-
-        // Short interval to keep tests brief, and make the keep-alive longer than the timeout to
-        // simulate the first instance being forcefully shutdown.
-        let keepalive_config = KeepaliveConfig {
-            interval: Duration::from_millis(1000),
-            timeout: Duration::from_millis(100),
-        };
-
-        let manager_1 = start(pool.clone(), keepalive_config).await.unwrap();
-        let _lock_1 = manager_1.try_acquire_lock("work_key".into()).await.unwrap();
-
-        let manager_2 = start(pool.clone(), keepalive_config).await.unwrap();
-        let lock_2 = manager_2
-            .acquire_lock_or_wait("work_key".into(), Duration::from_millis(200))
-            .await;
-
-        assert!(
-            matches!(lock_2, Err(AcquireLockError::Timeout(_))),
-            "lock 2 should have timed out"
-        );
-
-        // But now that we've slept more than 100 ms, a second attempt should acquire just fine.
-        let lock_2 = manager_2
-            .acquire_lock_or_wait("work_key".into(), Duration::from_millis(200))
-            .await;
-
-        assert!(
-            lock_2.is_ok(),
-            "A second attempt should acquire the lock after the first timed out"
-        );
-    }
-
-    #[crate::sqlx_test]
-    async fn test_multiple_managers_wait_non_timeout(pool: PgPool) {
-        // Ensure that if multiple managers are running (like if we do a rolling restart of carbide
-        // via a k8s deployment), that the second instance will successfuly acquire the lock if the
-        // first instance has expired (ie. it was shut down forcefully)
-
-        // Short interval to keep tests brief, and make the keep-alive longer than the timeout to
-        // simulate the first instance being forcefully shutdown.
-        let keepalive_config = KeepaliveConfig {
-            interval: Duration::from_millis(1000),
-            timeout: Duration::from_millis(100),
-        };
-
-        let manager_1 = start(pool.clone(), keepalive_config).await.unwrap();
-        let _lock_1 = manager_1.try_acquire_lock("work_key".into()).await.unwrap();
-
-        // Wait longer than timeout, but shorter than the keep-alive interval
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        let manager_2 = start(pool.clone(), keepalive_config).await.unwrap();
-        let lock_2 = manager_2
-            .acquire_lock_or_wait("work_key".into(), Duration::from_millis(200))
-            .await;
-
-        assert!(lock_2.is_ok(), "lock 2 should have acquired successfully");
     }
 }
