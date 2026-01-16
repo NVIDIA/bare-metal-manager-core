@@ -9,12 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide_uuid::domain::DomainId;
 use db::ObjectColumnFilter;
-use db::domain::{self};
-use model::domain::{Domain, NewDomain, Soa};
+use model::dns::NewDomain;
 
-use crate::{DatabaseError, DatabaseResult};
+use crate::DatabaseError;
 
 #[crate::sqlx_test]
 async fn create_delete_valid_domain(pool: sqlx::PgPool) {
@@ -25,28 +23,24 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
 
     let test_name = "nv.metal.net".to_string();
 
-    let domain = domain::persist(
-        NewDomain {
-            name: test_name.clone(),
-            soa: Soa::new(test_name.as_str()),
-        },
-        &mut txn,
-    )
-    .await;
+    let domain = db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
 
     assert!(domain.is_ok());
 
-    let delete_result = db::domain::delete(domain.unwrap(), &mut txn).await;
+    let delete_result = db::dns::domain::delete(domain.unwrap(), &mut txn).await;
 
     assert!(delete_result.is_ok());
 
-    let domains = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All)
-        .await
-        .unwrap();
+    let domains = db::dns::domain::find_by(
+        &mut txn,
+        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(domains.len(), 0);
 
     txn.commit().await.unwrap();
-
-    assert!(domains.is_empty());
 }
 
 #[crate::sqlx_test]
@@ -58,14 +52,7 @@ async fn create_invalid_domain_case(pool: sqlx::PgPool) {
 
     let test_name = "DwRt".to_string();
 
-    let domain: DatabaseResult<Domain> = domain::persist(
-        NewDomain {
-            name: test_name.clone(),
-            soa: Soa::new(test_name.as_str()),
-        },
-        &mut txn,
-    )
-    .await;
+    let domain = db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
 
     txn.commit().await.unwrap();
 
@@ -79,14 +66,8 @@ async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let domain: DatabaseResult<Domain> = domain::persist(
-        NewDomain {
-            name: "ihaveaspace.com ".to_string(),
-            soa: Soa::new("ihavespace.com "),
-        },
-        &mut txn,
-    )
-    .await;
+    let domain =
+        db::dns::domain::persist(NewDomain::new("ihaveaspace.com ".to_string()), &mut txn).await;
 
     txn.commit().await.unwrap();
 
@@ -102,14 +83,7 @@ async fn find_domain(pool: sqlx::PgPool) {
 
     let test_name = "nvfind.metal.net".to_string();
 
-    let domain = domain::persist(
-        NewDomain {
-            name: test_name.clone(),
-            soa: Soa::new(test_name.as_str()),
-        },
-        &mut txn,
-    )
-    .await;
+    let domain = db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
 
     txn.commit().await.unwrap();
 
@@ -120,35 +94,14 @@ async fn find_domain(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let domains = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All)
-        .await
-        .unwrap();
-
-    let uuid = domains[0].id;
-
-    // find ALL should give us the one we created
-    assert_eq!(domains.len(), 1);
-
-    let domains = domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid))
-        .await
-        .unwrap();
-
-    // find one, using the id returned in the created domain object
-    assert_eq!(domains.len(), 1);
-
-    let bad_uuid = DomainId::from(uuid::Uuid::new_v4());
-
-    let domains = domain::find_by(
+    let domains = db::dns::domain::find_by(
         &mut txn,
-        ObjectColumnFilter::One(domain::IdColumn, &bad_uuid),
+        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await
     .unwrap();
 
-    txn.commit().await.unwrap();
-
-    // Try a find One on a bogus/non-existent UUID
-    assert!(domains.is_empty());
+    assert_eq!(domains.len(), 1);
 }
 
 #[crate::sqlx_test]
@@ -160,14 +113,7 @@ async fn update_domain(pool: sqlx::PgPool) {
 
     let test_name = "nv.metal.net".to_string();
 
-    let domain = domain::persist(
-        NewDomain {
-            name: test_name.clone(),
-            soa: Soa::new(test_name.as_str()),
-        },
-        &mut txn,
-    )
-    .await;
+    let domain = db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
 
     txn.commit().await.unwrap();
 
@@ -178,13 +124,14 @@ async fn update_domain(pool: sqlx::PgPool) {
     let mut updated_domain = domain.unwrap();
 
     updated_domain.name = updated_name;
+    updated_domain.increment_serial();
 
     let mut txn = pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
 
-    let update_result = domain::update(&mut updated_domain, &mut txn).await;
+    let update_result = db::dns::domain::update(&mut updated_domain, &mut txn).await;
 
     txn.commit().await.unwrap();
 

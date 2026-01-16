@@ -259,6 +259,11 @@ pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult
 
     let computed_pcr_hash = hasher.finalize();
 
+    // rust --check returns a error about deprecated usage of `as_slice`
+    // an older version of generic-array is used by sha2::digest
+    // but it does not show as_slice as deprecated - https://docs.rs/generic-array/0.14.7/generic_array/struct.GenericArray.html
+    // TODO - fix as_slice() usage
+    #[allow(deprecated)]
     if attest_digest.value() == computed_pcr_hash.as_slice() {
         Ok(true)
     } else {

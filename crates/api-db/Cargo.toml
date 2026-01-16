@@ -21,6 +21,7 @@ carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
+dns-record = { path = "../dns-record" }
 carbide-api-model = { path = "../api-model", default-features = false }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
@@ -60,8 +61,9 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tss-esapi = { optional = true, workspace = true }
-version-compare = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
+hickory-proto = { workspace = true }
+version-compare = { workspace = true }
 #these are alphabetized
 
 [features]

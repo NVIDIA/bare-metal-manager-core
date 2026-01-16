@@ -90,7 +90,7 @@ async fn show_machine_interfaces_information(
 fn convert_machines_to_nice_table(
     has_more: bool,
     machine_interfaces: forgerpc::InterfaceList,
-    domain_list: forgerpc::DomainList,
+    domain_list: ::rpc::protos::dns::DomainList,
 ) -> Box<Table> {
     let mut table = Table::new();
 
@@ -140,7 +140,7 @@ fn convert_machines_to_nice_table(
 #[doc = r"Function to print the machine interface in Table format"]
 fn convert_machine_to_nice_format(
     machine_interface: forgerpc::MachineInterface,
-    domain_list: forgerpc::DomainList,
+    domain_list: ::rpc::protos::dns::DomainList,
 ) -> CarbideCliResult<String> {
     let domainlist_map = domain_list
         .domains

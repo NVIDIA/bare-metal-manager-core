@@ -14,6 +14,9 @@
 pub mod common;
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
+pub mod dns;
+#[allow(non_snake_case, unknown_lints, clippy::all)]
+#[rustfmt::skip]
 pub mod forge;
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]

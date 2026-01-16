@@ -12,12 +12,12 @@
 
 use std::collections::HashMap;
 
-use db::domain::{self};
+use db::dns::domain;
 use db::vpc::{self};
 use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
 use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
-use model::domain::NewDomain;
+use model::dns::NewDomain;
 use model::firmware::AgentUpgradePolicyChoice;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::metadata::Metadata;
@@ -35,11 +35,10 @@ pub async fn create_initial_domain(
     domain_name: &str,
 ) -> Result<bool, CarbideError> {
     let mut txn = Transaction::begin(&db_pool).await?;
-    let domains =
-        db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+    let domains = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     if domains.is_empty() {
         let domain = NewDomain::new(domain_name);
-        db::domain::persist_first(&domain, &mut txn).await?;
+        db::dns::domain::persist_first(&domain, &mut txn).await?;
         txn.commit().await?;
         Ok(true)
     } else {
@@ -53,16 +52,17 @@ pub async fn create_initial_domain(
         Ok(false)
     }
 }
-
-// pub so we can test it from integration test
 pub async fn create_initial_networks(
     api: &Api,
     db_pool: &Pool<Postgres>,
     networks: &HashMap<String, NetworkDefinition>,
 ) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
-    let all_domains =
-        db::domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
+    let all_domains = db::dns::domain::find_by(
+        &mut txn,
+        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+    )
+    .await?;
     if all_domains.len() != 1 {
         // We only create initial networks if we only have a single domain - usually created
         // as initial_domain_name in config file.

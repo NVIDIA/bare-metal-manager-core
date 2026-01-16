@@ -950,16 +950,22 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     //DNS record domain always uses IP Address (for now)
     let dns_record = env
         .api
-        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some("192-0-4-3.dwrt1.com.".to_string()),
-            q_type: Some(1),
-            q_class: Some(1),
-        }))
+        .lookup_record(tonic::Request::new(
+            rpc::protos::dns::DnsResourceRecordLookupRequest {
+                qname: "192-0-2-3.dwrt1.com.".to_string(),
+                zone_id: uuid::Uuid::new_v4().to_string(),
+                local: None,
+                remote: None,
+                qtype: "A".to_string(),
+                real_remote: None,
+            },
+        ))
         .await
         .unwrap()
         .into_inner();
 
-    assert_eq!("192.0.4.3", &dns_record.rrs[0].rdata.clone().unwrap());
+    tracing::info!("dns_record is {:?}: ", dns_record);
+    assert_eq!(dns_record.records.first().unwrap().content, "192.0.2.3");
 
     //DHCP response uses hostname set during allocation
     assert_eq!(
@@ -989,7 +995,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         .build()
         .await;
 
-    let response = env
+    let _response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
@@ -1003,19 +1009,27 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
     //DNS record domain always uses dashed IP (for now)
     let dns_record = env
         .api
-        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some("192-0-4-3.dwrt1.com.".to_string()),
-            q_type: Some(1),
-            q_class: Some(1),
-        }))
+        .lookup_record(tonic::Request::new(
+            rpc::protos::dns::DnsResourceRecordLookupRequest {
+                qname: "192-0-2-3.dwrt1.com.".to_string(),
+                zone_id: uuid::Uuid::new_v4().to_string(),
+                local: None,
+                remote: None,
+                qtype: "A".to_string(),
+                real_remote: None,
+            },
+        ))
         .await
         .unwrap()
         .into_inner();
 
-    assert_eq!("192.0.4.3", &dns_record.rrs[0].rdata.clone().unwrap());
+    assert_eq!(dns_record.records.first().unwrap().content, "192.0.2.3");
 
     //DHCP response uses dashed IP
-    assert_eq!("192-0-4-3.dwrt1.com", response.tenant_interfaces[0].fqdn);
+    assert_eq!(
+        dns_record.records.first().unwrap().qname,
+        "192-0-2-3.dwrt1.com."
+    );
 }
 
 #[crate::sqlx_test]

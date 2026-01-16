@@ -52,34 +52,46 @@ async fn test_dns(pool: sqlx::PgPool) {
     let fqdn2 = interface2.fqdn;
     let ip2 = interface2.address;
 
+    tracing::info!("FQDN1: {}", fqdn1);
     let dns_record = api
-        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some(fqdn1 + "."),
-            q_type: Some(1),
-            q_class: Some(1),
-        }))
+        .lookup_record(tonic::Request::new(
+            rpc::protos::dns::DnsResourceRecordLookupRequest {
+                qname: fqdn1 + ".",
+                zone_id: uuid::Uuid::new_v4().to_string(),
+                local: None,
+                remote: None,
+                qtype: "A".to_string(),
+                real_remote: None,
+            },
+        ))
         .await
         .unwrap()
         .into_inner();
-
+    tracing::info!("DNS Record: {:?}", dns_record);
+    tracing::info!("IP: {}", ip1);
     assert_eq!(
         ip1.split('/').collect::<Vec<&str>>()[0],
-        &dns_record.rrs[0].rdata.clone().unwrap()
+        &*dns_record.records[0].content
     );
 
     let dns_record = api
-        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some(fqdn2 + "."),
-            q_type: Some(1),
-            q_class: Some(1),
-        }))
+        .lookup_record(tonic::Request::new(
+            rpc::protos::dns::DnsResourceRecordLookupRequest {
+                qtype: "A".to_string(),
+                zone_id: uuid::Uuid::new_v4().to_string(),
+                local: None,
+                remote: None,
+                qname: fqdn2 + ".",
+                real_remote: None,
+            },
+        ))
         .await
         .unwrap()
         .into_inner();
 
     assert_eq!(
         ip2.split('/').collect::<Vec<&str>>()[0],
-        &dns_record.rrs[0].rdata.clone().unwrap()
+        &*dns_record.records[0].content,
     );
 
     // Create a managed host to make sure that the MachineId DNS
@@ -102,17 +114,22 @@ async fn test_dns(pool: sqlx::PgPool) {
             .unwrap();
         let topology = &topologies.get(machine_id).unwrap()[0];
         let bmc_record = api
-            .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-                q_name: Some(format!("{machine_id}.{DNS_BMC_SUBDOMAIN}.")),
-                q_type: Some(1),
-                q_class: Some(1),
-            }))
+            .lookup_record(tonic::Request::new(
+                rpc::protos::dns::DnsResourceRecordLookupRequest {
+                    qname: format!("{}.{}.", machine_id, DNS_BMC_SUBDOMAIN),
+                    zone_id: uuid::Uuid::new_v4().to_string(),
+                    local: None,
+                    remote: None,
+                    qtype: "A".to_string(),
+                    real_remote: None,
+                },
+            ))
             .await
             .unwrap()
             .into_inner();
         assert_eq!(
             topology.topology().bmc_info.ip.as_ref().unwrap().as_str(),
-            &bmc_record.rrs[0].rdata.clone().unwrap()
+            &*bmc_record.records[0].content
         );
 
         // And now check the ADM (Admin IP) record by querying the
@@ -123,17 +140,22 @@ async fn test_dns(pool: sqlx::PgPool) {
                 .await
                 .unwrap();
         let adm_record = api
-            .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-                q_name: Some(format!("{machine_id}.{DNS_ADM_SUBDOMAIN}.")),
-                q_type: Some(1),
-                q_class: Some(1),
-            }))
+            .lookup_record(tonic::Request::new(
+                rpc::protos::dns::DnsResourceRecordLookupRequest {
+                    qname: format!("{}.{}.", machine_id, DNS_ADM_SUBDOMAIN),
+                    zone_id: uuid::Uuid::new_v4().to_string(),
+                    local: None,
+                    remote: None,
+                    qtype: "A".to_string(),
+                    real_remote: None,
+                },
+            ))
             .await
             .unwrap()
             .into_inner();
         assert_eq!(
             format!("{}", interface.addresses[0]).as_str(),
-            &adm_record.rrs[0].rdata.clone().unwrap()
+            &*adm_record.records[0].content
         );
         txn.rollback().await.unwrap();
     }
@@ -147,53 +169,43 @@ async fn test_dns(pool: sqlx::PgPool) {
     assert_eq!(10, get_dns_record_count(&env.pool).await);
 
     let status = api
-        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: None,
-            q_type: Some(1),
-            q_class: Some(1),
-        }))
+        .lookup_record(tonic::Request::new(
+            rpc::protos::dns::DnsResourceRecordLookupRequest {
+                qname: "".to_string(),
+                zone_id: uuid::Uuid::new_v4().to_string(),
+                local: None,
+                remote: None,
+                qtype: "A".to_string(),
+                real_remote: None,
+            },
+        ))
         .await
         .expect_err("Query should return an error");
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
-    assert_eq!(status.message(), "q_name");
+    assert_eq!(status.message(), "qname cannot be empty");
 
-    let status = api
-        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some("".to_string()),
-            q_type: Some(1),
-            q_class: Some(1),
-        }))
-        .await
-        .expect_err("Query should return an error");
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-    assert_eq!(status.message(), "q_name is empty");
-
-    let status = api
-        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some("unknown".to_string()),
-            q_type: Some(2),
-            q_class: Some(1),
-        }))
-        .await
-        .expect_err("Query should return an error");
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-    assert_eq!(status.message(), "q_type must be 1");
-
-    // Querying for something unknown should return a NotFound status code
+    // Querying for something unknown should return an empty records Vec
     for name in [
         "unknown".to_string(),
         format!("unknown.{DNS_BMC_SUBDOMAIN}."),
     ] {
         let status = api
-            .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-                q_name: Some(name.clone()),
-                q_type: Some(1),
-                q_class: Some(1),
-            }))
+            .lookup_record(tonic::Request::new(
+                rpc::protos::dns::DnsResourceRecordLookupRequest {
+                    qname: name.clone(),
+                    zone_id: uuid::Uuid::new_v4().to_string(),
+                    local: None,
+                    remote: None,
+                    qtype: "A".to_string(),
+                    real_remote: None,
+                },
+            ))
             .await
-            .expect_err("Query should return an error");
-        assert_eq!(status.code(), tonic::Code::NotFound);
-        assert_eq!(status.message(), format!("dns_record not found: {name}"));
+            .unwrap()
+            .into_inner();
+
+        tracing::info!("Status: {:?}", status);
+        assert_eq!(status.records.len(), 0);
     }
 }
 

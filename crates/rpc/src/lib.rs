@@ -24,13 +24,16 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+use dns_record::DnsResourceRecordReply;
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
 use prost::{Message, UnknownEnumValue};
 use serde::ser::Error;
+use serde_json::{Value, json};
 use tokio_stream::Stream;
 
 pub use crate::protos::common::{self, Uuid};
+pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
 pub use crate::protos::forge::machine_discovery_info::DiscoveryData;
 pub use crate::protos::forge::{
@@ -500,6 +503,37 @@ impl From<forge::OverrideMode> for health_report::OverrideMode {
     }
 }
 
+impl From<DnsResourceRecordReply> for crate::protos::dns::DnsResourceRecord {
+    fn from(value: DnsResourceRecordReply) -> Self {
+        Self {
+            qtype: value.qtype,
+            qname: value.qname,
+            ttl: value.ttl,
+            content: value.content,
+            auth: value.auth,
+            domain_id: value.domain_id,
+            scope_mask: value.scope_mask,
+        }
+    }
+}
+
+pub struct JsonDnsResourceRecord(pub crate::protos::dns::DnsResourceRecord);
+
+impl From<JsonDnsResourceRecord> for Value {
+    fn from(wrapper: JsonDnsResourceRecord) -> Self {
+        let json_value = json!({
+            "qtype": wrapper.0.qtype,
+            "qname": wrapper.0.qname,
+            "ttl": wrapper.0.ttl,
+            "content": wrapper.0.content,
+            "domain_id": wrapper.0.domain_id,
+            "scope_mask": wrapper.0.scope_mask,
+            "auth": wrapper.0.auth,
+        });
+        json_value
+    }
+}
+
 impl FromStr for forge::OperatingSystem {
     type Err = RpcDataConversionError;
 
@@ -779,6 +813,7 @@ mod tests {
     use self::forge::operating_system::Variant;
     use self::forge::{IpxeOperatingSystem, OperatingSystem};
     use super::*;
+    use crate::protos::dns::{Domain, Metadata};
 
     #[test]
     fn test_serialize_timestamp() {
@@ -833,22 +868,28 @@ mod tests {
     /// Test to check that serializing a type with a custom Timestamp implementation works
     #[test]
     fn test_serialize_domain() {
-        let uuid = ::uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000");
+        let uuid =
+            carbide_uuid::domain::DomainId(::uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000"));
         let ts = std::time::SystemTime::now();
         let ts2 = ts.checked_add(Duration::from_millis(1500)).unwrap();
 
+        let domain_metadata = Metadata {
+            allow_axfr_from: vec![],
+        };
         let domain = Domain {
-            id: Some(uuid.into()),
+            id: Some(uuid),
             name: "MyDomain".to_string(),
             created: Some(ts.into()),
             updated: Some(ts2.into()),
             deleted: None,
+            soa: None,
+            metadata: Some(domain_metadata),
         };
 
         let encoded = domain.encode_to_vec();
         let decoded = Domain::decode(&encoded[..]).unwrap();
 
-        let deserialized_uuid: ::uuid::Uuid = decoded.id.unwrap().into();
+        let deserialized_uuid: carbide_uuid::domain::DomainId = decoded.id.unwrap();
         let created_system_time: std::time::SystemTime =
             decoded.created.unwrap().try_into().unwrap();
         let updated_system_time: std::time::SystemTime =
