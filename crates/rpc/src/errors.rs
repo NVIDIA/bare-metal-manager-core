@@ -81,6 +81,10 @@ pub enum RpcDataConversionError {
     InvalidCidr(String),
     #[error("Label is not valid: {0}")]
     InvalidLabel(String),
+    #[error("Invalid DnsResourceRecordType: {0}")]
+    InvalidDnsResourceRecordType(String),
+    #[error("Invalid Soa Record: {0}")]
+    InvalidSoaRecord(String),
     #[error("Could not obtain object from json: {0}")]
     JsonConversionFailure(String),
     #[error("JSON Parse failure - {0}")]

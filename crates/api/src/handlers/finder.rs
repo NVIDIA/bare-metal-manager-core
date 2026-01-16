@@ -21,9 +21,7 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
-use db::{
-    DatabaseError, ObjectColumnFilter, WithTransaction, domain, instance, network_segment, vpc,
-};
+use db::{DatabaseError, ObjectColumnFilter, WithTransaction, instance, network_segment, vpc};
 use futures_util::FutureExt;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
@@ -439,9 +437,9 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     }
 
     if let Ok(domain_id) = DomainId::from_str(&u.value) {
-        let domains = domain::find_by(
+        let domains = db::dns::domain::find_by(
             &mut txn,
-            ObjectColumnFilter::One(domain::IdColumn, &domain_id),
+            ObjectColumnFilter::One(db::dns::domain::IdColumn, &domain_id),
         )
         .await?;
         if domains.len() == 1 {

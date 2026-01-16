@@ -98,7 +98,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .config
             .as_ref()
             .and_then(|config| config.tenant.as_ref())
-            .map(|tenant: &rpc::TenantConfig| tenant.tenant_keyset_ids.len())
+            .map(|tenant: &rpc::forge::TenantConfig| tenant.tenant_keyset_ids.len())
             .unwrap_or_default();
         let num_nvlink_gpus = instance
             .config

@@ -18,7 +18,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_uuid::machine::MachineId;
 use db::{
-    ObjectColumnFilter, WithTransaction, domain, dpu_agent_upgrade_policy, network_security_group,
+    ObjectColumnFilter, WithTransaction, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
 use forge_network::virtualization::VpcVirtualizationType;
@@ -352,8 +352,9 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let domain = match segment.subdomain_id {
                 Some(domain_id) => {
-                    domain::find_by_uuid(&mut txn, domain_id)
-                        .await?
+                    db::dns::domain::find_by_uuid(&mut txn, domain_id)
+                        .await
+                        .map_err(CarbideError::from)?
                         .ok_or_else(|| CarbideError::NotFoundError {
                             kind: "domain",
                             id: domain_id.to_string(),

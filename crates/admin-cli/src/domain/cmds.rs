@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,8 +12,8 @@
 
 use std::fmt::Write;
 
+use ::rpc::Timestamp;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::{Timestamp, forge as forgerpc};
 use carbide_uuid::domain::DomainId;
 use prettytable::{Table, row};
 use tracing::warn;
@@ -36,7 +36,7 @@ fn timestamp_or_default(ts: &Option<Timestamp>, default: &Timestamp) -> String {
     ts.as_ref().unwrap_or(default).to_string()
 }
 
-fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<String> {
+fn convert_domain_to_nice_format(domain: &::rpc::protos::dns::Domain) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
 
@@ -61,7 +61,7 @@ fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<
     Ok(lines)
 }
 
-fn convert_domain_to_nice_table(domains: forgerpc::DomainList) -> Box<Table> {
+fn convert_domain_to_nice_table(domains: ::rpc::protos::dns::DomainList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "Name", "Created",]);

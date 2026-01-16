@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -145,7 +145,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: InstanceConfig) -> Result<rpc::InstanceConfig, Self::Error> {
-        let mut tenant = rpc::TenantConfig::try_from(config.tenant)?;
+        let mut tenant = rpc::forge::TenantConfig::try_from(config.tenant)?;
         // Retrofit the OS details that are now stored in `os`
         // TODO: Deprecated this once nobody excepts OS details in TenantConfig anymore
         match &config.os.variant {

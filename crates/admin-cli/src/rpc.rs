@@ -311,8 +311,8 @@ impl ApiClient {
     pub async fn get_domains(
         &self,
         id: Option<::carbide_uuid::domain::DomainId>,
-    ) -> CarbideCliResult<rpc::DomainList> {
-        let request = rpc::DomainSearchQuery { id, name: None };
+    ) -> CarbideCliResult<::rpc::protos::dns::DomainList> {
+        let request = ::rpc::protos::dns::DomainSearchQuery { id, name: None };
         Ok(self.0.find_domain(request).await?)
     }
 

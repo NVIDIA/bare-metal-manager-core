@@ -10,26 +10,59 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
+
 use carbide_uuid::domain::DomainId;
-use model::domain::{Domain, NewDomain};
-use sqlx::PgConnection;
+use chrono::{DateTime, Utc};
+use hickory_proto::rr::Name;
+use model::dns::{Domain, NewDomain, SoaSnapshot};
+use sqlx::{FromRow, PgConnection};
 
-use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+use super::super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::{DatabaseError, DatabaseResult};
-const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
-const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 
-#[test]
-fn test_domain_metadata() {
-    use model::domain::DomainMetadata;
-    let mut domain_metadata = DomainMetadata::default();
-    domain_metadata
-        .update_allow_axfr_from(vec!["192.168.1.1".to_string(), "10.0.0.0/24".to_string()]);
+/// Validates a domain name according to DNS standards
+fn validate_domain_name(name: &str) -> Result<(), DatabaseError> {
+    if name != name.to_lowercase() {
+        return Err(DatabaseError::InvalidArgument(
+            "domain name must be lowercase".to_string(),
+        ));
+    }
+
+    Name::from_str(name)
+        .map_err(|_| DatabaseError::InvalidArgument(format!("invalid domain name: {}", name)))?;
+
+    Ok(())
+}
+
+#[derive(Clone, Debug, FromRow)]
+pub struct DbDomain {
+    pub id: DomainId,
+    pub name: String,
+    pub created: DateTime<Utc>,
+    pub updated: DateTime<Utc>,
+    pub deleted: Option<DateTime<Utc>>,
+    pub soa: sqlx::types::Json<Option<dns_record::SoaRecord>>,
+    pub domain_metadata_id: Option<i32>,
+}
+
+impl From<DbDomain> for Domain {
+    fn from(db: DbDomain) -> Self {
+        Domain {
+            id: db.id,
+            name: db.name,
+            created: db.created,
+            updated: db.updated,
+            deleted: db.deleted,
+            soa: db.soa.0.map(SoaSnapshot),
+            metadata: None,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
-impl ColumnInfo<'_> for crate::domain::IdColumn {
+impl ColumnInfo<'_> for crate::dns::domain::IdColumn {
     type TableType = Domain;
     type ColumnType = DomainId;
 
@@ -50,16 +83,19 @@ impl<'a> ColumnInfo<'a> for NameColumn {
 }
 
 pub async fn persist(value: NewDomain, txn: &mut PgConnection) -> DatabaseResult<Domain> {
-    let query = "INSERT INTO domains (name, soa) VALUES ($1, $2) returning *";
-    match persist_inner(&value, txn, query).await {
+    validate_domain_name(&value.name)?;
+
+    // Create default metadata entry
+    let metadata_id = super::domain_metadata::DbMetadata::create_default(txn).await?;
+
+    let query =
+        "INSERT INTO domains (name, soa, domain_metadata_id) VALUES ($1, $2, $3) returning *";
+    match persist_inner_with_metadata(&value, metadata_id, txn, query).await {
         Ok(Some(domain)) => Ok(domain),
-        Ok(None) => {
-            // likely unreachable - needed because persist_inner uses fetch_optional
-            Err(DatabaseError::NotFoundError {
-                kind: "domain",
-                id: value.name,
-            })
-        }
+        Ok(None) => Err(DatabaseError::NotFoundError {
+            kind: "domain",
+            id: value.name,
+        }),
         Err(err) => Err(err),
     }
 }
@@ -69,36 +105,31 @@ pub async fn persist_first(
     value: &NewDomain,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Option<Domain>> {
+    validate_domain_name(&value.name)?;
+
+    let metadata_id = super::domain_metadata::DbMetadata::create_default(txn).await?;
+
     let query = "
-            INSERT INTO domains (name) SELECT $1
+            INSERT INTO domains (name, soa, domain_metadata_id) SELECT $1, $2, $3
             WHERE NOT EXISTS (SELECT name FROM domains)
             RETURNING *";
-    persist_inner(value, txn, query).await
+    persist_inner_with_metadata(value, metadata_id, txn, query).await
 }
 
-async fn persist_inner(
+async fn persist_inner_with_metadata(
     value: &NewDomain,
+    metadata_id: i32,
     txn: &mut PgConnection,
     query: &'static str,
 ) -> DatabaseResult<Option<Domain>> {
-    sqlx::query_as(query)
+    sqlx::query_as::<_, DbDomain>(query)
         .bind(&value.name)
         .bind(sqlx::types::Json(&value.soa))
+        .bind(metadata_id)
         .fetch_optional(txn)
         .await
-        .map_err(|err| match err {
-            sqlx::Error::Database(e)
-                if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
-            {
-                DatabaseError::InvalidArgument("name".to_string())
-            }
-            sqlx::Error::Database(e)
-                if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
-            {
-                DatabaseError::InvalidArgument("name".to_string())
-            }
-            e => DatabaseError::query(query, e),
-        })
+        .map(|opt| opt.map(Domain::from))
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// Finds `domains` based on specified criteria, excluding deleted entries.
@@ -130,9 +161,10 @@ pub async fn find_all_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
         query.push(" AND deleted IS NULL");
     }
     query
-        .build_query_as()
+        .build_query_as::<DbDomain>()
         .fetch_all(txn)
         .await
+        .map(|domains| domains.into_iter().map(Domain::from).collect())
         .map_err(|e| DatabaseError::query(query.sql(), e))
 }
 
@@ -155,28 +187,26 @@ pub async fn find_by_uuid(
 
 pub async fn delete(value: Domain, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
     let query = "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
-    sqlx::query_as(query)
+    sqlx::query_as::<_, DbDomain>(query)
         .bind(value.id)
         .fetch_one(txn)
         .await
+        .map(Domain::from)
         .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn update(value: &mut Domain, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
-    let query =
-        "UPDATE domains SET name=$1, updated=NOW(), soa=$2, metadata=$3 WHERE id=$4 RETURNING *";
+    validate_domain_name(&value.name)?;
 
-    if let Some(ref mut record) = value.soa {
-        record.increment_serial();
-    }
+    let query = "UPDATE domains SET name=$1, updated=NOW(), soa=$2 WHERE id=$3 RETURNING *";
 
-    sqlx::query_as(query)
+    sqlx::query_as::<_, DbDomain>(query)
         .bind(&value.name)
         .bind(sqlx::types::Json(&value.soa))
-        .bind(sqlx::types::Json(&value.metadata))
         .bind(value.id)
         .fetch_one(txn)
         .await
+        .map(Domain::from)
         .map_err(|e| DatabaseError::query(query, e))
 }
 
@@ -184,12 +214,10 @@ pub async fn update(value: &mut Domain, txn: &mut PgConnection) -> Result<Domain
 #[test]
 fn test_generate_domain_serial_format() {
     use chrono::Utc;
-    // Expected serial format
     let now = Utc::now();
     let expected_serial = now.format("%Y%m%d01").to_string().parse::<u32>().unwrap();
 
-    // Call the function that generates the serial
-    let serial = model::domain::Soa::generate_new_serial();
+    let serial = dns_record::SoaRecord::generate_new_serial();
 
     assert_eq!(serial, expected_serial);
 }

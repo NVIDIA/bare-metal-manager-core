@@ -22,9 +22,9 @@ use base64::Engine as _;
 use carbide_host_support::agent_config;
 use carbide_uuid::machine::MachineInterfaceId;
 use rpc::forge;
+use rpc::forge::PxeDomain;
 
 use crate::common::{AppState, Machine};
-
 /// Generates the content of the /etc/forge/config.toml file
 //
 // TODO(chet): This should take a MachineInterfaceId, but I think by doing that,
@@ -54,7 +54,7 @@ fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, S
 fn user_data_handler(
     machine_interface_id: MachineInterfaceId,
     machine_interface: forge::MachineInterface,
-    domain: forge::Domain,
+    domain: PxeDomain,
     hbn_reps: Option<String>,
     hbn_sfs: Option<String>,
     vf_intercept_bridge_name: Option<String>,
@@ -70,10 +70,16 @@ fn user_data_handler(
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine_interface.mac_address);
 
-    context.insert(
-        "hostname".to_string(),
-        format!("{}.{}", machine_interface.hostname, domain.name),
-    );
+    if let Some(domain_oneof) = domain.domain {
+        match domain_oneof {
+            forge::pxe_domain::Domain::LegacyDomain(domain) => {
+                context.insert("hostname".to_string(), domain.name);
+            }
+            forge::pxe_domain::Domain::NewDomain(domain) => {
+                context.insert("hostname".to_string(), domain.name);
+            }
+        }
+    }
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
     context.insert("api_url".to_string(), config.client_facing_api_url);
     context.insert("pxe_url".to_string(), config.pxe_url);

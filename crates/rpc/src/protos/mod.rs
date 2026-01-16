@@ -38,7 +38,11 @@ pub mod mlx_device;
 #[rustfmt::skip]
 pub mod site_explorer;
 
-#[allow(clippy::all)]
+#[allow(non_snake_case, unknown_lints, clippy::all)]
+#[rustfmt::skip]
+pub mod dns;
+
+#[allow(clippy::all, deprecated)]
 #[rustfmt::skip]
 pub mod forge_api_client;
 

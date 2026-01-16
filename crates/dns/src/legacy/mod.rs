@@ -9,16 +9,24 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+//! Legacy DNS Server Implementation
+//!
+//! This module provides the original carbide-dns implementation that listens
+//! directly on a DNS port (53 or custom) and handles DNS queries using trust-dns-server.
+//! This is maintained for backward compatibility during migration to the PowerDNS backend.
+
 use std::iter;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
 use eyre::Report;
-use forge_tls::client_config::ClientCert;
+use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
+use rpc::protos::forge;
 use tokio::net::{TcpListener, UdpSocket};
+use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 use trust_dns_resolver::proto::op::{Header, ResponseCode};
 use trust_dns_resolver::proto::rr::{DNSClass, Name, RData};
@@ -28,16 +36,15 @@ use trust_dns_server::proto::rr::Record;
 use trust_dns_server::proto::rr::RecordType::A;
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 
-use crate::cfg;
+use crate::config::Config;
 
-#[derive(Debug, Default)]
-pub struct DnsServer {
-    url: String,
-    forge_client_config: ForgeClientConfig,
+#[derive(Debug)]
+pub struct LegacyDnsServer {
+    forge_client: Arc<Mutex<ForgeClientT>>,
 }
 
 #[async_trait::async_trait]
-impl RequestHandler for DnsServer {
+impl RequestHandler for LegacyDnsServer {
     async fn handle_request<R: ResponseHandler>(
         &self,
         request: &Request,
@@ -49,23 +56,10 @@ impl RequestHandler for DnsServer {
 
         let message = MessageResponseBuilder::from_message_request(request);
 
-        let api_config = ApiConfig::new(&self.url, &self.forge_client_config);
-
-        let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
-            .await
-            .unwrap_or_else(|err| {
-                panic!(
-                    "Unable to connect to carbide-api at: {}, error was: {}",
-                    &self.url, err
-                )
-            });
-
         match request.query().query_type() {
             A => {
-                // TODO After examining what is included as part of request_info.query(), class and type are already
-                // included.  We can simplify DnsQuestion to one field "query" which we can deconstruct on the receiving
-                // side.
-                let carbide_dns_request = tonic::Request::new(rpc::dns_message::DnsQuestion {
+                // Build the legacy DnsQuestion request
+                let carbide_dns_request = tonic::Request::new(forge::dns_message::DnsQuestion {
                     q_name: Some(request_info.query.name().to_string()),
                     q_class: Some(1),
                     q_type: Some(1),
@@ -74,7 +68,9 @@ impl RequestHandler for DnsServer {
                 info!("Sending {} to api server", request_info.query.original());
 
                 let record: Option<Record> =
-                    match DnsServer::retrieve_record(client, carbide_dns_request).await {
+                    match Self::retrieve_record(self.forge_client.clone(), carbide_dns_request)
+                        .await
+                    {
                         Ok(value) => {
                             response_header.set_response_code(ResponseCode::NoError);
                             let a_record = Record::new()
@@ -125,19 +121,18 @@ impl RequestHandler for DnsServer {
     }
 }
 
-impl DnsServer {
-    pub fn new(url: &str, forge_client_config: ForgeClientConfig) -> Self {
-        Self {
-            url: url.into(),
-            forge_client_config,
-        }
+impl LegacyDnsServer {
+    pub fn new(forge_client: Arc<Mutex<ForgeClientT>>) -> Self {
+        Self { forge_client }
     }
 
-    pub async fn retrieve_record(
-        mut client: ForgeClientT,
-        request: tonic::Request<rpc::dns_message::DnsQuestion>,
+    async fn retrieve_record(
+        forge_client: Arc<Mutex<ForgeClientT>>,
+        request: tonic::Request<forge::dns_message::DnsQuestion>,
     ) -> Result<Ipv4Addr, tonic::Status> {
-        let response = client.lookup_record(request).await?.into_inner();
+        let mut client = forge_client.lock().await;
+        #[allow(deprecated)]
+        let response = client.lookup_record_legacy(request).await?.into_inner();
 
         info!("Received response from API server");
 
@@ -145,52 +140,55 @@ impl DnsServer {
             .rrs
             .first()
             .ok_or_else(|| tonic::Status::internal("Resource Record list is empty".to_string()))?;
-        let ip = Ipv4Addr::from_str(record.rdata()).map_err(|_e| {
-            tonic::Status::internal(format!(
-                "Can not parse record data \"{}\" as IP",
-                record.rdata()
-            ))
-        })?;
+        let ip =
+            Ipv4Addr::from_str(record.rdata.as_ref().unwrap_or(&String::new())).map_err(|_e| {
+                tonic::Status::internal(format!(
+                    "Can not parse record data \"{}\" as IP",
+                    record.rdata.as_ref().unwrap_or(&String::new())
+                ))
+            })?;
 
         Ok(ip)
     }
 
-    pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {
-        let carbide_url = daemon_config.carbide_url.clone();
-        let forge_client_config = ForgeClientConfig::new(
-            daemon_config.forge_root_ca_path.clone(),
-            Some(ClientCert {
-                cert_path: daemon_config.server_identity_cert_path.clone(),
-                key_path: daemon_config.server_identity_key_path.clone(),
-            }),
+    pub async fn run(config: Config, listen: std::net::SocketAddr) -> Result<(), Report> {
+        info!(
+            "Starting legacy DNS server mode on {} (this mode is deprecated)",
+            listen
         );
 
-        let api = DnsServer::new(&carbide_url, forge_client_config);
+        let forge_client_config = config.forge_client_config();
+        let api_uri = config.carbide_uri.to_string();
+        let api_config = ApiConfig::new(api_uri.as_str(), &forge_client_config);
 
-        info!("Connecting to carbide-api at {:?}", &carbide_url);
+        info!("Connecting to carbide-api at {}", api_uri);
+
+        let client = Arc::new(Mutex::new(ForgeTlsClient::retry_build(&api_config).await?));
+
+        let api = LegacyDnsServer::new(client);
 
         let mut server = ServerFuture::new(api);
 
-        let udp_socket = UdpSocket::bind(&daemon_config.listen).await?;
+        let udp_socket = UdpSocket::bind(&listen).await?;
         server.register_socket(udp_socket);
 
-        let tcp_socket = TcpListener::bind(&daemon_config.listen).await?;
+        let tcp_socket = TcpListener::bind(&listen).await?;
         server.register_listener(tcp_socket, Duration::new(5, 0));
 
         info!(
-            "Started DNS server on {:?} version {}",
-            &daemon_config.listen,
+            "Started legacy DNS server on {} version {}",
+            listen,
             carbide_version::version!()
         );
 
         match server.block_until_done().await {
             Ok(()) => {
-                info!("Carbide-dns is stopping");
+                info!("Carbide-dns legacy server is stopping");
             }
             Err(e) => {
-                let error_msg = format!("Carbide-dns has encountered and error: {e}");
+                let error_msg = format!("Carbide-dns has encountered an error: {e}");
                 error!("{}", error_msg);
-                panic!("{}", error_msg);
+                return Err(eyre::eyre!("{}", error_msg));
             }
         }
         Ok(())

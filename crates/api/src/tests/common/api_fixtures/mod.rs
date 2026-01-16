@@ -1497,13 +1497,9 @@ pub async fn create_test_env_with_overrides(
     txn.commit().await.unwrap();
 
     // Create domain
-    let domain: uuid::Uuid = api
-        .create_domain(Request::new(rpc::forge::Domain {
-            id: None,
+    let domain: carbide_uuid::domain::DomainId = api
+        .create_domain(Request::new(rpc::protos::dns::CreateDomainRequest {
             name: "dwrt1.com".to_string(),
-            created: None,
-            updated: None,
-            deleted: None,
         }))
         .await
         .unwrap()
@@ -1511,8 +1507,7 @@ pub async fn create_test_env_with_overrides(
         .id
         .map(::carbide_uuid::domain::DomainId::try_from)
         .unwrap()
-        .unwrap()
-        .into();
+        .unwrap();
 
     let (admin_segment, underlay_segment) = if overrides.create_network_segments.unwrap_or(true) {
         // Create admin network
@@ -1556,7 +1551,7 @@ pub async fn create_test_env_with_overrides(
         endpoint_explorer: fake_endpoint_explorer,
         admin_segment,
         underlay_segment,
-        domain,
+        domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
         test_credential_provider: credential_provider.clone(),
     }
