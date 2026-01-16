@@ -28,6 +28,7 @@ use crate::logging::sqlx_query_tracing;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics};
+use crate::state_controller::state_change_emitter::{StateChangeEmitter, StateChangeEvent};
 use crate::state_controller::state_handler::{
     FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerContextObjects,
     StateHandlerError, StateHandlerOutcome,
@@ -112,6 +113,8 @@ pub struct StateController<IO: StateControllerIO> {
     metric_holder: Arc<MetricHolder<IO>>,
     stop_receiver: oneshot::Receiver<()>,
     iteration_config: IterationConfig,
+    /// Emitter for broadcasting state change events to registered hooks.
+    state_change_emitter: Arc<StateChangeEmitter<IO::ObjectId, IO::ControllerState>>,
 }
 
 pub struct SingleIterationResult {
@@ -401,6 +404,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             let concurrency_limiter = concurrency_limiter.clone();
             let max_object_handling_time = self.iteration_config.max_object_handling_time;
             let metrics_emitter = self.metric_holder.emitter.clone();
+            let state_change_emitter = self.state_change_emitter.clone();
 
             let _abort_handle = task_set
                 .build_task()
@@ -534,6 +538,15 @@ impl<IO: StateControllerIO> StateController<IO> {
                         })
                         .await;
                         metrics.common.handler_latency = start.elapsed();
+                        // Emit the state changed event to registered hooks
+                        if let Some(next_state) = &metrics.common.next_state {
+                            state_change_emitter.emit(StateChangeEvent {
+                                object_id: &object_id,
+                                previous_state: metrics.common.initial_state.as_ref(),
+                                new_state: next_state,
+                                timestamp: chrono::Utc::now(),
+                            });
+                        }
 
                         // Emit the object handling metrics for this state handler invocation
                         if let Some(emitter) = metrics_emitter {

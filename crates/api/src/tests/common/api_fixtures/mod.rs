@@ -1072,6 +1072,7 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             nras_config: Some(nras::Config::default()),
         },
+        dsx_exchange_event_bus: None,
     }
 }
 

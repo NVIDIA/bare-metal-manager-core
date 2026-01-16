@@ -20,6 +20,7 @@ use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{StateController, StateControllerHandle};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::MetricHolder;
+use crate::state_controller::state_change_emitter::StateChangeEmitter;
 use crate::state_controller::state_handler::{
     NoopStateHandler, StateHandler, StateHandlerContextObjects,
 };
@@ -59,6 +60,7 @@ pub struct Builder<IO: StateControllerIO> {
             >,
     >,
     services: Option<Arc<<IO::ContextObjects as StateHandlerContextObjects>::Services>>,
+    state_change_emitter: Arc<StateChangeEmitter<IO::ObjectId, IO::ControllerState>>,
 }
 
 impl<IO: StateControllerIO> Default for Builder<IO> {
@@ -78,6 +80,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
             meter: None,
             object_type_for_metrics: None,
             services: None,
+            state_change_emitter: Arc::new(StateChangeEmitter::default()),
         }
     }
 }
@@ -155,6 +158,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             io: self.io.unwrap_or_default(),
             state_handler: self.state_handler.clone(),
             metric_holder,
+            state_change_emitter: self.state_change_emitter,
         };
 
         Ok(BuildOrSpawn {
@@ -216,6 +220,15 @@ impl<IO: StateControllerIO> Builder<IO> {
         >,
     ) -> Self {
         self.state_handler = handler;
+        self
+    }
+
+    /// Sets the state change emitter for broadcasting state transitions to hooks
+    pub fn state_change_emitter(
+        mut self,
+        emitter: StateChangeEmitter<IO::ObjectId, IO::ControllerState>,
+    ) -> Self {
+        self.state_change_emitter = Arc::new(emitter);
         self
     }
 }

@@ -306,6 +306,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dpa_config: Option<DpaConfig>,
 
+    /// DSX Exchange Event Bus configuration for publishing state change events via MQTT.
+    #[serde(default)]
+    pub dsx_exchange_event_bus: Option<DsxExchangeEventBusConfig>,
+
     /// FNN depends on various route-targets that
     /// are DC-specific.  This value is used to
     /// build those targets for import and,
@@ -573,6 +577,30 @@ impl CarbideConfig {
 
     pub fn get_hb_interval(&self) -> Option<Duration> {
         self.dpa_config.as_ref().map(|conf| conf.hb_interval)
+    }
+
+    /// Returns true if the DSX Exchange Event Bus is enabled.
+    pub fn is_dsx_exchange_event_bus_enabled(&self) -> bool {
+        self.dsx_exchange_event_bus
+            .as_ref()
+            .map(|conf| conf.enabled)
+            .unwrap_or(false)
+    }
+
+    /// Returns the DSX Exchange Event Bus MQTT broker endpoint if enabled.
+    pub fn dsx_exchange_event_bus_mqtt_endpoint(&self) -> Option<&str> {
+        self.dsx_exchange_event_bus
+            .as_ref()
+            .filter(|conf| conf.enabled)
+            .map(|conf| conf.mqtt_endpoint.as_str())
+    }
+
+    /// Returns the DSX Exchange Event Bus MQTT broker port if enabled.
+    pub fn dsx_exchange_event_bus_mqtt_broker_port(&self) -> Option<u16> {
+        self.dsx_exchange_event_bus
+            .as_ref()
+            .filter(|conf| conf.enabled)
+            .map(|conf| conf.mqtt_broker_port)
     }
 }
 
@@ -2276,6 +2304,48 @@ pub struct DpaConfig {
         serialize_with = "as_duration"
     )]
     pub hb_interval: chrono::TimeDelta,
+}
+
+/// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
+///
+/// When configured, Carbide will publish `ManagedHostState` transitions to the
+/// topic `carbide/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct DsxExchangeEventBusConfig {
+    /// Enable/disable the DSX Exchange Event Bus.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// MQTT broker host (name or IP address) used to create client connections.
+    #[serde(default = "default_mqtt_endpoint")]
+    pub mqtt_endpoint: String,
+
+    /// MQTT broker port to use to establish client connections.
+    #[serde(default = "default_mqtt_broker_port")]
+    pub mqtt_broker_port: u16,
+
+    /// Timeout for MQTT publish operations. Defaults to 1 second.
+    #[serde(
+        default = "DsxExchangeEventBusConfig::default_publish_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub publish_timeout: std::time::Duration,
+
+    /// Queue capacity for buffering state change events while publishing.
+    /// Events are dropped if the queue is full. Defaults to 1024.
+    #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
+    pub queue_capacity: usize,
+}
+
+impl DsxExchangeEventBusConfig {
+    pub const fn default_publish_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(1)
+    }
+
+    pub const fn default_queue_capacity() -> usize {
+        1024
+    }
 }
 
 /// MachineValidation related configuration
