@@ -7496,15 +7496,26 @@ impl HostUpgradeState {
                 state.managed_state.get_host_repro_retry_count(),
             );
         };
-        let Some(current_version) = endpoint.find_version(&fw_info, *firmware_type) else {
-            tracing::error!("Could no longer find current version for {machine_id}");
+
+        let current_versions = endpoint.find_all_versions(&fw_info, *firmware_type);
+        if current_versions.is_empty() {
+            tracing::error!("Could no longer find current versions for {machine_id}");
             return scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeat,
                 state.managed_state.get_host_repro_retry_count(),
             );
         };
 
-        if current_version == final_version {
+        let versions_match_final_version = current_versions.iter().all(|v| *v == final_version);
+        if !versions_match_final_version {
+            tracing::warn!(
+                "{}: Not all firmware versions match. Expected: {final_version}, Found: {:?}",
+                endpoint.address,
+                current_versions
+            );
+        };
+
+        if versions_match_final_version {
             // Done waiting, go back to overall checking of version`2s
             tracing::debug!("Done waiting for {machine_id} to reach version");
             scenario.actual_new_state(
@@ -7535,7 +7546,7 @@ impl HostUpgradeState {
                     .await;
             }
             tracing::info!(
-                "Waiting for {machine_id} {firmware_type:?} to reach version {final_version} currently {current_version}"
+                "Waiting for {machine_id} {firmware_type:?} to reach version {final_version} currently {current_versions:?}"
             );
             db::explored_endpoints::re_explore_if_version_matches(
                 endpoint.address,

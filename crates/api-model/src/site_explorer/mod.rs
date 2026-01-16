@@ -235,6 +235,34 @@ impl ExploredEndpoint {
         None
     }
 
+    pub fn find_all_versions(
+        &self,
+        fw_info: &Firmware,
+        firmware_type: FirmwareComponentType,
+    ) -> Vec<&String> {
+        let mut versions = Vec::new();
+
+        // find all matching versions
+        for service in self.report.service.iter() {
+            for inventory in service.inventories.iter() {
+                if fw_info.matching_version_id(&inventory.id, firmware_type)
+                    && let Some(ref version) = inventory.version
+                {
+                    versions.push(version);
+                };
+            }
+        }
+
+        tracing::debug!(
+            "find_all_versions {}: Found {} versions for {firmware_type:?}: {:?}",
+            self.address,
+            versions.len(),
+            versions
+        );
+
+        versions
+    }
+
     pub fn is_bluefield_model(&self) -> bool {
         self.report.chassis.iter().any(|chassis| {
             chassis
@@ -1747,7 +1775,142 @@ pub fn is_bluefield_model(model: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::firmware::FirmwareComponent;
     use crate::machine::machine_id::from_hardware_info;
+
+    fn create_test_firmware(firmware_type: FirmwareComponentType, regex_pattern: &str) -> Firmware {
+        let mut components = HashMap::new();
+        components.insert(
+            firmware_type,
+            FirmwareComponent {
+                current_version_reported_as: Some(Regex::new(regex_pattern).unwrap()),
+                preingest_upgrade_when_below: None,
+                known_firmware: vec![],
+            },
+        );
+
+        Firmware {
+            vendor: bmc_vendor::BMCVendor::Nvidia,
+            model: "Test Model".to_string(),
+            components,
+            explicit_start_needed: false,
+            ordering: vec![],
+        }
+    }
+
+    fn create_test_endpoint(inventories: Vec<(&str, Option<&str>)>) -> ExploredEndpoint {
+        let inventory_objects: Vec<Inventory> = inventories
+            .into_iter()
+            .map(|(id, version)| Inventory {
+                id: id.to_string(),
+                description: None,
+                version: version.map(|v| v.to_string()),
+                release_date: None,
+            })
+            .collect();
+
+        ExploredEndpoint {
+            address: "192.168.1.1".parse::<IpAddr>().unwrap(),
+            report: EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                service: vec![Service {
+                    id: "FirmwareInventory".to_string(),
+                    inventories: inventory_objects,
+                }],
+                ..Default::default()
+            },
+            report_version: ConfigVersion::new(1),
+            preingestion_state: PreingestionState::Initial,
+            waiting_for_explorer_refresh: false,
+            exploration_requested: false,
+            last_redfish_bmc_reset: None,
+            last_ipmitool_bmc_reset: None,
+            last_redfish_reboot: None,
+            last_redfish_powercycle: None,
+            pause_remediation: false,
+            boot_interface_mac: None,
+            pause_ingestion_and_poweron: false,
+        }
+    }
+
+    #[test]
+    fn test_find_version_single_match() {
+        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
+        let endpoint = create_test_endpoint(vec![
+            ("BMC_Firmware", Some("1.2.3")),
+            ("DPU_UEFI", Some("4.5.6")),
+        ]);
+
+        let result = endpoint.find_version(&fw_info, FirmwareComponentType::Bmc);
+        assert_eq!(result, Some(&"1.2.3".to_string()));
+    }
+
+    #[test]
+    fn test_find_version_no_match() {
+        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
+        let endpoint = create_test_endpoint(vec![
+            ("DPU_UEFI", Some("4.5.6")),
+            ("Other_Component", Some("7.8.9")),
+        ]);
+
+        let result = endpoint.find_version(&fw_info, FirmwareComponentType::Bmc);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_all_versions_single_match() {
+        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
+        let endpoint = create_test_endpoint(vec![
+            ("BMC_Firmware", Some("1.2.3")),
+            ("DPU_UEFI", Some("4.5.6")),
+        ]);
+
+        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], &"1.2.3".to_string());
+    }
+
+    #[test]
+    fn test_find_all_versions_multiple_matches() {
+        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"BMC_Firmware");
+        let endpoint = create_test_endpoint(vec![
+            ("BMC_Firmware_1", Some("1.2.3")),
+            ("BMC_Firmware_2", Some("2.3.4")),
+            ("BMC_Firmware_3", Some("3.4.5")),
+            ("DPU_UEFI", Some("4.5.6")),
+        ]);
+
+        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], &"1.2.3".to_string());
+        assert_eq!(results[1], &"2.3.4".to_string());
+        assert_eq!(results[2], &"3.4.5".to_string());
+    }
+
+    #[test]
+    fn test_find_all_versions_no_matches() {
+        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
+        let endpoint =
+            create_test_endpoint(vec![("DPU_UEFI", Some("4.5.6")), ("Other", Some("7.8.9"))]);
+
+        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_find_all_versions_skips_none() {
+        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"BMC_Firmware");
+        let endpoint = create_test_endpoint(vec![
+            ("BMC_Firmware_1", Some("1.2.3")),
+            ("BMC_Firmware_2", None),
+            ("BMC_Firmware_3", Some("3.4.5")),
+        ]);
+
+        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], &"1.2.3".to_string());
+        assert_eq!(results[1], &"3.4.5".to_string());
+    }
 
     #[test]
     fn serialize_endpoint_exploration_error() {
