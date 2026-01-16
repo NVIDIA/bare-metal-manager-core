@@ -609,6 +609,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         } else {
             HBN_SINGLE_VLAN_DEVICE.to_string()
         },
+        site_global_vpc_vni: api.runtime_config.site_global_vpc_vni,
         managed_host_config: Some(network_config),
         managed_host_config_version: dpu_snapshot.network_config.version.version_string(),
         use_admin_network,

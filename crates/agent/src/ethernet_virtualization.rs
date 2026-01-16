@@ -306,6 +306,7 @@ pub async fn update_nvue(
     let conf = nvue::NvueConfig {
         is_fnn: false,
         vpc_virtualization_type,
+        site_global_vpc_vni: nc.site_global_vpc_vni,
         use_admin_network: nc.use_admin_network,
         loopback_ip,
         vf_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
@@ -1695,7 +1696,13 @@ mod tests {
     // Pretend we received a new config from API server. Apply it and check the resulting files.
     #[test]
     fn test_with_tenant_etv() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf(VpcVirtualizationType::EthernetVirtualizer, 32, 24, true);
+        let network_config = netconf(
+            VpcVirtualizationType::EthernetVirtualizer,
+            32,
+            24,
+            true,
+            None,
+        );
 
         let f = tempfile::NamedTempFile::new()?;
         let fp = FPath(f.path().to_owned());
@@ -1752,7 +1759,7 @@ mod tests {
 
         // Test without an NSG to make sure there are no changes for pre-FNN users
         // if they don't opt-in to a network security group.
-        let network_config = netconf(virtualization_type, 32, 24, false);
+        let network_config = netconf(virtualization_type, 32, 24, false, None);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1788,7 +1795,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -1835,7 +1842,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::Fnn;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -1883,7 +1890,7 @@ mod tests {
         // Test WITH an NSG
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
-        let network_config = netconf(virtualization_type, 32, 24, true);
+        let network_config = netconf(virtualization_type, 32, 24, true, None);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1918,7 +1925,7 @@ mod tests {
     async fn test_with_tenant_nvue_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
-        let mut network_config = netconf(virtualization_type, 32, 24, true);
+        let mut network_config = netconf(virtualization_type, 32, 24, true, None);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -1972,7 +1979,7 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_nsg() -> Result<(), Box<dyn std::error::Error>>
     {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, true);
+        let network_config = netconf(virtualization_type, 32, 24, true, None);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2018,7 +2025,7 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let mut network_config = netconf(virtualization_type, 32, 24, true);
+        let mut network_config = netconf(virtualization_type, 32, 24, true, Some(3109));
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -2071,7 +2078,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, false);
+        let network_config = netconf(virtualization_type, 32, 24, false, None);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2115,6 +2122,7 @@ mod tests {
         interface_prefix_length: u8,
         network_prefix_length: u8,
         include_network_security_group: bool,
+        site_global_vpc_vni: Option<u32>,
     ) -> rpc::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
@@ -2388,6 +2396,7 @@ mod tests {
         rpc::ManagedHostNetworkConfigResponse {
             asn: 4259912557,
             datacenter_asn: 11414,
+            site_global_vpc_vni,
             anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
             tenant_host_asn: Some(65100),
             common_internal_route_target: Some(rpc_common::RouteTarget {
@@ -2604,6 +2613,7 @@ mod tests {
             is_fnn,
             vpc_virtualization_type,
             use_admin_network: true,
+            site_global_vpc_vni: None,
             loopback_ip: "10.217.5.39".to_string(),
             secondary_overlay_vtep_ip: Some("10.255.254.253".to_string()),
             internal_bridge_routing_prefix: Some("10.255.255.0/29".to_string()),
@@ -2880,6 +2890,7 @@ mod tests {
         };
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
+            site_global_vpc_vni: None,
             asn: 4259912557,
             datacenter_asn: 11414,
             common_internal_route_target: Some(rpc_common::RouteTarget {

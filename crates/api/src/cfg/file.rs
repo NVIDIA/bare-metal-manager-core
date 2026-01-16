@@ -390,6 +390,15 @@ pub struct CarbideConfig {
     // SPDM Config
     #[serde(default)]
     pub spdm: SpdmConfig,
+
+    /// Due to limitations in Cumulus Linux route-leaking,
+    /// some sites may require all VRFs to use the same VNI.
+    /// Isolation is still possible via ACLs, and route-imports
+    /// will still use the dynamically allocated VNI for deriving
+    /// route-targets.
+    /// This will limit the number of VRFs supported on the
+    /// DPU to a single VRF.
+    pub site_global_vpc_vni: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

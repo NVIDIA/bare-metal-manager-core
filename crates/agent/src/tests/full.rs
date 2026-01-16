@@ -842,6 +842,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     };
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
+        site_global_vpc_vni: None,
         asn: 65535,
         datacenter_asn: 11414,
         common_internal_route_target: Some(rpc_common::RouteTarget {

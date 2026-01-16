@@ -363,6 +363,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
                 let conf = nvue::NvueConfig {
                     is_fnn: opts.is_fnn,
+                    site_global_vpc_vni: opts.site_global_vpc_vni,
                     vpc_virtualization_type: opts.virtualization_type,
                     hbn_version: opts.hbn_version,
                     use_admin_network: true,
