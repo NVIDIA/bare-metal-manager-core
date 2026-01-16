@@ -55,6 +55,7 @@ use crate::logging::service_health_metrics::{
 use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
+use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::preingestion_manager::PreingestionManager;
@@ -78,6 +79,7 @@ use crate::state_controller::rack::handler::RackStateHandler;
 use crate::state_controller::rack::io::RackStateControllerIO;
 use crate::state_controller::spdm::handler::SpdmAttestationStateHandler;
 use crate::state_controller::spdm::io::SpdmStateControllerIO;
+use crate::state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::{attestation, db_init, dpa, ethernet_virtualization, listener};
@@ -537,6 +539,41 @@ pub async fn initialize_and_start_controllers(
         dpa_info = Some(Arc::new(info));
     }
 
+    // Create state change emitter with DSX Exchange Event Bus hook if enabled
+    let state_change_emitter = {
+        let mut emitter_builder = StateChangeEmitterBuilder::default();
+
+        if let Some(ref config) = carbide_config.dsx_exchange_event_bus
+            && config.enabled
+        {
+            let client = mqttea::MqtteaClient::new(
+                &config.mqtt_endpoint,
+                config.mqtt_broker_port,
+                "carbide-dsx-exchange-event-bus",
+                Some(mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce)),
+            )
+            .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))?;
+
+            client.connect().await.map_err(|e| {
+                eyre::eyre!("Failed to connect DSX Exchange Event Bus MQTT client: {e}")
+            })?;
+
+            tracing::info!(
+                "DSX Exchange Event Bus enabled, publishing to {}:{}",
+                config.mqtt_endpoint,
+                config.mqtt_broker_port
+            );
+            emitter_builder = emitter_builder.hook(Box::new(MqttStateChangeHook::new(
+                client,
+                config.publish_timeout,
+                config.queue_capacity,
+                &meter,
+            )));
+        }
+
+        emitter_builder.build()
+    };
+
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: db_pool.clone().into(),
         redfish_client_pool: shared_redfish_pool.clone(),
@@ -600,6 +637,7 @@ pub async fn initialize_and_start_controllers(
                     .prevent_allocations_on_stale_dpu_agent_version,
             },
         }))
+        .state_change_emitter(state_change_emitter)
         .build_and_spawn()
         .expect("Unable to build MachineStateController");
 
