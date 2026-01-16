@@ -353,7 +353,6 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
 }
 
 pub fn default_host_tar_router(
-    use_qemu: bool,
     tar_router_entries: Option<&mut HashMap<PathBuf, EntryMap>>,
 ) -> Router {
     let tar_router = tar_router(
@@ -361,15 +360,11 @@ pub fn default_host_tar_router(
         tar_router_entries,
     )
     .unwrap();
-    let maybe_command_channel = if use_qemu {
-        Some(spawn_qemu_reboot_handler())
-    } else {
-        None
-    };
+    let command_channel = spawn_qemu_reboot_handler();
     wrap_router_with_mock_machine(
         tar_router,
         MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
-        maybe_command_channel,
+        command_channel,
         Arc::new(AlwaysOnPowerState),
     )
 }

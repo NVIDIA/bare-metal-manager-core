@@ -10,17 +10,38 @@
  * its affiliates is strictly prohibited.
  */
 
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::body::Body;
+use axum::http::{HeaderValue, StatusCode};
+use axum::response::Response;
 
 pub trait JsonExt {
     fn patch(self, patch: impl JsonPatch) -> serde_json::Value
     where
         Self: Sized;
 
-    fn into_ok_response(self) -> impl IntoResponse
+    fn delete_fields(self, fields: &[&str]) -> serde_json::Value
     where
         Self: Sized;
+
+    fn into_ok_response(self) -> Response<Body>
+    where
+        Self: Sized + ToString,
+    {
+        self.into_response(StatusCode::OK)
+    }
+
+    fn into_response(self, status: StatusCode) -> Response<Body>
+    where
+        Self: Sized + ToString;
+
+    fn into_ok_response_with_location(self, location: HeaderValue) -> Response<Body>
+    where
+        Self: Sized + ToString,
+    {
+        let mut response = self.into_ok_response();
+        response.headers_mut().insert("Location", location);
+        response
+    }
 }
 
 impl JsonExt for serde_json::Value {
@@ -28,11 +49,25 @@ impl JsonExt for serde_json::Value {
         json_patch(&mut self, patch.json_patch());
         self
     }
-    fn into_ok_response(self) -> impl IntoResponse
+
+    fn delete_fields(mut self, fields: &[&str]) -> serde_json::Value {
+        if let serde_json::Value::Object(obj) = &mut self {
+            for f in fields {
+                obj.remove(*f);
+            }
+        }
+        self
+    }
+
+    fn into_response(self, status: StatusCode) -> Response<Body>
     where
         Self: Sized + ToString,
     {
-        (StatusCode::OK, self.to_string())
+        Response::builder()
+            .status(status)
+            .header("Content-Type", "application/json")
+            .body(Body::from(self.to_string()))
+            .unwrap()
     }
 }
 
