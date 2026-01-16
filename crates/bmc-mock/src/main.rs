@@ -70,14 +70,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let listen_addr = args.port.map(|p| SocketAddr::from(([0, 0, 0, 0], p)));
-    info!("Using qemu: {}", args.use_qemu);
     info!("Using cert_path: {:?}", args.cert_path);
     let router = if let Some(tar_path) = args.targz {
         info!("Using archive {} as default", tar_path.to_string_lossy());
         bmc_mock::tar_router(TarGzOption::Disk(&tar_path), Some(&mut tar_router_entries)).unwrap()
     } else {
         info!("Using default targz handler");
-        bmc_mock::default_host_tar_router(args.use_qemu, Some(&mut tar_router_entries))
+        bmc_mock::default_host_tar_router(Some(&mut tar_router_entries))
     };
 
     routers_by_ip.insert("".to_owned(), router);

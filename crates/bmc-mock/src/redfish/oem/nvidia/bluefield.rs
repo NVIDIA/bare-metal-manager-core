@@ -10,21 +10,53 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::borrow::Cow;
+
 use axum::Router;
+use axum::extract::State;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::post;
+use axum::routing::{get, post};
 use serde_json::json;
 
 use crate::json::JsonExt;
 use crate::mock_machine_router::MockWrapperState;
+use crate::{MachineInfo, redfish};
+
+const SYSTEMS_OEM_RESOURCE: redfish::Resource<'static> = redfish::Resource {
+    odata_id: Cow::Borrowed("/redfish/v1/Systems/Bluefield/Oem/Nvidia"),
+    odata_type: Cow::Borrowed("#NvidiaComputerSystem.v1_0_0.NvidiaComputerSystem"),
+    // Neither BF2 nor BF-3 provide Id & Name in the resource We
+    // simulate this behavior by removing these fields from final answer.
+    id: Cow::Borrowed(""),
+    name: Cow::Borrowed(""),
+};
+const SYSTEMS_OEM_RESOURCE_DELETE_FIELDS: &[&str] = &["Id", "Name"];
 
 pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
-    r.route(
-        "/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/HostRshim.Set",
-        post(hostrshim_set),
-    )
+    r.route(&SYSTEMS_OEM_RESOURCE.odata_id, get(get_oem_nvidia))
+        .route(
+            // TODO: This is BF-3 only.
+            &format!("{}/Actions/HostRshim.Set", SYSTEMS_OEM_RESOURCE.odata_id),
+            post(hostrshim_set),
+        )
 }
 
 async fn hostrshim_set() -> impl IntoResponse {
     json!({}).into_ok_response()
+}
+
+async fn get_oem_nvidia(State(state): State<MockWrapperState>) -> impl IntoResponse {
+    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
+        return json!({}).into_response(StatusCode::NOT_FOUND);
+    };
+    let mode = if dpu_machine.nic_mode {
+        "NicMode"
+    } else {
+        "DpuMode"
+    };
+    json!({ "Mode": mode })
+        .patch(SYSTEMS_OEM_RESOURCE)
+        .delete_fields(SYSTEMS_OEM_RESOURCE_DELETE_FIELDS)
+        .into_ok_response()
 }

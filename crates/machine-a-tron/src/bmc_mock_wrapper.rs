@@ -54,7 +54,7 @@ impl BmcMockWrapper {
         let bmc_mock_router = bmc_mock::wrap_router_with_mock_machine(
             tar_router,
             machine_info.clone(),
-            Some(command_channel),
+            command_channel,
             mock_power_state,
         );
 
