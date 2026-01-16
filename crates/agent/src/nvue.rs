@@ -354,7 +354,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
-
+        HasSiteGlobalVpcVni: conf.site_global_vpc_vni.is_some(),
+        SiteGlobalVpcVni: conf.site_global_vpc_vni.unwrap_or_default(),
         HasStaticAdvertisements: has_static_advertisements,
         HasSecondaryOverlayVTEP: conf.secondary_overlay_vtep_ip.is_some(),
         SecondaryOverlayVtepIP: conf.secondary_overlay_vtep_ip.unwrap_or_default(),
@@ -844,6 +845,7 @@ pub struct NvueConfig {
     pub loopback_ip: String,
     pub asn: u32,
     pub datacenter_asn: u32,
+    pub site_global_vpc_vni: Option<u32>,
     pub common_internal_route_target: Option<RouteTargetConfig>,
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
 
@@ -1008,6 +1010,8 @@ pub struct PortConfig {
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplNvue {
     UseAdminNetwork: bool, // akak service network
+    HasSiteGlobalVpcVni: bool,
+    SiteGlobalVpcVni: u32,
     LoopbackIP: String,
     HasSecondaryOverlayVTEP: bool,
     HasStaticAdvertisements: bool,

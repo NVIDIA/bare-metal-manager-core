@@ -76,6 +76,12 @@ pub struct NvueOptions {
     #[clap(long, help = "Forge Native Networking mode")]
     pub is_fnn: bool,
 
+    #[clap(
+        long,
+        help = "A single VNI to use for all VPCs.  This is a special case to handle environments where upstream switches are unable to handle traffic for route import for multiple VNIs.  Route targets will still be derived from the dynamically allocated VNI of the VPC."
+    )]
+    pub site_global_vpc_vni: Option<u32>,
+
     #[clap(long)]
     pub loopback_ip: Ipv4Addr,
 
