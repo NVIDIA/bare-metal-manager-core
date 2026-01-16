@@ -17,7 +17,7 @@ use mac_address::MacAddress;
 use model::firmware::FirmwareComponentType;
 use model::site_explorer::{
     EndpointExplorationReport, ExploredEndpoint, InitialResetPhase, PowerDrainState,
-    PreingestionState,
+    PreingestionState, TimeSyncResetPhase,
 };
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
@@ -320,6 +320,18 @@ pub async fn set_preingestion_initial_reset(
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::InitialReset {
+        phase,
+        last_time: Utc::now(),
+    };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_time_sync_reset(
+    address: IpAddr,
+    phase: TimeSyncResetPhase,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::TimeSyncReset {
         phase,
         last_time: Utc::now(),
     };

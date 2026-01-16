@@ -324,6 +324,10 @@ pub enum PreingestionState {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
     },
+    TimeSyncReset {
+        phase: TimeSyncResetPhase,
+        last_time: DateTime<Utc>,
+    },
     UpgradeFirmwareWait {
         task_id: String,
         final_version: String,
@@ -355,6 +359,14 @@ pub enum PreingestionState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum InitialResetPhase {
+    Start,
+    BMCWasReset,
+    WaitHostBoot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeSyncResetPhase {
     Start,
     BMCWasReset,
     WaitHostBoot,
