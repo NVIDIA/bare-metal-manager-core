@@ -33,6 +33,7 @@ use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
 };
 use itertools::Itertools;
+use libredfish::model::oem::nvidia_dpu::HostPrivilegeLevel;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
@@ -3369,7 +3370,22 @@ impl DpuMachineStateHandler {
                 }
 
                 let boot_interface_mac = None; // libredfish will choose the DPU
-                if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
+                if self.enable_secure_boot {
+                    dpu_redfish_client
+                        .set_host_rshim(EnabledDisabled::Disabled)
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "set_host_rshim",
+                            error: e,
+                        })?;
+                    dpu_redfish_client
+                        .set_host_privilege_level(HostPrivilegeLevel::Restricted)
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "set_host_privilege_level",
+                            error: e,
+                        })?;
+                } else if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
                     dpu_redfish_client.as_ref(),
                     boot_interface_mac,
                     state.host_snapshot.associated_dpu_machine_ids().len(),
