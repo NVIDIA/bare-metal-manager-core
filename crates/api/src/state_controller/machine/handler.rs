@@ -8383,8 +8383,29 @@ async fn handle_instance_host_platform_config(
 
     let instance_state = match platform_config_state {
         HostPlatformConfigurationState::PowerCycle { power_on } => {
+            let power_state = redfish_client.get_power_state().await.map_err(|e| {
+                StateHandlerError::RedfishError {
+                    operation: "get_power_state",
+                    error: e,
+                }
+            })?;
+
+            // Phase 1: Power OFF (power_on=false means we need to power off first)
             if !power_on {
-                // POWER OFF
+                if power_state == PowerState::Off {
+                    // Host is already off, proceed to power on phase
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::HostPlatformConfiguration {
+                                platform_config_state: HostPlatformConfigurationState::PowerCycle {
+                                    power_on: true,
+                                },
+                            },
+                        },
+                    ));
+                }
+
+                // Host is still on, issue power off command
                 host_power_control(
                     redfish_client.as_ref(),
                     &mh_snapshot.host_snapshot,
@@ -8397,64 +8418,57 @@ async fn handle_instance_host_platform_config(
                     StateHandlerError::GenericError(eyre!("failed to power off host: {}", e))
                 })?;
 
-                InstanceState::HostPlatformConfiguration {
-                    platform_config_state: HostPlatformConfigurationState::PowerCycle {
-                        power_on: true,
-                    },
-                }
-            } else {
-                // POWER ON
-                let basetime = mh_snapshot
-                    .host_snapshot
-                    .last_reboot_requested
-                    .as_ref()
-                    .map(|x| x.time)
-                    .unwrap_or(mh_snapshot.host_snapshot.state.version.timestamp());
-
-                if wait(&basetime, reachability_params.power_down_wait) {
-                    return Ok(StateHandlerOutcome::wait(format!(
-                        "waiting for {} to power down; power_down_wait: {}",
-                        mh_snapshot.host_snapshot.id, reachability_params.power_down_wait
-                    )));
-                }
-
-                let power_state = redfish_client.get_power_state().await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_power_state",
-                        error: e,
-                    }
-                })?;
-
-                match power_state {
-                    // the host has powered off--we can turn it back on now
-                    PowerState::Off => {
-                        host_power_control(
-                            redfish_client.as_ref(),
-                            &mh_snapshot.host_snapshot,
-                            SystemPowerControl::On,
-                            ctx.services.ipmi_tool.clone(),
-                            txn,
-                        )
-                        .await
-                        .map_err(|e| {
-                            StateHandlerError::GenericError(eyre!(
-                                "failed to power off host: {}",
-                                e
-                            ))
-                        })?;
-
-                        InstanceState::HostPlatformConfiguration {
-                            platform_config_state: HostPlatformConfigurationState::CheckHostConfig,
-                        }
-                    }
-                    _ => {
-                        return Ok(StateHandlerOutcome::wait(format!(
-                            "waiting for {} to power down; current power state: {}",
-                            mh_snapshot.host_snapshot.id, power_state
-                        )));
-                    }
-                }
+                return Ok(StateHandlerOutcome::wait(format!(
+                    "waiting for {} to power OFF; current power state: {}",
+                    mh_snapshot.host_snapshot.id, power_state
+                )));
             }
+
+            // Phase 2: Power ON (power_on=true means host was off, now power it on)
+
+            // Wait for the power-down grace period before powering back on
+            let basetime = mh_snapshot
+                .host_snapshot
+                .last_reboot_requested
+                .as_ref()
+                .map(|x| x.time)
+                .unwrap_or(mh_snapshot.host_snapshot.state.version.timestamp());
+
+            if wait(&basetime, reachability_params.power_down_wait) {
+                return Ok(StateHandlerOutcome::wait(format!(
+                    "waiting for power-down grace period before powering on {}; power_down_wait: {}",
+                    mh_snapshot.host_snapshot.id, reachability_params.power_down_wait
+                )));
+            }
+
+            if power_state == PowerState::On {
+                // Host is already on, proceed to check config
+                return Ok(StateHandlerOutcome::transition(
+                    ManagedHostState::Assigned {
+                        instance_state: InstanceState::HostPlatformConfiguration {
+                            platform_config_state: HostPlatformConfigurationState::CheckHostConfig,
+                        },
+                    },
+                ));
+            }
+
+            // Host is still off, issue power on command
+            host_power_control(
+                redfish_client.as_ref(),
+                &mh_snapshot.host_snapshot,
+                SystemPowerControl::On,
+                ctx.services.ipmi_tool.clone(),
+                txn,
+            )
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre!("failed to power on host: {}", e))
+            })?;
+
+            return Ok(StateHandlerOutcome::wait(format!(
+                "waiting for {} to power ON; current power state: {}",
+                mh_snapshot.host_snapshot.id, power_state
+            )));
         }
         HostPlatformConfigurationState::CheckHostConfig => {
             let configure_host_boot_order = if !mh_snapshot.dpu_snapshots.is_empty() {
