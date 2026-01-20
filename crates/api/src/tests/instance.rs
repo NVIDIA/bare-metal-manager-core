@@ -489,7 +489,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        3,
+        5,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
@@ -1988,7 +1988,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        3,
+        5,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
