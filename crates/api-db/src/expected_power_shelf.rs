@@ -92,6 +92,7 @@ FROM expected_power_shelves eps
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     txn: &mut PgConnection,
     bmc_mac_address: MacAddress,
@@ -100,11 +101,12 @@ pub async fn create(
     serial_number: String,
     ip_address: Option<IpAddr>,
     metadata: Metadata,
+    rack_id: Option<String>,
 ) -> DatabaseResult<ExpectedPowerShelf> {
     let query = "INSERT INTO expected_power_shelves
-            (bmc_mac_address, bmc_username, bmc_password, serial_number, ip_address, metadata_name, metadata_description, metadata_labels)
+            (bmc_mac_address, bmc_username, bmc_password, serial_number, ip_address, metadata_name, metadata_description, metadata_labels, rack_id)
             VALUES
-            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::inet, $6, $7, $8::jsonb) RETURNING *";
+            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::inet, $6, $7, $8::jsonb, $9) RETURNING *";
 
     sqlx::query_as(query)
         .bind(bmc_mac_address)
@@ -115,6 +117,7 @@ pub async fn create(
         .bind(metadata.name)
         .bind(metadata.description)
         .bind(sqlx::types::Json(metadata.labels))
+        .bind(rack_id)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
@@ -154,6 +157,7 @@ pub async fn clear(txn: &mut PgConnection) -> DatabaseResult<()> {
         .map_err(|err| DatabaseError::query(query, err))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update<'a>(
     expected_power_shelf: &'a mut ExpectedPowerShelf,
     txn: &mut PgConnection,
@@ -162,8 +166,9 @@ pub async fn update<'a>(
     serial_number: String,
     ip_address: Option<IpAddr>,
     metadata: Metadata,
+    rack_id: Option<String>,
 ) -> DatabaseResult<&'a mut ExpectedPowerShelf> {
-    let query = "UPDATE expected_power_shelves SET bmc_username=$1, bmc_password=$2, serial_number=$3, ip_address=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7 WHERE bmc_mac_address=$8 RETURNING bmc_mac_address";
+    let query = "UPDATE expected_power_shelves SET bmc_username=$1, bmc_password=$2, serial_number=$3, ip_address=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, rack_id=$8 WHERE bmc_mac_address=$9 RETURNING bmc_mac_address";
 
     let _: () = sqlx::query_as(query)
         .bind(&bmc_username)
@@ -173,6 +178,7 @@ pub async fn update<'a>(
         .bind(&metadata.name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
+        .bind(rack_id.clone())
         .bind(expected_power_shelf.bmc_mac_address)
         .fetch_one(txn)
         .await
@@ -189,6 +195,7 @@ pub async fn update<'a>(
     expected_power_shelf.bmc_password = bmc_password;
     expected_power_shelf.ip_address = ip_address;
     expected_power_shelf.metadata = metadata;
+    expected_power_shelf.rack_id = rack_id;
     Ok(expected_power_shelf)
 }
 
@@ -222,6 +229,7 @@ pub async fn create_missing_from(
             expected_power_shelf.serial_number,
             expected_power_shelf.ip_address,
             expected_power_shelf.metadata,
+            expected_power_shelf.rack_id,
         )
         .await?;
     }

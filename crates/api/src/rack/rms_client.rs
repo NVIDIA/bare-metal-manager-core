@@ -9,15 +9,33 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::path::Path;
 
-use forge_tls::client_config::ClientCert;
+use forge_tls::rms_client_config::{rms_client_cert_info, rms_root_ca_path};
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::rack_manager::{
     NewNodeInfo, PowerComplianceValue, PowerOnOrderItem, PowerOperation, RackPowerOperation,
 };
 use rpc::protos::rack_manager_client::RackManagerApiClient;
 
+pub enum RmsNodeType {
+    Compute = 0,
+    PowerShelf = 1,
+    Switch = 2,
+    Unknown = 3,
+}
+
+impl From<RmsNodeType> for i32 {
+    fn from(value: RmsNodeType) -> Self {
+        match value {
+            RmsNodeType::Compute => 0,
+            RmsNodeType::PowerShelf => 1,
+            RmsNodeType::Switch => 2,
+            RmsNodeType::Unknown => 3,
+        }
+    }
+}
+
+// TODO: Add more error types for better error handling.
 #[derive(thiserror::Error, Debug)]
 pub enum RackManagerError {
     //    #[error("Unable to connect to Rack Manager service: {0}")]
@@ -37,42 +55,6 @@ pub enum RackManagerError {
     #[error("No results returned")]
     Empty,
      */
-}
-
-fn rms_client_cert_info(
-    client_cert_path: Option<String>,
-    client_key_path: Option<String>,
-) -> Option<ClientCert> {
-    if let (Some(client_key_path), Some(client_cert_path)) = (client_key_path, client_cert_path) {
-        return Some(ClientCert {
-            cert_path: client_cert_path,
-            key_path: client_key_path,
-        });
-    }
-    // this is the location for most k8s pods
-    if Path::new("/var/run/secrets/spiffe.io/tls.crt").exists()
-        && Path::new("/var/run/secrets/spiffe.io/tls.key").exists()
-    {
-        return Some(ClientCert {
-            cert_path: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
-            key_path: "/var/run/secrets/spiffe.io/tls.key".to_string(),
-        });
-    }
-    tracing::error!("Client cert and key not found at /var/run/secrets/spiffe.io");
-    None
-}
-
-fn rms_root_ca_path(forge_root_ca_path: Option<String>) -> String {
-    // First from command line, second env var.
-    if let Some(forge_root_ca_path) = forge_root_ca_path {
-        return forge_root_ca_path;
-    }
-    // this is the location for most k8s pods
-    if Path::new("/var/run/secrets/spiffe.io/ca.crt").exists() {
-        return "/var/run/secrets/spiffe.io/ca.crt".to_string();
-    }
-    tracing::error!("Root CA path not found at /var/run/secrets/spiffe.io");
-    "".to_string()
 }
 
 pub struct RmsClientPool {
@@ -174,6 +156,7 @@ pub trait RmsApi: Send + Sync + 'static {
         node_id: String,
         filename: String,
         target: String,
+        activate: bool,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError>;
     async fn update_firmware_by_node_type(
         &self,
@@ -250,7 +233,6 @@ impl RmsApi for RackManagerApi {
             .map_err(RackManagerError::from)
     }
 
-    #[allow(dead_code)]
     async fn add_node(
         &self,
         new_nodes: Vec<NewNodeInfo>,
@@ -416,11 +398,13 @@ impl RmsApi for RackManagerApi {
         node: String,
         filename: String,
         target: String,
+        activate: bool,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
         let update_firmware_command = rpc::protos::rack_manager::UpdateFirmwareCommand {
             node,
             filename,
             target,
+            activate,
         };
         let cmd = rpc::protos::rack_manager::firmware_request::Command::UpdateFirmware(
             update_firmware_command,
@@ -637,5 +621,176 @@ impl RmsApi for RackManagerApi {
             .upload_file(message)
             .await
             .map_err(RackManagerError::from)
+    }
+}
+
+#[cfg(test)]
+pub mod test_support {
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// RMS simulation for testing, similar to RedfishSim
+    #[derive(Default)]
+    pub struct RmsSim;
+
+    impl RmsSim {
+        /// Convert RmsSim to the type expected by Api and StateHandlerServices
+        pub fn as_rms_client(&self) -> Option<Arc<Box<dyn RmsApi>>> {
+            Some(Arc::new(Box::new(MockRmsClient) as Box<dyn RmsApi>))
+        }
+    }
+
+    #[derive(Debug, Default, Clone)]
+    pub struct MockRmsClient;
+
+    #[async_trait::async_trait]
+    impl RmsApi for MockRmsClient {
+        async fn build(&self) -> Box<dyn RmsApi> {
+            Box::new(self.clone())
+        }
+
+        async fn inventory_get(
+            &self,
+        ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::InventoryResponse::default())
+        }
+
+        async fn add_node(
+            &self,
+            _new_nodes: Vec<NewNodeInfo>,
+        ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::InventoryResponse::default())
+        }
+
+        async fn remove_node(
+            &self,
+            _node_id: String,
+        ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::InventoryResponse::default())
+        }
+
+        async fn get_poweron_order(
+            &self,
+        ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::InventoryResponse::default())
+        }
+
+        async fn set_poweron_order(
+            &self,
+            _poweron_order: Vec<PowerOnOrderItem>,
+        ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::InventoryResponse::default())
+        }
+
+        async fn get_power_state(
+            &self,
+            _node_id: String,
+        ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::PowerControlResponse::default())
+        }
+
+        async fn set_power_state(
+            &self,
+            _node_id: String,
+            _operation: PowerOperation,
+        ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::PowerControlResponse::default())
+        }
+
+        async fn rack_power(
+            &self,
+            _operation: RackPowerOperation,
+        ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::PowerControlResponse::default())
+        }
+
+        async fn get_firmware_inventory(
+            &self,
+            _node_id: String,
+        ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FirmwareResponse::default())
+        }
+
+        async fn update_firmware(
+            &self,
+            _node_id: String,
+            _filename: String,
+            _target: String,
+            _activate: bool,
+        ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FirmwareResponse::default())
+        }
+
+        async fn update_firmware_by_node_type(
+            &self,
+            _node_type: i32,
+            _filename: String,
+            _target: String,
+        ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FirmwareResponse::default())
+        }
+
+        async fn get_available_fw_images(
+            &self,
+            _node_id: String,
+        ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FirmwareResponse::default())
+        }
+
+        async fn get_bkc_files(
+            &self,
+        ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FirmwareResponse::default())
+        }
+
+        async fn select_active_bkc_file(
+            &self,
+            _filename: String,
+        ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FirmwareResponse::default())
+        }
+
+        async fn check_bkc_compliance(
+            &self,
+        ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FirmwareResponse::default())
+        }
+
+        async fn get_power_compliance(
+            &self,
+            _request_type: PowerComplianceValue,
+        ) -> Result<rpc::protos::rack_manager::PowerComplianceResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::PowerComplianceResponse::default())
+        }
+
+        async fn set_power_compliance(
+            &self,
+            _request_type: PowerComplianceValue,
+            _power_value: i64,
+        ) -> Result<rpc::protos::rack_manager::PowerComplianceResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::PowerComplianceResponse::default())
+        }
+
+        async fn upload_file_metadata(
+            &self,
+            _node_id: String,
+            _file_name: String,
+            _file_type: i32,
+            _target: String,
+            _total_size: i64,
+            _file_hash: String,
+            _total_chunks: i32,
+        ) -> Result<rpc::protos::rack_manager::FileUploadResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FileUploadResponse::default())
+        }
+
+        async fn upload_file_chunk(
+            &self,
+            _data: Vec<u8>,
+            _sequence_number: i32,
+        ) -> Result<rpc::protos::rack_manager::FileUploadResponse, RackManagerError> {
+            Ok(rpc::protos::rack_manager::FileUploadResponse::default())
+        }
     }
 }

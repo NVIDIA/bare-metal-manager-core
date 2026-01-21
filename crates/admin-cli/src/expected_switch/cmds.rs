@@ -106,7 +106,9 @@ fn convert_and_print_into_nice_table(
         "Associated Machine",
         "Name",
         "Description",
-        "Labels"
+        "Labels",
+        "NVOS Username",
+        "NVOS Password"
     ]);
 
     for expected_switch in &expected_switches.expected_switches {
@@ -140,7 +142,13 @@ fn convert_and_print_into_nice_table(
             machine_id.unwrap_or("Unlinked".to_string()),
             metadata.name,
             metadata.description,
-            labels.join(", ")
+            labels.join(", "),
+            expected_switch.nvos_username.clone().unwrap_or_default(),
+            expected_switch
+                .nvos_password
+                .clone()
+                .map(|_| "***")
+                .unwrap_or_default()
         ]);
     }
 
@@ -159,6 +167,8 @@ pub async fn add(data: &AddExpectedSwitch, api_client: &ApiClient) -> color_eyre
             data.switch_serial_number.clone(),
             metadata,
             data.rack_id.clone(),
+            data.nvos_username.clone(),
+            data.nvos_password.clone(),
         )
         .await?;
     Ok(())
@@ -186,6 +196,8 @@ pub async fn update(data: &UpdateExpectedSwitch, api_client: &ApiClient) -> colo
             data.switch_serial_number.clone(),
             metadata,
             data.rack_id.clone(),
+            data.nvos_username.clone(),
+            data.nvos_password.clone(),
         )
         .await?;
     Ok(())

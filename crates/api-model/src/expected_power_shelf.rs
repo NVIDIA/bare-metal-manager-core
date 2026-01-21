@@ -57,7 +57,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedPowerShelf {
             bmc_password: row.try_get("bmc_password")?,
             ip_address: row.try_get("ip_address").ok(),
             metadata,
-            rack_id: row.try_get("rack_id")?,
+            rack_id: row.try_get("rack_id").ok(),
         })
     }
 }

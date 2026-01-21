@@ -19,10 +19,15 @@ This file contains a list of metrics exported by Carbide. The list is auto-gener
 <tr><td>carbide_api_version</td><td>gauge</td><td>Version (git sha, build date, etc) of this service</td></tr>
 <tr><td>carbide_db_pool_idle_conns</td><td>gauge</td><td>The amount of idle connections in the carbide database pool</td></tr>
 <tr><td>carbide_db_pool_total_conns</td><td>gauge</td><td>The amount of total (active + idle) connections in the carbide database pool</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_nmxm_changes_applied_total</td><td>counter</td><td>Number of changes requested to Nmx-M</td></tr>
 <tr><td>carbide_power_shelves_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all carbide_power_shelves in the system</td></tr>
 <tr><td>carbide_power_shelves_total</td><td>gauge</td><td>The total number of carbide_power_shelves in the system</td></tr>
+<tr><td>carbide_racks_handler_latency_in_state_milliseconds</td><td>histogram</td><td>The amount of time it took to invoke the state handler for objects of type carbide_racks in a certain state</td></tr>
 <tr><td>carbide_racks_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all carbide_racks in the system</td></tr>
+<tr><td>carbide_racks_per_state</td><td>gauge</td><td>The number of carbide_racks in the system with a given state</td></tr>
+<tr><td>carbide_racks_per_state_above_sla</td><td>gauge</td><td>The number of carbide_racks in the system which had been longer in a state than allowed per SLA</td></tr>
 <tr><td>carbide_racks_total</td><td>gauge</td><td>The total number of carbide_racks in the system</td></tr>
+<tr><td>carbide_racks_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_racks in the system with a given state that failed state handling</td></tr>
 <tr><td>carbide_resourcepool_free_count</td><td>gauge</td><td>Count of values in the pool currently available for allocation</td></tr>
 <tr><td>carbide_resourcepool_used_count</td><td>gauge</td><td>Count of values in the pool currently allocated</td></tr>
 <tr><td>carbide_switches_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all carbide_switches in the system</td></tr>

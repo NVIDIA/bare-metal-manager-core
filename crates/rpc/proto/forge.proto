@@ -325,6 +325,19 @@ service Forge {
   rpc GetExpectedMachine(ExpectedMachineRequest) returns (ExpectedMachine);
   // Get the BMC credentials for all expected machines
   rpc GetAllExpectedMachines(google.protobuf.Empty) returns (ExpectedMachineList);
+
+  // Rack Firmware Management
+  // Create or update a Rack firmware configuration
+  rpc CreateRackFirmware(RackFirmwareCreateRequest) returns (RackFirmware);
+  // Get a Rack firmware configuration by ID
+  rpc GetRackFirmware(RackFirmwareGetRequest) returns (RackFirmware);
+  // List all Rack firmware configurations
+  rpc ListRackFirmware(RackFirmwareListRequest) returns (RackFirmwareList);
+  // Delete a Rack firmware configuration
+  rpc DeleteRackFirmware(RackFirmwareDeleteRequest) returns (google.protobuf.Empty);
+  // Apply firmware to all devices in a rack
+  rpc ApplyRackFirmware(RackFirmwareApplyRequest) returns (RackFirmwareApplyResponse);
+
   // Replace all expected machines in site
   rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
   // Delete all expected machines in site
@@ -599,8 +612,6 @@ service Forge {
   // Rack
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
-  // Rack Manager passthrough
-  rpc RackManagerCall(RackManagerForgeRequest) returns (RackManagerForgeResponse);
 
   rpc SetFirmwareUpdateTimeWindow(SetFirmwareUpdateTimeWindowRequest) returns (SetFirmwareUpdateTimeWindowResponse);
   rpc ListHostFirmware(ListHostFirmwareRequest) returns (ListHostFirmwareResponse);
@@ -1644,6 +1655,8 @@ message ExpectedSwitch {
   // Metadata that will automatically get associated with a newly created Switch
   Metadata metadata = 5;
   optional string rack_id = 6;
+  optional string nvos_username = 7;
+  optional string nvos_password = 8;
 }
 
 message ExpectedSwitchRequest {
@@ -2774,6 +2787,13 @@ message MachineEvent {
   google.protobuf.Timestamp time = 4;
 }
 
+enum InterfaceAssociationType {
+  NONE = 0;
+  MACHINE = 1;
+  SWITCH = 2;
+  POWERSHELF = 3;
+}
+
 message MachineInterface {
   common.MachineInterfaceId id = 1;
   optional common.MachineId attached_dpu_machine_id = 2;
@@ -2794,7 +2814,10 @@ message MachineInterface {
   optional google.protobuf.Timestamp last_dhcp = 12;
 
   optional bool is_bmc = 13;
-  optional common.MachineId power_shelf_id = 14;
+  optional common.PowerShelfId power_shelf_id = 14;
+  optional common.SwitchId switch_id = 15;
+
+  optional InterfaceAssociationType association_type = 16;
 }
 
 // Infiniband interface status description
@@ -6333,4 +6356,65 @@ message MachinePositionInfo {
   optional int32 revision_id = 5;
   optional common.SwitchId switch_id = 6;
   optional common.PowerShelfId power_shelf_id = 7;
+}
+
+// Rack Firmware Management Messages
+
+message RackFirmware {
+  string id = 1;
+  string config_json = 2;
+  bool available = 3;
+  string created = 4;
+  string updated = 5;
+  string parsed_components = 6; // JSON string of firmware lookup table
+}
+
+message FirmwareComponentInfo {
+  string device_type = 1;
+  string component = 2;
+  string bundle = 3;
+  string filename = 4;
+  string target = 5;
+  string firmware_type = 6; // "prod" or "dev"
+}
+
+message RackFirmwareCreateRequest {
+  string config_json = 1;
+  string artifactory_token = 2;
+}
+
+message RackFirmwareGetRequest {
+  string id = 1;
+}
+
+message RackFirmwareListRequest {
+  bool only_available = 1;
+}
+
+message RackFirmwareList {
+  repeated RackFirmware configs = 1;
+}
+
+message RackFirmwareDeleteRequest {
+  string id = 1;
+}
+
+message RackFirmwareApplyRequest {
+  string rack_id = 1;
+  string firmware_id = 2;
+  string firmware_type = 3; // "dev" or "prod"
+}
+
+message RackFirmwareApplyResponse {
+  int32 total_updates = 1;
+  int32 successful_updates = 2;
+  int32 failed_updates = 3;
+  repeated DeviceUpdateResult device_results = 4;
+}
+
+message DeviceUpdateResult {
+  string device_id = 1;
+  string device_type = 2;
+  bool success = 3;
+  string message = 4;
 }

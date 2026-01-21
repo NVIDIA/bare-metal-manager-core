@@ -47,6 +47,8 @@ pub async fn add_expected_switch(
         expected_switch.switch_serial_number,
         metadata,
         rack_id,
+        expected_switch.nvos_username,
+        expected_switch.nvos_password,
     )
     .await
     .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;
@@ -123,6 +125,8 @@ pub async fn update_expected_switch(
         expected_switch.switch_serial_number,
         metadata,
         rack_id,
+        expected_switch.nvos_username,
+        expected_switch.nvos_password,
     )
     .await
     .map_err(|e| Status::internal(format!("Failed to update expected switch: {}", e)))?;
@@ -229,6 +233,8 @@ pub async fn replace_all_expected_switches(
             expected_switch.switch_serial_number,
             metadata,
             rack_id,
+            expected_switch.nvos_username,
+            expected_switch.nvos_password,
         )
         .await
         .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;

@@ -19,6 +19,7 @@ use model::machine::ManagedHostState;
 use model::resource_pool::ResourcePoolError;
 use sqlx::PgConnection;
 
+use crate::rack::rms_client::RackManagerError;
 use crate::redfish::RedfishClientCreationError;
 
 /// The collection of generic objects which are referenced in StateHandlerContext
@@ -194,6 +195,9 @@ pub enum StateHandlerError {
 
     #[error("Spdm error: {0}")]
     SpdmError(#[from] model::attestation::spdm::SpdmHandlerError),
+
+    #[error("Rack Manager error: {0}")]
+    RackManagerError(#[from] RackManagerError),
 }
 
 impl StateHandlerError {
@@ -228,6 +232,7 @@ impl StateHandlerError {
                 _ => "resource_cleanup_failed",
             },
             StateHandlerError::SpdmError(_) => "spdm_attestation_error",
+            StateHandlerError::RackManagerError(_) => "rack_manager_error",
         }
     }
 }

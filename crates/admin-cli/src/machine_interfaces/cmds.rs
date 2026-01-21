@@ -17,6 +17,7 @@ use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use prettytable::{Cell, Row, Table};
+use rpc::forge::InterfaceAssociationType;
 use tracing::warn;
 
 use super::args::{DeleteMachineInterfaces, ShowMachineInterfaces};
@@ -103,7 +104,8 @@ fn convert_machines_to_nice_table(
         "Id",
         "MAC Address",
         "IP Address",
-        "Machine Id",
+        "Associated Node ID",
+        "Association Type",
         "Hostname",
         "Vendor",
     ];
@@ -151,6 +153,23 @@ fn convert_machine_to_nice_format(
 
     let width = 13;
 
+    let association_type = machine_interface
+        .association_type
+        .and_then(|v| InterfaceAssociationType::try_from(v).ok());
+    let associated_node_id = match association_type {
+        Some(InterfaceAssociationType::Machine) => {
+            machine_interface.machine_id.unwrap_or_default().to_string()
+        }
+        Some(InterfaceAssociationType::Switch) => {
+            machine_interface.switch_id.unwrap_or_default().to_string()
+        }
+        Some(InterfaceAssociationType::Powershelf) => machine_interface
+            .power_shelf_id
+            .unwrap_or_default()
+            .to_string(),
+        Some(InterfaceAssociationType::None) | None => "N/A".to_string(),
+    };
+
     let data = vec![
         ("ID", machine_interface.id.unwrap_or_default().to_string()),
         (
@@ -161,13 +180,13 @@ fn convert_machine_to_nice_format(
                 .map(MachineId::to_string)
                 .unwrap_or_default(),
         ),
+        ("Associated Node ID", associated_node_id),
         (
-            "Machine ID",
-            machine_interface
-                .machine_id
-                .as_ref()
-                .map(MachineId::to_string)
-                .unwrap_or_default(),
+            "Association Type",
+            association_type
+                .map(|v| v.as_str_name())
+                .unwrap_or_default()
+                .to_string(),
         ),
         (
             "Segment ID",

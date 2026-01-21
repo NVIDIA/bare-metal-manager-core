@@ -749,24 +749,16 @@ impl EndpointExplorationReport {
 
     /// Return `true` if the explored endpoint is a PowerShelf
     pub fn is_power_shelf(&self) -> bool {
-        self.chassis.iter().any(|c| {
-            c.model
-                .as_ref()
-                .unwrap_or(&"".to_string())
-                .to_lowercase()
-                .contains("powershelf")
-        })
+        self.chassis
+            .iter()
+            .any(|c| c.id.to_lowercase().contains("powershelf"))
     }
 
     /// Return `true` if the explored endpoint is a Switch
     pub fn is_switch(&self) -> bool {
-        self.chassis.iter().any(|c| {
-            c.model
-                .as_ref()
-                .unwrap_or(&"".to_string())
-                .to_lowercase()
-                .contains("mgx_nvswitch_0")
-        })
+        self.chassis
+            .iter()
+            .any(|c| c.id.to_lowercase().contains("mgx_nvswitch_0"))
     }
 
     /// Return `DpuModel` if the explored endpoint is a DPU
@@ -884,53 +876,28 @@ impl EndpointExplorationReport {
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
     pub fn generate_power_shelf_id(&mut self) -> ModelResult<Option<&PowerShelfId>> {
-        if let Some(serial_number) = self
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_ref())
-        {
-            let vendor = self
-                .systems
-                .first()
-                .and_then(|system| system.manufacturer.as_ref());
-            let model = self
-                .systems
-                .first()
-                .and_then(|system| system.model.as_ref());
+        let chassis = self.chassis.first().unwrap();
+        let serial_number = chassis.serial_number.clone().unwrap_or("".to_string());
+        let manufacturer = chassis.manufacturer.clone().unwrap_or("".to_string());
+        let model = chassis.model.clone().unwrap_or("".to_string());
 
-            let dmi_data = self.create_temporary_dmi_data(serial_number, vendor, model);
+        let power_shelf_type = PowerShelfType::Rack; //TODO Check later if we need to support other types
+        let power_shelf_source = PowerShelfIdSource::ProductBoardChassisSerial;
 
-            // Construct a HardwareInfo object specifically so that we can mint a MachineId.
-            let _hardware_info = HardwareInfo {
-                dmi_data: Some(dmi_data),
-                // This field should not be read, machine_id::from_hardware_info_with_type should not
-                // need this, only the dmi_data.
-                machine_type: CpuArchitecture::Unknown,
-                ..Default::default()
-            };
-
-            let power_shelf_type = PowerShelfType::Rack; //TODO Check later if we need to support other types
-            let power_shelf_source = PowerShelfIdSource::ProductBoardChassisSerial;
-
-            let power_shelf_id = power_shelf_id::from_hardware_info_with_type(
-                serial_number,
-                vendor.unwrap(),
-                model.unwrap(),
-                power_shelf_source,
-                power_shelf_type,
-            )
-            .map_err(|_e| {
-                ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(
-                    MissingHardwareInfo::Serial,
-                ))
-            })?;
-
-            Ok(Some(self.power_shelf_id.insert(power_shelf_id)))
-        } else {
-            Err(ModelError::HardwareInfo(
-                HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
+        let power_shelf_id = power_shelf_id::from_hardware_info_with_type(
+            serial_number.as_str(),
+            manufacturer.as_str(),
+            model.as_str(),
+            power_shelf_source,
+            power_shelf_type,
+        )
+        .map_err(|_e| {
+            ModelError::HardwareInfo(HardwareInfoError::MissingHardwareInfo(
+                MissingHardwareInfo::Serial,
             ))
-        }
+        })?;
+
+        Ok(Some(self.power_shelf_id.insert(power_shelf_id)))
     }
 
     //TODO: refactor for common code with generate_power_shelf_id

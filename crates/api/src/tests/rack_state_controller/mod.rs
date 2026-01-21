@@ -107,6 +107,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<RackStateControllerIO>::builder()
@@ -165,6 +166,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<RackStateControllerIO>::builder()
@@ -243,6 +245,7 @@ async fn test_rack_error_state_handling(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<RackStateControllerIO>::builder()
@@ -344,6 +347,7 @@ async fn test_rack_deletion_with_state_controller(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<RackStateControllerIO>::builder()

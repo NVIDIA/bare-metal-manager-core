@@ -63,7 +63,7 @@ pub struct Api {
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
     pub(crate) scout_stream_registry: ConnectionRegistry,
     #[allow(unused)]
-    pub(crate) rms_client: Arc<Box<dyn RmsApi>>,
+    pub(crate) rms_client: Option<Arc<Box<dyn RmsApi>>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
 }
@@ -1038,13 +1038,6 @@ impl Forge for Api {
         crate::handlers::rack::delete_rack(self, request).await
     }
 
-    async fn rack_manager_call(
-        &self,
-        request: Request<rpc::RackManagerForgeRequest>,
-    ) -> Result<Response<rpc::RackManagerForgeResponse>, Status> {
-        crate::handlers::rack::rack_manager_call(self, request).await
-    }
-
     /// Trigger DPU reprovisioning
     async fn trigger_dpu_reprovisioning(
         &self,
@@ -1330,6 +1323,41 @@ impl Forge for Api {
         request: Request<rpc::BatchExpectedMachineOperationRequest>,
     ) -> Result<Response<rpc::BatchExpectedMachineOperationResponse>, Status> {
         crate::handlers::expected_machine::update_expected_machines(self, request).await
+    }
+
+    async fn create_rack_firmware(
+        &self,
+        request: tonic::Request<rpc::RackFirmwareCreateRequest>,
+    ) -> Result<Response<rpc::RackFirmware>, tonic::Status> {
+        crate::handlers::rack_firmware::create(self, request).await
+    }
+
+    async fn get_rack_firmware(
+        &self,
+        request: tonic::Request<rpc::RackFirmwareGetRequest>,
+    ) -> Result<Response<rpc::RackFirmware>, tonic::Status> {
+        crate::handlers::rack_firmware::get(self, request).await
+    }
+
+    async fn list_rack_firmware(
+        &self,
+        request: tonic::Request<rpc::RackFirmwareListRequest>,
+    ) -> Result<Response<rpc::RackFirmwareList>, tonic::Status> {
+        crate::handlers::rack_firmware::list(self, request).await
+    }
+
+    async fn delete_rack_firmware(
+        &self,
+        request: tonic::Request<rpc::RackFirmwareDeleteRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::rack_firmware::delete(self, request).await
+    }
+
+    async fn apply_rack_firmware(
+        &self,
+        request: tonic::Request<rpc::RackFirmwareApplyRequest>,
+    ) -> Result<Response<rpc::RackFirmwareApplyResponse>, tonic::Status> {
+        crate::handlers::rack_firmware::apply(self, request).await
     }
 
     async fn get_expected_power_shelf(

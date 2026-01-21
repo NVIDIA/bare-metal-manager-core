@@ -27,6 +27,7 @@ use model::tenant::TenantError;
 use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
 
+use crate::rack::rms_client::RackManagerError;
 use crate::redfish::RedfishClientCreationError;
 
 /// Represents various Errors that can occur throughout the system.
@@ -226,7 +227,10 @@ pub enum CarbideError {
     ClientCertificateMissingInformation(String),
 
     #[error("Rack Manager Service error: {0}")]
-    RackManagerError(String),
+    RackManagerError(#[from] RackManagerError),
+
+    #[error("Maximum one association per interface")]
+    MaxOneInterfaceAssociation,
 }
 
 impl From<ModelError> for CarbideError {
@@ -279,6 +283,7 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::Sqlx(e) => DBError(e),
             DatabaseError::TenantError(e) => TenantError(e),
             DatabaseError::UuidConversionError(e) => UuidConversionError(e),
+            DatabaseError::MaxOneInterfaceAssociation => MaxOneInterfaceAssociation,
         }
     }
 }

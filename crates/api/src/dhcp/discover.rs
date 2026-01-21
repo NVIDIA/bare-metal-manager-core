@@ -13,6 +13,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use carbide_uuid::machine::MachineId;
 use db::dhcp_entry::DhcpEntry;
 use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
@@ -190,10 +191,20 @@ pub async fn discover_dhcp(
                     db::predicted_machine_interface::find_by_mac_address(&mut txn, parsed_mac)
                         .await?
                 {
+                    // remember expected machine id for later rack update
+                    let predicted_machine_id = expected_interface.machine_id;
                     machine_interface::move_predicted_machine_interface_to_machine(
                         &mut txn,
                         &expected_interface,
                         relay_ip,
+                    )
+                    .await?;
+                    // replace predicted id saved above in rack table with actual id
+                    update_rack_config_predicted_id_with_actual(
+                        &mut txn,
+                        &parsed_mac,
+                        &predicted_machine_id,
+                        &expected_interface.machine_id,
                     )
                     .await?;
                     Some(expected_interface.machine_id)
@@ -227,12 +238,6 @@ pub async fn discover_dhcp(
                                         host_nic = Some(nic);
                                     }
                                 }
-                            } else {
-                                // in the rack mode, we don't vend IPs to unknown MACs
-                                return Err(CarbideError::NotFoundError {
-                                    kind: "host mac address",
-                                    id: parsed_mac.to_string(),
-                                });
                             }
                         }
                     }
@@ -294,4 +299,41 @@ pub async fn discover_dhcp(
 
     txn.commit().await?;
     Ok(Response::new(record))
+}
+
+async fn update_rack_config_predicted_id_with_actual(
+    txn: &mut PgConnection,
+    parsed_mac: &MacAddress,
+    predicted: &MachineId,
+    actual: &MachineId,
+) -> Result<(), CarbideError> {
+    // TODO: pass in a rack id query by that when we support multirack, when supported
+    let racks = db::rack::list(txn).await?;
+    let rack = match racks.is_empty() {
+        false => racks[0].clone(),
+        true => {
+            let expected_compute_trays = vec![*parsed_mac];
+            let rack_id: String = Default::default();
+            let rack = db::rack::create(txn, &rack_id, expected_compute_trays, vec![], vec![])
+                .await
+                .map_err(CarbideError::from)?;
+            tracing::warn!(
+                "Handling DHCP response for mac {parsed_mac} but no rack was found! Create one with id {rack_id}"
+            );
+            rack
+        }
+    };
+
+    let mut config = rack.config.clone();
+    if let Some(item) = config
+        .compute_trays
+        .iter_mut()
+        .find(|item| *item == predicted)
+    {
+        *item = *actual;
+        db::rack::update(txn, &rack.id, &config)
+            .await
+            .map_err(CarbideError::from)?;
+    }
+    Ok(())
 }

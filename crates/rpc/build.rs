@@ -573,6 +573,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
+            "common.SwitchId",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
             "SkuComponentGpu",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
@@ -603,6 +607,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "SkuStatus",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
+        .type_attribute("forge.RackFirmware", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackFirmwareList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineHardwareInfoGpu",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -657,18 +663,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.Rack",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RackManagerForgeCmd",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RackManagerForgeRequest",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.RackManagerForgeResponse",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(

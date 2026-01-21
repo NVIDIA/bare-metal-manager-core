@@ -1079,6 +1079,8 @@ mod tests {
                     addresses: Vec::new(),
                     network_segment_type: None,
                     power_shelf_id: None,
+                    switch_id: None,
+                    association_type: None,
                 },
                 MachineInterfaceSnapshot {
                     id: MachineInterfaceId::from(uuid::Uuid::nil()),
@@ -1100,6 +1102,8 @@ mod tests {
                     addresses: Vec::new(),
                     network_segment_type: None,
                     power_shelf_id: None,
+                    switch_id: None,
+                    association_type: None,
                 },
             ],
         );
@@ -1194,6 +1198,8 @@ mod tests {
                 addresses: Vec::new(),
                 network_segment_type: None,
                 power_shelf_id: None,
+                switch_id: None,
+                association_type: None,
             }],
         );
 

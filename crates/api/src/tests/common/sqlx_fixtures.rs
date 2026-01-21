@@ -34,6 +34,7 @@ define_sqlx_fixtures!(
     "create_cred_pub_key_invalid",
     "create_dpu_remediation",
     "create_expected_machine",
+    "create_expected_power_shelf",
     "create_machine_validation_tests",
     "create_tpm_ca_cert_invalid",
     "create_tpm_ca_wrong_cert",

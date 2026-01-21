@@ -17,19 +17,21 @@ use std::pin::Pin;
 use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use ::rpc::protos::rack_manager_client::RackManagerApiClient;
 use cfg::cli_options::{CliCommand, CliOptions};
 use clap::CommandFactory;
 use forge_tls::client_config::{
     get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
     get_proxy_info,
 };
+use forge_tls::rms_client_config::{get_rms_api_url, rms_client_cert_info, rms_root_ca_path};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
 use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::{RuntimeConfig, RuntimeContext};
-use crate::rpc::ApiClient;
+use crate::rpc::{ApiClient, RmsApiClient};
 
 mod async_write;
 mod bmc_machine;
@@ -71,6 +73,7 @@ mod os_image;
 mod ping;
 mod power_shelf;
 mod rack;
+mod rack_firmware;
 mod redfish;
 mod resource_pool;
 mod rms;
@@ -150,6 +153,15 @@ async fn main() -> color_eyre::Result<()> {
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
 
+    // No cli config file for rms client for now
+    let rms_url = get_rms_api_url(None);
+
+    let rms_client_cert = rms_client_cert_info(None, None);
+    let rms_root_ca_path = rms_root_ca_path(None);
+    let rms_client_config = ForgeClientConfig::new(rms_root_ca_path, rms_client_cert);
+    let rms_client_config = ApiConfig::new(&rms_url, &rms_client_config);
+    let rms_client = RmsApiClient(RackManagerApiClient::new(&rms_client_config));
+
     let command = match config.commands {
         None => {
             return Ok(CliOptions::command().print_long_help()?);
@@ -182,6 +194,7 @@ async fn main() -> color_eyre::Result<()> {
             sort_by: config.sort_by.clone(),
         },
         output_file: get_output_file_or_stdout(config.output.as_deref()).await?,
+        rms_client,
     };
 
     // Command to talk to Carbide API.
@@ -239,6 +252,9 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::Vpc(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::VpcPeering(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::VpcPrefix(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::RackFirmware(action) => {
+            rack_firmware::handle_rack_firmware(action, config.format, &ctx.api_client).await?
+        }
         CliCommand::Redfish(action) => {
             if let redfish::Cmd::Browse(redfish::UriInfo { uri }) = &action.command {
                 return redfish::handle_browse_command(&ctx.api_client, uri).await;

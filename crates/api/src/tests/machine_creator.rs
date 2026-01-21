@@ -60,7 +60,6 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -138,7 +137,6 @@ async fn test_site_explorer_creates_managed_host(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -555,7 +553,6 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -897,7 +894,6 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -997,7 +993,6 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };

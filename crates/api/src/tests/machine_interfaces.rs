@@ -22,6 +22,7 @@ use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_id::from_hardware_info;
+use model::machine_interface_address::MachineInterfaceAssociation;
 use rpc::forge::InterfaceSearchQuery;
 use rpc::forge::forge_server::Forge;
 use tokio::sync::broadcast;
@@ -76,7 +77,7 @@ async fn only_one_primary_interface_per_machine(
 
     let output = db::machine_interface::associate_interface_with_machine(
         &should_failed_machine_interface.id,
-        &new_machine.id,
+        MachineInterfaceAssociation::Machine(new_machine.id),
         &mut txn,
     )
     .await;
@@ -602,5 +603,176 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             .to_string()
             .replace('.', "-")
     );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_max_one_interface_association(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_uuid::power_shelf::PowerShelfId;
+    use carbide_uuid::switch::SwitchId;
+    use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+    use model::switch::{NewSwitch, SwitchConfig};
+
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
+
+    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let interface = db::machine_interface::create(
+        &mut txn,
+        &network_segment,
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        Some(env.domain.into()),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await?;
+
+    // Create a switch and associate the interface with it
+    let switch_id = SwitchId::from(uuid::Uuid::new_v4());
+    let new_switch = NewSwitch {
+        id: switch_id,
+        config: SwitchConfig {
+            name: "Test Switch".to_string(),
+            enable_nmxc: false,
+            fabric_manager_config: None,
+            location: None,
+        },
+    };
+    db::switch::create(&mut txn, &new_switch).await?;
+
+    db::machine_interface::associate_interface_with_machine(
+        &interface.id,
+        MachineInterfaceAssociation::Switch(switch_id),
+        &mut txn,
+    )
+    .await?;
+
+    // Now try to associate the same interface with a power shelf - should fail
+    let power_shelf_id = PowerShelfId::from(uuid::Uuid::new_v4());
+    let new_power_shelf = NewPowerShelf {
+        id: power_shelf_id,
+        config: PowerShelfConfig {
+            name: "Test Power Shelf".to_string(),
+            capacity: None,
+            voltage: None,
+            location: None,
+        },
+    };
+    db::power_shelf::create(&mut txn, &new_power_shelf).await?;
+
+    let output = db::machine_interface::associate_interface_with_machine(
+        &interface.id,
+        MachineInterfaceAssociation::PowerShelf(power_shelf_id),
+        &mut txn,
+    )
+    .await;
+
+    txn.commit().await.unwrap();
+
+    assert!(matches!(
+        output,
+        Err(DatabaseError::MaxOneInterfaceAssociation)
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_power_shelf_association(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_uuid::power_shelf::PowerShelfId;
+    use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
+
+    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let interface = db::machine_interface::create(
+        &mut txn,
+        &network_segment,
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        Some(env.domain.into()),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await?;
+
+    // Create a power shelf
+    let power_shelf_id = PowerShelfId::from(uuid::Uuid::new_v4());
+    let new_power_shelf = NewPowerShelf {
+        id: power_shelf_id,
+        config: PowerShelfConfig {
+            name: "Test Power Shelf".to_string(),
+            capacity: Some(10000),
+            voltage: Some(480),
+            location: Some("Rack A1".to_string()),
+        },
+    };
+    db::power_shelf::create(&mut txn, &new_power_shelf).await?;
+
+    // Associate the interface with the power shelf
+    let result = db::machine_interface::associate_interface_with_machine(
+        &interface.id,
+        MachineInterfaceAssociation::PowerShelf(power_shelf_id),
+        &mut txn,
+    )
+    .await;
+
+    txn.commit().await.unwrap();
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), interface.id);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_uuid::switch::SwitchId;
+    use model::switch::{NewSwitch, SwitchConfig};
+
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
+
+    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let interface = db::machine_interface::create(
+        &mut txn,
+        &network_segment,
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        Some(env.domain.into()),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await?;
+
+    // Create a switch
+    let switch_id = SwitchId::from(uuid::Uuid::new_v4());
+    let new_switch = NewSwitch {
+        id: switch_id,
+        config: SwitchConfig {
+            name: "Test Switch".to_string(),
+            enable_nmxc: false,
+            fabric_manager_config: None,
+            location: Some("Rack B2".to_string()),
+        },
+    };
+    db::switch::create(&mut txn, &new_switch).await?;
+
+    // Associate the interface with the switch
+    let result = db::machine_interface::associate_interface_with_machine(
+        &interface.id,
+        MachineInterfaceAssociation::Switch(switch_id),
+        &mut txn,
+    )
+    .await;
+
+    txn.commit().await.unwrap();
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), interface.id);
+
     Ok(())
 }
