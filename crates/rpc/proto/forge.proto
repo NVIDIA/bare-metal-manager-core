@@ -266,6 +266,9 @@ service Forge {
   // Update the Metadata of a Machine
   rpc UpdateMachineMetadata(MachineMetadataUpdateRequest) returns (google.protobuf.Empty);
 
+  // Update the NVLink Info of a Machine
+  rpc UpdateMachineNvLinkInfo(UpdateMachineNvLinkInfoRequest) returns (google.protobuf.Empty);
+
   // Maintenance mode operations: enable, disable
   rpc SetMaintenance(MaintenanceRequest) returns (google.protobuf.Empty);
 
@@ -5640,6 +5643,11 @@ message RackManagerForgeResponse {
 message MachineNVLinkInfo {
   common.NVLinkDomainId domain_uuid = 1;
   repeated NVLinkGpu gpus = 2;
+}
+
+message UpdateMachineNvLinkInfoRequest {
+  common.MachineId machine_id = 1;
+  MachineNVLinkInfo nvlink_info = 2;
 }
 
 message NVLinkGpu {

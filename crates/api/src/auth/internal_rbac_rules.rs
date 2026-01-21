@@ -657,6 +657,7 @@ impl InternalRBACRules {
         );
         x.perm("ModifyDPFState", vec![ForgeAdminCLI]);
         x.perm("GetDPFState", vec![ForgeAdminCLI]);
+        x.perm("UpdateMachineNvLinkInfo", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {
