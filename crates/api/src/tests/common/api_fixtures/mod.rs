@@ -1371,9 +1371,12 @@ pub async fn create_test_env_with_overrides(
         rms_client: None,
     });
 
+    let state_controller_id = uuid::Uuid::new_v4().to_string();
+
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(machine_swap.clone()))
         .io(Arc::new(MachineStateControllerIO {
@@ -1385,6 +1388,7 @@ pub async fn create_test_env_with_overrides(
     let spdm_controller = StateController::<SpdmStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("spdm", test_meter.meter())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(spdm_swap.clone()))
         .io(Arc::new(SpdmStateControllerIO {}))
@@ -1398,6 +1402,7 @@ pub async fn create_test_env_with_overrides(
     let ib_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(ib_swap.clone()))
         .build_for_manual_iterations()
@@ -1416,6 +1421,7 @@ pub async fn create_test_env_with_overrides(
     let mut network_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", test_meter.meter())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(network_swap.clone()))
         .build_for_manual_iterations()
@@ -1424,6 +1430,7 @@ pub async fn create_test_env_with_overrides(
     let power_shelf_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", test_meter.meter())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
         .build_for_manual_iterations()
@@ -1432,6 +1439,7 @@ pub async fn create_test_env_with_overrides(
     let switch_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_switches", test_meter.meter())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(SwitchStateHandler::default()))
         .build_for_manual_iterations()
