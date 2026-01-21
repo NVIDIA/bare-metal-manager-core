@@ -33,8 +33,10 @@ impl Collection<'_> {
     }
 
     pub fn with_members(&self, members: &[impl serde::Serialize]) -> serde_json::Value {
+        let count = members.len();
         self.json_patch().patch(json!({
             "Members": members,
+            "Members@odata.count": count,
         }))
     }
 }

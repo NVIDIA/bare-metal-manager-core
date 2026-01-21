@@ -15,13 +15,22 @@ use std::fmt::Display;
 
 use axum::Router;
 use axum::extract::Path;
-use axum::response::IntoResponse;
+use axum::response::Response;
 use axum::routing::get;
 use serde_json::json;
 
 use crate::json::JsonExt;
 use crate::mock_machine_router::MockWrapperState;
 use crate::redfish;
+
+pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+    r.route(&SERVICE_RESOURCE.odata_id, get(get_root))
+        .route(&ACCOUNTS_COLLECTION_RESOURCE.odata_id, get(get_accounts))
+        .route(
+            format!("{}/{{account_id}}", ACCOUNTS_COLLECTION_RESOURCE.odata_id).as_str(),
+            get(get_account).patch(patch_account),
+        )
+}
 
 const SERVICE_RESOURCE: redfish::Resource<'static> = redfish::Resource {
     odata_id: Cow::Borrowed("/redfish/v1/AccountService"),
@@ -36,16 +45,7 @@ const ACCOUNTS_COLLECTION_RESOURCE: redfish::Collection<'static> = redfish::Coll
     name: Cow::Borrowed("Accounts Collection"),
 };
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
-    r.route(&SERVICE_RESOURCE.odata_id, get(get_root))
-        .route(&ACCOUNTS_COLLECTION_RESOURCE.odata_id, get(get_accounts))
-        .route(
-            format!("{}/{{account_id}}", ACCOUNTS_COLLECTION_RESOURCE.odata_id).as_str(),
-            get(get_account).patch(patch_account),
-        )
-}
-
-pub async fn get_root() -> impl IntoResponse {
+pub async fn get_root() -> Response {
     let service_attrs = json!({
         "AccountLockoutCounterResetAfter": 0,
         "AccountLockoutDuration": 0,
@@ -70,7 +70,7 @@ pub fn account_resource(id: impl Display) -> redfish::Resource<'static> {
     }
 }
 
-pub async fn get_accounts() -> impl IntoResponse {
+pub async fn get_accounts() -> Response {
     // This is Dell-specific behavior of Account handling. Fixed slots...
     let members = (1..16)
         .map(|v| json!({"@odata.id": format!("{}/{v}", ACCOUNTS_COLLECTION_RESOURCE.odata_id)}))
@@ -80,11 +80,11 @@ pub async fn get_accounts() -> impl IntoResponse {
         .into_ok_response()
 }
 
-pub async fn patch_account(Path(_account_id): Path<String>) -> impl IntoResponse {
+pub async fn patch_account(Path(_account_id): Path<String>) -> Response {
     json!({}).into_ok_response()
 }
 
-pub async fn get_account(Path(account_id): Path<String>) -> impl IntoResponse {
+pub async fn get_account(Path(account_id): Path<String>) -> Response {
     // This is Dell behavior must be fixed for other platform.
     let (username, role_id) = if account_id == "2" {
         ("root", "Administrator")

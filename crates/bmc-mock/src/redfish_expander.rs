@@ -238,7 +238,6 @@ impl State {
 mod tests {
     use axum::body::Body;
     use axum::http::{Method, Request};
-    use libredfish::NetworkAdapter;
     use serde_json::Value;
     use tower::Service;
 
@@ -275,22 +274,20 @@ mod tests {
         };
 
         // Make sure each network adapter deserializes into what we expect, and that it matches what is held in the upstream router.
-        for network_adapter_value in network_adapters {
-            let network_adapter: NetworkAdapter =
-                serde_json::from_value(network_adapter_value.clone()).unwrap_or_else(|e| {
-                    panic!(
-                        "NetworkAdapter should be a full object, got {network_adapter_value}: {e}"
-                    )
-                });
-
-            let upstream_network_adapter_body = tar_router
-                .clone()
+        for network_adapter in network_adapters {
+            // Check that network_adapter is full object.
+            assert!(network_adapter.get("Manufacturer").is_some());
+            let Some(odata_id) = network_adapter
+                .get("@odata.id")
+                .and_then(serde_json::Value::as_str)
+            else {
+                panic!("Network adapter must contain @odata.id");
+            };
+            println!("{odata_id}");
+            let upstream_network_adapter_body = subject
                 .call(
                     Request::builder()
-                        .uri(format!(
-                            "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/{}",
-                            network_adapter.id
-                        ))
+                        .uri(odata_id)
                         .method(Method::GET)
                         .body(Body::empty())
                         .unwrap(),
@@ -308,7 +305,7 @@ mod tests {
                 panic!("Could not deserialize tar_router response")
             };
 
-            assert_eq!(network_adapter_value, &upstream_network_adapter)
+            assert_eq!(network_adapter, &upstream_network_adapter)
         }
     }
 }

@@ -11,3 +11,4 @@
  */
 
 pub mod idrac;
+pub mod network_device_function;

@@ -9,10 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::borrow::Cow;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
+
+use crate::redfish;
 
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 
@@ -100,6 +104,96 @@ impl HostMachineInfo {
 }
 
 impl MachineInfo {
+    pub fn manager_config(&self) -> redfish::manager::Config {
+        match self {
+            MachineInfo::Dpu(dpu) => redfish::manager::Config {
+                id: "Bluefield_BMC",
+                eth_interfaces: vec![
+                    redfish::ethernet_interface::builder(
+                        &redfish::ethernet_interface::manager_resource("Bluefield_BMC", "eth0"),
+                    )
+                    .mac_address(dpu.bmc_mac_address)
+                    .interface_enabled(true)
+                    .build(),
+                ],
+                firmware_version: "BF-23.10-4",
+            },
+            MachineInfo::Host(host) => redfish::manager::Config {
+                id: "iDRAC.Embedded.1",
+                eth_interfaces: vec![
+                    redfish::ethernet_interface::builder(
+                        &redfish::ethernet_interface::manager_resource("iDRAC.Embedded.1", "NIC.1"),
+                    )
+                    .mac_address(host.bmc_mac_address)
+                    .interface_enabled(true)
+                    .build(),
+                ],
+                firmware_version: "6.00.30.00",
+            },
+        }
+    }
+
+    pub fn system_config(
+        &self,
+        power_control: Arc<dyn crate::PowerControl>,
+    ) -> redfish::computer_system::SystemConfig {
+        match self {
+            MachineInfo::Host(host) => {
+                let power_control = Some(power_control.clone());
+                let serial_number = self.product_serial().clone();
+                let eth_interfaces = self
+                    .dhcp_mac_addresses()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, mac)| {
+                        let eth_id = Cow::Owned(format!("NIC.Slot.{}", index + 1));
+                        let resource = redfish::ethernet_interface::system_resource(
+                            "System.Embedded.1",
+                            &eth_id,
+                        );
+                        redfish::ethernet_interface::builder(&resource)
+                            .mac_address(mac)
+                            .interface_enabled(true)
+                            .build()
+                    })
+                    .collect();
+                redfish::computer_system::SystemConfig {
+                    systems: vec![redfish::computer_system::SingleSystemConfig {
+                        id: Cow::Borrowed("System.Embedded.1"),
+                        eth_interfaces,
+                        serial_number,
+                        pcie_dpu_count: host.dpus.len(),
+                        boot_order_mode: redfish::computer_system::BootOrderMode::DellOem,
+                        power_control,
+                    }],
+                }
+            }
+            MachineInfo::Dpu(dpu) => redfish::computer_system::SystemConfig {
+                systems: vec![redfish::computer_system::SingleSystemConfig {
+                    id: Cow::Borrowed("Bluefield"),
+                    eth_interfaces: vec![
+                        redfish::ethernet_interface::builder(
+                            &redfish::ethernet_interface::system_resource("Bluefield", "eth0"),
+                        )
+                        .mac_address(dpu.host_mac_address)
+                        .interface_enabled(true)
+                        .build(),
+                        redfish::ethernet_interface::builder(
+                            &redfish::ethernet_interface::system_resource("Bluefield", "oob0"),
+                        )
+                        .mac_address(dpu.oob_mac_address)
+                        .interface_enabled(true)
+                        .build(),
+                    ],
+                    serial_number: self.product_serial().clone(),
+                    pcie_dpu_count: 0,
+                    boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
+                    power_control: Some(power_control),
+                }],
+            },
+        }
+    }
+
     pub fn chassis_serial(&self) -> Option<String> {
         match self {
             Self::Host(h) => Some(h.serial.clone()),
@@ -107,10 +201,10 @@ impl MachineInfo {
         }
     }
 
-    pub fn product_serial(&self) -> Option<String> {
+    pub fn product_serial(&self) -> &String {
         match self {
-            Self::Host(h) => Some(h.serial.clone()),
-            Self::Dpu(d) => Some(d.serial.clone()),
+            Self::Host(h) => &h.serial,
+            Self::Dpu(d) => &d.serial,
         }
     }
 

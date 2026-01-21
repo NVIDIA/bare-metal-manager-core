@@ -15,8 +15,8 @@ use std::borrow::Cow;
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::response::Response;
+use axum::routing::{get, patch, post};
 use serde_json::json;
 
 use crate::json::JsonExt;
@@ -40,13 +40,17 @@ pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
             &format!("{}/Actions/HostRshim.Set", SYSTEMS_OEM_RESOURCE.odata_id),
             post(hostrshim_set),
         )
+        .route(
+            "/redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia",
+            patch(patch_managers_oem_nvidia),
+        )
 }
 
-async fn hostrshim_set() -> impl IntoResponse {
+async fn hostrshim_set() -> Response {
     json!({}).into_ok_response()
 }
 
-async fn get_oem_nvidia(State(state): State<MockWrapperState>) -> impl IntoResponse {
+async fn get_oem_nvidia(State(state): State<MockWrapperState>) -> Response {
     let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
         return json!({}).into_response(StatusCode::NOT_FOUND);
     };
@@ -59,4 +63,9 @@ async fn get_oem_nvidia(State(state): State<MockWrapperState>) -> impl IntoRespo
         .patch(SYSTEMS_OEM_RESOURCE)
         .delete_fields(SYSTEMS_OEM_RESOURCE_DELETE_FIELDS)
         .into_ok_response()
+}
+
+async fn patch_managers_oem_nvidia() -> Response {
+    // This is used by enable_rshim_bmc() of libredfish client.
+    json!({}).into_ok_response()
 }
