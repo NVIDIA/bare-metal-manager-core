@@ -3012,6 +3012,10 @@ pub(crate) fn log_machine_id(machine_id: &MachineId) {
     tracing::Span::current().record("forge.machine_id", machine_id.to_string());
 }
 
+pub(crate) fn log_tenant_organization_id(organization_id: &str) {
+    tracing::Span::current().record("tenant.organization_id", organization_id);
+}
+
 fn truncate(mut s: String, len: usize) -> String {
     if s.len() < len || len < 3 {
         return s;

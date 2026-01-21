@@ -22,7 +22,7 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::CarbideError;
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 const MAX_POD_SPEC_SIZE: usize = 2 << 15; // 64 KB
 const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
@@ -46,6 +46,8 @@ pub(crate) async fn create(
         })?,
         None => ExtensionServiceId::from(Uuid::new_v4()),
     };
+
+    log_tenant_organization_id(&req.tenant_organization_id);
 
     let tenant_organization_id = req
         .tenant_organization_id
@@ -536,6 +538,11 @@ pub(crate) async fn find_ids(
     log_request_data(&request);
 
     let req = request.into_inner();
+
+    // Log tenant organization ID if present
+    if let Some(ref tenant_org_id_str) = req.tenant_organization_id {
+        log_tenant_organization_id(tenant_org_id_str);
+    }
 
     // Validate tenant organization ID
     let tenant_organization_id: Option<TenantOrganizationId> = req

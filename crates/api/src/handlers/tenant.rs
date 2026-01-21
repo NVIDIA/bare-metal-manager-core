@@ -19,7 +19,7 @@ use model::tenant::RoutingProfileType;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::Api;
+use crate::api::{Api, log_tenant_organization_id};
 
 /// Ensures that fields unsupported by the tenant DB model are rejected early.
 fn metadata_to_valid_tenant_metadata(metadata: Option<rpc::Metadata>) -> Result<Metadata, Status> {
@@ -60,6 +60,8 @@ pub(crate) async fn create(
         metadata,
         routing_profile_type,
     } = request.into_inner();
+
+    log_tenant_organization_id(&organization_id);
 
     let metadata: Metadata = metadata_to_valid_tenant_metadata(metadata)?;
 
@@ -113,6 +115,8 @@ pub(crate) async fn find(
         tenant_organization_id,
     } = request.into_inner();
 
+    log_tenant_organization_id(&tenant_organization_id);
+
     let mut txn = api.txn_begin().await?;
 
     let response = match db::tenant::find(tenant_organization_id, false, &mut txn)
@@ -141,6 +145,8 @@ pub(crate) async fn update(
         metadata,
         routing_profile_type,
     } = request.into_inner();
+
+    log_tenant_organization_id(&organization_id);
 
     let metadata: Metadata = metadata_to_valid_tenant_metadata(metadata)?;
 
