@@ -1625,6 +1625,9 @@ pub struct SetBootOrderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_boot_order_jid: Option<String>,
     pub set_boot_order_state: SetBootOrderState,
+    /// Retry counter for SetBootOrder state machine. Defaults to 0 for backwards compatibility.
+    #[serde(default)]
+    pub retry_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
@@ -1634,6 +1637,7 @@ pub enum SetBootOrderState {
     WaitForSetBootOrderJobScheduled,
     RebootHost,
     WaitForSetBootOrderJobCompletion,
+    CheckBootOrder,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

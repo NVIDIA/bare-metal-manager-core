@@ -46,10 +46,11 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         {"state": "hostinit", "machine_state": {"state": "enableipmioverlan"}},
         {"state": "hostinit", "machine_state": {"state": "waitingforplatformconfiguration"}},
         {"state": "hostinit", "machine_state": {"state": "pollingbiossetup"}},
-        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"set_boot_order_state": {"state": "setbootorder"}}}},
-        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"set_boot_order_state": {"state": "waitforsetbootorderjobscheduled"}}}},
-        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"set_boot_order_state": {"state": "reboothost"}}}},
-        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"set_boot_order_state": {"state": "waitforsetbootorderjobcompletion"}}}},
+        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "setbootorder"}}}},
+        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "waitforsetbootorderjobscheduled"}}}},
+        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "reboothost"}}}},
+        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "waitforsetbootorderjobcompletion"}}}},
+        {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "checkbootorder"}}}},
         {"state": "hostinit", "machine_state": {"state": "waitingfordiscovery"}},
     ]);
     let expected_initial_states: Vec<serde_json::Value> =
