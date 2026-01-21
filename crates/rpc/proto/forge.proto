@@ -726,6 +726,9 @@ service Forge {
   rpc GetMachinePositionInfo(MachinePositionQuery) returns (MachinePositionInfoList);
 
   rpc NmxmBrowse(NmxmBrowseRequest) returns (NmxmBrowseResponse);
+
+  rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
+  rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
 }
 
 message AttestationIdsRequest {
@@ -3587,6 +3590,8 @@ message MachineDiscoveryResult {
   MachineCertificate machine_certificate = 2;
   // if attestation is enabled, this challenge will allow to bind attestation key to a particular TPM via its EK
   AttestKeyBindChallenge attest_key_challenge = 3;
+  // Interface id
+  common.MachineInterfaceId machine_interface_id = 4;
 }
 
 message MachineDiscoveryCompletedResponse {
@@ -6219,4 +6224,21 @@ message MachinePositionInfo {
   optional int32 revision_id = 5;
   optional common.SwitchId switch_id = 6;
   optional common.PowerShelfId power_shelf_id = 7;
+}
+
+message ModifyDPFStateRequest {
+  common.MachineId machine_id = 1;
+  bool dpf_enabled = 2;
+}
+
+message DPFStateResponse {
+  message DPFState {
+    common.MachineId machine_id = 1;
+    bool dpf_enabled = 2;
+  }
+  repeated DPFState dpf_states = 1;
+}
+
+message GetDPFStateRequest {
+  repeated common.MachineId machine_ids = 1;
 }

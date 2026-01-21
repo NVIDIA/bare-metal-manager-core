@@ -39,6 +39,7 @@ carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 spancounter = { path = "../spancounter" }
 nras = { path = "../nras" }
+carbide-dpf = { path = "../dpf" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
