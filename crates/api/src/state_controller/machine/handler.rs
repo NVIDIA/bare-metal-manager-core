@@ -4285,6 +4285,7 @@ async fn handle_host_boot_order_setup(
                 set_boot_order_info: Some(SetBootOrderInfo {
                     set_boot_order_jid: None,
                     set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    retry_count: 0,
                 }),
             },
         },
@@ -4618,6 +4619,7 @@ impl StateHandler for HostMachineStateHandler {
                             set_boot_order_info: Some(SetBootOrderInfo {
                                 set_boot_order_jid: None,
                                 set_boot_order_state: SetBootOrderState::SetBootOrder,
+                                retry_count: 0,
                             }),
                         },
                     };
@@ -8586,6 +8588,7 @@ async fn handle_instance_host_platform_config(
                     set_boot_order_info: SetBootOrderInfo {
                         set_boot_order_jid: None,
                         set_boot_order_state: SetBootOrderState::SetBootOrder,
+                        retry_count: 0,
                     },
                 },
             };
@@ -8853,6 +8856,7 @@ async fn set_host_boot_order(
                 Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
                     set_boot_order_jid: jid,
                     set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+                    retry_count: set_boot_order_info.retry_count,
                 }))
             }
         }
@@ -8876,6 +8880,7 @@ async fn set_host_boot_order(
             Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
                 set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),
                 set_boot_order_state: SetBootOrderState::RebootHost,
+                retry_count: set_boot_order_info.retry_count,
             }))
         }
         SetBootOrderState::RebootHost => {
@@ -8891,6 +8896,7 @@ async fn set_host_boot_order(
             Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
                 set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),
                 set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobCompletion,
+                retry_count: set_boot_order_info.retry_count,
             }))
         }
         SetBootOrderState::WaitForSetBootOrderJobCompletion => {
@@ -8910,7 +8916,83 @@ async fn set_host_boot_order(
                 }
             }
 
-            Ok(SetBootOrderOutcome::Done)
+            Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),
+                set_boot_order_state: SetBootOrderState::CheckBootOrder,
+                retry_count: set_boot_order_info.retry_count,
+            }))
+        }
+        SetBootOrderState::CheckBootOrder => {
+            const MAX_BOOT_ORDER_RETRIES: u32 = 3;
+            const CHECK_BOOT_ORDER_TIMEOUT_MINUTES: i64 = 30;
+
+            let retry_count = set_boot_order_info.retry_count;
+
+            let primary_interface = mh_snapshot
+                .host_snapshot
+                .interfaces
+                .iter()
+                .find(|x| x.primary_interface)
+                .ok_or_else(|| {
+                    StateHandlerError::GenericError(eyre::eyre!(
+                        "Missing primary interface from host: {}",
+                        mh_snapshot.host_snapshot.id
+                    ))
+                })?;
+
+            let boot_order_configured = redfish_client
+                .is_boot_order_setup(&primary_interface.mac_address.to_string())
+                .await
+                .map_err(|e| StateHandlerError::RedfishError {
+                    operation: "is_boot_order_setup",
+                    error: e,
+                })?;
+
+            if boot_order_configured {
+                tracing::info!(
+                    "Boot order verified for {} - the host has its boot order configured properly",
+                    mh_snapshot.host_snapshot.id,
+                );
+                return Ok(SetBootOrderOutcome::Done);
+            }
+
+            // Boot order is not configured properly - check if we should retry
+            let time_since_state_change =
+                mh_snapshot.host_snapshot.state.version.since_state_change();
+
+            tracing::warn!(
+                "Boot order check failed for {} - the host does not have its boot order configured properly after SetBootOrder (retry_count: {}, time_in_state: {} minutes)",
+                mh_snapshot.host_snapshot.id,
+                retry_count,
+                time_since_state_change.num_minutes()
+            );
+
+            // If we've been stuck for 30+ minutes and haven't exhausted retries, retry SetBootOrder
+            if time_since_state_change.num_minutes() >= CHECK_BOOT_ORDER_TIMEOUT_MINUTES
+                && retry_count < MAX_BOOT_ORDER_RETRIES
+            {
+                tracing::info!(
+                    "Boot order check timed out for {} after {} minutes, retrying SetBootOrder (retry {} of {})",
+                    mh_snapshot.host_snapshot.id,
+                    time_since_state_change.num_minutes(),
+                    retry_count + 1,
+                    MAX_BOOT_ORDER_RETRIES
+                );
+
+                return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    retry_count: retry_count + 1,
+                }));
+            }
+
+            // Either still within timeout window or exhausted retries - return error
+            Err(StateHandlerError::GenericError(eyre::eyre!(
+                "Boot order is not configured properly for host {} after SetBootOrder completed (retry_count: {}, time_in_state: {} minutes)",
+                mh_snapshot.host_snapshot.id,
+                retry_count,
+                time_since_state_change.num_minutes()
+            )))
         }
     }
 }
