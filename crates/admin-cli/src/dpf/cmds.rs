@@ -10,11 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::dpf::args::DpfQuery;
-use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use prettytable::row;
 use rpc::admin_cli::CarbideCliError;
+
+use crate::dpf::args::DpfQuery;
+use crate::rpc::ApiClient;
 
 pub async fn modify_dpf_state(
     query: &DpfQuery,

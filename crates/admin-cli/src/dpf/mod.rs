@@ -13,10 +13,10 @@ pub mod args;
 pub mod cmds;
 
 use ::rpc::admin_cli::CarbideCliResult;
-
 pub use args::Cmd;
 
-use crate::cfg::{dispatch::Dispatch, runtime::RuntimeContext};
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
 
 impl Dispatch for Cmd {
     async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
@@ -27,7 +27,15 @@ impl Dispatch for Cmd {
             Cmd::Disable(query) => {
                 cmds::modify_dpf_state(&query, ctx.config.format, &ctx.api_client, false).await
             }
-            Cmd::Show(query) => cmds::show(&query, ctx.config.format, ctx.config.page_size, &ctx.api_client).await,
+            Cmd::Show(query) => {
+                cmds::show(
+                    &query,
+                    ctx.config.format,
+                    ctx.config.page_size,
+                    &ctx.api_client,
+                )
+                .await
+            }
         }
     }
 }

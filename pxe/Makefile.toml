@@ -765,7 +765,7 @@ dependencies = [
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
-  "download-hbn-installer-to-bfb-sa",  # put doca_container_configs.zip in /tmp
+  "download-hbn-installer-to-bfb-sa",                                      # put doca_container_configs.zip in /tmp
   "mkdir-hbn-folder-in-bfb",
   "unzip-hbn-folder-in-bfb",
   "mv-hbn-configs-to-bfb",

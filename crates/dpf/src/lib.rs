@@ -22,9 +22,11 @@ pub mod test;
 use std::collections::{BTreeMap, HashMap};
 
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
-use kube::api::{ListParams, Patch, PatchParams};
-use kube::{Api, Client, api::PostParams};
+use kube::api::{ListParams, Patch, PatchParams, PostParams};
+use kube::core::ObjectMeta;
+use kube::{Api, Client};
 use tera::{Context, Tera};
+use tokio::time::Duration;
 
 use crate::crds::bfb_generated::{BFB, BfbSpec, BfbStatusPhase};
 use crate::crds::dpu_flavor_generated::{DPUFlavor, DpuFlavorDpuMode, DpuFlavorSpec};
@@ -32,9 +34,6 @@ use crate::crds::dpu_set_generated::{
     DPUSet, DpuSetDpuTemplate, DpuSetDpuTemplateSpec, DpuSetDpuTemplateSpecBfb,
     DpuSetDpuTemplateSpecNodeEffect, DpuSetSpec, DpuSetStrategy, DpuSetStrategyType,
 };
-
-use kube::core::ObjectMeta;
-use tokio::time::Duration;
 
 pub const NAMESPACE: &str = "dpf-operator-system";
 const BFB_NAME: &str = "bf-bundle";

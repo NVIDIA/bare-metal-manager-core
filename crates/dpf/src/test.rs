@@ -1,21 +1,17 @@
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::Arc;
 
+    use http::{Request, Response};
+    use kube::client::Body;
+    use kube::{Api, Client};
     use tokio::sync::Mutex;
     use tower_test::mock::Handle;
 
-    use crate::DpfError;
-    use crate::KubeImpl;
-    use crate::NAMESPACE;
-    use crate::create_crds_and_secret_with_client;
-    use crate::get_fw_update_data;
-    use kube::Api;
-    use std::collections::HashMap;
-
-    use http::{Request, Response};
-    use kube::Client;
-    use kube::client::Body;
+    use crate::{
+        DpfError, KubeImpl, NAMESPACE, create_crds_and_secret_with_client, get_fw_update_data,
+    };
 
     struct Data {
         client: Mutex<Client>,

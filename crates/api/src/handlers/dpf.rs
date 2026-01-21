@@ -11,12 +11,12 @@
  */
 
 use ::rpc::forge as rpc;
+use db::ObjectFilter;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
-use db::ObjectFilter;
 
 pub(crate) async fn modify_dpf_state(
     api: &Api,

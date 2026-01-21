@@ -4,10 +4,11 @@
 
 #[allow(unused_imports)]
 mod prelude {
+    pub use std::collections::BTreeMap;
+
     pub use k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition;
     pub use kube::CustomResource;
     pub use serde::{Deserialize, Serialize};
-    pub use std::collections::BTreeMap;
 }
 use self::prelude::*;
 

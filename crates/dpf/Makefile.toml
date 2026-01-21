@@ -144,16 +144,16 @@ echo "✓ DPUDeployment types generated"
 [tasks.generate-all]
 description = "Generate all CRD types from NVIDIA DOCA Platform"
 dependencies = [
-    "generate-bfb",
-    "generate-dpu",
-    # "generate-dpu-cluster",
-    "generate-dpu-device",
-    "generate-dpu-flavor",
-    "generate-dpu-node",
-    "generate-dpu-node-maintenance",
-    "generate-dpu-set",
-    # "generate-dpf-operator-config",
-    # "generate-dpu-deployment",
+  "generate-bfb",
+  "generate-dpu",
+  # "generate-dpu-cluster",
+  "generate-dpu-device",
+  "generate-dpu-flavor",
+  "generate-dpu-node",
+  "generate-dpu-node-maintenance",
+  "generate-dpu-set",
+  # "generate-dpf-operator-config",
+  # "generate-dpu-deployment",
 ]
 
 # Clean up cloned repository
