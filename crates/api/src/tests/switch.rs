@@ -533,7 +533,7 @@ async fn test_find_switch_without_ip_addresses(
     // Find the switch with include_ip_addresses = false
     let find_request = SwitchQuery {
         name: None,
-        switch_id: Some(switch_id.into()),
+        switch_id: Some(switch_id),
         include_ip_addresses: false,
     };
 
@@ -562,7 +562,7 @@ async fn test_find_switch_with_ip_addresses_no_matching_data(
     // Find the switch with include_ip_addresses = true, but no expected_switch/explored_endpoint data
     let find_request = SwitchQuery {
         name: None,
-        switch_id: Some(switch_id.into()),
+        switch_id: Some(switch_id),
         include_ip_addresses: true,
     };
 
@@ -639,7 +639,7 @@ async fn test_find_switch_with_ip_addresses_matching_data(
     // Verify the data was inserted correctly by querying directly
     let mut verify_txn = env.pool.begin().await?;
     let ip_map: std::collections::HashMap<String, IpAddr> =
-        db_switch::get_switch_ips_by_serials(&mut verify_txn, &[switch_serial.clone()]).await?;
+        db_switch::get_switch_ips_by_serials(&mut verify_txn, std::slice::from_ref(&switch_serial)).await?;
     verify_txn.commit().await?;
 
     // Debug: Check if the direct query returns the IP
