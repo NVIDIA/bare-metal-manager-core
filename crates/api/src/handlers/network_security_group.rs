@@ -26,7 +26,7 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::CarbideError;
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 pub(crate) async fn create(
     api: &Api,
@@ -79,6 +79,19 @@ pub(crate) async fn create(
 
     validate_expanded_rule_set(&rules, max_nsg_size)?;
 
+    // Log tenant organization ID
+    log_tenant_organization_id(&req.tenant_organization_id);
+
+    // Parse tenant organization ID
+    let tenant_organization_id =
+        req.tenant_organization_id
+            .parse()
+            .map_err(|e: InvalidTenantOrg| {
+                Status::from(CarbideError::from(
+                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+                ))
+            })?;
+
     // Start a new transaction for a db write.
     let mut txn = api.txn_begin().await?;
 
@@ -87,13 +100,7 @@ pub(crate) async fn create(
     let network_security_group = network_security_group::create(
         &mut txn,
         &id,
-        &req.tenant_organization_id
-            .parse()
-            .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
-            })?,
+        &tenant_organization_id,
         None,
         &metadata,
         stateful_egress,
@@ -121,20 +128,27 @@ pub(crate) async fn find_ids(
 
     let req = request.into_inner();
 
+    // Log tenant organization ID if present
+    if let Some(ref tenant_org_id) = req.tenant_organization_id {
+        log_tenant_organization_id(tenant_org_id);
+    }
+
+    let tenant_organization_id = req
+        .tenant_organization_id
+        .map(|t| t.parse::<TenantOrganizationId>())
+        .transpose()
+        .map_err(|e: InvalidTenantOrg| {
+            Status::from(CarbideError::from(
+                RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+            ))
+        })?;
+
     let mut txn = api.txn_begin().await?;
 
     let network_security_group_ids = network_security_group::find_ids(
         &mut txn,
         req.name.as_deref(),
-        req.tenant_organization_id
-            .map(|t| t.parse::<TenantOrganizationId>())
-            .transpose()
-            .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
-            })?
-            .as_ref(),
+        tenant_organization_id.as_ref(),
         false,
     )
     .await?;
@@ -186,6 +200,21 @@ pub(crate) async fn find_by_ids(
             ))
         })?;
 
+    // Log tenant organization ID if present
+    if let Some(ref tenant_org_id) = req.tenant_organization_id {
+        log_tenant_organization_id(tenant_org_id);
+    }
+
+    let tenant_organization_id = req
+        .tenant_organization_id
+        .map(|t| t.parse::<TenantOrganizationId>())
+        .transpose()
+        .map_err(|e: InvalidTenantOrg| {
+            Status::from(CarbideError::from(
+                RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+            ))
+        })?;
+
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
     let mut txn = api.txn_begin().await?;
 
@@ -193,15 +222,7 @@ pub(crate) async fn find_by_ids(
     let network_security_groups = network_security_group::find_by_ids(
         &mut txn,
         &network_security_group_ids,
-        req.tenant_organization_id
-            .map(|t| t.parse::<TenantOrganizationId>())
-            .transpose()
-            .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
-            })?
-            .as_ref(),
+        tenant_organization_id.as_ref(),
         false,
     )
     .await?;
@@ -275,9 +296,10 @@ pub(crate) async fn update(
 
     validate_expanded_rule_set(&rules, max_nsg_size)?;
 
-    // Start a new transaction for a db write.
-    let mut txn = api.txn_begin().await?;
+    // Log tenant organization ID from request
+    log_tenant_organization_id(&req.tenant_organization_id);
 
+    // Parse tenant organization ID
     let tenant_organization_id =
         req.tenant_organization_id
             .parse()
@@ -286,6 +308,9 @@ pub(crate) async fn update(
                     RpcDataConversionError::InvalidTenantOrg(e.to_string()),
                 ))
             })?;
+
+    // Start a new transaction for a db write.
+    let mut txn = api.txn_begin().await?;
 
     // Look up the NetworkSecurityGroup.  We'll need to check the current
     // version. We could probably do everything with a single query
@@ -385,9 +410,10 @@ pub(crate) async fn delete(
         ))
     })?;
 
-    // Prepare our txn to delete from the DB
-    let mut txn = api.txn_begin().await?;
+    // Log tenant organization ID from request
+    log_tenant_organization_id(&req.tenant_organization_id);
 
+    // Parse tenant organization ID
     let tenant_organization_id =
         req.tenant_organization_id
             .parse()
@@ -396,6 +422,9 @@ pub(crate) async fn delete(
                     RpcDataConversionError::InvalidTenantOrg(e.to_string()),
                 ))
             })?;
+
+    // Prepare our txn to delete from the DB
+    let mut txn = api.txn_begin().await?;
 
     // Make our DB query for the NetworkSecurityGroup.
     // This is mainly to get a row-level lock if the record exists

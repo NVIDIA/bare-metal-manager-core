@@ -41,7 +41,7 @@ use model::os::OperatingSystem;
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
-use crate::api::{Api, log_machine_id, log_request_data};
+use crate::api::{Api, log_machine_id, log_request_data, log_tenant_organization_id};
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
@@ -59,6 +59,7 @@ pub(crate) async fn allocate(
     let request = InstanceAllocationRequest::try_from(request.into_inner())?;
 
     log_machine_id(&request.machine_id);
+    log_tenant_organization_id(request.config.tenant.tenant_organization_id.as_str());
 
     // Row-locking on Machine records happens in allocate_instance
     let mh_snapshot = allocate_instance(api, request, api.runtime_config.host_health).await?;
@@ -95,9 +96,10 @@ pub(crate) async fn batch_allocate(
             tracing::error!(error = ?e, "Failed to convert batch request");
         })?;
 
-    // Log all machine IDs
+    // Log all machine IDs and tenant organization IDs
     for request in &requests {
         log_machine_id(&request.machine_id);
+        log_tenant_organization_id(request.config.tenant.tenant_organization_id.as_str());
     }
 
     // Call batch allocation logic
@@ -584,6 +586,7 @@ pub(crate) async fn release(
         })?;
 
     log_machine_id(&instance.machine_id);
+    log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
     // Instance Release called from the Repair tenant.
     if delete_instance.is_repair_tenant == Some(true) {
@@ -670,6 +673,7 @@ pub(crate) async fn update_phone_home_last_contact(
         })?;
 
     log_machine_id(&instance.machine_id);
+    log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
     let res = db::instance::update_phone_home_last_contact(&mut txn, instance.id).await?;
 
@@ -706,6 +710,12 @@ pub(crate) async fn invoke_power(
             "Supplied machine ID does not match an instance: {machine_id}"
         )));
     }
+
+    // Log tenant organization ID
+    if let Some(ref instance) = snapshot.instance {
+        log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
+    }
+
     let bmc_ip =
         snapshot
             .host_snapshot
@@ -911,6 +921,7 @@ pub(crate) async fn update_operating_system(
         })?;
 
     log_machine_id(&instance.machine_id);
+    log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
     if instance.deleted.is_some() {
         return Err(CarbideError::InvalidArgument(
@@ -994,6 +1005,7 @@ pub(crate) async fn update_instance_config(
         })?;
 
     log_machine_id(&instance.machine_id);
+    log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,

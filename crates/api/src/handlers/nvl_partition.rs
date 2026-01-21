@@ -17,7 +17,7 @@ use futures_util::FutureExt;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 pub(crate) async fn find_ids(
     api: &Api,
@@ -26,6 +26,10 @@ pub(crate) async fn find_ids(
     log_request_data(&request);
 
     let filter: rpc::NvLinkPartitionSearchFilter = request.into_inner();
+
+    if let Some(ref tenant_org_id_str) = filter.tenant_organization_id {
+        log_tenant_organization_id(tenant_org_id_str);
+    }
 
     let partition_ids = api
         .with_txn(|txn| db::nvl_partition::find_ids(txn, filter).boxed())
@@ -83,15 +87,17 @@ pub(crate) async fn for_tenant(
         tenant_organization_id,
     } = request.into_inner();
 
-    let _tenant_organization_id: String = match tenant_organization_id {
+    let tenant_org_id_str: String = match tenant_organization_id {
         Some(id) => id,
         None => {
             return Err(CarbideError::MissingArgument("tenant_organization_id").into());
         }
     };
 
+    log_tenant_organization_id(&tenant_org_id_str);
+
     let results = api
-        .with_txn(|txn| db::nvl_partition::for_tenant(txn, _tenant_organization_id).boxed())
+        .with_txn(|txn| db::nvl_partition::for_tenant(txn, tenant_org_id_str).boxed())
         .await??;
 
     let mut partitions = Vec::with_capacity(results.len());
