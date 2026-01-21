@@ -12,9 +12,22 @@
 
 pub mod account_service;
 pub mod bios;
+pub mod boot_options;
+pub mod chassis;
 pub mod collection;
+pub mod computer_system;
+pub mod ethernet_interface;
+pub mod log_services;
+pub mod manager;
+pub mod manager_network_protocol;
+pub mod network_adapter;
+pub mod network_device_function;
 pub mod oem;
+pub mod pcie_device;
 pub mod resource;
+pub mod secure_boot;
+pub mod task_service;
+pub mod update_service;
 
 pub use collection::Collection;
 pub use resource::Resource;

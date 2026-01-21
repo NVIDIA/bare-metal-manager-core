@@ -17,8 +17,8 @@ use std::time::Duration;
 
 use bmc_mock::{
     BmcCommand, BmcMockError, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
-    POWER_CYCLE_DELAY, PowerStateQuerying, SetSystemPowerError, SetSystemPowerReq,
-    SetSystemPowerResult, SystemPowerControl,
+    POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, SetSystemPowerReq, SetSystemPowerResult,
+    SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
@@ -63,11 +63,38 @@ pub struct MachineStateMachine {
 }
 
 #[derive(Debug, Clone)]
-pub struct LiveStatePowerQuery(pub Arc<RwLock<LiveState>>);
+pub struct LiveStatePowerControl {
+    state: Arc<RwLock<LiveState>>,
+    command_channel: mpsc::UnboundedSender<BmcCommand>,
+}
 
-impl PowerStateQuerying for LiveStatePowerQuery {
+impl LiveStatePowerControl {
+    pub fn new(
+        state: Arc<RwLock<LiveState>>,
+        command_channel: mpsc::UnboundedSender<BmcCommand>,
+    ) -> Self {
+        Self {
+            state,
+            command_channel,
+        }
+    }
+}
+
+impl PowerControl for LiveStatePowerControl {
     fn get_power_state(&self) -> MockPowerState {
-        self.0.read().unwrap().power_state
+        self.state.read().unwrap().power_state
+    }
+
+    fn send_power_command(
+        &self,
+        reset_type: SystemPowerControl,
+    ) -> Result<(), SetSystemPowerError> {
+        self.command_channel
+            .send(BmcCommand::SetSystemPower {
+                request: SetSystemPowerReq { reset_type },
+                reply: None,
+            })
+            .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
     }
 }
 
@@ -687,7 +714,7 @@ impl MachineStateMachine {
                         .iter()
                         .map(MacAddress::to_string)
                         .collect(),
-                    product_serial: self.machine_info.product_serial(),
+                    product_serial: Some(self.machine_info.product_serial().clone()),
                     chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
                     host_mac_address: self.machine_info.host_mac_address(),
                     tpm_ek_certificate,
@@ -913,9 +940,11 @@ impl MachineStateMachine {
     ) -> Result<Option<Arc<BmcMockWrapperHandle>>, MachineStateError> {
         let mut bmc_mock = BmcMockWrapper::new(
             self.machine_info.clone(),
-            self.bmc_command_channel.clone(),
             self.app_context.clone(),
-            Arc::new(LiveStatePowerQuery(self.live_state.clone())),
+            Arc::new(LiveStatePowerControl::new(
+                self.live_state.clone(),
+                self.bmc_command_channel.clone(),
+            )),
             Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
         );
 

@@ -12,15 +12,15 @@
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{Path, Request, State};
+use axum::extract::{Json, Path, Request, State};
 use axum::http::{HeaderValue, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
-use http_body_util::BodyExt;
 use serde_json::json;
 
+use crate::bmc_state::JobState;
 use crate::json::JsonExt;
-use crate::mock_machine_router::{MockWrapperError, MockWrapperState};
+use crate::mock_machine_router::MockWrapperState;
 
 pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
     r.route(
@@ -41,20 +41,21 @@ pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
         )
         .route("/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue",
                post(post_delete_job_queue))
+        .route("/redfish/v1/Managers/iDRAC.Embedded.1/Actions/Oem/EID_674_Manager.ImportSystemConfiguration",
+               post(post_import_sys_configuration))
 }
 
-async fn set_idrac_attributes() -> impl IntoResponse {
+async fn set_idrac_attributes() -> Response {
     json!({}).into_ok_response()
 }
 
 async fn get_managers_oem_dell_attributes(
     State(mut state): State<MockWrapperState>,
     request: Request<Body>,
-) -> impl IntoResponse {
+) -> Response {
     state
         .call_inner_router(request)
         .await
-        .and_then(|response| Ok(serde_json::from_slice::<serde_json::Value>(&response)?))
         .map(|inner_json| {
             let patched_dell_attrs = state.bmc_state.get_dell_attrs(inner_json);
             patched_dell_attrs.into_ok_response()
@@ -64,36 +65,24 @@ async fn get_managers_oem_dell_attributes(
 
 async fn patch_managers_oem_dell_attributes(
     State(mut state): State<MockWrapperState>,
-    request: Request<Body>,
-) -> impl IntoResponse {
-    request
-        .into_body()
-        .collect()
-        .await
-        .map_err(MockWrapperError::from)
-        .map(|v| v.to_bytes())
-        .and_then(|body| Ok(serde_json::from_slice::<serde_json::Value>(&body)?))
-        .map(|attrs| {
-            state.bmc_state.update_dell_attrs(attrs);
-            json!({}).into_ok_response()
-        })
-        .unwrap_or_else(|err| err.into_response())
+    Json(attrs): Json<serde_json::Value>,
+) -> Response {
+    state.bmc_state.update_dell_attrs(attrs);
+    json!({}).into_ok_response()
 }
 
 async fn get_dell_job(
     State(state): State<MockWrapperState>,
     Path(job_id): Path<String>,
-) -> impl IntoResponse {
+) -> Response {
     let Some(job) = state.bmc_state.get_job(&job_id) else {
         return json!(format!("could not find iDRAC job: {job_id}"))
             .into_response(StatusCode::NOT_FOUND);
     };
 
-    // TODO (spyda): move this to libredfish
     let job_state = match job.job_state {
-        libredfish::JobState::Scheduled => "Scheduled".to_string(),
-        libredfish::JobState::Completed => "Completed".to_string(),
-        _ => "Unknown".to_string(),
+        JobState::Scheduled => "Scheduled".to_string(),
+        JobState::Completed => "Completed".to_string(),
     };
 
     serde_json::json!({
@@ -120,7 +109,7 @@ async fn get_dell_job(
     .into_ok_response()
 }
 
-async fn post_dell_create_bios_job(State(mut state): State<MockWrapperState>) -> impl IntoResponse {
+pub fn create_job_with_location(mut state: MockWrapperState) -> Response {
     match state.bmc_state.add_job() {
         Ok(job_id) => json!({}).into_ok_response_with_location(
             HeaderValue::try_from(format!(
@@ -132,6 +121,14 @@ async fn post_dell_create_bios_job(State(mut state): State<MockWrapperState>) ->
     }
 }
 
-async fn post_delete_job_queue() -> impl IntoResponse {
-    StatusCode::OK
+async fn post_dell_create_bios_job(State(state): State<MockWrapperState>) -> Response {
+    create_job_with_location(state)
+}
+
+async fn post_delete_job_queue() -> Response {
+    json!({}).into_ok_response()
+}
+
+async fn post_import_sys_configuration(State(state): State<MockWrapperState>) -> Response {
+    create_job_with_location(state)
 }

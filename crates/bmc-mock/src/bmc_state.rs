@@ -18,6 +18,8 @@ use rand::distr::StandardUniform;
 
 use crate::bug::InjectedBugs;
 use crate::json::json_patch;
+use crate::redfish::computer_system::SystemState;
+use crate::redfish::manager::ManagerState;
 
 /// Dell Specific -- iDRAC job implementation
 /// TODO (spyda): move most of this logic to libredfish
@@ -26,7 +28,7 @@ const DELL_JOB_TYPE: &str = "DellConfiguration";
 #[derive(Debug, Clone)]
 pub struct Job {
     pub job_id: String,
-    pub job_state: libredfish::JobState,
+    pub job_state: JobState,
     pub job_type: String,
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub end_time: Option<chrono::DateTime<chrono::Utc>>,
@@ -39,20 +41,27 @@ impl Job {
 
     pub fn percent_complete(&self) -> i32 {
         match &self.job_state {
-            libredfish::JobState::Completed => 100,
+            JobState::Completed => 100,
             _ => 0,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BmcState {
     pub jobs: Arc<Mutex<HashMap<String, Job>>>,
     pub secure_boot_enabled: Arc<AtomicBool>,
+    pub manager: Arc<ManagerState>,
+    pub system_state: Arc<SystemState>,
     pub bios: Arc<Mutex<serde_json::Value>>,
     pub dell_attrs: Arc<Mutex<serde_json::Value>>,
-    pub boot_order: Arc<Mutex<Option<Vec<String>>>>,
     pub injected_bugs: InjectedBugs,
+}
+
+#[derive(Debug, Clone)]
+pub enum JobState {
+    Scheduled,
+    Completed,
 }
 
 impl BmcState {
@@ -71,7 +80,7 @@ impl BmcState {
 
         let job = Job {
             job_id: job_id.clone(),
-            job_state: libredfish::JobState::Scheduled,
+            job_state: JobState::Scheduled,
             job_type: DELL_JOB_TYPE.to_string(),
             start_time: chrono::offset::Utc::now(),
             end_time: None,
@@ -90,7 +99,7 @@ impl BmcState {
             .cloned()
             .collect();
         for mut job in bios_jobs {
-            job.job_state = libredfish::JobState::Completed;
+            job.job_state = JobState::Completed;
             job.end_time = Some(chrono::offset::Utc::now());
             jobs.insert(job.job_id.clone(), job);
         }
@@ -120,13 +129,5 @@ impl BmcState {
         let dell_attrs = self.dell_attrs.lock().unwrap();
         json_patch(&mut base, dell_attrs.clone());
         base
-    }
-
-    pub fn update_boot_order(&mut self, v: Vec<String>) {
-        *self.boot_order.lock().unwrap() = Some(v);
-    }
-
-    pub fn get_boot_order(&self) -> Option<Vec<String>> {
-        self.boot_order.lock().unwrap().clone()
     }
 }

@@ -24,10 +24,9 @@ use axum::Router;
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::http::{Request, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use bytes::Buf;
-use chrono::Utc;
 use eyre::Context;
 use flate2::read::GzDecoder;
 use regex::Regex;
@@ -132,32 +131,17 @@ lazy_static::lazy_static! {
 async fn get_from_tar(
     AxumState(cache): AxumState<TarRouterCache>,
     AxumPath(mut path): AxumPath<String>,
-) -> impl IntoResponse {
+) -> Response {
     if path.ends_with('/') {
         path.pop();
     };
 
     match cache.entries.lock().unwrap().get(&path) {
         None => {
-            // This is expected for UpdateService/FirmwareInventory
             tracing::trace!("Not found: {path}");
-            (StatusCode::NOT_FOUND, path)
+            (StatusCode::NOT_FOUND, path).into_response()
         }
-        Some(s) => {
-            let mut response = s.clone();
-
-            // Replace DateTime with current time for Manager resources
-            // This prevents BMC time sync issues in tests
-            if GET_MANAGER_RE.is_match(&path) {
-                let current_time = Utc::now().format("%Y-%m-%dT%H:%M:%S+00:00");
-                let new_datetime = format!(r#""DateTime": "{current_time}""#);
-                response = DATETIME_RE
-                    .replace(&response, new_datetime.as_str())
-                    .to_string();
-            }
-
-            (StatusCode::OK, response)
-        }
+        Some(s) => (StatusCode::OK, s.clone()).into_response(),
     }
 }
 

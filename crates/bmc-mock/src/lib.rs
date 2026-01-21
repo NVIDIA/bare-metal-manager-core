@@ -56,13 +56,6 @@ pub use tar_router::{EntryMap, TarGzOption, tar_router};
 
 static DEFAULT_HOST_MOCK_TAR: &[u8] = include_bytes!("../dell_poweredge_r750.tar.gz");
 
-#[macro_export]
-macro_rules! rf {
-    ($url:literal) => {
-        &format!("/{}/{}", libredfish::REDFISH_ENDPOINT, $url)
-    };
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum BmcMockError {
     #[error("BMC Mock I/O error: {0}")]
@@ -127,8 +120,14 @@ pub enum MockPowerState {
     },
 }
 
-pub trait PowerStateQuerying: std::fmt::Debug + Send + Sync {
+pub trait PowerControl: std::fmt::Debug + Send + Sync {
     fn get_power_state(&self) -> MockPowerState;
+    fn send_power_command(&self, reset_type: SystemPowerControl)
+    -> Result<(), SetSystemPowerError>;
+    fn set_power_state(&self, reset_type: SystemPowerControl) -> Result<(), SetSystemPowerError> {
+        validate_power_request(reset_type, self.get_power_state())?;
+        self.send_power_command(reset_type)
+    }
 }
 
 pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {
@@ -137,22 +136,6 @@ pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {
 
 // Simulate a 5-second power cycle
 pub const POWER_CYCLE_DELAY: Duration = Duration::from_secs(5);
-
-impl From<MockPowerState> for libredfish::PowerState {
-    fn from(val: MockPowerState) -> libredfish::PowerState {
-        match val {
-            MockPowerState::On => libredfish::PowerState::On,
-            MockPowerState::Off => libredfish::PowerState::Off,
-            MockPowerState::PowerCycling { since } => {
-                if since.elapsed() < POWER_CYCLE_DELAY {
-                    libredfish::PowerState::Off
-                } else {
-                    libredfish::PowerState::On
-                }
-            }
-        }
-    }
-}
 
 // https://www.dmtf.org/sites/default/files/standards/documents/DSP2046_2023.3.html
 // 6.5.5.1 ResetType
@@ -195,6 +178,31 @@ pub enum SystemPowerControl {
     // VM / Hypervisor
     Pause,
     Resume,
+}
+
+pub fn validate_power_request(
+    reset_type: SystemPowerControl,
+    power_state: MockPowerState,
+) -> Result<(), SetSystemPowerError> {
+    type C = SystemPowerControl;
+    match (reset_type, power_state) {
+        (
+            C::GracefulShutdown | C::ForceOff | C::GracefulRestart | C::ForceRestart,
+            MockPowerState::Off,
+        ) => Err(SetSystemPowerError::BadRequest(
+            "bmc-mock: cannot power off machine, it is already off".to_string(),
+        )),
+        (C::On | C::ForceOn, MockPowerState::On) => Err(SetSystemPowerError::BadRequest(
+            "bmc-mock: cannot power on machine, it is already on".to_string(),
+        )),
+        (_, MockPowerState::PowerCycling { since }) if since.elapsed() < POWER_CYCLE_DELAY => {
+            Err(SetSystemPowerError::BadRequest(format!(
+                "bmc-mock: cannot reset machine, it is in the middle of power cycling since {:?} ago",
+                since.elapsed()
+            )))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Mock multiple BMCs while listening on a single IP/port.
@@ -361,19 +369,40 @@ pub fn default_host_tar_router(
     )
     .unwrap();
     let command_channel = spawn_qemu_reboot_handler();
+    let power_control = Arc::new(ChannelPowerControl::new(command_channel));
     wrap_router_with_mock_machine(
         tar_router,
         MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
-        command_channel,
-        Arc::new(AlwaysOnPowerState),
+        power_control,
     )
 }
 
 #[derive(Debug)]
-struct AlwaysOnPowerState;
-impl PowerStateQuerying for AlwaysOnPowerState {
+struct ChannelPowerControl {
+    command_channel: mpsc::UnboundedSender<BmcCommand>,
+}
+
+impl ChannelPowerControl {
+    fn new(command_channel: mpsc::UnboundedSender<BmcCommand>) -> Self {
+        Self { command_channel }
+    }
+}
+
+impl PowerControl for ChannelPowerControl {
     fn get_power_state(&self) -> MockPowerState {
         MockPowerState::On
+    }
+
+    fn send_power_command(
+        &self,
+        reset_type: SystemPowerControl,
+    ) -> Result<(), SetSystemPowerError> {
+        self.command_channel
+            .send(BmcCommand::SetSystemPower {
+                request: SetSystemPowerReq { reset_type },
+                reply: None,
+            })
+            .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
     }
 }
 

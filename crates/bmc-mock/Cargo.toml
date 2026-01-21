@@ -9,7 +9,6 @@ authors.workspace = true
 [dependencies]
 axum = { workspace = true }
 axum-server = { features = ["tls-rustls"], workspace = true }
-libredfish = { workspace = true }
 clap = { workspace = true }
 tokio.workspace = true
 tracing = { workspace = true }

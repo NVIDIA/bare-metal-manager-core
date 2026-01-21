@@ -24,6 +24,25 @@ pub struct Resource<'a> {
     pub name: Cow<'a, str>,
 }
 
+impl<'a> Resource<'a> {
+    pub fn entity_ref(&self) -> serde_json::Value {
+        json!({
+            "@odata.id": self.odata_id
+        })
+    }
+    pub fn nav_property(&self, name: &str) -> serde_json::Value {
+        json!({
+            name: {
+                "@odata.id": self.odata_id
+            }
+        })
+    }
+    pub fn with_name(mut self, name: &'a str) -> Self {
+        self.name = Cow::Borrowed(name);
+        self
+    }
+}
+
 impl JsonPatch for Resource<'_> {
     fn json_patch(&self) -> serde_json::Value {
         json!({
@@ -31,6 +50,19 @@ impl JsonPatch for Resource<'_> {
             "@odata.type": self.odata_type,
             "Id": self.id,
             "Name": self.name,
+        })
+    }
+}
+
+pub enum Status {
+    Ok,
+}
+
+impl Status {
+    pub fn into_json(self) -> serde_json::Value {
+        json!({
+            "State": "Enabled",
+            "Health": "OK",
         })
     }
 }

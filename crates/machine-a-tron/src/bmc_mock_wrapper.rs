@@ -16,10 +16,10 @@ use std::sync::Arc;
 
 use axum::Router;
 use bmc_mock::{
-    BmcCommand, BmcMockError, BmcMockHandle, HostnameQuerying, ListenerOrAddress, MachineInfo,
-    PowerStateQuerying,
+    BmcMockError, BmcMockHandle, HostnameQuerying, ListenerOrAddress, MachineInfo, MockPowerState,
+    POWER_CYCLE_DELAY, PowerControl,
 };
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::RwLock;
 
 use crate::config::MachineATronContext;
 use crate::machine_state_machine::MachineStateError;
@@ -41,9 +41,8 @@ pub struct BmcMockWrapper {
 impl BmcMockWrapper {
     pub fn new(
         machine_info: MachineInfo,
-        command_channel: mpsc::UnboundedSender<BmcCommand>,
         app_context: Arc<MachineATronContext>,
-        mock_power_state: Arc<dyn PowerStateQuerying>,
+        power_control: Arc<dyn PowerControl>,
         hostname: Arc<dyn HostnameQuerying>,
     ) -> Self {
         let tar_router = match machine_info {
@@ -54,8 +53,7 @@ impl BmcMockWrapper {
         let bmc_mock_router = bmc_mock::wrap_router_with_mock_machine(
             tar_router,
             machine_info.clone(),
-            command_channel,
-            mock_power_state,
+            power_control,
         );
 
         BmcMockWrapper {
@@ -171,3 +169,17 @@ pub struct BmcMockWrapperHandle {
 /// BmcMockRegistry is shared state that MachineATron's mock hosts can use to register their BMC
 /// mock routers, so that a single shared instance of BMC mock can delegate to them.
 pub type BmcMockRegistry = Arc<RwLock<HashMap<String, Router>>>;
+
+pub fn convert_power_state(val: MockPowerState) -> libredfish::PowerState {
+    match val {
+        MockPowerState::On => libredfish::PowerState::On,
+        MockPowerState::Off => libredfish::PowerState::Off,
+        MockPowerState::PowerCycling { since } => {
+            if since.elapsed() < POWER_CYCLE_DELAY {
+                libredfish::PowerState::Off
+            } else {
+                libredfish::PowerState::On
+            }
+        }
+    }
+}
