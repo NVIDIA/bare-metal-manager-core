@@ -297,7 +297,7 @@ pub mod spdm {
         MachineIdParsingFailed(#[from] carbide_uuid::machine::MachineIdParseError),
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, FromRow)]
     pub struct SpdmObjectId(pub MachineId, pub Option<String>);
 
     impl FromStr for SpdmObjectId {

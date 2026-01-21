@@ -67,6 +67,7 @@ figment = { features = ["env", "toml"], workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 hex = { workspace = true }
+hostname = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["full"] }
@@ -130,6 +131,7 @@ time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 toml = { workspace = true }
 tonic = { workspace = true }
 tonic-reflection = { workspace = true }
