@@ -208,11 +208,14 @@ pub async fn start_api(
     )
     .await?;
 
-    let rms_api_url = carbide_config.rms_api_url.clone().unwrap_or_default();
-    let rms_client_pool = RmsClientPool::new(&rms_api_url);
-    let shared_rms_client = rms_client_pool.create_client().await;
-    let rms_client = Arc::new(shared_rms_client);
-
+    let rms_client = match carbide_config.rms_api_url.clone() {
+        Some(url) if !url.is_empty() => {
+            let rms_client_pool = RmsClientPool::new(&url);
+            let shared_rms_client = rms_client_pool.create_client().await;
+            Some(Arc::new(shared_rms_client))
+        }
+        _ => None,
+    };
     let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
     let fabric_manager_type = match ib_config.enabled {
         true => ib::IBFabricManagerType::Rest,
@@ -326,6 +329,10 @@ pub async fn start_api(
         shared_redfish_pool.clone(),
         ipmi_tool.clone(),
         vault_client.clone(),
+        carbide_config
+            .site_explorer
+            .rotate_switch_nvos_credentials
+            .clone(),
     ));
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
@@ -349,7 +356,7 @@ pub async fn start_api(
         redfish_pool: shared_redfish_pool,
         runtime_config: carbide_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
-        rms_client,
+        rms_client: rms_client.clone(),
         nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
     });
@@ -397,6 +404,7 @@ pub async fn initialize_and_start_controllers(
         redfish_pool: shared_redfish_pool,
         nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
+        rms_client,
         ..
     } = api_service.as_ref();
     // As soon as we get the database up, observe this version of forge so that we know when it was
@@ -582,6 +590,7 @@ pub async fn initialize_and_start_controllers(
         ipmi_tool: ipmi_tool.clone(),
         site_config: carbide_config.clone(),
         dpa_info,
+        rms_client: rms_client.clone(),
     });
 
     // handles need to be stored in a variable
@@ -772,6 +781,7 @@ pub async fn initialize_and_start_controllers(
         Arc::new(carbide_config.get_firmware_config()),
         common_pools.clone(),
         work_lock_manager_handle.clone(),
+        rms_client.clone(),
     );
     let _site_explorer_stop_handle = site_explorer.start()?;
 

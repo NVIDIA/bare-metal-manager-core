@@ -380,12 +380,21 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     /// Treat any dpu found as a regular NIC and skip configuring it as a managed dpu.
-    /// This is specifically for rack level service to allow using GB200/300 and VR144 compute
+    /// This is specifically for dev labs to allow using GB200/300 and VR compute
     /// trays with bluefield dpus as NICs.
     pub force_dpu_nic_mode: bool,
 
     // rms_api_url is the URL to the Rack Manager Service API.
     pub rms_api_url: Option<String>,
+
+    /// Whether to use the host NIC instead of the DPUs on the compute trays.
+    /// This is used to test the host NIC functionality.
+    #[serde(
+        default = "SiteExplorerConfig::default_use_onboard_nic",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub use_onboard_nic: Arc<AtomicBool>,
 
     // SPDM Config
     #[serde(default)]
@@ -1094,6 +1103,14 @@ pub struct SiteExplorerConfig {
     /// Default is 1.
     pub machines_created_per_run: u64,
 
+    /// Whether SiteExplorer should rotate/update Switch NVOS admin credentials
+    #[serde(
+        default = "SiteExplorerConfig::default_rotate_switch_nvos_credentials",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub rotate_switch_nvos_credentials: Arc<AtomicBool>,
+
     /// DEPRECATED: Use `bmc_proxy` instead.
     /// The IP address to connect to instead of the BMC that made the dhcp request.
     /// This is a debug override and should not be used in production.
@@ -1144,6 +1161,13 @@ pub struct SiteExplorerConfig {
     /// Default is 1 hour.
     pub reset_rate_limit: Duration,
 
+    #[serde(
+        default = "SiteExplorerConfig::default_admin_segment_type_non_dpu",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub admin_segment_type_non_dpu: Arc<AtomicBool>,
+
     /// Whether site-controller should allocate a secondary
     /// VTEP IP or leave that to discovery.
     /// Current secondary VTEP use-case is additional
@@ -1182,18 +1206,17 @@ pub struct SiteExplorerConfig {
     )]
     pub create_switches: Arc<AtomicBool>,
 
-    /// Whether SiteExplorer should create Switch state machine from static IP
-    #[serde(
-        default = "SiteExplorerConfig::default_explore_switches_from_static_ip",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub explore_switches_from_static_ip: Arc<AtomicBool>,
-
     #[serde(default = "SiteExplorerConfig::default_switches_created_per_run")]
     /// How many Switches should be created in a single run.
     /// Default is 9.
     pub switches_created_per_run: u64,
+
+    #[serde(
+        default = "SiteExplorerConfig::default_use_onboard_nic",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub use_onboard_nic: Arc<AtomicBool>,
 }
 
 impl Default for SiteExplorerConfig {
@@ -1211,13 +1234,15 @@ impl Default for SiteExplorerConfig {
             bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Self::default_reset_rate_limit(),
+            admin_segment_type_non_dpu: Self::default_admin_segment_type_non_dpu(),
             allocate_secondary_vtep_ip: false,
             create_power_shelves: Arc::new(true.into()),
             explore_power_shelves_from_static_ip: Arc::new(true.into()),
             power_shelves_created_per_run: Self::default_power_shelves_created_per_run(),
             create_switches: Arc::new(true.into()),
-            explore_switches_from_static_ip: Arc::new(true.into()),
             switches_created_per_run: Self::default_switches_created_per_run(),
+            rotate_switch_nvos_credentials: Self::default_rotate_switch_nvos_credentials(),
+            use_onboard_nic: Arc::new(false.into()),
         }
     }
 }
@@ -1256,8 +1281,16 @@ impl SiteExplorerConfig {
         4
     }
 
+    pub fn default_rotate_switch_nvos_credentials() -> Arc<AtomicBool> {
+        Arc::new(false.into())
+    }
+
     pub const fn default_reset_rate_limit() -> Duration {
         Duration::hours(1)
+    }
+
+    pub fn default_admin_segment_type_non_dpu() -> Arc<AtomicBool> {
+        Arc::new(false.into())
     }
 
     pub fn default_create_power_shelves() -> Arc<AtomicBool> {
@@ -1276,12 +1309,12 @@ impl SiteExplorerConfig {
         Arc::new(false.into())
     }
 
-    pub fn default_explore_switches_from_static_ip() -> Arc<AtomicBool> {
-        Arc::new(false.into())
-    }
-
     pub const fn default_switches_created_per_run() -> u64 {
         9
+    }
+
+    pub fn default_use_onboard_nic() -> Arc<AtomicBool> {
+        Arc::new(false.into())
     }
 }
 
@@ -2793,13 +2826,15 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(1),
+                admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
-                explore_switches_from_static_ip: Arc::new(true.into()),
                 switches_created_per_run: 9,
+                rotate_switch_nvos_credentials: Arc::new(false.into()),
+                use_onboard_nic: Arc::new(false.into()),
             }
         );
         assert_eq!(
@@ -2947,13 +2982,15 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
+                admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
-                explore_switches_from_static_ip: Arc::new(true.into()),
                 switches_created_per_run: 9,
+                rotate_switch_nvos_credentials: Arc::new(false.into()),
+                use_onboard_nic: Arc::new(false.into()),
             }
         );
 
@@ -3205,13 +3242,15 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
+                admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
                 explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
-                explore_switches_from_static_ip: Arc::new(true.into()),
                 switches_created_per_run: 9,
+                rotate_switch_nvos_credentials: Arc::new(false.into()),
+                use_onboard_nic: Arc::new(false.into()),
             }
         );
 

@@ -119,6 +119,7 @@ pub async fn find_one_linked(
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     txn: &mut PgConnection,
     bmc_mac_address: MacAddress,
@@ -127,11 +128,13 @@ pub async fn create(
     serial_number: String,
     metadata: Metadata,
     rack_id: Option<String>,
+    nvos_username: Option<String>,
+    nvos_password: Option<String>,
 ) -> DatabaseResult<ExpectedSwitch> {
     let query = "INSERT INTO expected_switches
-             (bmc_mac_address, bmc_username, bmc_password, serial_number, metadata_name, metadata_description, rack_id, metadata_labels)
+             (bmc_mac_address, bmc_username, bmc_password, serial_number, metadata_name, metadata_description, rack_id, metadata_labels, nvos_username, nvos_password)
              VALUES
-             ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, $8::jsonb) RETURNING *";
+             ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, $8::jsonb, $9::varchar, $10::varchar) RETURNING *";
 
     sqlx::query_as(query)
         .bind(bmc_mac_address)
@@ -142,6 +145,8 @@ pub async fn create(
         .bind(metadata.description)
         .bind(rack_id)
         .bind(sqlx::types::Json(metadata.labels))
+        .bind(nvos_username)
+        .bind(nvos_password)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
@@ -181,6 +186,7 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
         .map_err(|err| DatabaseError::query(query, err))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update<'a>(
     expected_switch: &'a mut ExpectedSwitch,
     txn: &mut PgConnection,
@@ -189,8 +195,10 @@ pub async fn update<'a>(
     serial_number: String,
     metadata: Metadata,
     rack_id: Option<String>,
+    nvos_username: Option<String>,
+    nvos_password: Option<String>,
 ) -> DatabaseResult<&'a mut ExpectedSwitch> {
-    let query = "UPDATE expected_switches SET bmc_username=$1, bmc_password=$2, serial_number=$3, metadata_name=$4, metadata_description=$5, metadata_labels=$6, rack_id=$7 WHERE bmc_mac_address=$8 RETURNING bmc_mac_address";
+    let query = "UPDATE expected_switches SET bmc_username=$1, bmc_password=$2, serial_number=$3, metadata_name=$4, metadata_description=$5, metadata_labels=$6, rack_id=$7 , nvos_username=$8, nvos_password=$9 WHERE bmc_mac_address=$10 RETURNING bmc_mac_address";
 
     let _: () = sqlx::query_as(query)
         .bind(&bmc_username)
@@ -200,6 +208,8 @@ pub async fn update<'a>(
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(&rack_id)
+        .bind(&nvos_username)
+        .bind(&nvos_password)
         .bind(expected_switch.bmc_mac_address)
         .fetch_one(txn)
         .await
@@ -249,6 +259,8 @@ pub async fn create_missing_from(
             expected_switch.serial_number,
             expected_switch.metadata,
             expected_switch.rack_id,
+            expected_switch.nvos_username,
+            expected_switch.nvos_password,
         )
         .await?;
     }

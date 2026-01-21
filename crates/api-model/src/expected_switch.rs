@@ -34,6 +34,8 @@ pub struct ExpectedSwitch {
     pub bmc_username: String,
     pub serial_number: String,
     pub bmc_password: String,
+    pub nvos_username: Option<String>,
+    pub nvos_password: Option<String>,
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
     pub rack_id: Option<String>,
@@ -53,6 +55,8 @@ impl<'r> FromRow<'r, PgRow> for ExpectedSwitch {
             bmc_username: row.try_get("bmc_username")?,
             serial_number: row.try_get("serial_number")?,
             bmc_password: row.try_get("bmc_password")?,
+            nvos_username: row.try_get("nvos_username")?,
+            nvos_password: row.try_get("nvos_password")?,
             metadata,
             rack_id: row.try_get("rack_id")?,
         })
@@ -66,6 +70,8 @@ impl From<ExpectedSwitch> for rpc::forge::ExpectedSwitch {
             bmc_username: expected_switch.bmc_username,
             bmc_password: expected_switch.bmc_password,
             switch_serial_number: expected_switch.serial_number,
+            nvos_username: expected_switch.nvos_username,
+            nvos_password: expected_switch.nvos_password,
             metadata: Some(expected_switch.metadata.into()),
             rack_id: expected_switch.rack_id,
         }

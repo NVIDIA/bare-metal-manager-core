@@ -8,6 +8,7 @@ service my_service {
   rpc SingleOneOfPrimitiveRpc(SingleOneOfPrimitiveRequest) returns (SomeResponse);
   rpc MultiRpc(MultiRequest) returns (SomeResponse);
   rpc ExternRpc(ExternRequest) returns (SomeResponse);
+  rpc SingleStreamingMessageRpc(SingleMessageRequest) returns (stream SomeResponse);
 }
 
 message VoidRequest { }

@@ -21,6 +21,8 @@ use carbide_uuid::domain::DomainId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use duration_str::deserialize_duration_chrono;
@@ -55,6 +57,7 @@ use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
 use crate::machine::health_override::HealthReportOverrides;
+use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
 
@@ -2084,7 +2087,9 @@ pub struct MachineInterfaceSnapshot {
     pub addresses: Vec<IpAddr>,
     // Note: this field is denormalized, brought in from a JOIN when coming from machine_interface::find_by. It is otherwise not set.
     pub network_segment_type: Option<NetworkSegmentType>,
-    pub power_shelf_id: Option<MachineId>,
+    pub power_shelf_id: Option<PowerShelfId>,
+    pub switch_id: Option<SwitchId>,
+    pub association_type: Option<InterfaceAssociationType>,
 }
 
 impl MachineInterfaceSnapshot {
@@ -2104,6 +2109,8 @@ impl MachineInterfaceSnapshot {
             last_dhcp: None,
             network_segment_type: None,
             power_shelf_id: None,
+            switch_id: None,
+            association_type: None,
         }
     }
 }
@@ -2129,6 +2136,8 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
             last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
             power_shelf_id: machine_interface.power_shelf_id,
             is_bmc: None,
+            switch_id: machine_interface.switch_id,
+            association_type: machine_interface.association_type.map(|t| t as i32),
         }
     }
 }
@@ -2438,6 +2447,8 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             addresses: addrs_json.0.into_iter().flatten().collect(),
             vendors: vendors_json.0.into_iter().flatten().collect(),
             power_shelf_id: row.try_get("power_shelf_id")?,
+            switch_id: row.try_get("switch_id")?,
+            association_type: row.try_get("association_type")?,
         })
     }
 }

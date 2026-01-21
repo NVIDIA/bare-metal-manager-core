@@ -29,6 +29,21 @@ enum PowerComplianceValue {
   MAX = 1;
 }
 
+enum FirmwareUpdateError {
+  FW_UPDATE_SUCCESS = 0;
+  FW_UPDATE_FILE_NOT_FOUND = 1;
+  FW_UPDATE_CLIENT_FAILURE = 2;
+  FW_UPDATE_TARGET_NOT_FOUND = 3;
+  FW_UPDATE_SERVER_ERROR = 4;
+  FW_UPDATE_TASK_FAILED = 5;
+  FW_UPDATE_NO_TASK_INFO = 6;
+  FW_UPDATE_EXCEPTION = 7;
+  FW_UPDATE_INVALID_RESPONSE = 8;
+  FW_UPDATE_MONITORING_TIMEOUT = 9;
+  FW_UPDATE_TASK_EXCEPTION = 10;
+  FW_UPDATE_UNKNOWN = 11;
+}
+
 message NewNodeInfo {
   string node_id = 1;
   string mac_address = 2;
@@ -99,6 +114,8 @@ service RackManager {
   rpc UploadFile(FileUploadRequest) returns (FileUploadResponse) {}
   rpc PowerCompliance(PowerComplianceRequest) returns (PowerComplianceResponse) {}
   rpc Version(google.protobuf.Empty) returns (google.protobuf.Empty) {}
+  rpc NmxControl(NmxControlRequest) returns (NmxControlResponse) {}
+  rpc SwitchControl(SwitchControlRequest) returns (SwitchControlResponse) {}
 }
 
 
@@ -207,6 +224,21 @@ message PowerComplianceResponse {
   oneof response {
     GetRackPowerResponse get_power_limit = 3;
     SetRackPowerResponse set_power_limit = 4;
+  }
+}
+
+message NmxControlRequest {
+  Metadata metadata = 1;
+  oneof command {
+    ConfigureNmxcCommand configure_nmxc = 2;
+  }
+}
+
+message NmxControlResponse {
+  Metadata metadata = 1;
+  ReturnCode status = 2;
+  oneof response {
+    ConfigureNmxcResponse configure_nmxc = 3;
   }
 }
 
@@ -329,10 +361,12 @@ message UpdateFirmwareCommand {
   string node = 1;
   string filename = 2;
   string target = 3;
+  bool activate = 4;
 }
 
 message UpdateFirmwareResponse {
   string message = 1;
+  FirmwareUpdateError error_code = 2;
 }
 
 message UpdateFirmwareByNodeTypeCommand {
@@ -346,6 +380,13 @@ message UpdateFirmwareByNodeTypeResponse {
   int32 total_nodes = 2;
   int32 successful_updates = 3;
   int32 failed_updates = 4;
+  repeated NodeUpdateResult node_results = 5;
+}
+
+message NodeUpdateResult {
+  string node_id = 1;
+  FirmwareUpdateError error_code = 2;
+  string error_message = 3;
 }
 
 message GetAvailableFwImagesCommand {
@@ -456,4 +497,195 @@ message GetRackPowerResponse {
 }
 
 message SetRackPowerResponse {
+}
+
+/*********************************
+* NMX CONTROL SUBMESSAGES *
+*********************************/
+
+message ConfigureNmxcCommand {
+  string switch_host = 1;      // Switch hostname or IP
+  string hardware_platform = 2; // Hardware platform (e.g., "gb200_72x1")
+  string username = 3;         // Switch username
+  string password = 4;         // Switch password
+  int32 switch_port = 5;       // NVUE API port (default: 443)
+  bool verify_ssl = 6;         // Whether to verify SSL certificates
+}
+
+message ConfigureNmxcResponse {
+  string message = 1;          // Status message
+  string topology_used = 2;    // The topology that was applied
+  bool cluster_enabled = 3;    // Whether cluster was enabled
+  bool grpc_enabled = 4;       // Whether gRPC API is enabled
+}
+
+/**************************************
+ * SWITCH MANAGER CONTROL DEFINITIONS *
+ **************************************/
+
+// SwitchControl request/response
+message SwitchControlRequest {
+  Metadata metadata = 1;
+  oneof command {
+    FetchSystemImageCommand fetch_system_image = 2;
+    InstallSystemImageCommand install_system_image = 3;
+    ListSystemImagesCommand list_system_images = 4;
+    UpdateClusterConfigCommand update_cluster_config = 5;
+    GetClusterStateCommand get_cluster_state_cmd = 6;
+    GetClusterAppsStatusCommand get_cluster_apps_status = 7;
+    EnableNmxGrpcCommand enable_nmx_grpc = 8;
+    RestartClusterAppCommand restart_cluster_app = 9;
+    CheckNmxGrpcStatusCommand check_nmx_grpc_status = 10;
+  }
+}
+
+message SwitchControlResponse {
+  Metadata metadata = 1;
+  ReturnCode status = 2;
+  oneof response {
+    FetchSystemImageResponse fetch_system_image = 3;
+    InstallSystemImageResponse install_system_image = 4;
+    ListSystemImagesResponse list_system_images = 5;
+    UpdateClusterConfigResponse update_cluster_config = 6;
+    GetClusterStateResponse get_cluster_state_resp = 7;
+    GetClusterAppsStatusResponse get_cluster_apps_status = 8;
+    EnableNmxGrpcResponse enable_nmx_grpc = 9;
+    RestartClusterAppResponse restart_cluster_app = 10;
+    CheckNmxGrpcStatusResponse check_nmx_grpc_status = 11;
+  }
+}
+
+// FetchSystemImage command/response
+message FetchSystemImageCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+  string remote_url = 6;
+}
+
+message FetchSystemImageResponse {
+  string job_id = 1;
+  string error_message = 2;
+}
+
+// InstallSystemImage command/response
+message InstallSystemImageCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+  string image_filename = 6;
+}
+
+message InstallSystemImageResponse {
+  string job_id = 1;
+  string error_message = 2;
+}
+
+// ListSystemImages command/response
+message ListSystemImagesCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+}
+
+message ListSystemImagesResponse {
+  string images_json = 1;  // JSON string containing list of images
+  string error_message = 2;
+}
+
+// UpdateClusterConfig command/response
+message UpdateClusterConfigCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+  bool enabled = 6;
+}
+
+message UpdateClusterConfigResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// GetClusterState command/response
+message GetClusterStateCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+}
+
+message GetClusterStateResponse {
+  string state_json = 1;  // JSON string containing cluster state
+  string error_message = 2;
+}
+
+// GetClusterAppsStatus command/response
+message GetClusterAppsStatusCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+  string app_name = 6;
+}
+
+message GetClusterAppsStatusResponse {
+  string status_json = 1;  // JSON string containing app status
+  string error_message = 2;
+}
+
+// EnableNmxGrpc command/response
+message EnableNmxGrpcCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+  string app_name = 6;
+  bool enabled = 7;
+}
+
+message EnableNmxGrpcResponse {
+  string result_json = 1;  // JSON string containing result
+  string error_message = 2;
+}
+
+// RestartClusterApp command/response
+message RestartClusterAppCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+  string app_name = 6;
+}
+
+message RestartClusterAppResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// CheckNmxGrpcStatus command/response
+message CheckNmxGrpcStatusCommand {
+  string switch_host = 1;
+  string username = 2;
+  string password = 3;
+  int32 port = 4;
+  bool verify_ssl = 5;
+  string app_name = 6;
+  string target_switch_name = 7;
+}
+
+message CheckNmxGrpcStatusResponse {
+  string status_json = 1;  // JSON string containing connectivity status
+  string error_message = 2;
 }

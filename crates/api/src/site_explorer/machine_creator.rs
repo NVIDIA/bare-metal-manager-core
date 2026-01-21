@@ -24,6 +24,7 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     DpuDiscoveringState, DpuDiscoveringStates, Machine, MachineInterfaceSnapshot, ManagedHostState,
 };
+use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
 use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
@@ -300,7 +301,7 @@ impl MachineCreator {
                     tracing::info!(%mac_address, %machine_id, "Migrating unowned machine_interface to new managed host");
                     db::machine_interface::associate_interface_with_machine(
                         &machine_interface.id,
-                        machine_id,
+                        MachineInterfaceAssociation::Machine(*machine_id),
                         txn,
                     )
                     .await?;
@@ -407,7 +408,7 @@ impl MachineCreator {
                 );
                 db::machine_interface::associate_interface_with_machine(
                     &interface.id,
-                    dpu_machine_id,
+                    MachineInterfaceAssociation::Machine(*dpu_machine_id),
                     txn,
                 )
                 .await?;
@@ -500,7 +501,7 @@ impl MachineCreator {
 
         db::machine_interface::associate_interface_with_machine(
             &host_machine_interface.id,
-            &host_machine_id,
+            MachineInterfaceAssociation::Machine(host_machine_id),
             txn,
         )
         .await?;

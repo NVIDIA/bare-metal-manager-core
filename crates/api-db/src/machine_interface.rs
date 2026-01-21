@@ -17,6 +17,8 @@ use std::str::FromStr;
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
@@ -25,6 +27,7 @@ use model::address_selection_strategy::AddressSelectionStrategy;
 use model::expected_machine::ExpectedHostNic;
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineInterfaceSnapshot;
+use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::{NetworkSegment, NetworkSegmentType};
 use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{FromRow, PgConnection, PgTransaction};
@@ -35,6 +38,7 @@ use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_ne
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
+const SQL_VIOLATION_MAX_ONE_ASSOCIATION: &str = "chk_max_one_association";
 
 pub struct UsedAdminNetworkIpResolver {
     pub segment_id: NetworkSegmentId,
@@ -70,6 +74,28 @@ impl ColumnInfo<'_> for MachineIdColumn {
     type ColumnType = MachineId;
     fn column_name(&self) -> &'static str {
         "machine_id"
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PowerShelfIdColumn;
+
+impl ColumnInfo<'_> for PowerShelfIdColumn {
+    type TableType = MachineInterfaceSnapshot;
+    type ColumnType = PowerShelfId;
+    fn column_name(&self) -> &'static str {
+        "power_shelf_id"
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct SwitchIdColumn;
+
+impl ColumnInfo<'_> for SwitchIdColumn {
+    type TableType = MachineInterfaceSnapshot;
+    type ColumnType = SwitchId;
+    fn column_name(&self) -> &'static str {
+        "switch_id"
     }
 }
 
@@ -131,12 +157,23 @@ pub async fn associate_interface_with_dpu_machine(
 
 pub async fn associate_interface_with_machine(
     interface_id: &MachineInterfaceId,
-    machine_id: &MachineId,
+    association: MachineInterfaceAssociation,
     txn: &mut PgConnection,
 ) -> DatabaseResult<MachineInterfaceId> {
-    let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING id";
-    sqlx::query_as(query)
-        .bind(machine_id.to_string())
+    let (column_name, association_type, id_value) = match association {
+        MachineInterfaceAssociation::Machine(id) => ("machine_id", "Machine", id.to_string()),
+        MachineInterfaceAssociation::Switch(id) => ("switch_id", "Switch", id.to_string()),
+        MachineInterfaceAssociation::PowerShelf(id) => {
+            ("power_shelf_id", "PowerShelf", id.to_string())
+        }
+    };
+    let query = format!(
+        "UPDATE machine_interfaces SET {}=$1, association_type=$2::association_type where id=$3::uuid RETURNING id",
+        column_name
+    );
+    sqlx::query_as(&query)
+        .bind(id_value)
+        .bind(association_type)
         .bind(*interface_id)
         .fetch_one(txn)
         .await
@@ -146,7 +183,12 @@ pub async fn associate_interface_with_machine(
             {
                 DatabaseError::OnePrimaryInterface
             }
-            _ => DatabaseError::query(query, err),
+            sqlx::Error::Database(e)
+                if e.constraint() == Some(SQL_VIOLATION_MAX_ONE_ASSOCIATION) =>
+            {
+                DatabaseError::MaxOneInterfaceAssociation
+            }
+            _ => DatabaseError::query(&query, err),
         })
 }
 
@@ -667,7 +709,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     // this machine.
     associate_interface_with_machine(
         &machine_interface_id,
-        &predicted_machine_interface.machine_id,
+        MachineInterfaceAssociation::Machine(predicted_machine_interface.machine_id),
         txn,
     )
     .await?;

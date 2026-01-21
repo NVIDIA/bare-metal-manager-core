@@ -772,6 +772,25 @@ mod tests {
                     .to_string()
             );
         }
+
+        {
+            let rpc = methods.get("SingleStreamingMessageRpc").unwrap();
+            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            assert_eq!(
+                wrapper.to_string(),
+                quote! {
+                    pub async fn single_streaming_message_rpc<T: Into<crate::test::SingleMessageRequest>>(&self, request: T) -> Result<tonic::codec::Streaming<crate::test::SomeResponse>, tonic::Status> {
+                       Ok(self
+                            .connection()
+                            .await?
+                            .single_streaming_message_rpc(tonic::Request::new(request.into()))
+                            .await?
+                            .into_inner())
+                    }
+                }
+                .to_string()
+            );
+        }
     }
 
     #[test]

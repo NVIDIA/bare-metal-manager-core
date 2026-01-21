@@ -105,6 +105,7 @@ impl RedfishClient {
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
 
         let Some(vendor) = service_root.vendor() else {
+            tracing::info!("No vendor found for BMC at {bmc_ip_address}");
             return Err(EndpointExplorationError::MissingVendor);
         };
 
@@ -550,11 +551,46 @@ impl RedfishClient {
             .map_err(map_redfish_error)?;
         Ok(())
     }
+
+    pub async fn probe_vendor_name_from_chassis(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<String, EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(
+                bmc_ip_address,
+                Credentials::UsernamePassword { username, password },
+            )
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        let chassis_all = client.get_chassis_all().await.map_err(map_redfish_error)?;
+        if chassis_all.contains(&"powershelf".to_string()) {
+            let chassis = client
+                .get_chassis("powershelf")
+                .await
+                .map_err(map_redfish_error)?;
+            if let Some(x) = chassis.manufacturer {
+                return Ok(x);
+            }
+        }
+
+        Err(EndpointExplorationError::UnsupportedVendor {
+            vendor: "Unknown".to_string(),
+        })
+    }
 }
 
 async fn is_switch(client: &dyn Redfish) -> Result<bool, RedfishError> {
     let chassis = client.get_chassis_all().await?;
     Ok(chassis.contains(&"MGX_NVSwitch_0".to_string()))
+}
+
+async fn is_powershelf(client: &dyn Redfish) -> Result<bool, RedfishError> {
+    let chassis = client.get_chassis_all().await?;
+    Ok(chassis.contains(&"powershelf".to_string()))
 }
 
 async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
@@ -588,6 +624,8 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
     let mut base_mac = None;
     let mut nic_mode = None;
 
+    let is_switch = is_switch(client).await.map_err(map_redfish_error)?;
+    let is_powershelf = is_powershelf(client).await.map_err(map_redfish_error)?;
     if is_dpu {
         // This part processes dpu case and do two things such as
         // 1. update system serial_number in case it is empty using chassis serial_number
@@ -619,9 +657,13 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
 
     system.serial_number = system.serial_number.map(|s| s.trim().to_string());
 
-    let pcie_devices = fetch_pcie_devices(client)
-        .await
-        .map_err(map_redfish_error)?;
+    let pcie_devices = if !is_powershelf {
+        fetch_pcie_devices(client)
+            .await
+            .map_err(map_redfish_error)?
+    } else {
+        vec![]
+    };
 
     let is_infinite_boot_enabled = client
         .is_infinite_boot_enabled()
@@ -629,9 +671,9 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
         .map_err(map_redfish_error)?;
 
     // If this is an nvswitch, don't set a boot order.
-    let boot_order = match is_switch(client).await.map_err(map_redfish_error)? {
+    let boot_order = match is_switch || is_powershelf {
         true => {
-            tracing::debug!("Skipping boot order for nvswitch");
+            tracing::debug!("Skipping boot order for nvswitch or powershelf");
             None
         }
         false => fetch_boot_order(client, &system)
@@ -760,13 +802,14 @@ async fn get_oob_interface(
     // nvlink switch does not have oob interface. And, if we try
     // querying boot options over redfish, we will get a 404 error.
     // So just return Ok(None) here.
-    if is_switch(client).await? {
+    if is_switch(client).await? || is_powershelf(client).await? {
         return Ok(None);
     }
 
     // Temporary workaround until oob mac would be possible to get via Redfish
     let boot_options = client.get_boot_options().await?;
     let mac_pattern = Regex::new(r"MAC\((?<mac>[[:alnum:]]+)\,").unwrap();
+    let mut boot_order_first_ethernet_interface = None;
 
     for option in boot_options.members.iter() {
         // odata_id: "/redfish/v1/Systems/Bluefield/BootOptions/Boot0001"
@@ -800,19 +843,27 @@ async fn get_oob_interface(
                         }
                     })?;
 
-                return Ok(Some(EthernetInterface {
-                    description: Some("1G DPU OOB network interface".to_string()),
-                    id: Some("oob_net0".to_string()),
+                let (description, id) = if boot_option.display_name.contains("OOB") {
+                    (
+                        Some("1G DPU OOB network interface".to_string()),
+                        Some("oob_net0".to_string()),
+                    )
+                } else {
+                    (boot_option.description, Some(option_id.to_string()))
+                };
+
+                boot_order_first_ethernet_interface = Some(EthernetInterface {
+                    description: description.clone(),
+                    id: id.clone(),
                     interface_enabled: None,
                     mac_address: Some(mac_addr),
                     uefi_device_path: None,
-                }));
+                });
             }
         }
     }
 
-    // OOB Interface was not found
-    Ok(None)
+    Ok(boot_order_first_ethernet_interface)
 }
 
 async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishError> {

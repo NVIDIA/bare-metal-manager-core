@@ -15,8 +15,9 @@ use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::OutputFormat;
 
 use super::args::{DeleteRack, ShowRack};
+use crate::cfg::cli_options::AddNode;
 use crate::rms::args::{AvailableFwImages, FirmwareInventory, PowerState, RemoveNode};
-use crate::rpc::ApiClient;
+use crate::rpc::{ApiClient, RmsApiClient};
 
 pub async fn show_rack(api_client: &ApiClient, show_opts: &ShowRack) -> Result<()> {
     let query = rpc::forge::GetRackRequest {
@@ -130,96 +131,84 @@ pub async fn delete_rack(api_client: &ApiClient, delete_opts: &DeleteRack) -> Re
     Ok(())
 }
 
-pub async fn get_inventory(api_client: &ApiClient) -> Result<()> {
-    let query = rpc::forge::RackManagerForgeRequest {
-        cmd: rpc::forge::RackManagerForgeCmd::InventoryGet.into(),
-        node_id: None,
-    };
-    let response = api_client.0.rack_manager_call(query).await?;
-    let inventory = response.json_result;
-    println!("{}", inventory.unwrap());
+pub async fn get_inventory(rms_client: &RmsApiClient) -> Result<()> {
+    let response = rms_client.inventory_get().await?;
+    println!("{:#?}", response);
     Ok(())
 }
 
-pub async fn remove_node(api_client: &ApiClient, remove_node_opts: &RemoveNode) -> Result<()> {
-    let query = rpc::forge::RackManagerForgeRequest {
-        cmd: rpc::forge::RackManagerForgeCmd::RemoveNode.into(),
-        node_id: Some(remove_node_opts.node_id.clone()),
+#[allow(dead_code)]
+pub async fn add_node(rms_client: &RmsApiClient, add_node_opts: &AddNode) -> Result<()> {
+    let new_node = ::rpc::protos::rack_manager::NewNodeInfo {
+        node_id: add_node_opts.node_id.clone(),
+        mac_address: add_node_opts.mac_address.clone(),
+        ip_address: add_node_opts.ip_address.clone(),
+        port: add_node_opts.port,
+        username: None,
+        password: None,
+        r#type: add_node_opts.node_type,
     };
-    let response = api_client.0.rack_manager_call(query).await?;
-    let inventory = response.json_result;
-    println!("{}", inventory.unwrap());
+    let new_nodes = vec![new_node];
+    let response = rms_client.add_node(new_nodes).await?;
+    println!("{:#?}", response);
     Ok(())
 }
 
-pub async fn get_poweron_order(api_client: &ApiClient) -> Result<()> {
-    let query = rpc::forge::RackManagerForgeRequest {
-        cmd: rpc::forge::RackManagerForgeCmd::GetPoweronOrder.into(),
-        node_id: None,
-    };
-    let response = api_client.0.rack_manager_call(query).await?;
-    let inventory = response.json_result;
-    println!("{}", inventory.unwrap());
+pub async fn remove_node(rms_client: &RmsApiClient, remove_node_opts: &RemoveNode) -> Result<()> {
+    let response = rms_client
+        .remove_node(remove_node_opts.node_id.clone())
+        .await?;
+    println!("{:#?}", response);
     Ok(())
 }
 
-pub async fn get_power_state(api_client: &ApiClient, power_state_opts: &PowerState) -> Result<()> {
-    let query = rpc::forge::RackManagerForgeRequest {
-        cmd: rpc::forge::RackManagerForgeCmd::GetPowerState.into(),
-        node_id: Some(power_state_opts.node_id.clone()),
-    };
-    let response = api_client.0.rack_manager_call(query).await?;
-    let inventory = response.json_result;
-    println!("{}", inventory.unwrap());
+pub async fn get_poweron_order(rms_client: &RmsApiClient) -> Result<()> {
+    let response = rms_client.get_poweron_order().await?;
+    println!("{:#?}", response);
+    Ok(())
+}
+
+pub async fn get_power_state(
+    rms_client: &RmsApiClient,
+    power_state_opts: &PowerState,
+) -> Result<()> {
+    let response = rms_client
+        .get_power_state(power_state_opts.node_id.clone())
+        .await?;
+    println!("{:#?}", response);
     Ok(())
 }
 
 pub async fn get_firmware_inventory(
-    api_client: &ApiClient,
+    rms_client: &RmsApiClient,
     firmware_inventory_opts: &FirmwareInventory,
 ) -> Result<()> {
-    let query = rpc::forge::RackManagerForgeRequest {
-        cmd: rpc::forge::RackManagerForgeCmd::GetFirmwareInventory.into(),
-        node_id: Some(firmware_inventory_opts.node_id.clone()),
-    };
-    let response = api_client.0.rack_manager_call(query).await?;
-    let inventory = response.json_result;
-    println!("{}", inventory.unwrap());
+    let response = rms_client
+        .get_firmware_inventory(firmware_inventory_opts.node_id.clone())
+        .await?;
+    println!("{:#?}", response);
     Ok(())
 }
 
 pub async fn get_available_fw_images(
-    api_client: &ApiClient,
+    rms_client: &RmsApiClient,
     available_fw_images_opts: &AvailableFwImages,
 ) -> Result<()> {
-    let query = rpc::forge::RackManagerForgeRequest {
-        cmd: rpc::forge::RackManagerForgeCmd::GetAvailableFwImages.into(),
-        node_id: Some(available_fw_images_opts.node_id.clone()),
-    };
-    let response = api_client.0.rack_manager_call(query).await?;
-    let inventory = response.json_result;
-    println!("{}", inventory.unwrap());
+    let response = rms_client
+        .get_available_fw_images(available_fw_images_opts.node_id.clone())
+        .await?;
+    println!("{:#?}", response);
     Ok(())
 }
 
-pub async fn get_bkc_files(api_client: &ApiClient) -> Result<()> {
-    let query = rpc::forge::RackManagerForgeRequest {
-        cmd: rpc::forge::RackManagerForgeCmd::GetBkcFiles.into(),
-        node_id: None,
-    };
-    let response = api_client.0.rack_manager_call(query).await?;
-    let inventory = response.json_result;
-    println!("{}", inventory.unwrap());
+pub async fn get_bkc_files(rms_client: &RmsApiClient) -> Result<()> {
+    let response = rms_client.get_bkc_files().await?;
+    println!("{:#?}", response);
     Ok(())
 }
 
-pub async fn check_bkc_compliance(api_client: &ApiClient) -> Result<()> {
-    let query = rpc::forge::RackManagerForgeRequest {
-        cmd: rpc::forge::RackManagerForgeCmd::CheckBkcCompliance.into(),
-        node_id: None,
-    };
-    let response = api_client.0.rack_manager_call(query).await?;
-    let inventory = response.json_result;
-    println!("{}", inventory.unwrap());
+pub async fn check_bkc_compliance(rms_client: &RmsApiClient) -> Result<()> {
+    let response = rms_client.check_bkc_compliance().await?;
+    println!("{:#?}", response);
     Ok(())
 }

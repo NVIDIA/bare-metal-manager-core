@@ -66,6 +66,7 @@ pub mod power_shelf_state_history;
 pub mod predicted_machine_interface;
 pub mod queries;
 pub mod rack;
+pub mod rack_firmware;
 pub mod rack_state_history;
 pub mod redfish_actions;
 pub mod resource_pool;
@@ -374,6 +375,8 @@ pub enum DatabaseError {
     NotImplemented,
     #[error("Error in DHCP allocation/handling: {0}")]
     DhcpError(#[from] DhcpError),
+    #[error("Maximum one association per interface")]
+    MaxOneInterfaceAssociation,
 }
 
 impl DatabaseError {

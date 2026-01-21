@@ -12,6 +12,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::oem::nvidia_dpu::NicMode;
@@ -44,6 +45,7 @@ pub struct BmcEndpointExplorer {
     ipmi_tool: Arc<dyn IPMITool>,
     credential_client: CredentialClient,
     mutex: Arc<Mutex<()>>,
+    rotate_switch_nvos_credentials: Arc<AtomicBool>,
 }
 
 impl BmcEndpointExplorer {
@@ -51,12 +53,14 @@ impl BmcEndpointExplorer {
         redfish_client_pool: Arc<dyn RedfishClientPool>,
         ipmi_tool: Arc<dyn IPMITool>,
         credential_provider: Arc<dyn CredentialProvider>,
+        rotate_switch_nvos_credentials: Arc<AtomicBool>,
     ) -> Self {
         Self {
             redfish_client: RedfishClient::new(redfish_client_pool),
             ipmi_tool,
             credential_client: CredentialClient::new(credential_provider),
             mutex: Arc::new(Mutex::new(())),
+            rotate_switch_nvos_credentials,
         }
     }
 
@@ -87,6 +91,15 @@ impl BmcEndpointExplorer {
             .await
     }
 
+    pub async fn get_switch_nvos_admin_credentials(
+        &self,
+        bmc_mac_address: MacAddress,
+    ) -> Result<Credentials, EndpointExplorationError> {
+        self.credential_client
+            .get_switch_nvos_admin_credentials(bmc_mac_address)
+            .await
+    }
+
     pub async fn set_bmc_root_credentials(
         &self,
         bmc_mac_address: MacAddress,
@@ -112,15 +125,18 @@ impl BmcEndpointExplorer {
         vendor: RedfishVendor,
         current_bmc_credentials: Credentials,
         new_password: String,
+        skip_password_change: bool,
     ) -> Result<Credentials, EndpointExplorationError> {
-        self.redfish_client
-            .set_bmc_root_password(
-                bmc_ip_address,
-                vendor,
-                current_bmc_credentials.clone(),
-                new_password.clone(),
-            )
-            .await?;
+        if !skip_password_change {
+            self.redfish_client
+                .set_bmc_root_password(
+                    bmc_ip_address,
+                    vendor,
+                    current_bmc_credentials.clone(),
+                    new_password.clone(),
+                )
+                .await?;
+        }
 
         let (user, _) = match current_bmc_credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
@@ -161,8 +177,10 @@ impl BmcEndpointExplorer {
         expected_switch: Option<ExpectedSwitch>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let current_bmc_credentials;
+        let mut skip_password_change = false;
 
         tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "attempting to set the administrative credentials to the site password");
+        let mut sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
 
         if let Some(expected_machine_credentials) = expected_machine {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected machine for this BMC mac address");
@@ -172,6 +190,10 @@ impl BmcEndpointExplorer {
             };
         } else if let Some(expected_power_shelf_credentials) = expected_power_shelf {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected power shelf for this BMC mac address");
+            sitewide_bmc_password = expected_power_shelf_credentials.bmc_password.clone();
+            // Lite-On power shelf BMCs do not support the Redfish service root endpoint
+            // so we skip the password change
+            skip_password_change = true;
             current_bmc_credentials = Credentials::UsernamePassword {
                 username: expected_power_shelf_credentials.bmc_username,
                 password: expected_power_shelf_credentials.bmc_password,
@@ -204,8 +226,6 @@ impl BmcEndpointExplorer {
             }
         }
 
-        let sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
-
         // use redfish to set the machine's BMC root password to
         // match Forge's sitewide BMC root password (from the factory default).
         // return an error if we cannot log into the machine's BMC using current credentials
@@ -215,6 +235,7 @@ impl BmcEndpointExplorer {
                 vendor,
                 current_bmc_credentials,
                 sitewide_bmc_password,
+                skip_password_change,
             )
             .await?;
 
@@ -229,6 +250,33 @@ impl BmcEndpointExplorer {
 
         self.generate_exploration_report(bmc_ip_address, bmc_credentials, None)
             .await
+    }
+
+    // Handle switch NVOS admin credentials setup
+    // Store NVOS admin credentials in vault for the switch if they exist in expected_switch
+    pub async fn set_sitewide_switch_nvos_admin_credentials(
+        &self,
+        bmc_mac_address: MacAddress,
+        expected_switch: ExpectedSwitch,
+    ) -> Result<(), EndpointExplorationError> {
+        if let (Some(nvos_username), Some(nvos_password)) =
+            (expected_switch.nvos_username, expected_switch.nvos_password)
+        {
+            tracing::info!(
+                %bmc_mac_address,
+                "Storing NVOS admin credentials in vault for switch {bmc_mac_address}"
+            );
+            self.credential_client
+                .set_bmc_nvos_admin_credentials(
+                    bmc_mac_address,
+                    &Credentials::UsernamePassword {
+                        username: nvos_username,
+                        password: nvos_password,
+                    },
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     pub async fn redfish_reset_bmc(
@@ -594,18 +642,40 @@ impl EndpointExplorer for BmcEndpointExplorer {
         }
 
         let bmc_mac_address = interface.mac_address;
-        let vendor = self.probe_redfish_endpoint(bmc_ip_address).await?;
-        tracing::trace!(%bmc_ip_address, "Is a {vendor} BMC that supports Redfish");
+        let vendor = match self.probe_redfish_endpoint(bmc_ip_address).await {
+            Ok(vendor) => vendor,
+            Err(e) => {
+                tracing::error!(%bmc_ip_address, "Failed to probe Redfish service root endpoint: {e}");
+                //This is workaround for Lite-On power shelf BMCs
+                // that do not support the Redfish service root endpoint
+                let credentials = self.get_bmc_root_credentials(bmc_mac_address).await?;
+                let (username, password) = match credentials.clone() {
+                    Credentials::UsernamePassword { username, password } => (username, password),
+                };
+
+                let vendor = self
+                    .redfish_client
+                    .probe_vendor_name_from_chassis(bmc_ip_address, username, password)
+                    .await?;
+                if !vendor.to_lowercase().contains("lite-on technology corp") {
+                    return Err(e);
+                }
+                RedfishVendor::LiteOnPowerShelf
+            }
+        };
+
+        tracing::info!(%bmc_ip_address, "Is a {vendor} BMC that supports Redfish");
 
         // Authenticate and set the BMC root account credentials
 
         // Case 1: Vault contains a path at "bmc/{bmc_mac_address}/root"
         // This machine has its BMC set to the Forge sitewide BMC root password.
         // Create the redfish client and generate the report.
-        match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => Ok(self
-                .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
-                .await?),
+        let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => {
+                self.generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .await?
+            }
 
             Err(EndpointExplorationError::MissingCredentials { .. }) => {
                 tracing::info!(
@@ -624,12 +694,48 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     vendor,
                     expected_machine,
                     expected_power_shelf,
-                    expected_switch,
+                    expected_switch.clone(),
                 )
-                .await
+                .await?
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        // Check for switch NVOS admin credentials if this is a switch
+        if let Some(expected_switch) = expected_switch
+            && expected_switch.nvos_username.is_some()
+            && expected_switch.nvos_password.is_some()
+        {
+            // Only check if rotation is enabled
+            if self.rotate_switch_nvos_credentials.load(Ordering::Relaxed) {
+                match self
+                    .get_switch_nvos_admin_credentials(bmc_mac_address)
+                    .await
+                {
+                    Ok(_) => {
+                        tracing::trace!(
+                            %bmc_ip_address, %bmc_mac_address,
+                            "NVOS admin credentials already exist in vault for switch {bmc_mac_address}"
+                        );
+                    }
+                    Err(_) => {
+                        tracing::info!(
+                            %bmc_ip_address, %bmc_mac_address,
+                            "Site explorer could not find NVOS admin credentials in vault for switch {bmc_mac_address} - setting them up.",
+                        );
+                        self.set_sitewide_switch_nvos_admin_credentials(
+                            bmc_mac_address,
+                            expected_switch,
+                        )
+                        .await?;
+                    }
+                }
+            }
         }
+
+        Ok(report)
     }
 
     async fn redfish_reset_bmc(

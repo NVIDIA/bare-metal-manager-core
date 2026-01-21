@@ -54,6 +54,11 @@ pub struct AddExpectedSwitch {
     )]
     pub switch_serial_number: String,
 
+    #[clap(long, help = "NVOS username of the expected switch")]
+    pub nvos_username: Option<String>,
+    #[clap(long, help = "NVOS password of the expected switch")]
+    pub nvos_password: Option<String>,
+
     #[clap(
         long = "meta-name",
         value_name = "META_NAME",
@@ -156,6 +161,11 @@ pub struct UpdateExpectedSwitch {
     )]
     pub switch_serial_number: Option<String>,
 
+    #[clap(long, group = "group", help = "NVOS username of the expected switch")]
+    pub nvos_username: Option<String>,
+    #[clap(long, group = "group", help = "NVOS password of the expected switch")]
+    pub nvos_password: Option<String>,
+
     #[clap(
         long = "meta-name",
         value_name = "META_NAME",
@@ -193,8 +203,10 @@ impl UpdateExpectedSwitch {
         if self.bmc_username.is_none()
             && self.bmc_password.is_none()
             && self.switch_serial_number.is_none()
+            && self.nvos_username.is_none()
+            && self.nvos_password.is_none()
         {
-            return Err("One of the following options must be specified: bmc-user-name and bmc-password or switch-serial-number".to_string());
+            return Err("One of the following options must be specified: bmc-user-name and bmc-password or switch-serial-number or nvos-username and nvos-password".to_string());
         }
         Ok(())
     }
@@ -237,6 +249,8 @@ pub struct ExpectedSwitchJson {
     pub bmc_username: String,
     pub bmc_password: String,
     pub switch_serial_number: String,
+    pub nvos_username: Option<String>,
+    pub nvos_password: Option<String>,
     #[serde(default)]
     pub metadata: Option<rpc::forge::Metadata>,
     pub rack_id: Option<String>,

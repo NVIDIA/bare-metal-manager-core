@@ -106,6 +106,7 @@ async fn test_switch_state_transitions(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<SwitchStateControllerIO>::builder()
@@ -171,6 +172,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<SwitchStateControllerIO>::builder()
@@ -259,6 +261,7 @@ async fn test_switch_error_state_handling(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<SwitchStateControllerIO>::builder()
@@ -375,6 +378,7 @@ async fn test_switch_deletion_with_state_controller(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<SwitchStateControllerIO>::builder()

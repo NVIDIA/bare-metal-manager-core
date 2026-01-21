@@ -54,6 +54,7 @@ pub mod power_options;
 pub mod power_shelf;
 pub mod pxe;
 pub mod rack;
+pub mod rack_firmware;
 pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;

@@ -16,3 +16,4 @@
 
 pub mod client_config;
 pub mod default;
+pub mod rms_client_config;

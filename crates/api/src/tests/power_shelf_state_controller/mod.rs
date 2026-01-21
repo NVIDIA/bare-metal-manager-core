@@ -109,6 +109,7 @@ async fn test_power_shelf_state_transitions(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
@@ -178,6 +179,7 @@ async fn test_power_shelf_deletion_flow(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
@@ -269,6 +271,7 @@ async fn test_power_shelf_error_state_handling(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
@@ -393,6 +396,7 @@ async fn test_power_shelf_deletion_with_state_controller(
         ipmi_tool: env.ipmi_tool.clone(),
         site_config: env.config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let handle = StateController::<PowerShelfStateControllerIO>::builder()

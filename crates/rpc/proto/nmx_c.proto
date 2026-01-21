@@ -892,7 +892,7 @@ service NMXController {
   rpc Hello(ClientHello) returns (ServerHello) {};
 
   // Client subscription for push notifications on updates
-  rpc Subscribe(SubscribeRequest) returns (ServerNotification) {};
+  rpc Subscribe(SubscribeRequest) returns (stream ServerNotification) {};
 
   // Factory reset for state and configuration
   rpc FactoryReset(FactoryResetRequest) returns (ReturnCode) {};

@@ -90,7 +90,7 @@ use crate::logging::log_limiter::LogLimiter;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::NmxmClientPool;
 use crate::nvlink::test_support::NmxmSimClient;
-use crate::rack::rms_client::{RackManagerClientPool, RmsClientPool};
+use crate::rack::rms_client::test_support::RmsSim;
 use crate::redfish::test_support::RedfishSim;
 use crate::scout_stream;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
@@ -284,6 +284,7 @@ pub struct TestEnv {
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
     pub test_credential_provider: Arc<TestCredentialProvider>,
+    pub rms_sim: Arc<RmsSim>,
 }
 
 impl TestEnv {
@@ -298,6 +299,7 @@ impl TestEnv {
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.clone(),
             dpa_info: None,
+            rms_client: self.rms_sim.as_rms_client(),
         }
     }
 
@@ -1065,7 +1067,9 @@ pub fn get_config() -> CarbideConfig {
         mlxconfig_profiles: None,
         rack_management_enabled: false,
         force_dpu_nic_mode: false,
-        rms_api_url: Some("https://localhost".to_string()),
+        rms_api_url: Some(
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
+        ),
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
@@ -1074,6 +1078,7 @@ pub fn get_config() -> CarbideConfig {
             nras_config: Some(nras::Config::default()),
         },
         dsx_exchange_event_bus: None,
+        use_onboard_nic: Arc::new(false.into()),
     }
 }
 
@@ -1287,6 +1292,7 @@ pub async fn create_test_env_with_overrides(
         redfish_sim.clone(),
         ipmi_tool.clone(),
         credential_provider.clone(),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
     ));
 
     let reachability_params = ReachabilityParams {
@@ -1296,10 +1302,7 @@ pub async fn create_test_env_with_overrides(
         scout_reporting_timeout: config.machine_state_controller.scout_reporting_timeout,
     };
 
-    let rms_api_url = config.rms_api_url.clone().unwrap_or_default();
-    let rms_client_pool = RmsClientPool::new(&rms_api_url);
-    let shared_rms_client = rms_client_pool.create_client().await;
-    let rms_client = Arc::new(shared_rms_client);
+    let rms_sim = Arc::new(RmsSim);
 
     let api = Arc::new(Api {
         runtime_config: config.clone(),
@@ -1314,7 +1317,7 @@ pub async fn create_test_env_with_overrides(
         endpoint_explorer: bmc_explorer,
         dpu_health_log_limiter: LogLimiter::default(),
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
-        rms_client,
+        rms_client: rms_sim.as_rms_client(),
         nmxm_pool: nmxm_sim.clone(),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
     });
@@ -1364,6 +1367,7 @@ pub async fn create_test_env_with_overrides(
         ipmi_tool: ipmi_tool.clone(),
         site_config: config.clone(),
         dpa_info: None,
+        rms_client: None,
     });
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
@@ -1456,19 +1460,22 @@ pub async fn create_test_env_with_overrides(
             bmc_proxy: Arc::new(Default::default()),
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Duration::hours(1),
+            admin_segment_type_non_dpu: Arc::new(false.into()),
             allocate_secondary_vtep_ip: true,
             create_power_shelves: Arc::new(true.into()),
             explore_power_shelves_from_static_ip: Arc::new(true.into()),
             power_shelves_created_per_run: 1,
             create_switches: Arc::new(true.into()),
-            explore_switches_from_static_ip: Arc::new(true.into()),
             switches_created_per_run: 1,
+            rotate_switch_nvos_credentials: Arc::new(false.into()),
+            use_onboard_nic: Arc::new(false.into()),
         },
         test_meter.meter(),
         Arc::new(fake_endpoint_explorer.clone()),
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
         work_lock_manager_handle.clone(),
+        rms_sim.as_rms_client(),
     );
 
     // Create some instance types
@@ -1556,6 +1563,7 @@ pub async fn create_test_env_with_overrides(
         domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
         test_credential_provider: credential_provider.clone(),
+        rms_sim,
     }
 }
 

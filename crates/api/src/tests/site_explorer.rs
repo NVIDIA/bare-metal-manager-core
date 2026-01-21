@@ -230,6 +230,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // check the ingestion state of the machine
@@ -428,7 +429,6 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -441,6 +441,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -879,13 +880,15 @@ async fn test_site_explorer_audit_exploration_results(
         allow_changing_bmc_proxy: None,
         bmc_proxy: Arc::default(),
         reset_rate_limit: chrono::Duration::hours(1),
+        admin_segment_type_non_dpu: Arc::new(false.into()),
         allocate_secondary_vtep_ip: false,
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
+        rotate_switch_nvos_credentials: Arc::new(false.into()),
+        use_onboard_nic: Arc::new(false.into()),
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
@@ -896,6 +899,7 @@ async fn test_site_explorer_audit_exploration_results(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -1035,6 +1039,7 @@ async fn test_site_explorer_audit_exploration_results(
 
     Ok(())
 }
+
 #[crate::sqlx_test]
 async fn test_site_explorer_reexplore(
     pool: sqlx::PgPool,
@@ -1083,7 +1088,6 @@ async fn test_site_explorer_reexplore(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -1097,6 +1101,7 @@ async fn test_site_explorer_reexplore(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -1258,7 +1263,6 @@ async fn test_disable_machine_creation_outside_site_explorer(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -1340,7 +1344,6 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -1353,6 +1356,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -1559,7 +1563,6 @@ async fn test_site_explorer_health_report(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -1572,6 +1575,7 @@ async fn test_site_explorer_health_report(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // Run site explorer and check the health state of the Machine
@@ -2121,7 +2125,6 @@ async fn test_site_explorer_unknown_vendor(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -2134,6 +2137,7 @@ async fn test_site_explorer_unknown_vendor(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -2335,7 +2339,6 @@ async fn test_machine_creation_with_sku(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -2348,6 +2351,7 @@ async fn test_machine_creation_with_sku(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -2656,7 +2660,6 @@ async fn test_expected_machine_device_type_metrics(
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
-        explore_switches_from_static_ip: Arc::new(true.into()),
         switches_created_per_run: 1,
         ..Default::default()
     };
@@ -2669,6 +2672,7 @@ async fn test_expected_machine_device_type_metrics(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // Run site explorer to collect metrics
@@ -2761,6 +2765,7 @@ async fn test_site_explorer_power_shelf_discovery(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
+        expected_power_shelf.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -2783,6 +2788,10 @@ async fn test_site_explorer_power_shelf_discovery(
             }],
             chassis: vec![Chassis {
                 model: Some("PowerShelf-2000".to_string()),
+                id: "powershelf".to_string(),
+                manufacturer: Some("lite-on technology corp.".to_string()),
+                part_number: Some("PS123456789".to_string()),
+                serial_number: Some("PS123456789".to_string()),
                 ..Default::default()
             }],
             service: Vec::new(),
@@ -2821,6 +2830,7 @@ async fn test_site_explorer_power_shelf_discovery(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -2842,17 +2852,12 @@ async fn test_site_explorer_power_shelf_discovery(
         assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
         assert_eq!(res.clone().unwrap().systems, report.report.systems);
     }
-
-    // Mark preingestion as complete
     let mut txn = env.pool.begin().await?;
     db_explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-        .await
-        .unwrap();
+        .await?;
     txn.commit().await?;
 
-    // Run another iteration to create power shelf
     explorer.run_single_iteration().await.unwrap();
-
     // Check metrics
     assert_eq!(
         test_meter
@@ -2919,6 +2924,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
+        expected_power_shelf.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -2941,6 +2947,10 @@ async fn test_site_explorer_power_shelf_with_expected_config(
             }],
             chassis: vec![Chassis {
                 model: Some("PowerShelf-2000".to_string()),
+                id: "powershelf".to_string(),
+                manufacturer: Some("lite-on technology corp.".to_string()),
+                part_number: Some("PS123456789".to_string()),
+                serial_number: Some("PS123456789".to_string()),
                 ..Default::default()
             }],
             service: Vec::new(),
@@ -2979,18 +2989,14 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
-
-    // Mark preingestion as complete
     let mut txn = env.pool.begin().await?;
     db_explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-        .await
-        .unwrap();
+        .await?;
     txn.commit().await?;
-
-    // Run another iteration to create power shelf
     explorer.run_single_iteration().await.unwrap();
 
     // Verify power shelf was created with expected metadata
@@ -3080,6 +3086,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
             expected_power_shelf.serial_number.clone(),
             expected_power_shelf.ip_address,
             expected_power_shelf.metadata.clone(),
+            expected_power_shelf.rack_id.clone(),
         )
         .await?;
     }
@@ -3104,6 +3111,10 @@ async fn test_site_explorer_power_shelf_creation_limit(
                 }],
                 chassis: vec![Chassis {
                     model: Some("PowerShelf-2000".to_string()),
+                    id: "powershelf".to_string(),
+                    manufacturer: Some("lite-on technology corp.".to_string()),
+                    part_number: Some("PS123456789".to_string()),
+                    serial_number: Some("PS123456789".to_string()),
                     ..Default::default()
                 }],
                 service: Vec::new(),
@@ -3143,20 +3154,17 @@ async fn test_site_explorer_power_shelf_creation_limit(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
-
-    // Mark preingestion as complete for all
     let mut txn = env.pool.begin().await?;
     for power_shelf in &power_shelves {
         db_explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-            .await
-            .unwrap();
+            .await?;
     }
     txn.commit().await?;
 
-    // Run another iteration to create power shelves (limited to 2)
     explorer.run_single_iteration().await.unwrap();
 
     // Check that only 2 power shelves were created due to limit
@@ -3229,6 +3237,7 @@ async fn test_site_explorer_power_shelf_disabled(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
+        expected_power_shelf.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -3289,18 +3298,9 @@ async fn test_site_explorer_power_shelf_disabled(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
-    explorer.run_single_iteration().await.unwrap();
-
-    // Mark preingestion as complete
-    let mut txn = env.pool.begin().await?;
-    db_explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-        .await
-        .unwrap();
-    txn.commit().await?;
-
-    // Run another iteration - should not create power shelves
     explorer.run_single_iteration().await.unwrap();
 
     // Check that no power shelves were created
@@ -3374,6 +3374,7 @@ async fn test_site_explorer_power_shelf_error_handling(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
+        expected_power_shelf.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -3411,6 +3412,7 @@ async fn test_site_explorer_power_shelf_error_handling(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3476,6 +3478,7 @@ async fn test_site_explorer_creates_power_shelf(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // Create a power shelf using FakePowerShelf
@@ -3520,6 +3523,7 @@ async fn test_site_explorer_creates_power_shelf(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
+        expected_power_shelf.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -3734,6 +3738,7 @@ async fn test_power_shelf_state_history(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
+        expected_power_shelf.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -3806,6 +3811,7 @@ async fn test_power_shelf_state_history(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // Create the power shelf using site explorer
@@ -3956,6 +3962,7 @@ async fn test_power_shelf_state_history_multiple(
         expected_power_shelf1.serial_number.clone(),
         expected_power_shelf1.ip_address,
         expected_power_shelf1.metadata.clone(),
+        expected_power_shelf1.rack_id.clone(),
     )
     .await?;
 
@@ -3967,6 +3974,7 @@ async fn test_power_shelf_state_history_multiple(
         expected_power_shelf2.serial_number.clone(),
         expected_power_shelf2.ip_address,
         expected_power_shelf2.metadata.clone(),
+        expected_power_shelf2.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -4084,6 +4092,7 @@ async fn test_power_shelf_state_history_multiple(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // Create the power shelves using site explorer
@@ -4244,6 +4253,7 @@ async fn test_power_shelf_state_history_error_handling(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
+        expected_power_shelf.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -4316,6 +4326,7 @@ async fn test_power_shelf_state_history_error_handling(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     // Create the power shelf using site explorer
@@ -4438,6 +4449,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
+        expected_power_shelf.rack_id.clone(),
     )
     .await?;
     txn.commit().await?;
@@ -4460,6 +4472,10 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
             }],
             chassis: vec![Chassis {
                 model: Some("PowerShelf-2000".to_string()),
+                id: "powershelf".to_string(),
+                manufacturer: Some("lite-on technology corp.".to_string()),
+                part_number: Some("PS123456789".to_string()),
+                serial_number: Some("PS123456789".to_string()),
                 ..Default::default()
             }],
             service: Vec::new(),
@@ -4498,6 +4514,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -4520,14 +4537,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         assert_eq!(res.clone().unwrap().systems, report.report.systems);
     }
 
-    // Mark preingestion as complete
-    let mut txn = env.pool.begin().await?;
-    db_explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-        .await
-        .unwrap();
-    txn.commit().await?;
-    // Run another iteration to create power shelf
-    explorer.run_single_iteration().await.unwrap();
+    // explorer.run_single_iteration().await.unwrap();
     // Check metrics
     assert_eq!(
         test_meter

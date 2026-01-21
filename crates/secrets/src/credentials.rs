@@ -248,6 +248,8 @@ pub enum CredentialKey {
     BmcCredentials { credential_type: BmcCredentialType },
     ExtensionService { service_id: String, version: String },
     NmxM { nmxm_id: String },
+    RackFirmware { firmware_id: String },
+    SwitchNvosAdmin { bmc_mac_address: MacAddress },
 }
 
 impl CredentialKey {
@@ -321,6 +323,12 @@ impl CredentialKey {
                 "machines/extension-services/{service_id}/versions/{version}/credential"
             )),
             CredentialKey::NmxM { nmxm_id } => Cow::from(format!("nmxm/{nmxm_id}/auth")),
+            CredentialKey::RackFirmware { firmware_id } => {
+                Cow::from(format!("rack_firmware/{firmware_id}/token"))
+            }
+            CredentialKey::SwitchNvosAdmin { bmc_mac_address } => {
+                Cow::from(format!("switch_nvos/{bmc_mac_address}/admin"))
+            }
         }
     }
 }

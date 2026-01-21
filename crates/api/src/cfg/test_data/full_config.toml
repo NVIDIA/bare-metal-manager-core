@@ -82,6 +82,7 @@ machines_created_per_run = 2
 override_target_ip = "1.2.3.4"
 override_target_port = 10443
 reset_rate_limit = "2h"
+use_onboard_nic = false
 
 # Unit is mandatory
 [machine_state_controller]

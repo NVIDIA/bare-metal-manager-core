@@ -40,6 +40,7 @@ use model::machine::{
     FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
+use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
 use model::resource_pool;
 use model::resource_pool::ResourcePoolError;
@@ -110,8 +111,12 @@ pub async fn get_or_create(
     // Get or create
     if let Some(machine) = existing_machine {
         // New site-explorer redfish discovery path.
-        crate::machine_interface::associate_interface_with_machine(&interface.id, &machine.id, txn)
-            .await?;
+        crate::machine_interface::associate_interface_with_machine(
+            &interface.id,
+            MachineInterfaceAssociation::Machine(machine.id),
+            txn,
+        )
+        .await?;
         Ok(machine)
     } else {
         // Old manual discovery path.
@@ -128,8 +133,12 @@ pub async fn get_or_create(
             2,
         )
         .await?;
-        crate::machine_interface::associate_interface_with_machine(&interface.id, &machine.id, txn)
-            .await?;
+        crate::machine_interface::associate_interface_with_machine(
+            &interface.id,
+            MachineInterfaceAssociation::Machine(machine.id),
+            txn,
+        )
+        .await?;
         Ok(machine)
     }
 }
