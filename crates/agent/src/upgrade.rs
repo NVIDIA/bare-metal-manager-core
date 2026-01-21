@@ -23,12 +23,32 @@ use eyre::WrapErr;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
-// We do a `dpkg --configure -a` first to give ourselves a better chance of
-// making it through the self-upgrade if the last one was interrupted.
-const UPGRADE_CMD: &str = "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
-ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
-apt-get autoclean && \
-DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --only-upgrade --reinstall forge-dpu";
+fn make_upgrade_cmd(to_package_version: &str) -> String {
+    // We do a `dpkg --configure -a` first to give ourselves a better chance of
+    // making it through the self-upgrade if the last one was interrupted.
+    format!(
+        "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         apt-get autoclean && \
+         DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
+         forge-dpu={}",
+        shell_escape(to_package_version)
+    )
+}
+
+fn shell_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        if c == '\'' {
+            out.push_str("'\\''"); // close, escape, reopen
+        } else {
+            out.push(c);
+        }
+    }
+    out.push('\'');
+    out
+}
 
 /// Check if forge-dpu-agent needs upgrading to a new version, and if yes perform the upgrade
 /// Returns true if we just updated and hence need to exit, so the new version can start instead.
@@ -89,7 +109,9 @@ pub async fn upgrade(
         // keep going - if the rename fails we still want the upgrade
     }
 
-    let upgrade_cmd = override_upgrade_cmd.unwrap_or(UPGRADE_CMD);
+    let upgrade_cmd = override_upgrade_cmd
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| make_upgrade_cmd(&resp.package_version));
     tracing::info!(
         local_build = carbide_version::v!(build_version),
         remote_build = resp.server_version,
@@ -102,7 +124,7 @@ pub async fn upgrade(
         tracing::warn!(%err, "Failed clearing apt metadata cache");
         // try the upgrade anyway
     }
-    match run_upgrade_cmd(upgrade_cmd).await {
+    match run_upgrade_cmd(&upgrade_cmd).await {
         Ok(()) => {
             // Upgrade succeeded, we need to restart. We do this by exiting and letting
             // systemd restart us.
@@ -173,8 +195,8 @@ fn hash_file(p: &Path) -> eyre::Result<String> {
 #[derive(Debug, Default)]
 struct UpgradeCheckResult {
     should_upgrade: bool,
-    package_version: Option<String>,
-    server_version: Option<String>,
+    package_version: String,
+    server_version: String,
 }
 
 async fn network_upgrade_check(
@@ -202,8 +224,8 @@ async fn network_upgrade_check(
 
     Ok(UpgradeCheckResult {
         should_upgrade: resp.should_upgrade,
-        package_version: Some(resp.package_version),
-        server_version: Some(resp.server_version),
+        package_version: resp.package_version,
+        server_version: resp.server_version,
     })
 }
 
@@ -240,4 +262,43 @@ fn clear_apt_metadata_cache() -> eyre::Result<()> {
         }
     }
     Ok(())
+}
+
+#[test]
+fn test_make_upgrade_cmd() {
+    assert_eq!(
+        make_upgrade_cmd("1.0.0"),
+        "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         apt-get autoclean && \
+         DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
+         forge-dpu='1.0.0'",
+    );
+
+    assert_eq!(
+        make_upgrade_cmd("2026.01.16-az51trunk-01-4-g3064b81c4"),
+        "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         apt-get autoclean && \
+         DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
+         forge-dpu='2026.01.16-az51trunk-01-4-g3064b81c4'",
+    );
+
+    assert_eq!(
+        make_upgrade_cmd("'; echo evil stuff && sh /tmp/evil.sh"),
+        "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         apt-get autoclean && \
+         DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
+         forge-dpu=''\\''; echo evil stuff && sh /tmp/evil.sh'",
+    );
+
+    assert_eq!(
+        make_upgrade_cmd(""),
+        "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
+         ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+         apt-get autoclean && \
+         DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --allow-downgrades --reinstall \
+         forge-dpu=''",
+    );
 }
