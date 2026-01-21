@@ -2186,6 +2186,22 @@ pub async fn clear_quarantine_state(
     Ok(old_quarantine_state)
 }
 
+pub async fn modify_dpf_state(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    state: bool,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines set dpf_enabled=$1 WHERE id=$2";
+    sqlx::query(query)
+        .bind(state)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
 pub async fn update_nvlink_info(
     txn: &mut PgConnection,
     machine_id: &MachineId,

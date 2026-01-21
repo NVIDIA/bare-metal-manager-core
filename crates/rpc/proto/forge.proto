@@ -505,22 +505,22 @@ service Forge {
   rpc AddUpdateMachineValidationExternalConfig(AddUpdateMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
   // Machine-Validation executed list
   rpc GetMachineValidationRuns(MachineValidationRunListGetRequest) returns (MachineValidationRunList);
-  
+
   // Remove ExternalConfig
   rpc RemoveMachineValidationExternalConfig(RemoveMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
   // Machine-Validation test list
   rpc GetMachineValidationTests(MachineValidationTestsGetRequest) returns (MachineValidationTestsGetResponse);
 
   rpc AddMachineValidationTest(MachineValidationTestAddRequest) returns (MachineValidationTestAddUpdateResponse);
-  
+
   rpc UpdateMachineValidationTest(MachineValidationTestUpdateRequest) returns (MachineValidationTestAddUpdateResponse);
 
   rpc MachineValidationTestVerfied(MachineValidationTestVerfiedRequest) returns (MachineValidationTestVerfiedResponse);
 
   rpc MachineValidationTestNextVersion(MachineValidationTestNextVersionRequest) returns (MachineValidationTestNextVersionResponse);
-  
+
   rpc MachineValidationTestEnableDisableTest(MachineValidationTestEnableDisableTestRequest) returns (MachineValidationTestEnableDisableTestResponse);
-  
+
   rpc UpdateMachineValidationRun(MachineValidationRunRequest) returns (MachineValidationRunResponse);
 
   // Bmc Endpoint Explorer Actions
@@ -769,6 +769,9 @@ service Forge {
   rpc GetMachinePositionInfo(MachinePositionQuery) returns (MachinePositionInfoList);
 
   rpc NmxmBrowse(NmxmBrowseRequest) returns (NmxmBrowseResponse);
+
+  rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
+  rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
 }
 
 message AttestationIdsRequest {
@@ -987,7 +990,7 @@ message RuntimeConfig {
   bool machine_validation_enabled = 33;
 
   string vpc_isolation_behavior = 34;
-    
+
   // BOM Validation Configuration
   bool bom_validation_enabled = 35;
   bool bom_validation_ignore_unassigned_machines = 36;  // TODO: Remove after all consumers updated
@@ -1005,7 +1008,7 @@ message RuntimeConfig {
   int32 mqtt_broker_port = 43;
   string mqtt_hb_interval = 44;
   bool dpu_secure_boot_enabled = 45;
-  
+
   bool bom_validation_allow_allocation_on_validation_failure = 46;
 
   string dpa_subnet_ip = 47;
@@ -2305,7 +2308,7 @@ message InstanceInterfaceConfig {
   // Forge will the above strategy to achieve deterministic device selection
   // via `device_instance`.
   uint32 device_instance = 8;
-  
+
   // If the interface is defined as a virtual function (associated
   // `InstanceInterfaceConfig.function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
   // then this value is set and specifies the virtual function ID that is configured
@@ -2443,7 +2446,7 @@ enum IssueCategory {
 // Message containing details about an issue reported during instance release
 message Issue {
   IssueCategory category = 1;    // Category of issue
-  string summary = 2;    // User-friendly summary of the issue  
+  string summary = 2;    // User-friendly summary of the issue
   string details = 3;    // Additional context about the issue
 }
 
@@ -2632,7 +2635,7 @@ message Machine {
   optional bool firmware_autoupdate = 28;
 
   optional string failure_details = 30;
- 
+
   // Infiniband devices information attached to the machine.
   optional InfinibandStatusObservation ib_status = 32;
 
@@ -2651,7 +2654,7 @@ message Machine {
 
   // The known capabilities of a machine
   MachineCapabilitiesSet capabilities = 37;
-  
+
   optional string hw_sku = 38;
   optional SkuStatus hw_sku_status = 39;
 
@@ -3145,13 +3148,13 @@ message ManagedHostNetworkConfigResponse {
   // to peer with this ASN.  If left unset
   // remote-as external will be used, allowing
   // any ASN.
-  optional uint32 tenant_host_asn = 116;  
+  optional uint32 tenant_host_asn = 116;
 
   // Due to limitations in Cumulus Linux route-leaking,
   // some sites may require all VRFs to use the same VNI.
   // Isolation is still possible via ACLs, and route-imports
   // will still use the dynamically allocated VNI for deriving
-  // route-targets.  
+  // route-targets.
   optional uint32 site_global_vpc_vni = 117;
 }
 
@@ -3356,7 +3359,7 @@ message FlatInterfaceConfig {
 message FlatInterfaceNetworkSecurityGroupConfig {
   string id                                       = 1;
   string version                                  = 2;
-  NetworkSecurityGroupSource source               = 3;  
+  NetworkSecurityGroupSource source               = 3;
   repeated ResolvedNetworkSecurityGroupRule rules = 4;
   bool stateful_egress                            = 5;
 }
@@ -3671,6 +3674,8 @@ message MachineDiscoveryResult {
   MachineCertificate machine_certificate = 2;
   // if attestation is enabled, this challenge will allow to bind attestation key to a particular TPM via its EK
   AttestKeyBindChallenge attest_key_challenge = 3;
+  // Interface id
+  common.MachineInterfaceId machine_interface_id = 4;
 }
 
 message MachineDiscoveryCompletedResponse {
@@ -3944,7 +3949,7 @@ message CreateTenantRequest {
   Metadata metadata = 2;
   optional RoutingProfileType routing_profile_type = 3;
 }
-message CreateTenantResponse {  
+message CreateTenantResponse {
   Tenant tenant = 1;
 }
 
@@ -4590,7 +4595,7 @@ message MachineValidationResultList {
 }
 
 message MachineValidationGetRequest {
-  optional common.MachineId machine_id = 1;  
+  optional common.MachineId machine_id = 1;
   bool include_history = 2;
   optional common.UUID validation_id = 3;
 }
@@ -4628,7 +4633,7 @@ message MachineValidationRun {
   string name = 5;
   optional string context = 6;
   MachineValidationStatus status = 7;
-  google.protobuf.Duration duration_to_complete = 8;  
+  google.protobuf.Duration duration_to_complete = 8;
 
 }
 
@@ -4700,7 +4705,7 @@ message AdminPowerControlRequest {
     // Graceful host shutdown
     GracefulShutdown = 1;
     // Forcefully powers a machine off
-    ForceOff = 2; 
+    ForceOff = 2;
     // Graceful restart. Asks the OS to restart via ACPI
     GracefulRestart =3;
     // Force restart. This is equivalent to pressing the reset button on the front panel.
@@ -4957,7 +4962,7 @@ message InstanceTypeAttributes {
   repeated InstanceTypeMachineCapabilityFilterAttributes desired_capabilities = 1;
 }
 
-// An InstanceType describes a desired set of 
+// An InstanceType describes a desired set of
 // machine capabilities.
 // It's probably easiest to just think of InstanceType
 // as a pool, and the desired capabilities of an InstanceType
@@ -5149,7 +5154,7 @@ message UfmBrowseResponse {
   map<string, string> headers = 3;
 }
 
-message NetworkSecurityGroupAttributes {  
+message NetworkSecurityGroupAttributes {
   repeated NetworkSecurityGroupRuleAttributes rules = 1;
 
   // Whether egress rules should be stateful.
@@ -5239,7 +5244,7 @@ enum NetworkSecurityGroupPropagationStatus {
 
 message NetworkSecurityGroupPropagationObjectStatus {
   // The UUID of the VPC or instance.  If we decide to allow
-  // per-interface NSG application later, this _could_ be used to 
+  // per-interface NSG application later, this _could_ be used to
   // hold the interface index number, and an optional
   // parent_id field could be added to hold the instance id.
   string id                                    = 1;
@@ -5253,12 +5258,12 @@ message NetworkSecurityGroupPropagationObjectStatus {
   // the instance level.
   repeated string related_instance_ids         = 4;
 
-  // Any instances IDs related to the object that 
+  // Any instances IDs related to the object that
   // are negatively affecting the propagation status
   // of the object.
   // In the case of VPCs, it would be any instances
   // that do not have a more specific NSG applied at
-  // the instance level and that do not have the 
+  // the instance level and that do not have the
   // current NSG ID and version used by the parent
   // VPC.
   repeated string unpropagated_instance_ids    = 5;
@@ -5284,7 +5289,7 @@ message GetNetworkSecurityGroupPropagationStatusRequest {
   // across all interfaces of those instances.
   // This is checking observed network_security_group_version
   // of the interfaces with a source of INSTANCE.
-  repeated string instance_ids                                   = 2; 
+  repeated string instance_ids                                   = 2;
 
   // Used to restrict the status results to
   // objects with attachments to a specific set of
@@ -5858,7 +5863,7 @@ message TrimTableResponse{
 // begin DPU remediation models
 message CreateRemediationRequest{
   string script = 1;
-  Metadata metadata = 2; 
+  Metadata metadata = 2;
   int32 retries = 3;
 }
 message CreateRemediationResponse {
@@ -6029,13 +6034,13 @@ message UpdateDpuExtensionServiceRequest {
   // If the field here is set, the update will only be applied if the version
   // is equivalent to the current version on the Forge Site.
   // If a concurrent update changed the site configuration, the API will return
-  // a `ConcurrentModificationError`.  
+  // a `ConcurrentModificationError`.
   optional int32 if_version_ctr_match = 6;
 
   // Metrics configuration to be added to the existing
   // metrics collection service that runs on the DPU.
   optional DpuExtensionServiceObservability observability = 7;
-} 
+}
 
 // If versions is empty, request to delete the whole service;
 // otherwise, request to delete the specified versions **but**
@@ -6104,7 +6109,7 @@ message InstanceDpuExtensionServiceInfo {
 
 message DpuExtensionServiceObservabilityConfigPrometheus {
   uint32 scrape_interval_seconds = 1;
-  string endpoint                = 2;  
+  string endpoint                = 2;
 }
 
 message DpuExtensionServiceObservabilityConfigLogging {
@@ -6417,4 +6422,21 @@ message DeviceUpdateResult {
   string device_type = 2;
   bool success = 3;
   string message = 4;
+}
+
+message ModifyDPFStateRequest {
+  common.MachineId machine_id = 1;
+  bool dpf_enabled = 2;
+}
+
+message DPFStateResponse {
+  message DPFState {
+    common.MachineId machine_id = 1;
+    bool dpf_enabled = 2;
+  }
+  repeated DPFState dpf_states = 1;
+}
+
+message GetDPFStateRequest {
+  repeated common.MachineId machine_ids = 1;
 }

@@ -25,14 +25,20 @@ use crate::{CarbideClientError, attestation as attest};
 pub async fn run(
     forge_api: &str,
     root_ca: String,
-    machine_interface_id: uuid::Uuid,
+    machine_interface_id: Option<uuid::Uuid>,
     retry: &registration::DiscoveryRetry,
     tpm_path: &str,
-) -> Result<MachineId, CarbideClientError> {
+) -> Result<(MachineId, Option<uuid::Uuid>), CarbideClientError> {
     let mut hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
 
     let is_dpu = hardware_info.tpm_ek_certificate.is_none();
+
+    if machine_interface_id.is_none() && !is_dpu {
+        return Err(CarbideClientError::GenericError(
+            "--machine-interface-id=<uuid> is required for this subcommand.".to_string(),
+        ));
+    };
 
     // if we are not on dpu, obtain attestation key (AK) and send it to carbide
     let mut endorsement_key_handle_opt: Option<KeyHandle> = None;
@@ -61,19 +67,20 @@ pub async fn run(
         tss_ctx_opt = Some(tss_ctx);
     }
 
-    let (registration_data, attest_key_challenge_opt) = registration::register_machine(
-        forge_api,
-        root_ca.clone(),
-        Some(machine_interface_id),
-        hardware_info,
-        false,
-        retry.clone(),
-        true,
-        is_dpu,
-    )
-    .await?;
+    let (registration_data, attest_key_challenge_opt, interface_id) =
+        registration::register_machine(
+            forge_api,
+            root_ca.clone(),
+            machine_interface_id,
+            hardware_info,
+            false,
+            retry.clone(),
+            true,
+            is_dpu,
+        )
+        .await?;
     let machine_id = registration_data.machine_id;
-    info!("successfully discovered machine {machine_id} for interface {machine_interface_id}");
+    info!("successfully discovered machine {machine_id} for interface {machine_interface_id:?}");
 
     // If we are not on a DPU and have some post-registration things to do,
     // we do them here.
@@ -163,7 +170,7 @@ pub async fn run(
         }
     }
 
-    Ok(machine_id)
+    Ok((machine_id, interface_id))
 }
 
 // this is taken from here - https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode

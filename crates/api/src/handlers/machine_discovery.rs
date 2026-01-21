@@ -431,6 +431,7 @@ pub(crate) async fn discover_machine(
         machine_id: Some(stable_machine_id),
         machine_certificate: machine_certificate.map(Into::into),
         attest_key_challenge: attest_key_bind_challenge_opt,
+        machine_interface_id: Some(interface.id),
     }));
 
     if hardware_info.is_dpu()

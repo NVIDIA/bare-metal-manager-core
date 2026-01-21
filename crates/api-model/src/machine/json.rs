@@ -97,6 +97,7 @@ pub struct MachineSnapshotPgJson {
     pub hw_sku_device_type: Option<String>,
     pub update_complete: bool,
     pub nvlink_info: Option<MachineNvLinkInfo>,
+    pub dpf_enabled: bool,
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -208,6 +209,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             hw_sku_device_type: value.hw_sku_device_type,
             update_complete: value.update_complete,
             nvlink_info: value.nvlink_info,
+            dpf_enabled: value.dpf_enabled,
         })
     }
 }

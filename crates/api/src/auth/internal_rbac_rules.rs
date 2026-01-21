@@ -655,6 +655,8 @@ impl InternalRBACRules {
             "GetMachinePositionInfo",
             vec![ForgeAdminCLI, SiteAgent, Rla],
         );
+        x.perm("ModifyDPFState", vec![ForgeAdminCLI]);
+        x.perm("GetDPFState", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

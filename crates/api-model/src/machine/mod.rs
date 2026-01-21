@@ -725,6 +725,9 @@ pub struct Machine {
 
     /// The NMX-M GPU info for this machine.
     pub nvlink_info: Option<MachineNvLinkInfo>,
+
+    /// Whether the DPF is enabled for this machine
+    pub dpf_enabled: bool,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
