@@ -19,13 +19,13 @@ pub mod crds;
 #[cfg(test)]
 pub mod test;
 
-use rustls::crypto::{CryptoProvider, aws_lc_rs};
 use std::collections::{BTreeMap, HashMap};
 
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{ListParams, Patch, PatchParams, PostParams};
 use kube::core::ObjectMeta;
 use kube::{Api, Client};
+use rustls::crypto::{CryptoProvider, aws_lc_rs};
 use tera::{Context, Tera};
 use tokio::time::Duration;
 
