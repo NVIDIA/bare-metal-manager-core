@@ -547,6 +547,7 @@ impl ApiClient {
                 host_nics: vec![],
                 rack_id: None,
                 default_pause_ingestion_and_poweron: None,
+                dpf_enabled: true,
             })
             .await
             .map_err(ClientApiError::InvocationError)

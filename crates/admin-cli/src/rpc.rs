@@ -476,6 +476,7 @@ impl ApiClient {
         host_nics: Vec<::rpc::forge::ExpectedHostNic>,
         rack_id: Option<String>,
         default_pause_ingestion_and_poweron: Option<bool>,
+        dpf_enabled: bool,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
@@ -489,6 +490,7 @@ impl ApiClient {
             host_nics,
             rack_id,
             default_pause_ingestion_and_poweron,
+            dpf_enabled,
         };
 
         Ok(self.0.add_expected_machine(request).await?)
@@ -508,6 +510,7 @@ impl ApiClient {
         sku_id: Option<String>,
         rack_id: Option<String>,
         default_pause_ingestion_and_poweron: Option<bool>,
+        dpf_enabled: bool,
     ) -> Result<(), CarbideCliError> {
         let expected_machine = self
             .0
@@ -567,6 +570,7 @@ impl ApiClient {
             host_nics: expected_machine.host_nics,
             rack_id: rack_id.or(expected_machine.rack_id),
             default_pause_ingestion_and_poweron,
+            dpf_enabled,
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -714,6 +718,7 @@ impl ApiClient {
                     rack_id: machine.rack_id,
                     default_pause_ingestion_and_poweron: machine
                         .default_pause_ingestion_and_poweron,
+                    dpf_enabled: machine.dpf_enabled,
                 })
                 .collect(),
         };

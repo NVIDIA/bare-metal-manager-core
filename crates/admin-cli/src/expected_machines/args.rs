@@ -167,12 +167,22 @@ pub struct ExpectedMachine {
         action = clap::ArgAction::Append
     )]
     pub rack_id: Option<String>,
+
     #[clap(
         long = "default_pause_ingestion_and_poweron",
         value_name = "DEFAULT_PAUSE_INGESTION_AND_POWERON",
         help = "Optional flag to pause machine's ingestion and power on. False - don't pause, true - will pause it. The actual mutable state is stored in explored_endpoints."
     )]
     pub default_pause_ingestion_and_poweron: Option<bool>,
+
+    #[clap(
+        long,
+        action = clap::ArgAction::Set,
+        value_name = "DPF_ENABLED",
+        help = "DPF enable/disable for this machine. Default is updated as true.",
+        default_value_t = true
+    )]
+    pub dpf_enabled: bool,
 }
 
 impl ExpectedMachine {
@@ -225,6 +235,7 @@ pub struct ExpectedMachineJson {
     pub host_nics: Vec<rpc::forge::ExpectedHostNic>,
     pub rack_id: Option<String>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
+    pub dpf_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -320,12 +331,22 @@ pub struct PatchExpectedMachine {
         help = "A RACK ID that will be added for the newly created Machine."
     )]
     pub rack_id: Option<String>,
+
     #[clap(
         long = "default_pause_ingestion_and_poweron",
         value_name = "DEFAULT_PAUSE_INGESTION_AND_POWERON",
         help = "Optional flag to pause machine's ingestion and power on. False - don't pause, true - will pause it. The actual mutable state is stored in explored_endpoints."
     )]
     pub default_pause_ingestion_and_poweron: Option<bool>,
+
+    #[clap(
+        long,
+        action = clap::ArgAction::Set,
+        value_name = "DPF_ENABLED",
+        help = "DPF enable/disable for this machine. Default is updated as true.",
+        default_value_t = true
+    )]
+    pub dpf_enabled: bool,
 }
 
 impl PatchExpectedMachine {

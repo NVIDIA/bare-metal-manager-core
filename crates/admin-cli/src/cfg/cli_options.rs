@@ -298,7 +298,12 @@ pub enum CliCommand {
     )]
     LogicalPartition(nvl_logical_partition::Cmd),
 
-    #[clap(about = "DPF management", subcommand)]
+    #[clap(subcommand)]
+    #[clap(verbatim_doc_comment)]
+    /// DPF-related commands.
+    /// Note: These commands update the DPF state of the machine, which determines DPF-based DPU re-provisioning.
+    /// The state is saved in the machine's metadata and will be deleted if the machine is force-deleted.
+    /// To make the state persistent, add the DPF state for a machine (host) to the expected machines table.
     Dpf(crate::dpf::args::Cmd),
 
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
