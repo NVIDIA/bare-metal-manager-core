@@ -67,6 +67,10 @@ impl NetworkAdapterBuilder {
         self.add_str_field("SerialNumber", value)
     }
 
+    pub fn sku(self, value: &str) -> Self {
+        self.add_str_field("SKU", value)
+    }
+
     pub fn network_device_functions(self, collection: &redfish::Collection<'_>) -> Self {
         Self {
             value: self

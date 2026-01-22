@@ -12,3 +12,21 @@
 
 pub mod dell;
 pub mod nvidia;
+
+use crate::redfish::Resource;
+
+#[derive(Clone, Copy, Debug)]
+pub enum BmcVendor {
+    Dell,
+    Nvidia,
+}
+
+impl BmcVendor {
+    // This function creates settings of the resource from the resource
+    // id. Real identifier is different for different BMC vendors.
+    pub fn make_settings_odata_id(&self, resource: &Resource<'_>) -> String {
+        match self {
+            BmcVendor::Nvidia | BmcVendor::Dell => format!("{}/Settings", resource.odata_id),
+        }
+    }
+}
