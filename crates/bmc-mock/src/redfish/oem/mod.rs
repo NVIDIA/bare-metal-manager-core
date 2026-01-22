@@ -12,3 +12,19 @@
 
 pub mod dell;
 pub mod nvidia;
+
+#[derive(Clone, Copy, Debug)]
+pub enum BmcVendor {
+    Dell,
+    Nvidia,
+}
+
+impl BmcVendor {
+    // This function creates settings of the resource from the resource
+    // id. Real identifier is different for different BMC vendors.
+    pub fn make_settings_odata_id(&self, resource_odata_id: &str) -> String {
+        match self {
+            BmcVendor::Nvidia | BmcVendor::Dell => format!("{resource_odata_id}/Settings"),
+        }
+    }
+}
