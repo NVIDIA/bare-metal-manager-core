@@ -219,6 +219,9 @@ pub enum StateHandlerError {
 
     #[error("Rack Manager error: {0}")]
     RackManagerError(#[from] RackManagerError),
+
+    #[error("DPF error: {0}")]
+    DpfError(#[from] carbide_dpf::DpfError),
 }
 
 impl StateHandlerError {
@@ -254,6 +257,7 @@ impl StateHandlerError {
             },
             StateHandlerError::SpdmError(_) => "spdm_attestation_error",
             StateHandlerError::RackManagerError(_) => "rack_manager_error",
+            StateHandlerError::DpfError(_) => "dpf_error",
         }
     }
 }

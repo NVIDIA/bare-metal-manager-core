@@ -24,6 +24,7 @@ use ::rpc::protos::dns::{
     UpdateDomainRequest,
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
+use carbide_dpf::KubeImpl;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
@@ -66,6 +67,7 @@ pub struct Api {
     pub(crate) rms_client: Option<Arc<Box<dyn RmsApi>>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
+    pub(crate) kube_client_provider: Arc<dyn KubeImpl>,
 }
 
 pub(crate) type ScoutStreamType =

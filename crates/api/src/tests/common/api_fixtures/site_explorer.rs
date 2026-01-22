@@ -24,8 +24,8 @@ use futures_util::FutureExt;
 use health_report::HealthReport;
 use model::hardware_info::HardwareInfo;
 use model::machine::{
-    BomValidating, BomValidatingContext, DpuInitState, FailureCause, FailureDetails, FailureSource,
-    LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
+    BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
+    FailureSource, LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
     ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
 };
 use model::power_shelf::power_shelf_id::from_hardware_info;
@@ -315,6 +315,148 @@ impl<'a> MockExploredHost<'a> {
         self
     }
 
+    /// Runs dpu_state_controller with DPF.
+    pub async fn dpu_state_controller_iterations_with_dpf(self) -> Self {
+        if self.managed_host.dpus.is_empty() {
+            return self;
+        }
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+
+        let host_machine_id =
+            db::machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
+                .await
+                .unwrap()
+                .unwrap()
+                .id;
+
+        for machine_id in self.dpu_machine_ids.values() {
+            create_machine_inventory(self.test_env, *machine_id).await;
+        }
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                10 + (10 * self.dpu_machine_ids.len() as u32),
+                ManagedHostState::DPUInit {
+                    dpu_states: model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| {
+                                (
+                                    machine_id,
+                                    DpuInitState::DpfStates {
+                                        state: DpfState::WaitingForOsInstallToComplete,
+                                    },
+                                )
+                            })
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
+                },
+            )
+            .await;
+
+        //run scout discovery for dpu(s)
+        for dpu in self.managed_host.dpus.clone() {
+            let machine_interfaces = find_by_mac_address(&mut txn, dpu.oob_mac_address)
+                .await
+                .unwrap();
+            let primary_interface = machine_interfaces
+                .iter()
+                .find(|interface| interface.primary_interface)
+                .unwrap();
+            let _ = self
+                .test_env
+                .api
+                .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+                    machine_interface_id: Some(primary_interface.id),
+                    create_machine: true,
+                    discovery_data: Some(DiscoveryData::Info(
+                        DiscoveryInfo::try_from(HardwareInfo::from(&dpu)).unwrap(),
+                    )),
+                }))
+                .await;
+        }
+
+        for machine_id in self.dpu_machine_ids.values() {
+            let response = forge_agent_control(self.test_env, *machine_id).await;
+            assert_eq!(
+                response.action,
+                rpc::forge_agent_control_response::Action::Discovery as i32
+            );
+
+            discovery_completed(self.test_env, *machine_id).await;
+        }
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                10 + (10 * self.dpu_machine_ids.len() as u32),
+                ManagedHostState::DPUInit {
+                    dpu_states: model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| {
+                                (
+                                    machine_id,
+                                    DpuInitState::DpfStates {
+                                        state: DpfState::WaitForNetworkConfigAndRemoveAnnotation,
+                                    },
+                                )
+                            })
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
+                },
+            )
+            .await;
+
+        network_configured(
+            self.test_env,
+            &self.dpu_machine_ids.values().copied().collect(),
+        )
+        .await;
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                35,
+                ManagedHostState::DPUInit {
+                    dpu_states: model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| (machine_id, DpuInitState::WaitingForNetworkConfig))
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
+                },
+            )
+            .await;
+
+        txn.commit().await.unwrap();
+
+        network_configured(
+            self.test_env,
+            &self.dpu_machine_ids.values().copied().collect(),
+        )
+        .await;
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                4,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::EnableIpmiOverLan,
+                },
+            )
+            .await;
+
+        self
+    }
     /// Runs dpu_state_controller
     pub async fn dpu_state_controller_iterations(self) -> Self {
         if self.managed_host.dpus.is_empty() {
@@ -1424,4 +1566,101 @@ pub async fn new_switch(
     txn.commit().await.unwrap();
 
     Ok(switch_id)
+}
+
+/// It is neccesary to start a tower_test server to simulate the kube environment and handle the DPF requests.
+pub async fn new_mock_host_with_dpf(
+    env: &'_ TestEnv,
+    config: ManagedHostConfig,
+) -> eyre::Result<ManagedHostStateSnapshot> {
+    // Make the IB ports visible in Mock-UFM
+    let mock_ib_fabric = env.ib_fabric_manager.get_mock_manager();
+    for ib_guid in config.ib_guids.iter() {
+        mock_ib_fabric.register_port(ib_guid.clone());
+    }
+
+    // Set BMC credentials in vault
+    for bmc_mac_address in vec![config.bmc_mac_address]
+        .into_iter()
+        .chain(config.dpus.iter().map(|d| d.bmc_mac_address))
+    {
+        env.api
+            .credential_provider
+            .set_credentials(
+                &CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+                },
+                &Credentials::UsernamePassword {
+                    username: "root".to_string(),
+                    password: "notforprod".to_string(),
+                },
+            )
+            .await?;
+    }
+
+    let dpu_count = config.dpus.len() as u8;
+    let mut mock_explored_host = MockExploredHost::new(env, config);
+
+    // Run BMC DHCP. DPUs first...
+    for dpu_index in 0..dpu_count {
+        mock_explored_host = mock_explored_host
+            .discover_dhcp_dpu_bmc(dpu_index, |_, _| Ok(()))
+            .await?;
+    }
+
+    // Run DHCP for DPU primary iface
+    for dpu_index in 0..dpu_count {
+        mock_explored_host = mock_explored_host
+            .discover_dhcp_dpu_primary_iface(dpu_index)
+            .await;
+    }
+
+    // Run through site explorer iterations to get it ready.
+    // NOTE: Calling `.boxed()` on each future here decreases the amount of stack space used by
+    // these futures. Prior to this we were hitting stack space limits (going over 2MB in stack) in
+    // unit tests. This buys us some savings so that we don't have to fiddle with adjusting the
+    // default stack size.
+    mock_explored_host
+        // ...Then run host BMC's DHCP
+        .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .boxed()
+        .await?
+        .insert_site_exploration_results()?
+        .run_site_explorer_iteration()
+        .boxed()
+        .await
+        .mark_preingestion_complete()
+        .boxed()
+        .await?
+        .run_site_explorer_iteration()
+        .boxed()
+        .await
+        .discover_dhcp_host_primary_iface(|_, _| Ok(()))
+        .boxed()
+        .await?
+        .dpu_state_controller_iterations_with_dpf()
+        .boxed()
+        .await
+        .discover_machine(|_, _| Ok(()))
+        .boxed()
+        .await?
+        .run_site_explorer_iteration()
+        .boxed()
+        .await
+        .host_state_controller_iterations()
+        .boxed()
+        .await
+        .finish(|mock| async move {
+            let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
+            let mut txn = mock.test_env.pool.begin().await.unwrap();
+            Ok(
+                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
+                    .await
+                    .transpose()
+                    .unwrap()
+                    .unwrap(),
+            )
+        })
+        .boxed()
+        .await
 }

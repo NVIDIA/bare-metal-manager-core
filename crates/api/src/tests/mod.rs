@@ -15,6 +15,7 @@ mod create_domain;
 mod desired_firmware_versions;
 mod dns;
 mod dpa_interfaces;
+mod dpf;
 mod dpu_agent_upgrade;
 mod dpu_info_list;
 mod dpu_machine_inventory;
