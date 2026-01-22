@@ -102,9 +102,13 @@ impl MachineCreator {
 
         let mut txn = Transaction::begin(pool).await?;
 
-        let (metadata, sku_id) = match expected_machine {
-            Some(m) => (Some(&m.data.metadata), m.data.sku_id.as_ref()),
-            None => (None, None),
+        let (metadata, sku_id, dpf_enabled) = match expected_machine {
+            Some(m) => (
+                Some(&m.data.metadata),
+                m.data.sku_id.as_ref(),
+                m.data.dpf_enabled,
+            ),
+            None => (None, None, true),
         };
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
@@ -157,6 +161,7 @@ impl MachineCreator {
                     dpu_report,
                     metadata.unwrap_or(&Metadata::default()),
                     sku_id,
+                    dpf_enabled,
                 )
                 .await?;
             managed_host.machine_id = Some(host_machine_id)
@@ -268,6 +273,7 @@ impl MachineCreator {
             machine_id,
             metadata,
             None,
+            true,
         )
         .await?;
 
@@ -351,6 +357,7 @@ impl MachineCreator {
         predicted_machine_id: &MachineId,
         metadata: &Metadata,
         sku_id: Option<&String>,
+        dpf_enabled: bool,
     ) -> CarbideResult<()> {
         _ = db::machine::create(
             txn,
@@ -359,6 +366,7 @@ impl MachineCreator {
             ManagedHostState::Created,
             metadata,
             sku_id,
+            dpf_enabled,
             CURRENT_STATE_MODEL_VERSION,
         )
         .await?;
@@ -443,6 +451,7 @@ impl MachineCreator {
                 ManagedHostState::Created,
                 &Metadata::default(),
                 None,
+                true, // This field is not used for the DPUs
                 CURRENT_STATE_MODEL_VERSION,
             )
             .await
@@ -466,6 +475,7 @@ impl MachineCreator {
         explored_dpu: &ExploredDpu,
         metadata: &Metadata,
         sku_id: Option<&String>,
+        dpf_enabled: bool,
     ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         // Create Host proactively.
@@ -495,6 +505,7 @@ impl MachineCreator {
                 explored_dpu,
                 metadata,
                 sku_id,
+                dpf_enabled,
             )
             .await?;
 
@@ -584,6 +595,7 @@ impl MachineCreator {
     //
     // The first DPU that we attach to the host is designated as the primary DPU; the associate host machine interface is designated is the primary interface.
     // Therefore, the primary interface is guaranteed to be configured prior to any secondary interface.
+    #[allow(clippy::too_many_arguments)]
     async fn configure_host_machine(
         &self,
         txn: &mut PgConnection,
@@ -592,6 +604,7 @@ impl MachineCreator {
         explored_dpu: &ExploredDpu,
         metadata: &Metadata,
         sku_id: Option<&String>,
+        dpf_enabled: bool,
     ) -> CarbideResult<MachineId> {
         match &explored_host.machine_id {
             Some(host_machine_id) => {
@@ -616,6 +629,7 @@ impl MachineCreator {
                         explored_dpu,
                         metadata,
                         sku_id,
+                        dpf_enabled,
                     )
                     .await?;
 
@@ -642,6 +656,7 @@ impl MachineCreator {
         explored_dpu: &ExploredDpu,
         metadata: &Metadata,
         sku_id: Option<&String>,
+        dpf_enabled: bool,
     ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
@@ -654,6 +669,7 @@ impl MachineCreator {
             ManagedHostState::Created,
             metadata,
             sku_id,
+            dpf_enabled,
             CURRENT_STATE_MODEL_VERSION,
         )
         .await?;

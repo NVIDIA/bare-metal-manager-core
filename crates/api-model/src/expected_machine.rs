@@ -59,6 +59,8 @@ pub struct ExpectedMachineData {
     #[serde(default)]
     pub host_nics: Vec<ExpectedHostNic>,
     pub rack_id: Option<String>,
+    #[serde(default)]
+    pub dpf_enabled: bool,
 }
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
@@ -89,6 +91,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 override_id: None,
                 rack_id: row.try_get("rack_id")?,
                 host_nics,
+                dpf_enabled: row.try_get("dpf_enabled")?,
             },
         })
     }
@@ -139,6 +142,7 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             sku_id: expected_machine.data.sku_id,
             rack_id: expected_machine.data.rack_id,
             host_nics,
+            dpf_enabled: expected_machine.data.dpf_enabled,
         }
     }
 }
@@ -182,6 +186,7 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             override_id: em.id.and_then(|u| Uuid::parse_str(&u.value).ok()),
             host_nics: em.host_nics.into_iter().map(|nic| nic.into()).collect(),
             rack_id: em.rack_id,
+            dpf_enabled: em.dpf_enabled,
         })
     }
 }

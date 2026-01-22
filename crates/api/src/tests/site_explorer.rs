@@ -1242,6 +1242,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             override_id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         },
     )
     .await?;
@@ -1292,6 +1293,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             override_id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         },
     )
     .await?;
@@ -2234,6 +2236,7 @@ async fn test_machine_creation_with_sku(
             override_id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         },
     )
     .await?;
@@ -2264,6 +2267,7 @@ async fn test_machine_creation_with_sku(
             assert_eq!(m.hw_sku, None);
         } else {
             assert_eq!(m.hw_sku, Some("Sku1".to_string()));
+            assert!(m.dpf_enabled);
         }
     }
 
@@ -2363,6 +2367,7 @@ async fn test_expected_machine_device_type_metrics(
             override_id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         },
     )
     .await?;
@@ -2380,6 +2385,7 @@ async fn test_expected_machine_device_type_metrics(
             override_id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         },
     )
     .await?;
@@ -2397,6 +2403,7 @@ async fn test_expected_machine_device_type_metrics(
             override_id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         },
     )
     .await?;

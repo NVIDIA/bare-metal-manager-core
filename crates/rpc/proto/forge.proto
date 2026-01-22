@@ -4412,6 +4412,7 @@ message ExpectedMachine {
   optional common.UUID id = 8;
   repeated ExpectedHostNic host_nics = 9;
   optional string rack_id = 10;
+  bool dpf_enabled = 11;
 }
 
 message ExpectedMachineRequest {

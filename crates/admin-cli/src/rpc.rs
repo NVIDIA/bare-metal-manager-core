@@ -474,6 +474,7 @@ impl ApiClient {
         id: Option<String>,
         host_nics: Vec<::rpc::forge::ExpectedHostNic>,
         rack_id: Option<String>,
+        dpf_enabled: bool,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
@@ -486,6 +487,7 @@ impl ApiClient {
             id: id.map(|s| ::rpc::common::Uuid { value: s }),
             host_nics,
             rack_id,
+            dpf_enabled,
         };
 
         Ok(self.0.add_expected_machine(request).await?)
@@ -504,6 +506,7 @@ impl ApiClient {
         labels: Option<Vec<String>>,
         sku_id: Option<String>,
         rack_id: Option<String>,
+        dpf_enabled: bool,
     ) -> Result<(), CarbideCliError> {
         let expected_machine = self
             .0
@@ -562,6 +565,7 @@ impl ApiClient {
             // TODO(chet): Add support for patching host_nics at some point.
             host_nics: expected_machine.host_nics,
             rack_id: rack_id.or(expected_machine.rack_id),
+            dpf_enabled,
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -699,6 +703,7 @@ impl ApiClient {
                     sku_id: machine.sku_id,
                     host_nics: machine.host_nics,
                     rack_id: machine.rack_id,
+                    dpf_enabled: machine.dpf_enabled,
                 })
                 .collect(),
         };

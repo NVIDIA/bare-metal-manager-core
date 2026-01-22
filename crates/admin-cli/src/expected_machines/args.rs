@@ -167,6 +167,15 @@ pub struct ExpectedMachine {
         action = clap::ArgAction::Append
     )]
     pub rack_id: Option<String>,
+
+    #[clap(
+        long,
+        action = clap::ArgAction::Set,
+        value_name = "DPF_ENABLED",
+        help = "DPF enable/disable for this machine. Default is updated as true.",
+        default_value_t = true
+    )]
+    pub dpf_enabled: bool,
 }
 
 impl ExpectedMachine {
@@ -218,6 +227,7 @@ pub struct ExpectedMachineJson {
     #[serde(default)]
     pub host_nics: Vec<rpc::forge::ExpectedHostNic>,
     pub rack_id: Option<String>,
+    pub dpf_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -313,6 +323,15 @@ pub struct PatchExpectedMachine {
         help = "A RACK ID that will be added for the newly created Machine."
     )]
     pub rack_id: Option<String>,
+
+    #[clap(
+        long,
+        action = clap::ArgAction::Set,
+        value_name = "DPF_ENABLED",
+        help = "DPF enable/disable for this machine. Default is updated as true.",
+        default_value_t = true
+    )]
+    pub dpf_enabled: bool,
 }
 
 impl PatchExpectedMachine {

@@ -2036,6 +2036,7 @@ mod tests {
             ManagedHostState::Ready,
             &Metadata::default(),
             None,
+            true,
             CURRENT_STATE_MODEL_VERSION,
         )
         .await

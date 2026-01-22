@@ -1078,3 +1078,285 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_site_explorer_creates_managed_host_with_dpf_disable(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Prevent Firmware update here, since we test it in other method
+    let mut config = common::api_fixtures::get_config();
+    config.dpu_config.dpu_models = HashMap::new();
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        create_switches: Arc::new(true.into()),
+        explore_switches_from_static_ip: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        ..Default::default()
+    };
+
+    let machine_creator =
+        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+
+    let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(oob_mac, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(!response.address.is_empty());
+
+    // Use a known DPU serial so we can assert on the generated MachineId
+    let dpu_serial = "MT2328XZ185R".to_string();
+    let expected_machine_id =
+        "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg".to_string();
+
+    let mock_dpu = DpuConfig::with_serial(dpu_serial.clone());
+    let mock_host = ManagedHostConfig::with_dpus(vec![mock_dpu.clone()]);
+    let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
+    dpu_report.generate_machine_id(false)?;
+
+    assert!(dpu_report.machine_id.as_ref().is_some());
+    assert_eq!(
+        dpu_report.machine_id.as_ref().unwrap().to_string(),
+        expected_machine_id,
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
+
+    let dpu_report = Arc::new(dpu_report);
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
+        dpus: vec![ExploredDpu {
+            bmc_ip: IpAddr::from_str(response.address.as_str())?,
+            host_pf_mac_address: Some(mock_dpu.host_mac_address),
+            report: dpu_report.clone(),
+        }],
+    };
+
+    let expected_machine = model::expected_machine::ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: mock_host.bmc_mac_address,
+        data: model::expected_machine::ExpectedMachineData {
+            dpf_enabled: false,
+            ..Default::default()
+        },
+    };
+
+    assert!(
+        machine_creator
+            .create_managed_host(
+                &exploration_report,
+                EndpointExplorationReport::default(),
+                Some(&expected_machine),
+                &env.pool,
+            )
+            .await?
+    );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machines = db::machine::find(
+        &mut txn,
+        db::ObjectFilter::All,
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(machines.len(), 2);
+    for machine in machines {
+        if machine.is_dpu() {
+            assert!(machine.dpf_enabled);
+        } else {
+            assert!(!machine.dpf_enabled);
+        }
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Prevent Firmware update here, since we test it in other method
+    let mut config = common::api_fixtures::get_config();
+    config.dpu_config.dpu_models = HashMap::new();
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        create_switches: Arc::new(true.into()),
+        explore_switches_from_static_ip: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        ..Default::default()
+    };
+
+    let machine_creator =
+        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+
+    let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(oob_mac, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(!response.address.is_empty());
+
+    // Use a known DPU serial so we can assert on the generated MachineId
+    let dpu_serial = "MT2328XZ185R".to_string();
+    let expected_machine_id =
+        "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg".to_string();
+
+    let mock_dpu = DpuConfig::with_serial(dpu_serial.clone());
+    let mock_host = ManagedHostConfig::with_dpus(vec![mock_dpu.clone()]);
+    let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
+    dpu_report.generate_machine_id(false)?;
+
+    assert!(dpu_report.machine_id.as_ref().is_some());
+    assert_eq!(
+        dpu_report.machine_id.as_ref().unwrap().to_string(),
+        expected_machine_id,
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
+
+    let dpu_report = Arc::new(dpu_report);
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
+        dpus: vec![ExploredDpu {
+            bmc_ip: IpAddr::from_str(response.address.as_str())?,
+            host_pf_mac_address: Some(mock_dpu.host_mac_address),
+            report: dpu_report.clone(),
+        }],
+    };
+
+    let expected_machine = model::expected_machine::ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: mock_host.bmc_mac_address,
+        data: model::expected_machine::ExpectedMachineData {
+            dpf_enabled: true,
+            ..Default::default()
+        },
+    };
+
+    assert!(
+        machine_creator
+            .create_managed_host(
+                &exploration_report,
+                EndpointExplorationReport::default(),
+                Some(&expected_machine),
+                &env.pool,
+            )
+            .await?
+    );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machines = db::machine::find(
+        &mut txn,
+        db::ObjectFilter::All,
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(machines.len(), 2);
+    for machine in machines {
+        assert!(machine.dpf_enabled);
+    }
+
+    Ok(())
+}

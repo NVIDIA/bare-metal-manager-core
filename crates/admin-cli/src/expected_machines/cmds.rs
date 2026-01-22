@@ -125,6 +125,7 @@ async fn convert_and_print_into_nice_table(
         "Description",
         "Labels",
         "SKU ID",
+        "DPF State",
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
@@ -165,6 +166,7 @@ async fn convert_and_print_into_nice_table(
                 .as_ref()
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
+            expected_machine.dpf_enabled.to_string(),
         ]);
     }
 

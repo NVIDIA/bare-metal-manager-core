@@ -76,6 +76,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             override_id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         },
     )
     .await;
@@ -163,7 +164,7 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
 async fn test_add_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    for mut expected_machine in [
+    for (idx, expected_machine) in [
         rpc::forge::ExpectedMachine {
             bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
             bmc_username: "ADMIN".into(),
@@ -174,6 +175,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             id: Some(::rpc::common::Uuid {
                 value: Uuid::new_v4().to_string(),
             }),
+            dpf_enabled: false,
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -186,6 +188,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             id: Some(::rpc::common::Uuid {
                 value: Uuid::new_v4().to_string(),
             }),
+            dpf_enabled: true,
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -213,7 +216,10 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             sku_id: Some("sku_id".to_string()),
             ..Default::default()
         },
-    ] {
+    ]
+    .iter_mut()
+    .enumerate()
+    {
         env.api
             .add_expected_machine(tonic::Request::new(expected_machine.clone()))
             .await
@@ -239,7 +245,13 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
         if expected_machine.metadata.is_none() {
             expected_machine.metadata = Some(Default::default());
         }
-        assert_eq!(retrieved_expected_machine, expected_machine);
+        assert_eq!(retrieved_expected_machine, expected_machine.clone());
+
+        if idx != 1 {
+            assert!(!retrieved_expected_machine.dpf_enabled);
+        } else {
+            assert!(retrieved_expected_machine.dpf_enabled);
+        }
     }
 }
 
@@ -649,6 +661,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         id: None,
         host_nics: vec![],
         rack_id: None,
+        dpf_enabled: true,
     };
 
     env.api
@@ -689,6 +702,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         };
 
         let err = env
@@ -720,6 +734,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
         id: None,
         host_nics: vec![],
         rack_id: None,
+        dpf_enabled: true,
     };
 
     env.api
@@ -739,6 +754,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             id: None,
             host_nics: vec![],
             rack_id: None,
+            dpf_enabled: true,
         };
 
         let err = env
@@ -812,6 +828,7 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         id: None,
         host_nics: vec![],
         rack_id: None,
+        dpf_enabled: true,
     };
 
     assert!(

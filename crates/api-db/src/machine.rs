@@ -125,6 +125,7 @@ pub async fn get_or_create(
             state,
             &Metadata::default(),
             None,
+            true,
             2,
         )
         .await?;
@@ -1212,6 +1213,7 @@ pub async fn clear_failure_details(
 ///
 /// If metadata.name is empty then it is initialized in
 /// stable_machine_id.to_string().
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
@@ -1219,6 +1221,7 @@ pub async fn create(
     state: ManagedHostState,
     metadata: &Metadata,
     sku_id: Option<&String>,
+    dpf_enabled: bool,
     state_model_version: i16,
 ) -> DatabaseResult<Machine> {
     let stable_machine_id_string = stable_machine_id.to_string();
@@ -1258,8 +1261,8 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku)
-                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12) RETURNING id"#;
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku, dpf_enabled)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
         .bind(state_version)
@@ -1273,6 +1276,7 @@ pub async fn create(
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(sku_id)
+        .bind(dpf_enabled)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -2265,6 +2269,7 @@ mod test {
             ManagedHostState::Ready,
             &Metadata::default(),
             None,
+            true,
             2,
         )
         .await?;

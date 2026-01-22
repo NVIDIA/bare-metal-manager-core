@@ -789,6 +789,7 @@ pub mod tests {
                 override_id: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
@@ -876,6 +877,7 @@ pub mod tests {
                 override_id: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
@@ -938,6 +940,7 @@ pub mod tests {
                 override_id: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
@@ -1017,6 +1020,7 @@ pub mod tests {
                 override_id: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
@@ -1447,6 +1451,7 @@ pub mod tests {
                 override_id: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
