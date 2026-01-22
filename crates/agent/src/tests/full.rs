@@ -405,6 +405,7 @@ async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl
         ),
         machine_certificate: None,
         attest_key_challenge: None,
+        machine_interface_id: None,
     })
 }
 

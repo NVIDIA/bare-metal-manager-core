@@ -408,6 +408,16 @@ pub struct CarbideConfig {
     /// This will limit the number of VRFs supported on the
     /// DPU to a single VRF.
     pub site_global_vpc_vni: Option<u32>,
+
+    // DPF Config
+    #[serde(default)]
+    pub dpf: DpfConfig,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfConfig {
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

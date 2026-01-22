@@ -219,7 +219,14 @@ pub async fn register_machine(
     retry: DiscoveryRetry,
     create_machine: bool,
     require_client_certificates: bool,
-) -> Result<(RegistrationData, Option<rpc::AttestKeyBindChallenge>), RegistrationError> {
+) -> Result<
+    (
+        RegistrationData,
+        Option<rpc::AttestKeyBindChallenge>,
+        Option<uuid::Uuid>,
+    ),
+    RegistrationError,
+> {
     let info = rpc::MachineDiscoveryInfo {
         machine_interface_id: machine_interface_id.map(|mid| mid.into()),
         discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
@@ -253,6 +260,7 @@ pub async fn register_machine(
     Ok((
         RegistrationData { machine_id },
         response.attest_key_challenge,
+        response.machine_interface_id.map(|x| x.0),
     ))
 }
 

@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -83,6 +83,25 @@ use crate::state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::{attestation, db_init, dpa, ethernet_virtualization, listener};
+
+const API_URL_KEY: &str = "api_url";
+const PXE_URL_KEY: &str = "pxe_url";
+const API_URL: &str = "https://carbide-api.forge";
+const PXE_URL: &str = "http://carbide-pxe.forge";
+const BMC_FW_UPDATE_KEY: &str = "bmc_fw_update";
+const SECONDS_SINCE_EPOCH_KEY: &str = "seconds_since_epoch";
+const HBN_REPS_KEY: &str = "forge_hbn_reps";
+const HBN_SFS_KEY: &str = "forge_hbn_sfs";
+const VF_INTERCEPT_BRIDGE_NAME_KEY: &str = "forge_vf_intercept_bridge_name";
+const HOST_INTERCEPT_BRIDGE_NAME_KEY: &str = "forge_host_intercept_bridge_name";
+const HOST_INTERCEPT_HBN_PORT_KEY: &str = "forge_host_intercept_hbn_port";
+const HOST_INTERCEPT_BRIDGE_PORT_KEY: &str = "forge_host_intercept_bridge_port";
+const VF_INTERCEPT_HBN_PORT_KEY: &str = "forge_vf_intercept_hbn_port";
+const VF_INTERCEPT_BRIDGE_PORT_KEY: &str = "forge_vf_intercept_bridge_port";
+const VF_INTERCEPT_BRIDGE_SF_REPRESENTOR_KEY: &str = "forge_vf_intercept_bridge_sf_representor";
+const VF_INTERCEPT_BRIDGE_SF_HBN_BRIDGE_REPRESENTOR_KEY: &str =
+    "forge_vf_intercept_bridge_sf_hbn_bridge_representor";
+const VF_INTERCEPT_BRIDGE_SF_KEY: &str = "forge_vf_intercept_bridge_sf";
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -593,6 +612,31 @@ pub async fn initialize_and_start_controllers(
         rms_client: rms_client.clone(),
     });
 
+    // Create DPF CRDs if enabled
+    if carbide_config.dpf.enabled {
+        tracing::info!("Creating DPF CRDs");
+        let key = forge_secrets::credentials::CredentialKey::BmcCredentials {
+            credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
+        };
+        let credentials = api_service
+            .credential_provider
+            .get_credentials(&key)
+            .await?;
+        let Some(forge_secrets::credentials::Credentials::UsernamePassword {
+            username: _,
+            password,
+        }) = credentials
+        else {
+            return Err(eyre::eyre!("Site wide BMC root credentials are not set"));
+        };
+        if let Err(err) =
+            carbide_dpf::create_crds_and_secret(bfcfg_context(carbide_config), password).await
+        {
+            tracing::error!("Failed to create DPF CRDs: {err}");
+            return Err(eyre::eyre!("Failed to create DPF CRDs: {err}"));
+        }
+    }
+
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
     let _machine_state_controller_handle = StateController::<MachineStateControllerIO>::builder()
@@ -833,4 +877,88 @@ pub async fn initialize_and_start_controllers(
     stop_rx
         .await
         .context("error reading from stop channel, calling thread likely panicked")
+}
+
+/// Constructs a context map for bf.cfg Tera template from CarbideConfig.
+/// Used to populate deployment and runtime parameters for the DPF setup.
+fn bfcfg_context(config: &CarbideConfig) -> HashMap<String, String> {
+    let mut context = HashMap::new();
+    context.insert(API_URL_KEY.to_string(), API_URL.to_string());
+    context.insert(PXE_URL_KEY.to_string(), PXE_URL.to_string());
+    context.insert(
+        BMC_FW_UPDATE_KEY.to_string(),
+        carbide_dpf::get_fw_update_data(),
+    );
+    let start = std::time::SystemTime::now();
+    let seconds_since_epoch = start
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs();
+
+    context.insert(
+        SECONDS_SINCE_EPOCH_KEY.to_string(),
+        seconds_since_epoch.to_string(),
+    );
+
+    if let Some(vmaas) = config.vmaas_config.as_ref() {
+        if let Some(hbn_reps) = vmaas.hbn_reps.as_ref() {
+            context.insert(HBN_REPS_KEY.to_string(), hbn_reps.clone());
+        }
+
+        if let Some(hbn_sfs) = vmaas.hbn_sfs.as_ref() {
+            context.insert(HBN_SFS_KEY.to_string(), hbn_sfs.clone());
+        }
+
+        if let Some(bridge) = vmaas.bridging.as_ref() {
+            context.insert(
+                VF_INTERCEPT_BRIDGE_NAME_KEY.to_string(),
+                bridge.vf_intercept_bridge_name.clone(),
+            );
+
+            context.insert(
+                HOST_INTERCEPT_BRIDGE_NAME_KEY.to_string(),
+                bridge.host_intercept_bridge_name.clone(),
+            );
+
+            let host_intercept_bridge_port = bridge.host_intercept_bridge_port.clone();
+            context.insert(
+                HOST_INTERCEPT_HBN_PORT_KEY.to_string(),
+                format!("patch-hbn-{host_intercept_bridge_port}"),
+            );
+
+            context.insert(
+                HOST_INTERCEPT_BRIDGE_PORT_KEY.to_string(),
+                host_intercept_bridge_port,
+            );
+
+            let vf_intercept_bridge_port = bridge.vf_intercept_bridge_port.clone();
+            context.insert(
+                VF_INTERCEPT_HBN_PORT_KEY.to_string(),
+                format!("patch-hbn-{vf_intercept_bridge_port}"),
+            );
+
+            context.insert(
+                VF_INTERCEPT_BRIDGE_PORT_KEY.to_string(),
+                vf_intercept_bridge_port,
+            );
+
+            let vf_intercept_bridge_sf = bridge.vf_intercept_bridge_sf.clone();
+            context.insert(
+                VF_INTERCEPT_BRIDGE_SF_REPRESENTOR_KEY.to_string(),
+                format!("{vf_intercept_bridge_sf}_r"),
+            );
+
+            context.insert(
+                VF_INTERCEPT_BRIDGE_SF_HBN_BRIDGE_REPRESENTOR_KEY.to_string(),
+                format!("{vf_intercept_bridge_sf}_if_r"),
+            );
+
+            context.insert(
+                VF_INTERCEPT_BRIDGE_SF_KEY.to_string(),
+                vf_intercept_bridge_sf,
+            );
+        }
+    }
+
+    context
 }

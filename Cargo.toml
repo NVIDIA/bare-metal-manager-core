@@ -238,6 +238,9 @@ serde_derive = "1"
 fmt = "0.1.0"
 jsonwebtoken = "10.2.0"
 mockito = "1.7.0"
+kube = { version = "3.0.0", default-features = false }
+k8s-openapi = "0.27.0"
+tower-test = "0.4"
 
 [profile.release]
 debug = true            # Enable debuginfo

@@ -254,7 +254,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 Credentials::UsernamePassword { username, password } => (username, password),
             };
         } else {
-            // the current password is always an empty string for the host uefi
+            // For hosts, first try with empty current password (assuming no password is set)
             let credential_key = CredentialKey::HostUefi {
                 credential_type: CredentialType::SiteDefault,
             };
@@ -269,6 +269,26 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             (_, new_password) = match credentials {
                 Credentials::UsernamePassword { username, password } => (username, password),
             };
+
+            // Try with empty password first (no password set on host)
+            match client
+                .change_uefi_password(current_password.as_str(), new_password.as_str())
+                .await
+            {
+                Ok(jid) => return Ok(jid),
+                Err(e) => {
+                    // If the first attempt fails (likely because a password is already set),
+                    // retry using the site default password as the current password.
+                    // This handles the case where a host was force-deleted without clearing
+                    // its UEFI password.
+                    let redacted_error = redact_password(e, new_password.as_str());
+                    tracing::warn!(
+                        error = %redacted_error,
+                        "Failed to set UEFI password with empty current password, retrying with site default password"
+                    );
+                    current_password = new_password.clone();
+                }
+            }
         }
 
         client

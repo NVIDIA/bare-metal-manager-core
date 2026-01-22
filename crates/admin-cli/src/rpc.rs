@@ -16,13 +16,13 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcEndpointRequest, CreateNetworkSecurityGroupRequest,
-    FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest,
+    FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest, GetDpfStateRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
-    IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType, NetworkPrefix,
-    NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest, NetworkSegmentType, Remediation,
-    RemediationIdList, RemediationList, UpdateMachineHardwareInfoRequest,
-    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
-    VpcsByIdsRequest,
+    IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
+    ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
+    NetworkSegmentCreationRequest, NetworkSegmentType, Remediation, RemediationIdList,
+    RemediationList, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
+    VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType, VpcsByIdsRequest,
 };
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::protos::rack_manager_client::RackManagerApiClient;
@@ -2187,6 +2187,37 @@ impl ApiClient {
             },
             Err(e) => Err(CarbideCliError::ApiInvocationError(e)),
         }
+    }
+
+    pub async fn modify_dpf_state(
+        &self,
+        machine_id: MachineId,
+        state: bool,
+    ) -> CarbideCliResult<()> {
+        let request = ModifyDpfStateRequest {
+            machine_id: Some(machine_id),
+            dpf_enabled: state,
+        };
+
+        Ok(self.0.modify_dpf_state(request).await?)
+    }
+
+    pub async fn get_dpf_state(
+        &self,
+        machine_ids: Vec<MachineId>,
+        page_size: usize,
+    ) -> CarbideCliResult<Vec<rpc::dpf_state_response::DpfState>> {
+        let mut all_dpf_states = Vec::with_capacity(machine_ids.len());
+
+        for machine_ids in machine_ids.chunks(page_size) {
+            let request = GetDpfStateRequest {
+                machine_ids: machine_ids.to_vec(),
+            };
+            let dpf_states = self.0.get_dpf_state(request).await?;
+            all_dpf_states.extend(dpf_states.dpf_states);
+        }
+
+        Ok(all_dpf_states)
     }
 }
 
