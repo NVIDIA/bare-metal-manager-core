@@ -639,7 +639,8 @@ async fn test_find_switch_with_ip_addresses_matching_data(
     // Verify the data was inserted correctly by querying directly
     let mut verify_txn = env.pool.begin().await?;
     let ip_map: std::collections::HashMap<String, IpAddr> =
-        db_switch::get_switch_ips_by_serials(&mut verify_txn, std::slice::from_ref(&switch_serial)).await?;
+        db_switch::get_switch_ips_by_serials(&mut verify_txn, std::slice::from_ref(&switch_serial))
+            .await?;
     verify_txn.commit().await?;
 
     // Debug: Check if the direct query returns the IP
