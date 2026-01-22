@@ -13,7 +13,7 @@ kube = { default-features = false, features = [
   "runtime",
   "derive",
   "client",
-  "openssl-tls",
+  "rustls-tls",
 ] , workspace = true }
 rustls = { workspace = true }
 k8s-openapi = { features = ["latest", "schemars"] , workspace = true }
