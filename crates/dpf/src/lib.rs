@@ -19,6 +19,7 @@ pub mod crds;
 #[cfg(test)]
 pub mod test;
 
+use rustls::crypto::{CryptoProvider, aws_lc_rs};
 use std::collections::{BTreeMap, HashMap};
 
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
@@ -147,6 +148,8 @@ pub async fn create_crds_and_secret_with_client(
     bmc_password: String,
     mode: &impl KubeImpl,
 ) -> Result<(), DpfError> {
+    CryptoProvider::install_default(aws_lc_rs::default_provider()).unwrap();
+
     // Step 0: Create secret for bmc password
     create_secret_for_bmc_password(bmc_password, mode).await?;
 
