@@ -20,7 +20,7 @@ dev/kube/kind/ci/*
 cscope.*
 forged
 
-pxe/debs/*
+pxe/debs/*.deb
 !pxe/debs/libnss-exec_0.2.0-1_arm64.deb
 !pxe/debs/libnss-exec_0.2.0-1_amd64.deb
 
