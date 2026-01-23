@@ -4,11 +4,13 @@ on:
   push:
     branches:
       - main
-      - release/*
+      - releases/*
       - "pull-request/[0-9]+"
     tags:
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
-      - "v[0-9].[0-9].[0-9]-rc[0-9]*"
+      # Semver-ish tags (support multi-digit components)
+      - "v[0-9]*.[0-9]*.[0-9]*-rc*"   # e.g. v0.1.0-rc.1
+      - "v[0-9]*.[0-9]*.[0-9]*-pr*"    # e.g. v0.2.0-pr (also matches -pr.1)
 
 env:
   # Build configuration
@@ -231,7 +233,7 @@ jobs:
 
           if [[ "${EVENT_NAME}" == "pull_request" ]] || [[ "${REF}" =~ pull-request/[0-9]+ ]] ; then
             PUBLISH=false
-          elif [[ "${REF}" == "refs/heads/main" ]] || [[ "${REF}" =~ ^refs/heads/release/ ]] || [[ "${REF}" =~ ^refs/tags/ ]] || [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
+          elif [[ "${REF}" == "refs/heads/main" ]] || [[ "${REF}" =~ ^refs/heads/releases/ ]] || [[ "${REF}" =~ ^refs/tags/ ]] || [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
             PUBLISH=true
           fi
 
@@ -892,7 +894,7 @@ jobs:
           done
 
   promote-to-be-scanned-image:
-    # Skip for pull-request/* branches (main, release/*, and tags are allowed by workflow trigger)
+    # Skip for pull-request/* branches (main, release(s)/*, and tags are allowed by workflow trigger)
     if: ${{ !cancelled() && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') }}
     needs:
       - prepare
@@ -965,7 +967,7 @@ jobs:
       - build-release-container-x86_64
       - build-release-container-aarch64
       - security-trivy-scan
-    if: ${{ !cancelled() && github.event_name != 'schedule' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/releases/')) }}
     uses: ./.github/workflows/promotion-rc.yaml
     with:
       version: ${{ needs.prepare.outputs.version }}
