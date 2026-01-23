@@ -109,42 +109,43 @@ async fn convert_instance_to_nice_format(
         ),
     ];
 
+    let instance_os = instance
+        .config
+        .as_ref()
+        .and_then(|config| config.os.as_ref());
+
     let mut extra_info = vec![
         (
             "IPXE SCRIPT",
-            instance
-                .config
-                .as_ref()
-                .and_then(|config| config.tenant.as_ref())
-                .map(|tenant| tenant.custom_ipxe.clone())
+            instance_os
+                .and_then(|os| match os.variant.as_ref() {
+                    Some(::rpc::forge::operating_system::Variant::Ipxe(ipxe_os)) => {
+                        Some(ipxe_os.ipxe_script.clone())
+                    }
+                    Some(::rpc::forge::operating_system::Variant::OsImageId(image)) => {
+                        Some(format!("OS Image ID: {}", image.value))
+                    }
+                    None => None,
+                })
                 .unwrap_or_default(),
         ),
         (
             "USERDATA",
-            instance
-                .config
-                .as_ref()
-                .and_then(|config| config.tenant.as_ref())
-                .and_then(|tenant| tenant.user_data.clone())
+            instance_os
+                .and_then(|os| os.user_data.clone())
                 .unwrap_or_default(),
         ),
         (
-            "ALWAYS BOOT WITH IPXE",
-            instance
-                .config
-                .as_ref()
-                .and_then(|config| config.tenant.as_ref())
-                .map(|tenant| tenant.always_boot_with_custom_ipxe)
+            "RUN PROVISIONING ON EVERY BOOT",
+            instance_os
+                .map(|os| os.run_provisioning_instructions_on_every_boot)
                 .unwrap_or_default()
                 .to_string(),
         ),
         (
             "PHONE HOME ENABLED",
-            instance
-                .config
-                .as_ref()
-                .and_then(|config| config.tenant.as_ref())
-                .map(|tenant| tenant.phone_home_enabled)
+            instance_os
+                .map(|os| os.phone_home_enabled)
                 .unwrap_or_default()
                 .to_string(),
         ),

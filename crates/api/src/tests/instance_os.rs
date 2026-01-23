@@ -10,33 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use common::api_fixtures::instance::{
-    default_os_config, default_tenant_config, single_interface_network_config,
-};
+use common::api_fixtures::instance::{default_tenant_config, single_interface_network_config};
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::tests::common;
-
-fn verify_os_in_tenant_config(
-    tenant_config: &rpc::forge::TenantConfig,
-    expected_os: &rpc::forge::OperatingSystem,
-) {
-    let mut expected_tenant_config = tenant_config.clone();
-    match &expected_os.variant {
-        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
-            expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
-            expected_tenant_config.user_data = expected_os.user_data.clone();
-        }
-        _ => panic!("Unexpected OS type"),
-    }
-    expected_tenant_config.always_boot_with_custom_ipxe =
-        expected_os.run_provisioning_instructions_on_every_boot;
-    expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
-    assert_eq!(tenant_config, &expected_tenant_config);
-}
 
 #[crate::sqlx_test]
 async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConnectOptions) {
@@ -73,10 +53,8 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    let tenant_config = instance.config().tenant();
     let os = instance.config().os();
     assert_eq!(os, &initial_os);
-    verify_os_in_tenant_config(tenant_config, &initial_os);
     let initial_config_version = instance.config_version();
     assert_eq!(initial_config_version.version_nr(), 1);
 
@@ -104,10 +82,8 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .await
         .unwrap()
         .into_inner();
-    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
     let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
     assert_eq!(os, &updated_os_1);
-    verify_os_in_tenant_config(tenant_config, &updated_os_1);
     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
     assert_eq!(updated_config_version.version_nr(), 2);
 
@@ -161,10 +137,8 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .unwrap()
         .into_inner();
 
-    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
     let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
     assert_eq!(os, &updated_os_2);
-    verify_os_in_tenant_config(tenant_config, &updated_os_2);
     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
     assert_eq!(updated_config_version.version_nr(), 3);
 
@@ -218,53 +192,4 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         err.message(),
         "Invalid value: IpxeOperatingSystem::ipxe_script is empty"
     );
-}
-
-/// Instance creation using legacy method to pass OS
-/// This should be removed once the mechanism is removed
-#[crate::sqlx_test]
-async fn test_instance_creation_with_os_in_tenantconfig(
-    _: PgPoolOptions,
-    options: PgConnectOptions,
-) {
-    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool).await;
-    let segment_id = env.create_vpc_and_tenant_segment().await;
-    let mh = create_managed_host(&env).await;
-
-    let mut tenant_config = default_tenant_config();
-    // We don't use this OS object, but just copy parameters over
-    // carbide is supposed to build an equivalent Os object from it
-    let os_config = default_os_config();
-    match &os_config.variant {
-        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
-            tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
-            tenant_config.user_data = os_config.user_data.clone();
-            tenant_config.always_boot_with_custom_ipxe =
-                os_config.run_provisioning_instructions_on_every_boot;
-            tenant_config.phone_home_enabled = os_config.phone_home_enabled;
-        }
-        _ => panic!("Unsupported OS"),
-    }
-
-    let config = rpc::InstanceConfig {
-        tenant: Some(tenant_config.clone()),
-        os: None,
-        network: Some(single_interface_network_config(segment_id)),
-        infiniband: None,
-        network_security_group_id: None,
-        dpu_extension_services: None,
-        nvlink: None,
-    };
-
-    let tinstance = mh.instance_builer(&env).config(config).build().await;
-
-    let instance = tinstance.rpc_instance().await;
-
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
-
-    let actual_tenant_config = instance.config().tenant();
-    let actual_os = instance.config().os();
-    assert_eq!(actual_os, &os_config);
-    assert_eq!(actual_tenant_config, &tenant_config);
 }

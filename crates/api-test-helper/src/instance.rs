@@ -31,23 +31,25 @@ pub async fn create(
         segment_id.unwrap_or("<none>")
     );
 
-    let tenant = match hostname {
-        Some(hostname) => serde_json::json!({
-                "tenant_organization_id": "MyOrg",
-                "user_data": "hello",
-                "custom_ipxe": "chain --autofree https://boot.netboot.xyz",
-                "phone_home_enabled": phone_home_enable,
-                "hostname": hostname,
-                "tenantKeysetIds": keyset_ids,
-        }),
-        None => serde_json::json!({
-                 "tenant_organization_id": "MyOrg",
-                 "user_data": "hello",
-                 "custom_ipxe": "chain --autofree https://boot.netboot.xyz",
-                 "phone_home_enabled": phone_home_enable,
-                "tenantKeysetIds": keyset_ids,
-        }),
-    };
+    let mut tenant = serde_json::json!({
+        "tenant_organization_id": "MyOrg",
+        "tenantKeysetIds": keyset_ids,
+    });
+
+    if let Some(hostname) = hostname {
+        tenant
+            .as_object_mut()
+            .unwrap()
+            .insert("hostname".to_string(), serde_json::json!(hostname));
+    }
+
+    let os = serde_json::json!({
+        "ipxe": {
+            "ipxe_script": "chain --autofree https://boot.netboot.xyz"
+        },
+        "phone_home_enabled": phone_home_enable,
+        "user_data": "hello",
+    });
 
     let instance_config = match segment_id {
         Some(segment_id) => serde_json::json!({
@@ -57,7 +59,8 @@ pub async fn create(
                     "function_type": "PHYSICAL",
                     "network_segment_id": {"value": segment_id}
                 }]
-            }
+            },
+            "os": os,
         }),
         // omit network from config if we're not specifying a segment
         None => serde_json::json!({
