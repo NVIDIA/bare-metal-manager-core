@@ -8,8 +8,8 @@ on:
       - "pull-request/[0-9]+"
     tags:
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
-      - "v[0-9].[0-9].[0-9]-rc[0-9]*"
-
+      - "v[0-9]*.[0-9]*.[0-9]*-rc*"   # e.g. v0.1.0-rc.1
+      - "v[0-9]*.[0-9]*.[0-9]*-pr*"   # e.g. v0.2.0-pr (also matches -pr.1)
 env:
   # Build configuration
   CARGO_INCREMENTAL: 0
