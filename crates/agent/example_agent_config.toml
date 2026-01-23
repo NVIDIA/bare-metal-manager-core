@@ -1,0 +1,19 @@
+[forge-system]
+api-server = "http://localhost:50051"
+pxe-server = "http://127.0.0.1:8080"
+root-ca = "/home/amaslennikov/pcarbide/credentials/localhost.pem"
+
+[machine]
+interface-id = "3048d658-0b13-4a5e-91cc-f47e45a031f9"
+mac-address = "11:22:33:44:55:66"
+hostname = "abc.forge.com"
+
+[metadata-service]
+address = "0.0.0.0:7777"
+
+[telemetry]
+metrics-address = "0.0.0.0:8888"
+
+[hbn]
+root-dir = "/var/lib/hbn"
+skip-reload = false

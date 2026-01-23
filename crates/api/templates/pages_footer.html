@@ -1,0 +1,35 @@
+<table>
+    <tr><th>
+{% if pages > 1 %}
+<a href="{{ path }}?current_page=0&limit={{limit}}">[&lt; First]</a>
+{% if current_page > 0 %}
+    <a href="{{ path }}?current_page={{previous}}&limit={{limit}}">[&lt;&lt; Previous]</a>
+{% else %}
+    [&lt;&lt; Previous]
+{% endif %}
+
+{% if pages == 0 %}
+    [Next &gt;&gt;]
+    [Last &gt;]
+{% else%}
+    {% if current_page < (pages-1) %}
+        <a href="{{ path }}?current_page={{next}}&limit={{limit}}">[Next &gt;&gt;]</a>
+    {% else %}
+        [Next &gt;&gt;]
+    {% endif %}
+    <a href="{{ path }}?current_page={{(pages - 1)}}&limit={{limit}}">[Last &gt;]</a>
+{% endif %}
+
+<br/>
+Page: ...				    				
+    {% for p in page_range_start..page_range_end %}
+        {% if p == current_page %}
+            [{{p}}]
+        {% else %}
+            <a href="{{ path }}?current_page={{p}}&limit={{limit}}">[{{p}}]</a> 
+        {% endif %}
+    {% endfor %}
+...
+{% endif %}
+</th></tr>
+</table>

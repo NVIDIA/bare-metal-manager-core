@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+REPO_ROOT = { script = [
+  "dirname $(cargo locate-project --message-format plain --workspace)",
+] }
+
+[tasks.build-component-local]
+category = "Build"
+description = "compile carbide package"
+workspace = false
+script = '''
+
+echo "building ${CARBIDE_PROFILE}/${CARBIDE_ARCH} of ${CARBIDE_CRATE}"
+
+if [ "${CARBIDE_PROFILE}" = "release" ]
+then
+  profile_arg="--release"
+fi
+pkg_args="${pkg_args} -p ${CARBIDE_CRATE}"
+
+cargo build ${profile_arg} --target=${CARBIDE_ARCH}-unknown-linux-gnu ${pkg_args}
+'''
+
+[tasks.build-component-in-container]
+category = "Build"
+description = "compile carbide package x86_64"
+workspace = false
+script = '''
+
+echo "building ${CARBIDE_PROFILE}/${CARBIDE_ARCH} of ${CARBIDE_CRATE}"
+
+if [ "${CARBIDE_PROFILE}" = "release" ]
+then
+  profile_arg="--release"
+fi
+
+case "${CARBIDE_ARCH}" in
+  "x86_64")
+    IMAGE_NAME="urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest"
+    ;;
+  "aarch64")
+    IMAGE_NAME="build-artifacts-container-cross-aarch64:latest"
+    ;;
+  *)
+    echo "Unknown architecture"
+    exit 1
+    ;;
+esac
+
+pkg_args="${pkg_args} -p ${CARBIDE_CRATE}"
+
+docker run \
+    --rm \
+    --workdir /carbide \
+    --env CARGO_HOME=/cargo \
+    --user $(id -u):$(id -g) \
+    --volume $REPO_ROOT:/carbide \
+    --volume $CARGO_HOME:/cargo \
+    $IMAGE_NAME \
+    cargo build ${profile_arg} --target=${CARBIDE_ARCH}-unknown-linux-gnu ${pkg_args}
+
+  if [ "${CARBIDE_PROFILE}" = "release" ] && [ "${CARBIDE_ARCH}" = "x86_64" ]
+  then
+  docker run \
+    --rm \
+    --user $(id -u):$(id -g) \
+    --volume $REPO_ROOT:/carbide \
+    urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
+    x86_64-linux-gnu-strip /carbide/target/x86_64-unknown-linux-gnu/release/forge-scout
+  else
+    echo "Skipping strip of sysmbols in profile ${CARBIDE_PROFILE}"
+  fi
+'''
+dependencies = [
+  { name = "build-x86-build-container", path = "${REPO_ROOT}" },
+  { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+]

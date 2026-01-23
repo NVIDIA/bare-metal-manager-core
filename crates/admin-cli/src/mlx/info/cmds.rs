@@ -1,0 +1,183 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+// info/cmds.rs
+// Command handlers for info operations.
+
+use mlxconfig_device::info::MlxDeviceInfo;
+use mlxconfig_device::report::MlxDeviceReport;
+use prettytable::{Cell, Row, Table};
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::protos::mlx_device as mlx_device_pb;
+
+use super::args::{InfoCommand, InfoDeviceCommand, InfoMachineCommand};
+use crate::mlx::{CliContext, wrap_text};
+
+// dispatch routes info subcommands to their handlers.
+pub async fn dispatch(command: InfoCommand, ctxt: &mut CliContext<'_, '_>) -> CarbideCliResult<()> {
+    match command {
+        InfoCommand::Device(cmd) => handle_device_info(cmd, ctxt).await,
+        InfoCommand::Machine(cmd) => handle_device_report(cmd, ctxt).await,
+    }
+}
+
+// handle_device_info gets an MlxDeviceInfo for a device on a machine.
+async fn handle_device_info(
+    cmd: InfoDeviceCommand,
+    ctxt: &mut CliContext<'_, '_>,
+) -> CarbideCliResult<()> {
+    let request: mlx_device_pb::MlxAdminDeviceInfoRequest = cmd.into();
+    let response = ctxt.grpc_conn.0.mlx_admin_show_device(request).await?;
+
+    let device_info: MlxDeviceInfo = match response.device_info {
+        Some(device_info) => device_info.try_into().map_err(|e| {
+            CarbideCliError::GenericError(format!("failed to convert device info: {}", e))
+        }),
+        None => Err(CarbideCliError::GenericError(
+            "no device info found for device".to_string(),
+        )),
+    }?;
+
+    match ctxt.format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&device_info)?);
+        }
+        OutputFormat::Yaml => {
+            println!("{}", serde_yaml::to_string(&device_info)?);
+        }
+        OutputFormat::AsciiTable => {
+            print_device_details_table(&device_info);
+        }
+        OutputFormat::Csv => {
+            println!("CSV not yet supported");
+        }
+    }
+    Ok(())
+}
+
+// handle_device_report gets an MlxDeviceReport for a machine.
+async fn handle_device_report(
+    cmd: InfoMachineCommand,
+    ctxt: &mut CliContext<'_, '_>,
+) -> CarbideCliResult<()> {
+    let request: mlx_device_pb::MlxAdminDeviceReportRequest = cmd.into();
+    let response = ctxt.grpc_conn.0.mlx_admin_show_machine(request).await?;
+
+    let device_report: MlxDeviceReport = match response.device_report {
+        Some(device_report) => device_report.try_into().map_err(|e| {
+            CarbideCliError::GenericError(format!("failed to convert device report: {}", e))
+        }),
+        None => Err(CarbideCliError::GenericError(
+            "no device report found for device".to_string(),
+        )),
+    }?;
+    match ctxt.format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&device_report)?);
+        }
+        OutputFormat::Yaml => {
+            println!("{}", serde_yaml::to_string(&device_report)?);
+        }
+        OutputFormat::AsciiTable => {
+            print_report_table(&device_report);
+        }
+        OutputFormat::Csv => {
+            println!("CSV not yet supported");
+        }
+    }
+
+    Ok(())
+}
+
+// print_devices_table displays a list of devices in an ASCII table format.
+fn print_devices_table(devices: &[MlxDeviceInfo]) {
+    let mut table = Table::new();
+
+    // Add header row.
+    table.add_row(Row::new(vec![
+        Cell::new("PCI Name"),
+        Cell::new("Base MAC"),
+        Cell::new("PSID"),
+        Cell::new("Device Type"),
+        Cell::new("Part Number"),
+        Cell::new("FW Version"),
+    ]));
+
+    // Add device rows.
+    for device in devices {
+        table.add_row(Row::new(vec![
+            Cell::new(&device.pci_name_pretty()),
+            Cell::new(&device.base_mac_pretty()),
+            Cell::new(&device.psid_pretty()),
+            Cell::new(&device.device_type_pretty()),
+            Cell::new(&device.part_number_pretty()),
+            Cell::new(&device.fw_version_current_pretty()),
+        ]));
+    }
+
+    table.printstd();
+}
+
+// print_device_details_table displays detailed device information in an ASCII table format.
+fn print_device_details_table(device: &MlxDeviceInfo) {
+    let mut table = Table::new();
+
+    // Add header row.
+    table.add_row(Row::new(vec![Cell::new("Field"), Cell::new("Value")]));
+
+    // Add all device fields.
+    for field_name in MlxDeviceInfo::get_all_fields() {
+        let value = device.get_field_value(field_name);
+        let wrapped_value = wrap_text(&value, 60);
+
+        table.add_row(Row::new(vec![
+            Cell::new(field_name),
+            Cell::new(&wrapped_value),
+        ]));
+    }
+
+    table.printstd();
+}
+
+// print_report_table displays a device report in ASCII table format with metadata header.
+fn print_report_table(report: &MlxDeviceReport) {
+    let mut header_table = Table::new();
+
+    // Add hostname row.
+    header_table.add_row(Row::new(vec![
+        Cell::new("Hostname"),
+        Cell::new(&report.hostname),
+    ]));
+
+    // Add timestamp row.
+    let timestamp_str = report.timestamp.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+    header_table.add_row(Row::new(vec![
+        Cell::new("Timestamp"),
+        Cell::new(&timestamp_str),
+    ]));
+
+    // Add device filters row if present.
+    if let Some(filters) = &report.filters {
+        let filters_str = filters.to_string();
+        header_table.add_row(Row::new(vec![
+            Cell::new("Device Filters"),
+            Cell::new(&filters_str),
+        ]));
+    }
+
+    // Print the header table.
+    header_table.printstd();
+    println!(); // Add spacing between header and device table
+
+    // Print the devices table.
+    print_devices_table(&report.devices);
+}

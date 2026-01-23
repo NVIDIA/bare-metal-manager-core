@@ -1,0 +1,56 @@
+#!ipxe
+
+set esc:hex 1b
+set bold ${esc:string}[1m
+set boldoff ${esc:string}[22m
+
+set white ${esc:string}[37m
+
+#color --rgb 0x76b900 7
+#cpair --foreground 7 --background 9 0
+
+:start
+echo ${bold}${white}Carbide${boldoff} - ${version}
+prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open carbide menu... && goto carbide_menu || goto carbide
+
+:whoami
+ifconf -c dhcp
+isset ${43.70} && time chain --autofree http://${next-server}:8080/api/v0/pxe/whoami?uuid=${43.70}
+goto carbide_menu
+
+:carbide
+ifconf -c dhcp
+isset ${43.70} && time chain --autofree http://${next-server}:8080/api/v0/pxe/boot?uuid=${43.70}&buildarch=${buildarch}&platform=${platform}&manufacturer=${manufacturer}&product=${product}&serial=${serial} && exit 1 || goto error_handler
+
+:carbide_menu
+menu Carbide - ${hostname}
+item carbide Boot according to Carbide workflow
+item whoami Print information about this machine
+item localboot Boot to local drive
+#item netconfig Manual network configuration
+#item vlan Manual VLAN configuration
+item retry Retry boot
+item debug iPXE Debug Shell
+item reboot Reboot System
+choose --default carbide --timeout 5000 target && goto ${target}
+prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open carbide menu...
+goto carbide_menu
+
+:localboot
+exit
+
+:retry
+goto start
+
+:error_handler
+prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to continue (4 seconds timeout)...
+goto carbide_menu
+
+:debug
+echo Type "exit" to return to menu
+shell
+goto carbide_menu
+
+:reboot
+reboot
+goto start

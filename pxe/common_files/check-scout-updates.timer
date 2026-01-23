@@ -1,0 +1,9 @@
+[Unit]
+Description=Run scout daily update check
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

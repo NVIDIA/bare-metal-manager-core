@@ -1,0 +1,182 @@
+[package]
+name = "carbide-api"
+version = "0.0.1"
+edition.workspace = true
+description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "carbide"
+
+[[bin]]
+name = "carbide-api"
+path = "src/main.rs"
+
+[dependencies]
+# [local-dependencies]
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
+bmc-vendor = { path = "../bmc-vendor" }
+config-version = { path = "../config-version", features = ["sqlx"] }
+carbide-host-support = { path = "../host-support", default-features = false }
+carbide-network = { path = "../network", features = ["sqlx"] }
+carbide-secrets = { path = "../secrets" }
+carbide-version = { path = "../version" }
+carbide-health-report = { path = "../health-report" }
+dns-record = { path = "../dns-record" }
+libnmxm = { path = "../libnmxm" }
+logfmt = { path = "../logfmt" }
+mqttea = { path = "../mqttea" }
+carbide-rpc = { path = "../rpc", features = ["sqlx"] }
+carbide-utils = { path = "../utils", features = ["sqlx"] }
+carbide-ssh = { path = "../ssh" }
+carbide-tls = { path = "../tls" }
+carbide-uuid = { path = "../uuid", features = ["sqlx"] }
+carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
+carbide-mlxconfig-device = { path = "../mlxconfig-device" }
+carbide-mlxconfig-profile = { path = "../mlxconfig-profile" }
+carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
+carbide-api-model = { path = "../api-model", default-features = false }
+carbide-api-db = { path = "../api-db", default-features = false }
+spancounter = { path = "../spancounter" }
+nras = { path = "../nras" }
+carbide-dpf = { path = "../dpf" }
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
+
+#these are alphabetized
+ansi-to-html = { workspace = true }
+arc-swap = { workspace = true }
+askama = { features = ["serde-json"], workspace = true }
+askama_escape = { workspace = true }
+asn1-rs = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true, features = ["http2"] }
+axum-extra = { workspace = true, features = ["cookie", "cookie-private"] }
+base64 = { workspace = true }
+byteorder = { workspace = true }
+bytes = { workspace = true }
+casbin = { features = ["glob"], workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+crypto-bigint = { workspace = true }
+dashmap = { workspace = true }
+data-encoding = { workspace = true }
+duration-str = { workspace = true }
+eyre = { workspace = true }
+figment = { features = ["env", "toml"], workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["full"] }
+hyper-rustls = { workspace = true }
+hyper-timeout = { workspace = true }
+hyper-util = { workspace = true }
+ipnetwork = { workspace = true, features = ["serde"] }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+libredfish = { workspace = true }
+mac_address = { workspace = true }
+md5 = { workspace = true }
+num-bigint-dig = { workspace = true }
+num_cpus = { workspace = true }
+oauth2 = { default-features = false, workspace = true }
+oid-registry = { workspace = true }
+opentelemetry = { workspace = true, features = ["logs"] }
+opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
+opentelemetry-prometheus.workspace = true
+opentelemetry-semantic-conventions = { features = [
+  "semconv_experimental",
+], workspace = true }
+opentelemetry_sdk = { workspace = true, features = [
+  "logs",
+  "rt-tokio",
+  "spec_unstable_metrics_views",
+  "testing",
+] }
+pkcs1 = { workspace = true }
+prometheus = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { default-features = false, features = [
+  "rustls-tls",
+  "stream",
+], workspace = true }
+rsa = { workspace = true }
+rumqttc = { workspace = true }
+rustls = { workspace = true, features = ["default", "ring"] }
+rustls-pemfile = { workspace = true }
+rustls-pki-types = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+] }
+strum = { workspace = true }
+temp-dir = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+tokio-stream = { workspace = true }
+toml = { workspace = true }
+tonic = { workspace = true }
+tonic-reflection = { workspace = true }
+tower = { workspace = true }
+tower-http = { features = [
+  "add-extension",
+  "auth",
+  "normalize-path",
+], workspace = true }
+tracing = { workspace = true }
+tracing-log = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
+tss-esapi = { optional = true, workspace = true }
+url = { features = ["serde"], workspace = true }
+uuid = { features = ["v4", "serde"], workspace = true }
+version-compare = { workspace = true }
+x509-parser = { features = ["verify"], workspace = true }
+#these are alphabetized
+
+[features]
+default = ["linux-build"]
+linux-build = [
+  "tss-esapi",
+  "carbide-sqlx-testing/linux-build",
+  "carbide-host-support/linux-build",
+  "carbide-api-model/linux-build",
+  "carbide-api-db/linux-build",
+]
+
+[build-dependencies]
+carbide-version = { path = "../version" }
+
+[dev-dependencies]
+figment = { features = ["env", "test", "toml"], workspace = true }
+ctor = { workspace = true }
+lazy_static = { workspace = true }
+const_format = { workspace = true }
+rcgen = { workspace = true }
+carbide-macros = { path = "../macros" }
+carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+carbide-prost-builder = { path = "../prost-builder" }
+prometheus-text-parser = { path = "../prometheus-text-parser" }
+prost = { workspace = true }
+
+[lints]
+workspace = true

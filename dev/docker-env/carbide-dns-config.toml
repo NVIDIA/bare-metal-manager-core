@@ -1,0 +1,8 @@
+socket_permission = 777
+ns1_ip_address = "172.20.0.53"
+
+[forge-system]
+api-server = "https://172.20.0.14:1079"
+cert-path = "/app/code/dev/certs/server_identity.pem"
+key-path = "/app/code/dev/certs/server_identity.key"
+root-ca = "/app/code/dev/certs/forge_developer_local_only_root_cert_pem"

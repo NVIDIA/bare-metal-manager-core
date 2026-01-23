@@ -1,0 +1,3 @@
+[toolchain]
+# If you change this grep for "FROM.*rust:1.90.0" and update those Dockerfiles
+channel = "1.90.0"

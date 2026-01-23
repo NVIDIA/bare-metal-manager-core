@@ -1,0 +1,78 @@
+# Example configuration for carbide-hw-health service
+
+shard = 0
+shards_count = 1
+
+cache_size = 100
+bmc_proxy_url = "http://proxy.example.com:8080"
+
+# ==============================================================================
+# Endpoint Sources: Where to discover BMC endpoints from
+# ==============================================================================
+
+[endpoint_sources]
+
+[endpoint_sources.carbide_api]
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key = "/var/run/secrets/spiffe.io/tls.key"
+api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.0.1"
+port = 443
+mac = "aa:bb:cc:dd:ee:ff"
+username = "admin"
+password = "secret"
+
+# ==============================================================================
+# Health Report Sinks: Where to send health reports
+# ==============================================================================
+
+[health_sinks]
+console = true
+
+[health_sinks.carbide_api]
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key = "/var/run/secrets/spiffe.io/tls.key"
+api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+
+# ==============================================================================
+# Rate Limiting
+# ==============================================================================
+
+[rate_limit]
+bucket_burst = 200
+bucket_replenish = "35ms"
+max_jitter = "40ms"
+
+# ==============================================================================
+# Collectors: What data to collect from BMCs
+# ==============================================================================
+
+[collectors]
+
+[collectors.health]
+rediscover_interval = "5m"
+monitor_check_interval = "1m"
+state_refresh_interval = "30m"
+sensor_fetch_interval = "1m"
+sensor_fetch_concurrency = 10
+
+[collectors.firmware]
+firmware_refresh_interval = "30m"
+
+[collectors.logs]
+logs_collection_interval = "5m"
+logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+logs_output_dir = "/tmp/logs"
+logs_max_file_size = 104857600                            # 100MB
+logs_max_backups = 5
+
+# ==============================================================================
+# Metrics
+# ==============================================================================
+
+[metrics]
+endpoint = "0.0.0.0:9009"

@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-dhcp-certificate
+  namespace: default
+spec:
+  duration: 720h0m0s
+  renewBefore: 360h0m0s
+  dnsNames:
+    - carbide-dhcp.default.svc.cluster.local
+  uris:
+    - spiffe://forge.local/default/sa/carbide-dhcp
+  privateKey:
+    algorithm: ECDSA
+    size: 384
+  issuerRef:
+    kind: ClusterIssuer
+    name: vault-forge-issuer
+    group: cert-manager.io
+  secretName: carbide-dhcp-certificate

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Domains{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>Domains</h1>
+
+<table class="sortable overview">
+	<thead>
+		<tr>
+			<th>ID</th>
+			<th>Name</th>
+			<th>Created</th>
+			<th>Updated</th>
+			<th>Deleted</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for domain in domains %}
+			<tr>
+				<td>{{ domain.id }}</td>
+				<td>{{ domain.name }}</td>
+				<td>{{ domain.created }}</td>
+				<td>{{ domain.updated }}</td>
+				<td>{{ domain.deleted }}</td>
+			</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+{% endblock %}

@@ -1,0 +1,52 @@
+[package]
+name = "carbide-host-support"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# TODO: rename to carbide_host_support in source
+[lib]
+name = "carbide_host_support"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+# [local-dependencies]
+carbide-tls = { path = "../tls" }
+logfmt = { path = "../logfmt" }
+carbide-rpc = { path = "../rpc" }
+carbide-utils = { path = "../utils" }
+carbide-uuid = { path = "../uuid" }
+
+base64 = { workspace = true }
+csv = { workspace = true }
+eyre = { workspace = true }
+ipnetwork = { workspace = true }
+libudev = { optional = true, workspace = true }
+procfs = { optional = true, workspace = true }
+regex = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+smbios-lib = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
+tryhard = { workspace = true }
+uname = { workspace = true }
+uuid = { workspace = true }
+serde_with = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["linux-build"]
+linux-build = ["libudev", "procfs"]

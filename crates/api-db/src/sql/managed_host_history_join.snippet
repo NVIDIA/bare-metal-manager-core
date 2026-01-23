@@ -1,0 +1,5 @@
+LEFT JOIN LATERAL (
+    SELECT json_agg(json_build_object('machine_id', mh.machine_id, 'state', mh.state::TEXT, 'state_version', mh.state_version)) AS json
+    FROM machine_state_history mh
+    WHERE mh.machine_id = m2.id
+) AS h ON true

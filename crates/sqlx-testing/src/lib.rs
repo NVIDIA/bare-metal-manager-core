@@ -1,0 +1,197 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::ops::Deref;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+use sqlx::pool::PoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::testing::{TestArgs, TestContext, TestTermination};
+use sqlx::{ConnectOptions, Connection, Executor, Postgres};
+use tokio::sync::OnceCell;
+
+static POOL: OnceCell<PgPool> = OnceCell::const_new();
+static DB_NUMBER: AtomicUsize = AtomicUsize::new(0);
+static TEMPLATE_DB: &str = "sqlx_test_template_db";
+
+pub trait TestFn {
+    type Output;
+
+    fn run_test(self, args: TestArgs) -> Self::Output;
+}
+
+impl<Fut> TestFn for fn(PgPool) -> Fut
+where
+    Fut: Future,
+    Fut::Output: TestTermination,
+{
+    type Output = Fut::Output;
+
+    fn run_test(self, args: TestArgs) -> Self::Output {
+        run_test_with_pool(args, self)
+    }
+}
+
+impl<Fut> TestFn for fn(PgPoolOptions, PgConnectOptions) -> Fut
+where
+    Fut: Future,
+    Fut::Output: TestTermination,
+{
+    type Output = Fut::Output;
+
+    fn run_test(self, args: TestArgs) -> Self::Output {
+        run_test(args, self)
+    }
+}
+
+pub fn run_test_with_pool<F, Fut>(args: TestArgs, test_fn: F) -> Fut::Output
+where
+    F: FnOnce(PgPool) -> Fut,
+    Fut: Future,
+    Fut::Output: TestTermination,
+{
+    let test_path = args.test_path;
+    run_test(args, |pool_opts, connect_opts| async move {
+        let pool = pool_opts
+            .connect_with(connect_opts)
+            .await
+            .expect("failed to connect test pool");
+
+        let res = test_fn(pool.clone()).await;
+
+        let close_timed_out = sqlx_core::rt::timeout(Duration::from_secs(10), pool.close())
+            .await
+            .is_err();
+
+        if close_timed_out {
+            eprintln!("test {test_path} held onto Pool after exiting");
+        }
+
+        res
+    })
+}
+
+fn run_test<F, Fut>(args: TestArgs, test_fn: F) -> Fut::Output
+where
+    F: FnOnce(PgPoolOptions, PgConnectOptions) -> Fut,
+    Fut: Future,
+    Fut::Output: TestTermination,
+{
+    sqlx_core::rt::test_block_on(async move {
+        let test_context = test_context(&args)
+            .await
+            .expect("failed to connect to setup test database");
+
+        setup_test_db(&test_context.connect_opts, &args).await;
+
+        let res = test_fn(test_context.pool_opts, test_context.connect_opts).await;
+        if res.is_success()
+            && let Err(e) = cleanup_test(&test_context.db_name).await
+        {
+            eprintln!(
+                "failed to cleanup database {:?}: {}",
+                test_context.db_name, e
+            );
+        }
+        res
+    })
+}
+
+async fn cleanup_test(db_name: &str) -> Result<(), sqlx::Error> {
+    POOL.get()
+        .unwrap()
+        .acquire()
+        .await?
+        .execute(&format!("drop database if exists {db_name:?};")[..])
+        .await
+        .map(|_| ())
+}
+
+async fn setup_test_db(copts: &PgConnectOptions, args: &TestArgs) {
+    let mut conn = copts
+        .connect()
+        .await
+        .expect("failed to connect to test database");
+
+    for fixture in args.fixtures {
+        (&mut conn)
+            .execute(fixture.contents)
+            .await
+            .unwrap_or_else(|e| panic!("failed to apply test fixture {:?}: {:?}", fixture.path, e));
+    }
+
+    conn.close()
+        .await
+        .expect("failed to close setup connection");
+}
+
+async fn init_pool() -> PgPool {
+    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set.");
+    let opts = PgConnectOptions::from_str(&url).expect("failed to parse DATABASE_URL");
+    let root_pool = PoolOptions::new()
+        .max_connections(50)
+        .after_release(|_conn, _| Box::pin(async move { Ok(false) }))
+        .connect_lazy_with(opts);
+
+    root_pool
+        .execute(&format!("drop database if exists {TEMPLATE_DB:?};")[..])
+        .await
+        .expect("cannot cleanup template database");
+    // Create and migrate template databas
+    root_pool
+        .execute(&format!("create database {TEMPLATE_DB}")[..])
+        .await
+        .expect("cannot create template database");
+    let root_opts: std::sync::Arc<PgConnectOptions> = root_pool.connect_options();
+    let template_opts = root_opts.deref().clone().database(TEMPLATE_DB);
+    let template_pool = PoolOptions::new().connect_lazy_with(template_opts);
+    db::migrations::migrate(&template_pool)
+        .await
+        .expect("cannot migrate DB used as template");
+    template_pool.close().await;
+    root_pool
+}
+
+async fn test_context(args: &TestArgs) -> Result<TestContext<Postgres>, sqlx::Error> {
+    let pool = POOL.get_or_init(init_pool).await;
+
+    let new_db_name = format!(
+        "db{}_{}",
+        DB_NUMBER.fetch_add(1, Ordering::SeqCst),
+        args.test_path.replace(":", "_"),
+    );
+
+    pool.acquire()
+        .await?
+        .execute(&format!("drop database if exists {new_db_name:?};")[..])
+        .await?;
+
+    pool.acquire()
+        .await?
+        .execute(&format!("create database {new_db_name:?} template {TEMPLATE_DB}")[..])
+        .await?;
+
+    Ok(TestContext {
+        pool_opts: PoolOptions::new()
+            .max_connections(5)
+            .idle_timeout(Some(Duration::from_secs(1)))
+            .parent(pool.clone()),
+        connect_opts: pool
+            .connect_options()
+            .deref()
+            .clone()
+            .database(&new_db_name),
+        db_name: new_db_name,
+    })
+}

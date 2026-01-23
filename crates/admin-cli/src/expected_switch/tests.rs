@@ -1,0 +1,191 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+// The intent of the tests.rs file is to test the integrity of the
+// command, including things like basic structure parsing, enum
+// translations, and any external input validators that are
+// configured. Specific "categories" are:
+//
+// Command Structure - Baseline debug_assert() of the entire command.
+// Argument Parsing  - Ensure required/optional arg combinations parse correctly.
+
+use clap::{CommandFactory, Parser};
+
+use super::args::*;
+
+// verify_cmd_structure runs a baseline clap debug_assert()
+// to do basic command configuration checking and validation,
+// ensuring things like unique argument definitions, group
+// configurations, argument references, etc. Things that would
+// otherwise be missed until runtime.
+#[test]
+fn verify_cmd_structure() {
+    Cmd::command().debug_assert();
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Argument Parsing
+//
+// This section contains tests specific to argument parsing,
+// including testing required arguments, as well as optional
+// flag-specific checking.
+
+// parse_show_no_args ensures show parses with no
+// arguments (all switches).
+#[test]
+fn parse_show_no_args() {
+    let cmd = Cmd::try_parse_from(["expected-switch", "show"]).expect("should parse show");
+
+    match cmd {
+        Cmd::Show(args) => {
+            assert!(args.bmc_mac_address.is_none());
+        }
+        _ => panic!("expected Show variant"),
+    }
+}
+
+// parse_show_with_mac ensures show parses with MAC address.
+#[test]
+fn parse_show_with_mac() {
+    let cmd = Cmd::try_parse_from(["expected-switch", "show", "1a:2b:3c:4d:5e:6f"])
+        .expect("should parse show with MAC");
+
+    match cmd {
+        Cmd::Show(args) => {
+            assert!(args.bmc_mac_address.is_some());
+        }
+        _ => panic!("expected Show variant"),
+    }
+}
+
+// parse_add ensures add parses with required arguments.
+#[test]
+fn parse_add() {
+    let cmd = Cmd::try_parse_from([
+        "expected-switch",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--switch-serial-number",
+        "SW12345",
+    ])
+    .expect("should parse add");
+
+    match cmd {
+        Cmd::Add(args) => {
+            assert_eq!(args.bmc_username, "admin");
+            assert_eq!(args.switch_serial_number, "SW12345");
+        }
+        _ => panic!("expected Add variant"),
+    }
+}
+
+// parse_add_with_options ensures add parses with
+// all options.
+#[test]
+fn parse_add_with_options() {
+    let cmd = Cmd::try_parse_from([
+        "expected-switch",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--switch-serial-number",
+        "SW12345",
+        "--meta-name",
+        "MySwitch",
+        "--label",
+        "env:prod",
+    ])
+    .expect("should parse add with options");
+
+    match cmd {
+        Cmd::Add(args) => {
+            assert_eq!(args.meta_name, Some("MySwitch".to_string()));
+        }
+        _ => panic!("expected Add variant"),
+    }
+}
+
+// parse_delete ensures delete parses with MAC address.
+#[test]
+fn parse_delete() {
+    let cmd = Cmd::try_parse_from(["expected-switch", "delete", "1a:2b:3c:4d:5e:6f"])
+        .expect("should parse delete");
+
+    assert!(matches!(cmd, Cmd::Delete(_)));
+}
+
+// parse_update ensures update parses with required
+// arguments.
+#[test]
+fn parse_update() {
+    let cmd = Cmd::try_parse_from([
+        "expected-switch",
+        "update",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--switch-serial-number",
+        "NEW_SERIAL",
+    ])
+    .expect("should parse update");
+
+    match cmd {
+        Cmd::Update(args) => {
+            assert_eq!(args.switch_serial_number, Some("NEW_SERIAL".to_string()));
+        }
+        _ => panic!("expected Update variant"),
+    }
+}
+
+// parse_replace_all ensures replace-all parses with
+// filename.
+#[test]
+fn parse_replace_all() {
+    let cmd = Cmd::try_parse_from([
+        "expected-switch",
+        "replace-all",
+        "--filename",
+        "switches.json",
+    ])
+    .expect("should parse replace-all");
+
+    match cmd {
+        Cmd::ReplaceAll(args) => {
+            assert_eq!(args.filename, "switches.json");
+        }
+        _ => panic!("expected ReplaceAll variant"),
+    }
+}
+
+// parse_erase ensures erase parses with no arguments.
+#[test]
+fn parse_erase() {
+    let cmd = Cmd::try_parse_from(["expected-switch", "erase"]).expect("should parse erase");
+
+    assert!(matches!(cmd, Cmd::Erase));
+}
+
+// parse_add_missing_required_fails ensures add fails
+// without required arguments.
+#[test]
+fn parse_add_missing_required_fails() {
+    let result = Cmd::try_parse_from(["expected-switch", "add"]);
+    assert!(result.is_err(), "should fail without required arguments");
+}

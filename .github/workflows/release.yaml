@@ -1,0 +1,83 @@
+name: Carbide Release new version
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # ============================================================================
+  # Release new version
+  # ============================================================================
+  release-new-version-approve:
+    runs-on: linux-amd64-cpu4
+    environment:
+      name: release-new-version-approve
+    steps:
+      - name: Release new version
+        run: echo "Releasing new version to NVIDIA Catalog"
+
+  # ============================================================================
+  # Fetch new version
+  # ============================================================================
+  fetch-new-version:
+    runs-on: linux-amd64-cpu4
+    needs:
+      - release-new-version-approve
+    outputs:
+      version: ${{ steps.fetch.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch version
+        id: fetch
+        run: |
+          set -euo pipefail
+          
+          # Extract full tag (e.g. v0.0.1-rc.1)
+          FULL_TAG=${GITHUB_REF#refs/tags/}
+          
+          # Extract base version (e.g. v0.0.1) by removing everything after the last -rc pattern
+          # Or more simply, just regex match the vX.Y.Z part
+          VERSION=$(echo "$FULL_TAG" | grep -oE '^v[0-9]+\.[0-9]+\.[0-9]+')
+          
+          echo "Full Tag: $FULL_TAG"
+          echo "Release Version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+
+  # ============================================================================
+  # Release new version
+  # ============================================================================
+  release-new-version:
+    runs-on: linux-amd64-cpu4
+    needs:
+      - fetch-new-version
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push Git Tag
+        uses: NVIDIA/dsx-github-actions/.github/actions/git-tag@95e609360851cfc141918c2c21e57762d77394ac
+        with:
+          tag: ${{ needs.fetch-new-version.outputs.version }}
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: false
+        with:
+          name: ${{ needs.fetch-new-version.outputs.version }}
+          tag_name: ${{ needs.fetch-new-version.outputs.version }}
+      - name: Release new version
+        if: false
+        run: |
+          VERSION="${{ needs.fetch-new-version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          RELEASE_URL="https://github.com/$REPO/releases/tag/$VERSION"
+          
+          echo "Releasing new version $VERSION to NVIDIA Catalog"
+          echo "## 🚀 Release Created" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release carbide version: **$VERSION**" >> "$GITHUB_STEP_SUMMARY"
+          echo "🔗 [View Release Notes]($RELEASE_URL)" >> "$GITHUB_STEP_SUMMARY"

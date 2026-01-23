@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1.4
+
+# SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+FROM registry.minikube/runtime-container:latest as carbide
+
+WORKDIR ./carbide
+COPY .skaffold/target/carbide-api/debug/carbide-api /opt/carbide/
+COPY .skaffold/target/carbide-admin-cli/debug/carbide-admin-cli /opt/carbide/
+RUN ln -s /opt/carbide/carbide-admin-cli /opt/carbide/forge-admin-cli
+COPY crates/api/casbin-policy.csv /opt/carbide/
+ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv

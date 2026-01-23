@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}NMX-M Browser{% endblock %}
+
+{% block content %}
+<h1>NMX-M Browser</h1>
+
+<p>
+This page allows to send queries to NMX-M server.
+Enter a valid NMX-M path below to send a query and display the response.<br>
+For valid path, please refer to the <a href="https://docs.nvidia.com/networking-ethernet-software/nmx-api-8511000/#/">NMX Manager Rest API specification</a>
+</p>
+
+<form id="nmxm_console" method="GET" action="/admin/nmxm-browser">
+	<div>
+		<label for="path_input">Path to query:</label>
+		<input type=text size="80" id="path_input" name="path" placeholder="/nmx/v1/services" value="{{ path }}" />
+	</div>
+	<input type="submit" value="Start query">
+</form>
+
+{% if !path.is_empty() %}
+
+<h3>Metadata</h3>
+<table class="detailsview">
+	<tr><th>HTTP status</th><td>{{ status_code }} {{ status_string }}</td></tr>
+	{% if !response_headers.is_empty() %}
+	<tr>
+		<th>Response Headers</th>
+		<td>
+			<details>
+				<summary>Expand Headers</summary>
+				<table class="detailsview">
+					{% for header in response_headers %}
+					<tr>
+						<td>{{ header.name }}</td>
+						<td>{{ header.value }}</td>
+					</tr>
+					{% endfor %}
+				</table>
+			</details>
+		</td>
+	</tr>
+	{% endif %}
+</table>
+
+{% if !error.is_empty() %}
+<h3>Error</h3>
+<textarea disabled>{{ error }}</textarea>
+{% endif %}
+
+{% if !response.is_empty() %}
+<h3>Response</h3>
+<table class="detailsview">
+<tbody>
+	<tr>
+		<td>
+			<div style="overflow: auto;">
+				<pre><code class="prettyjson">{{ response }}</code></pre>
+			</div>
+		</td>
+	</tr>
+</tbody>
+</table>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

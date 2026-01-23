@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-dns-certificate
+  namespace: default
+spec:
+  duration: 720h0m0s
+  renewBefore: 360h0m0s
+  dnsNames:
+    - carbide-dns.default.svc.cluster.local
+  uris:
+    - spiffe://forge.local/default/sa/carbide-dns
+  privateKey:
+    algorithm: ECDSA
+    size: 384
+  issuerRef:
+    kind: ClusterIssuer
+    name: vault-forge-issuer
+    group: cert-manager.io
+  secretName: carbide-dns-certificate

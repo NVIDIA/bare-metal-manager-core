@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block title %}{{ machine_type }} Health {{ id }}{% endblock %}
+
+{% block content %}
+<h1>{{ machine_type }} Health: <a href="/admin/machine/{{ id }}">{{ id }}</a></h1>
+
+<!-- Main Aggregate Health Status -->
+{{ aggregate_health|safe }}
+
+{% if !overrides.is_empty() %}
+<h2>Active Health Overrides</h2>
+<table class="sortable overview">
+	<thead>
+		<tr>
+			<th>Source</th>
+			<th>Mode</th>
+			<th>Alerts</th>
+			<th>Classifications</th>
+			<th>Details</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for override in overrides %}
+		<tr>
+			<td>{{ override.health_report.source }}</td>
+			<td>{{ override.mode }}</td>
+			<td>{{ override.health_report.alerts|health_alerts_fmt(false, false)|safe }}</td>
+			<td>{{ override.health_report.alerts|health_alert_classifications_fmt|safe }}</td>
+			<td>
+				<div class="health-override-actions">
+					<details>
+						<summary>JSON Details</summary>
+						<div style="overflow: auto; max-height: 300px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-tertiary); margin-top: 0.5rem;">
+							<pre style="margin: 0; padding: 1rem; background-color: transparent; white-space: pre-wrap;"><code class="prettyjson">{{ override|json|safe }}</code></pre>
+						</div>
+					</details>
+					<button id="remove-override-{{ override.health_report.source }}" class="delete-button">Remove</button>
+				</div>
+			</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+
+<h2>Health Override Management</h2>
+<table class="detailsview">
+	<tr>
+		<th>Quick Templates</th>
+		<td>
+			<p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+				Select a template to pre-fill the configuration below:
+			</p>
+			<div class="button-group horizontal">
+				<button onclick="setOverrideTextBoxToTemplate(templateHealthReport)">Blank Template</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeHostUpdateMaintenance)">Host Update</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)">Internal Maintenance</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateStopRebootForRecovery)">Prevent Reboot</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)">Out for Repair</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)">Degraded</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeValidationMaintenance)">Validation</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeSuppressExternalAlerting)">Suppress Alerts</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)">Merge Alert</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)">Replace Alert</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateReplaceAsHealthy)">Mark Healthy</button>
+			</div>
+		</td>
+	</tr>
+	<tr>
+		<th>Override Configuration</th>
+		<td>
+			<p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
+				Required fields: <strong>id</strong> and <strong>message</strong>. Target is optional.
+			</p>
+			<textarea id="override" rows="16" style="width: 100%; font-family: 'Consolas', 'Monaco', monospace; margin-bottom: 1rem;"></textarea>
+			<button id="submit_add">Submit Override</button>
+		</td>
+	</tr>
+</table>
+
+<h2>Component Health Details</h2>
+<details>
+	<summary>View Detailed Component Health Information</summary>
+	<div style="padding: 1rem 0;">
+		{% for component in component_health %}
+		<div style="margin-bottom: 2rem;">
+			{{ component|safe }}
+		</div>
+		{%endfor%}
+	</div>
+</details>
+
+<h2>Health History</h2>
+<p style="margin-bottom: 1rem;">
+	<a href="/admin/machine/{{ id }}/health-history">View extended history timeline →</a>
+</p>
+{{ history|safe }}
+
+{% endblock %}
+
+{% block script %}
+
+const templateHealthReport = {
+	mode: "Merge",
+	health_report: {
+		source: "carbide-web",
+		successes: [{id: "", target: null}],
+		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: [""]}]
+	}
+};
+
+const templateMergeHostUpdateMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "host-update",
+		successes: [],
+		alerts: [{id: "HostUpdateInProgress", target: "WebUi", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateStopRebootForRecovery = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "WebUi", message: "", tenant_message: null, classifications: ["StopRebootForAutomaticRecoveryFromStateMachine"]}]
+	}
+};
+
+const templateMergeInternalMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeOfrMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "OutForRepair", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeDegradedMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "Degraded", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeValidationMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "Validation", message: "", tenant_message: null, classifications: ["SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeSuppressExternalAlerting = {
+	mode: "Merge",
+	health_report: {
+		source: "suppress-paging",
+		successes: [],
+		alerts: [{id: "SuppressExternalAlerting", target: null, message: "Paging is suppressed for this Host", tenant_message: null, classifications: ["SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeSingleAlert = {
+	mode: "Merge",
+	health_report: {
+		source: "carbide-web",
+		successes: [],
+		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations"]}]
+	}
+};
+
+const templateReplaceSingleAlert = {
+	mode: "Replace",
+	health_report: {
+		source: "carbide-web",
+		successes: [],
+		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations"]}]
+	}
+};
+
+const templateReplaceAsHealthy = {
+	mode: "Replace",
+	health_report: {
+		source: "carbide-web",
+		successes: [],
+		alerts: []
+	}
+};
+
+function add_click_listener([id, path, body]) {
+	document.getElementById(id).addEventListener("click", async e => {
+		e.preventDefault();
+		let base = window.location.href;
+		if (base.at(base.length - 1) == '/') {
+			base = base.substring(0, base.length - 1);
+		}
+		const response = await fetch(base + path, {
+			method: "POST",
+			headers: {"Content-Type": "application/json"},
+			body: body(),
+		});
+		if (response.ok) {
+			location.reload();
+			return;
+		}
+		const text = await response.text();
+		e.target.after(
+			create_el("p", {
+				innerText: `Failed to execute POST, status: ${response.status}, text: ${text}.`
+			})
+		);
+	});
+}
+
+function setOverrideTextBoxToTemplate(template) {
+	document.getElementById("override").value = JSON.stringify(template, null, 2);
+}
+
+document.addEventListener("DOMContentLoaded", function (event) {
+	setOverrideTextBoxToTemplate(templateHealthReport);
+	for (const item of [
+		["submit_add", "/override/add", () => document.getElementById("override").value],
+	]) {
+		add_click_listener(item);
+	}
+	{% for override in overrides %}
+	add_click_listener(["remove-override-{{ override.health_report.source }}", "/override/remove", () => JSON.stringify({source: "{{ override.health_report.source }}"})]);
+	{% endfor %}
+});
+
+{% endblock %}

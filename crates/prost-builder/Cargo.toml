@@ -1,0 +1,21 @@
+[package]
+name = "carbide-prost-builder"
+version = "0.1.0"
+description = "Define derive procmacro for builder for prost types"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { default-features = false, workspace = true, features = [
+  "clone-impls",
+  "derive",
+  "parsing",
+  "proc-macro",
+  "printing",
+] }
+quote = { default-features = false, workspace = true }
+proc-macro2 = { default-features = false, workspace = true }

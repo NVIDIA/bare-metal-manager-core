@@ -1,0 +1,131 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use ::rpc::forge as rpc;
+use model::machine::LoadSnapshotOptions;
+use tonic::{Request, Response, Status};
+
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+use crate::handlers::utils::convert_and_log_machine_id;
+
+#[allow(txn_held_across_await)]
+pub(crate) async fn clear_host_uefi_password(
+    api: &Api,
+    request: Request<rpc::ClearHostUefiPasswordRequest>,
+) -> Result<Response<rpc::ClearHostUefiPasswordResponse>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
+    let request = request.into_inner();
+    let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
+
+    if !machine_id.machine_type().is_host() {
+        return Err(Status::invalid_argument(
+            "Carbide only supports clearing the UEFI password on discovered hosts",
+        ));
+    }
+
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: api.runtime_config.host_health,
+        },
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
+
+    let redfish_client = api
+        .redfish_pool
+        .create_client_from_machine(&snapshot.host_snapshot, &mut txn)
+        .await
+        .map_err(|e| {
+            tracing::error!("unable to create redfish client: {}", e);
+            Status::internal(format!(
+                "Could not create connection to Redfish API to {machine_id}, check logs"
+            ))
+        })?;
+
+    let job_id: Option<String> =
+        crate::redfish::clear_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
+            .await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::ClearHostUefiPasswordResponse { job_id }))
+}
+
+#[allow(txn_held_across_await)]
+pub(crate) async fn set_host_uefi_password(
+    api: &Api,
+    request: Request<rpc::SetHostUefiPasswordRequest>,
+) -> Result<Response<rpc::SetHostUefiPasswordResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
+
+    if !machine_id.machine_type().is_host() {
+        return Err(Status::invalid_argument(
+            "Carbide only supports setting the UEFI password on discovered hosts",
+        ));
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: api.runtime_config.host_health,
+        },
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
+
+    let redfish_client = api
+        .redfish_pool
+        .create_client_from_machine(&snapshot.host_snapshot, &mut txn)
+        .await
+        .map_err(|e| {
+            tracing::error!("unable to create redfish client: {}", e);
+            Status::internal(format!(
+                "Could not create connection to Redfish API to {machine_id}, check logs"
+            ))
+        })?;
+
+    let job_id =
+        crate::redfish::set_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
+            .await?;
+
+    db::machine::update_bios_password_set_time(&machine_id, &mut txn)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update bios_password_set_time: {}", e);
+            Status::internal(format!("Failed to update BIOS password timestamp: {e}"))
+        })?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
+}

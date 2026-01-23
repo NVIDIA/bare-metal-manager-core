@@ -1,0 +1,115 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use std::collections::{HashMap, HashSet};
+
+use carbide_uuid::machine::MachineId;
+use rpc::Machine;
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::Interval;
+
+use crate::api_client::ApiClient;
+use crate::api_throttler::ApiCommand::GetMachine;
+
+/// Returns an [`ApiThrottler`] which can expose certain API commands in a way that is throttled,
+/// such that we only run them a maximum of once per time interval. Every interval, the pending
+/// calls are coalesced into a single API call to save load on the server, and responses are
+/// returned.
+pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
+    let (message_tx, mut control_rx) = mpsc::unbounded_channel();
+    tokio::task::Builder::new()
+        .name("ApiThrottler")
+        .spawn(async move {
+            let mut get_machine_callers: HashMap<MachineId, Vec<oneshot::Sender<Option<Machine>>>> =
+                HashMap::new();
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if !get_machine_callers.is_empty() {
+                            // We have callers waiting to get a Machine by its ID. Translate the
+                            // pending callers into a single GetMachinesByIds call and reply to each
+                            // of them. Launder through a HashSet to de-dupe multiple calls for the
+                            // same MachineId.
+                            let machine_ids = get_machine_callers
+                                .keys()
+                                .collect::<HashSet<_>>()
+                                .into_iter()
+                                .collect::<Vec<_>>();
+
+                            // Max of 100 machine IDs at a time
+                            let mut machines_by_id = HashMap::new();
+                            for chunk in machine_ids.chunks(100) {
+                                let machines = api_client.get_machines(
+                                    chunk.iter().map(|id| **id).collect(),
+                                )
+                                .await
+                                .inspect_err(|e| tracing::error!("API failure getting machines: {e}")).unwrap_or_default();
+
+                                // Index the result by ID
+                                for m in machines {
+                                    if let Some(id) = m.id {
+                                        machines_by_id.insert(id, m);
+                                    }
+                                }
+                            }
+
+                            // Reply to each
+                            for (machine_id, replies) in get_machine_callers.into_iter() {
+                                if let Some(machine) = machines_by_id.remove(&machine_id) {
+                                    for reply in replies {
+                                        _ = reply.send(Some(machine.clone()));
+                                    }
+                                } else {
+                                    for reply in replies {
+                                        _ = reply.send(None);
+                                    }
+                                }
+                            }
+
+                            // Clear the caller list
+                            get_machine_callers = HashMap::new()
+                        }
+                    }
+                    Some(cmd) = control_rx.recv() => {
+                        match cmd {
+                            ApiCommand::GetMachine(machine_id, reply) => get_machine_callers.entry(machine_id).or_default().push(reply),
+                        };
+                    }
+                }
+            }
+        })
+        .unwrap();
+    ApiThrottler { message_tx }
+}
+
+enum ApiCommand {
+    GetMachine(MachineId, oneshot::Sender<Option<Machine>>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ApiThrottler {
+    message_tx: mpsc::UnboundedSender<ApiCommand>,
+}
+
+impl ApiThrottler {
+    pub fn get_machine<F>(&self, machine_id: MachineId, completion: F)
+    where
+        F: Fn(Option<Machine>) + Send + Sync + 'static,
+    {
+        let (tx, rx) = oneshot::channel();
+        _ = self.message_tx.send(GetMachine(machine_id, tx));
+        // Get the API state in a background task, since we may be throttled for several seconds,
+        // and callers shouldn't have to wait that whole time.
+        tokio::spawn(async move {
+            completion(rx.await.unwrap_or(None));
+        });
+    }
+}

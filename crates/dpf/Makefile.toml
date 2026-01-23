@@ -1,0 +1,256 @@
+# Makefile for dpu-provisioning-crd
+# Automates generation of Rust types from NVIDIA DOCA Platform CRDs
+
+[config]
+default_to_workspace = false
+
+[env]
+DOCA_REPO_URL = "https://github.com/NVIDIA/doca-platform.git"
+DOCA_BRANCH = "public-release-v25.10"
+DOCA_CLONE_DIR = "/tmp/doca-platform"
+CRD_PROVISIONING_PATH = "${DOCA_CLONE_DIR}/config/provisioning/crd/bases"
+CRD_OPERATOR_PATH = "${DOCA_CLONE_DIR}/config/operator-crds"
+CRD_DPUSERVICE_PATH = "${DOCA_CLONE_DIR}/config/dpuservice/crd/bases"
+SRC_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/src/crds/"
+
+# Check if kopium is installed
+[tasks.check-kopium]
+description = "Check if kopium is installed"
+script = '''
+if ! command -v kopium &> /dev/null; then
+    echo "❌ kopium not found. Installing..."
+    cargo install kopium
+else
+    echo "✓ kopium is installed"
+fi
+'''
+
+# Clone the NVIDIA doca-platform repository
+[tasks.clone-doca]
+description = "Clone NVIDIA doca-platform repository"
+dependencies = ["check-kopium"]
+script = '''
+if [ -d "${DOCA_CLONE_DIR}" ]; then
+    echo "Removing existing clone..."
+    rm -rf "${DOCA_CLONE_DIR}"
+fi
+
+echo "Cloning NVIDIA doca-platform repository..."
+git clone --depth 1 --branch ${DOCA_BRANCH} ${DOCA_REPO_URL} "${DOCA_CLONE_DIR}"
+echo "✓ Repository cloned"
+'''
+
+# Generate BFB types
+[tasks.generate-bfb]
+description = "Generate BFB CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating BFB types..."
+kopium -f "${CRD_PROVISIONING_PATH}/provisioning.dpu.nvidia.com_bfbs.yaml" > "${SRC_DIR}/bfb_generated.rs"
+echo "✓ BFB types generated"
+'''
+
+# Generate DPU types
+[tasks.generate-dpu]
+description = "Generate DPU CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPU types..."
+kopium -f "${CRD_PROVISIONING_PATH}/provisioning.dpu.nvidia.com_dpus.yaml" > "${SRC_DIR}/dpu_generated.rs"
+echo "✓ DPU types generated"
+'''
+
+# Generate DPUCluster types
+[tasks.generate-dpu-cluster]
+description = "Generate DPUCluster CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPUCluster types..."
+kopium -f "${CRD_PROVISIONING_PATH}/provisioning.dpu.nvidia.com_dpuclusters.yaml" > "${SRC_DIR}/dpu_cluster_generated.rs"
+echo "✓ DPUCluster types generated"
+'''
+
+# Generate DPUDevice types
+[tasks.generate-dpu-device]
+description = "Generate DPUDevice CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPUDevice types..."
+kopium -f "${CRD_PROVISIONING_PATH}/provisioning.dpu.nvidia.com_dpudevices.yaml" > "${SRC_DIR}/dpu_device_generated.rs"
+echo "✓ DPUDevice types generated"
+'''
+
+# Generate DPUFlavor types
+[tasks.generate-dpu-flavor]
+description = "Generate DPUFlavor CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPUFlavor types..."
+kopium -f "${CRD_PROVISIONING_PATH}/provisioning.dpu.nvidia.com_dpuflavors.yaml" > "${SRC_DIR}/dpu_flavor_generated.rs"
+echo "✓ DPUFlavor types generated"
+'''
+
+# Generate DPUNode types
+[tasks.generate-dpu-node]
+description = "Generate DPUNode CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPUNode types..."
+kopium -f "${CRD_PROVISIONING_PATH}/provisioning.dpu.nvidia.com_dpunodes.yaml" > "${SRC_DIR}/dpu_node_generated.rs"
+echo "✓ DPUNode types generated"
+'''
+
+# Generate DPUNodeMaintenance types
+[tasks.generate-dpu-node-maintenance]
+description = "Generate DPUNodeMaintenance CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPUNodeMaintenance types..."
+kopium -f "${CRD_PROVISIONING_PATH}/provisioning.dpu.nvidia.com_dpunodemaintenances.yaml" > "${SRC_DIR}/dpu_node_maintenance_generated.rs"
+echo "✓ DPUNodeMaintenance types generated"
+'''
+
+# Generate DPUSet types
+[tasks.generate-dpu-set]
+description = "Generate DPUSet CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPUSet types..."
+kopium -f "${CRD_PROVISIONING_PATH}/provisioning.dpu.nvidia.com_dpusets.yaml" > "${SRC_DIR}/dpu_set_generated.rs"
+echo "✓ DPUSet types generated"
+'''
+
+# Generate DPFOperatorConfig types (from operator-crds directory)
+[tasks.generate-dpf-operator-config]
+description = "Generate DPFOperatorConfig CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPFOperatorConfig types..."
+kopium -f "${CRD_OPERATOR_PATH}/operator.dpu.nvidia.com_dpfoperatorconfigs.yaml" > "${SRC_DIR}/dpf_operator_config_generated.rs"
+echo "✓ DPFOperatorConfig types generated"
+'''
+
+# Generate DPUDeployment types (from dpuservice directory)
+[tasks.generate-dpu-deployment]
+description = "Generate DPUDeployment CRD types"
+dependencies = ["clone-doca"]
+script = '''
+echo "Generating DPUDeployment types..."
+kopium -f "${CRD_DPUSERVICE_PATH}/svc.dpu.nvidia.com_dpudeployments.yaml" > "${SRC_DIR}/dpu_deployment_generated.rs"
+echo "✓ DPUDeployment types generated"
+'''
+
+# Generate all CRD types
+[tasks.generate-all]
+description = "Generate all CRD types from NVIDIA DOCA Platform"
+dependencies = [
+  "generate-bfb",
+  "generate-dpu",
+  # "generate-dpu-cluster",
+  "generate-dpu-device",
+  "generate-dpu-flavor",
+  "generate-dpu-node",
+  "generate-dpu-node-maintenance",
+  "generate-dpu-set",
+  # "generate-dpf-operator-config",
+  # "generate-dpu-deployment",
+]
+
+# Clean up cloned repository
+[tasks.cleanup]
+description = "Clean up temporary files"
+script = '''
+if [ -d "${DOCA_CLONE_DIR}" ]; then
+    echo "Cleaning up..."
+    rm -rf "${DOCA_CLONE_DIR}"
+    echo "✓ Cleanup complete"
+fi
+'''
+
+# Verify generated code compiles
+[tasks.verify]
+description = "Verify that generated code compiles"
+dependencies = ["generate-all"]
+command = "cargo"
+args = ["check"]
+
+# Main task: Generate and verify
+[tasks.generate]
+description = "Generate all CRD types and verify compilation"
+dependencies = ["generate-all", "verify", "cleanup"]
+script = '''
+echo ""
+echo "════════════════════════════════════════════════════════════════"
+echo "✓ All CRD types generated successfully!"
+echo "✓ Code compilation verified"
+echo "════════════════════════════════════════════════════════════════"
+'''
+
+# Format generated code
+[tasks.fmt]
+description = "Format generated Rust code"
+dependencies = ["generate-all"]
+command = "cargo"
+args = ["fmt"]
+
+# Generate, format, and verify
+[tasks.generate-fmt]
+description = "Generate all CRD types, format, and verify"
+dependencies = ["generate-all", "fmt", "verify", "cleanup"]
+script = '''
+echo ""
+echo "════════════════════════════════════════════════════════════════"
+echo "✓ All CRD types generated and formatted successfully!"
+echo "✓ Code compilation verified"
+echo "════════════════════════════════════════════════════════════════"
+'''
+
+# Clean generated files
+[tasks.clean-generated]
+description = "Remove all generated files"
+script = '''
+echo "Removing generated files..."
+rm -f "${SRC_DIR}/bfb_generated.rs"
+rm -f "${SRC_DIR}/dpu_generated.rs"
+rm -f "${SRC_DIR}/dpu_cluster_generated.rs"
+rm -f "${SRC_DIR}/dpu_device_generated.rs"
+rm -f "${SRC_DIR}/dpu_discovery_generated.rs"
+rm -f "${SRC_DIR}/dpu_flavor_generated.rs"
+rm -f "${SRC_DIR}/dpu_node_generated.rs"
+rm -f "${SRC_DIR}/dpu_node_maintenance_generated.rs"
+rm -f "${SRC_DIR}/dpu_set_generated.rs"
+rm -f "${SRC_DIR}/dpf_operator_config_generated.rs"
+rm -f "${SRC_DIR}/dpu_deployment_generated.rs"
+echo "✓ Generated files removed"
+'''
+
+# Show status
+[tasks.status]
+description = "Show status of generated files"
+script = '''
+echo "Generated CRD files status:"
+echo ""
+echo "Provisioning API (provisioning.dpu.nvidia.com):"
+for file in bfb dpu dpu_device dpu_flavor dpu_node dpu_node_maintenance dpu_set; do
+    if [ -f "${SRC_DIR}/${file}_generated.rs" ]; then
+        echo "  ✓ ${file}_generated.rs"
+    else
+        echo "  ✗ ${file}_generated.rs (missing)"
+    fi
+done
+echo ""
+# echo "Operator API (operator.dpu.nvidia.com):"
+# if [ -f "${SRC_DIR}/dpf_operator_config_generated.rs" ]; then
+#     echo "  ✓ dpf_operator_config_generated.rs"
+# else
+#     echo "  ✗ dpf_operator_config_generated.rs (missing)"
+# fi
+# echo ""
+# echo "DPU Service API (svc.dpu.nvidia.com):"
+# if [ -f "${SRC_DIR}/dpu_deployment_generated.rs" ]; then
+#     echo "  ✓ dpu_deployment_generated.rs"
+# else
+#     echo "  ✗ dpu_deployment_generated.rs (missing)"
+# fi
+
+'''

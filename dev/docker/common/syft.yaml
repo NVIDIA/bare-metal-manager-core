@@ -1,0 +1,41 @@
+# Syft configuration for PowerDNS SBOM generation
+# Generates SPDX JSON SBOM excluding base distroless image packages
+
+# Output configuration
+output:
+  - spdx-json
+
+# Package cataloging configuration
+package:
+  cataloger:
+    enabled:
+      - dpkg-db-cataloger  # Read from /var/lib/dpkg/status.d/
+      - binary-cataloger   # Detect binaries
+    scope: all-layers
+
+# Exclude base distroless packages (provided by NVIDIA distroless base image)
+exclude:
+  # Exclude documentation paths for base packages
+  - "**/usr/share/doc/openssl/**"
+  - "**/usr/share/doc/libssl3/**"
+  - "**/usr/share/doc/libc6/**"
+  - "**/usr/share/doc/gcc-12-base/**"
+  - "**/usr/share/doc/libgcc-s1/**"
+  - "**/usr/share/doc/libgomp1/**"
+  - "**/usr/share/doc/libstdc++6/**"
+  - "**/usr/share/doc/base-files/**"
+  - "**/usr/share/doc/netbase/**"
+  - "**/usr/share/doc/tzdata/**"
+  
+  # Exclude dpkg metadata files for base packages
+  - "**/var/lib/dpkg/status.d/openssl*"
+  - "**/var/lib/dpkg/status.d/libssl3*"
+  - "**/var/lib/dpkg/status.d/libc6*"
+  - "**/var/lib/dpkg/status.d/gcc-12-base*"
+  - "**/var/lib/dpkg/status.d/libgcc-s1*"
+  - "**/var/lib/dpkg/status.d/libgomp1*"
+  - "**/var/lib/dpkg/status.d/libstdc++6*"
+  - "**/var/lib/dpkg/status.d/base-files*"
+  - "**/var/lib/dpkg/status.d/netbase*"
+  - "**/var/lib/dpkg/status.d/tzdata*"
+

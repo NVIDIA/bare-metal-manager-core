@@ -1,0 +1,508 @@
+{% extends "base.html" %}
+
+{% block title %}{{ id }}{% endblock %}
+
+{% block content %}
+<div id="json">
+	<a id="logs-link" href="" target="_blank">Logs</a>
+	<a id="json-link" href="">JSON</a>
+</div>
+<h1>{{ machine_type }} {{ id }}</h1>
+
+<table class="detailsview">
+	<tr>
+		<th>Managed Host</th>
+		<td>
+		{% if !is_host %}
+			{{ host_id|machine_id_link|safe }}
+		{% else %}
+			{{ id|machine_id_link|safe }}
+		{% endif %}
+		</td>
+	</tr>
+			<tr><th>State</th><td>
+			{% if state.to_lowercase().contains("failed") %}
+				<span class="bubble error">{{ state }}{% if time_in_state_above_sla %} ⏱️{% endif %}</span>
+			{% else if time_in_state_above_sla %}
+				<span class="bubble warning">{{ state }} ⏱️</span>
+			{% else if state == "Ready" || state == "Assigned/Ready" %}
+				<span class="bubble success">{{ state }}</span>
+			{% else %}
+				<span class="bubble">{{ state }}</span>
+			{% endif %}
+		</td></tr>
+	<tr><th>State Version</th><td>{{ state_version|config_version|safe }}</td></tr>
+	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
+	<tr><th>Last Reboot</th><td>{{ last_reboot }}</td></tr>
+	<tr><th>State SLA</th><td>{{ state_sla }}</td></tr>
+	<tr><th>Time in State is above SLA</th><td>{{ time_in_state_above_sla }}</td></tr>
+	<tr><th>State Handler Outcome</th><td>{{ state_reason|controller_state_reason_fmt|safe }}</td></tr>
+
+	{% if !network_config.is_empty() %}
+	<tr>
+		<th>Network config (sent to forge-dpu-agent)</th>
+		<td><div style="max-height: 300px; overflow: auto;"><pre><code>{{ network_config }}</code></pre></div></td>
+	</tr>
+	{% endif %}
+	<tr><th>Version</th><td>{{ version }}</td></tr>
+	{% if is_host %}
+	<tr>
+		<th>SKU</th>
+		<td>
+			{% if !hw_sku.is_empty() %}
+			<a href="/admin/sku/{{ hw_sku }}">{{ hw_sku }}</a>
+			{% endif %}
+		</td>
+	</tr>
+		{% if has_instance_type %}
+	<tr>
+		<th>Instance Type</th>
+		<td>
+			<a href="/admin/instance-type/{{ instance_type_id }}">
+				{% if !instance_type.is_empty() %}
+				{{ instance_type }}
+				{% else %}
+				{{ instance_type_id }}
+				{% endif %}
+			</a>
+		</td>
+	</tr>
+		{% endif %}
+	{% endif %}
+</table>
+
+<h3>Metadata</h3>
+<table class="detailsview">
+	<tr><th>Name</th><td>{{ metadata.name }}</td></tr>
+	<tr><th>Description</th><td>{{ metadata.description }}</td></tr>
+	<tr><th>Labels</th><td>{{ metadata.labels|label_list_fmt(false)|safe }}</td></tr>
+</table>
+
+<h3>Health</h3>
+<table class="detailsview">
+	<tr><th>Health Reports</th>
+		<td>
+			{% if !is_host %}
+				<a href="/admin/machine/{{ host_id }}/health">Go to ManagedHost health reports</a>
+			{% else %}
+				<a href="/admin/machine/{{ id }}/health">Go to ManagedHost health reports</a>
+			{% endif %}
+		</td>
+	</tr>
+	<tr><th>Report Source</th><td>{{ health.source }}</td></tr>
+	<tr><th>Report Observed At</th><td>{{ health.observed_at|option_fmt }}</td></tr>
+	<tr>
+		<th>Health Probe Alerts</th>
+		<td>
+			<a href="/admin/machine/{{ id }}/health">
+				{{ health.alerts|health_alerts_fmt(true, true)|safe }}
+			</a>
+		</td>
+	</tr>
+	<tr>
+		<th>Health Alert Classifications</th>
+		<td>{{ health.alerts|health_alert_classifications_fmt|safe }}</td>
+	</tr>
+	<tr>
+		<th>Health Overrides</th>
+		<td>
+			<a href="/admin/machine/{{ id }}/health">
+				{{ health_overrides|join("\n")|linebreaksbr|safe }}
+			</a>
+		</td>
+	</tr>
+	<tr>
+		<th>Attestation Results</th>
+		<td>
+			<a href="/admin/machine/{{ id }}/attestation-results">View attestation results</a>
+		</td>
+	</tr>
+</table>
+
+{% if is_host %}
+<h3>Maintenance and Quarantine</h3>
+<table class="detailsview">
+	{% if !maintenance_reference.is_empty() %}
+	<tr>
+		<th>Maintenance Reference</th>
+		<td>
+			{% if maintenance_reference_is_link %}
+			<a href="{{ maintenance_reference }}">{{ maintenance_reference }}</a>
+			{% else %}
+			{{ maintenance_reference }}
+			{% endif %}
+		</td>
+	</tr>
+	<tr><th>Maintenance Start</th><td>{{ maintenance_start_time }}</td></tr>
+	{% endif %}
+	<tr>
+		<th>Maintenance Action</th>
+		<td>
+			<p>
+				<i>Maintenance mode is replaced by Health Overrides. Consider using a <a href="/admin/machine/{{ id }}/health">Health Override</a> instead of entering Maintenance Mode.</i>
+			</p>
+			<form id="maintenance_action" method="POST" action="/admin/machine/{{ id }}/maintenance">
+				{% if maintenance_reference.is_empty() %}
+				<input type="hidden" name="action" value="enter"/>
+				<label for="ref">Reference:</label><input type=text id="ref" name="reference" />
+				<button type="submit">Enter maintenance</button>
+				<p>Machines in maintenance mode cannot be assigned an instance</p>
+				{% else %}
+				<input type="hidden" name="action" value="exit"/>
+				<button type="submit">Exit maintenance</button>
+				{% endif %}
+			</form>
+		</td>
+	</tr>
+	<tr>
+		<th>Quarantine State</th>
+		<td>
+		{% if let Some(quarantine_state) = quarantine_state %}
+			<div class="health-container">
+				<span class="bubble error">Host is quarantined! Mode: {{ quarantine_state.mode_str() }}, Reason:
+			{% if quarantine_state_is_link %}
+				<a href="{{ quarantine_state.reason_str() }}">{{ quarantine_state.reason_str() }}</a>
+			{% else %}
+				{{ quarantine_state.reason_str() }}
+			{% endif %}
+			</span>
+			</div>
+		{% endif %}
+			<form id="quarantine_action" method="POST" action="/admin/machine/{{ id }}/quarantine">
+			{% if quarantine_state.is_none() %}
+				<input type="hidden" name="action" value="enable"/>
+				<div>
+					<label for="reason">Reason:</label><input type=text id="reason" name="reason" />
+				</div>
+				<div>
+					<label for="mode">Mode:</label>
+					<select id="mode" name="mode">
+						<option value="{{ ::rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic.as_str_name() }}">
+							Block all traffic
+						</option>
+					</select>
+				</div>
+				<button type="submit">Quarantine Host</button>
+				<p>Quarantined machines will have host networking disabled</p>
+			{% else %}
+				<input type="hidden" name="action" value="disable"/>
+				<button type="submit">End Quarantine</button>
+			{% endif %}
+			</form>
+		</td>
+	</tr>
+</table>
+{% endif %}
+
+<h3 id="bmc_info_view">BMC</h3>
+{% match bmc_info %}
+{% when Some with (bmc_info) %}
+{% set bmc_ip = bmc_info.ip.clone().unwrap_or_default() %}
+{% set bmc_action_redirect_to = Some(format!("/admin/machine/{}#bmc_info_view", self.id)) %}
+<table class="detailsview">
+	<tr><th>IP</th><td><a href="/admin/explored-endpoint/{{ bmc_ip }}">{{ bmc_ip }}</a></td></tr>
+	<tr><th>Port</th><td>{{ bmc_info.port|option_fmt }}</td></tr>
+	<tr><th>MAC Address</th><td>{{ bmc_info.mac|option_fmt }}</td></tr>
+	<tr><th>Version</th><td>{{ bmc_info.version|option_fmt }}</td></tr>
+	<tr><th>Firmware Version</th><td>{{ bmc_info.firmware_version|option_fmt }}</td></tr>
+	<tr>
+		<th>Power Actions</th>
+		<td class="action-cell">
+			<div></div>
+			<div>
+				{% include "power_control.html" %}
+			</div>
+		</td>
+	</tr>
+	<tr>
+		<th>BMC Actions</th>
+		<td class="action-cell">
+			<div></div>
+			<div>
+				{% include "bmc_reset.html" %}
+			</div>
+		</td>
+	</tr>
+	{% if is_host %}
+	<tr>
+		<th>Boot Order</th>
+		<td class="action-cell">
+			<div></div>
+			<div style="display: flex; align-items: center; gap: 8px;">
+				<form id="set_dpu_first_boot_order" method="POST" action="/admin/machine/{{ id }}/set-dpu-first-boot-order" onsubmit="reminder(event)">
+					<input type="hidden" name="bmc_ip" value="{{ bmc_info.ip|option_fmt }}">
+					{% for interface in interfaces %}
+						{% if interface.primary == "true" %}
+							<input type="hidden" name="boot_interface_mac" value="{{ interface.mac_address }}">
+						{% endif %}
+					{% endfor %}
+					<input type="submit" value="Set DPU first">
+				</form>
+				{% include "restart_reminder.html" %}
+			</div>
+		</td>
+	</tr>
+	{% endif %}
+</table>
+{% else %}
+Missing BMC Data
+{% endmatch %}
+
+<h3>Discovery Info</h3>
+<table class="detailsview">
+	<tr><th>Sys Vendor</th><td>{{ sys_vendor }}</td></tr>
+	<tr><th>Product Name</th><td>{{ product_name }}</td></tr>
+	<tr><th>Product Serial</th><td>{{ product_serial }}</td></tr>
+	<tr><th>Chassis Serial</th><td>{{ chassis_serial }}</td></tr>
+	<tr><th>Board Serial</th><td>{{ board_serial }}</td></tr>
+	<tr><th>Bios Version</th><td>{{ bios_version }}</td></tr>
+	<tr><th>Board Version</th><td>{{ board_version }}</td></tr>
+	<tr>
+		<th>Full Report</th>
+		<td>
+			<details>
+				<summary>Expand Report</summary>
+				<div>
+					<pre><code>{{ discovery_info_json }}</code></pre>
+				</div>
+			</details>
+		</td>
+	</tr>
+</table>
+
+<h3>Interfaces</h3>
+{% for interface in interfaces %}
+<table class="detailsview">
+	<tr><th>Index</th><td>{{ interface.index }}</td></tr>
+	<tr><th>ID</th><td><a href="/admin/interface/{{ interface.id }}">{{ interface.id }}</a></td></tr>
+	{% if is_host %}
+		<tr><th>DPU ID</th><td>{{ interface.dpu_id|machine_id_link|safe }}</td></tr>
+	{% endif %}
+	<tr><th>Segment ID</th><td><a href="/admin/network-segment/{{ interface.segment_id }}">{{ interface.segment_id }}</a></td></tr>
+	<tr><th>Domain ID</th><td>{{ interface.domain_id }}</td></tr>
+	<tr><th>Hostname </th><td>{{ interface.hostname }}</td></tr>
+	<tr><th>Primary</th><td>{{ interface.primary }}</td></tr>
+	<tr><th>MAC Address</th><td>{{ interface.mac_address }}</td></tr>
+	<tr><th>Addresses</th><td>{{ interface.addresses }}</td></tr>
+</table>
+{% endfor %}
+
+{% if is_host %}
+<h3>InfiniBand Interfaces</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>Device</th>
+			<th>Vendor</th>
+			<th>GUID</th>
+			<th>Slot</th>
+			<th>Visible on IB Fabric</th>
+			<th>LID</th>
+			<th>Associated pkeys</th>
+			<th>Associated partitions</th>
+			<th>Last changed at</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for interface in ib_interfaces %}
+		<tr>
+			<td>{{ interface.device }}</td>
+			<td>{{ interface.vendor }}</td>
+			<td>{{ interface.guid }}</td>
+			<td>{{ interface.slot }}</td>
+			{% if interface.fabric_id == "" %}
+			<td class="cell-error">none</td>
+			{% else %}
+			<td>{{ interface.fabric_id }}</td>
+			{% endif %}
+			<td>{{ interface.lid }}</td>
+			{% match interface.associated_pkeys %}
+			{% when Some with (associated_pkeys) %}
+			<td>
+				{% for p in associated_pkeys %}
+				{% if !loop.first %}<br>{% endif %}
+				{{ p }}
+				{% endfor %}
+			</td>
+			{% else %}
+			<td class="cell-warning">unknown</td>
+			{% endmatch %}
+			{% match interface.associated_partitions %}
+			{% when Some with (associated_partitions) %}
+			<td>
+				{% for p in associated_partitions %}
+				{% if !loop.first %}<br>{% endif %}
+				<a href="/admin/ib-partition/{{ p }}">{{ p }}</a>
+				{% endfor %}
+			</td>
+			{% else %}
+			<td class="cell-warning">unknown</td>
+			{% endmatch %}
+			<td>{{ interface.observed_at }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+<h3>NVLink GPUs</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>Device Instance</th>
+			<th>Domain UUID</th>
+			<th>Device UID</th>
+			<th>Tray Index</th>
+			<th>Slot ID</th>
+			<th>NMX-M ID</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for gpu in nvlink_gpus %}
+		<tr>
+			<td>{{ gpu.device_instance}}</td>
+			<td>{{ gpu.domain_uuid }}</td>
+			<td>{{ gpu.guid }}</td>
+			<td>{{ gpu.tray_index }}</td>
+			<td>{{ gpu.slot_id }}</td>
+			<td>{{ gpu.nmx_m_id }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+{% endif %}
+
+<div class="section">
+    <h2>Machine Validation</h2>
+    <table class="sortable detailsview">
+        <thead>
+            <tr>
+                <th>Validation ID</th>
+                <th>Context</th>
+                <th>Start Time</th>
+                <th>End Time</th>
+                <th>State</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for run in validation_runs %}
+            <tr>
+                <td><a href="/admin/machinevalidation/runs/{{ run.validation_id }}">{{ run.validation_id }}</a></td>
+                <td>{{ run.context }}</td>
+                <td>{{ run.start_time }}</td>
+                <td>{{ run.end_time }}</td>
+                <td>{% if run.status == "Completed(Success)" %}<span class="bubble success">{% else %}<span class="bubble error">{% endif %}{{ run.status }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<h3>Inventory</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>Name</th>
+			<th>Version</th>
+			<th>URL</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for item in inventory %}
+		<tr>
+			<td>{{ item.name }}</td>
+			<td>{{ item.version }}</td>
+			<td>{{ item.url }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<h3>Capabilities</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>Type</th>
+			<th>Name</th>
+			<th>Count</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for cap in capabilities %}
+		<tr>
+			<td>{{ cap.ty }}</td>
+			<td>{{ cap.name }}</td>
+			<td>{{ cap.count }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<h3>Capability Details</h3>
+<table class="detailsview">
+	<tr>
+		<th>Full Capabilities</th>
+		<td>
+			<details>
+				<summary>Expand Capabilities</summary>
+				<div>
+					<pre><code>{{ capabilities_json }}</code></pre>
+				</div>
+			</details>
+		</td>
+	</tr>
+</table>
+
+
+<h3>History</h3>
+<a href="/admin/machine/{{ id }}/state-history">Open History on separate page</a>
+{{ history|safe }}
+
+<script>
+	function are_you_sure_maintenance(event) {
+		event.preventDefault();
+		let form = document.getElementById("maintenance_action");
+		{% if maintenance_reference.is_empty() %}
+		if (!document.getElementById("ref").value) {
+			alert("Reference is required. It is usually a ticket tracker URL.");
+			return;
+		}
+		let confirm = window.confirm("Take machine out of service and put it into maintenance mode?");
+		{% else %}
+		let confirm = window.confirm("Put machine back into service, exiting maintenance mode?");
+		{% endif %}
+		if (confirm) {
+			form.removeEventListener("submit", are_you_sure_maintenance);
+			form.submit();
+		}
+	}
+	function are_you_sure_quarantine(event) {
+		event.preventDefault();
+		let form = document.getElementById("quarantine_action");
+		{% if quarantine_state.is_none() %}
+			if (!document.getElementById("reason").value) {
+				alert("Quarantine reason is required.");
+				return;
+			}
+			let confirm = window.confirm("Quarantine host, disabling all tenant networking?");
+		{% else %}
+			let confirm = window.confirm("End quarantine for host, enabling tenant networking?");
+		{% endif %}
+		if (confirm) {
+			form.removeEventListener("submit", are_you_sure_quarantine);
+			form.submit();
+		}
+	}
+
+	document.addEventListener("DOMContentLoaded", function(event){
+		let maintenance_form = document.getElementById("maintenance_action");
+		maintenance_form.addEventListener("submit", are_you_sure_maintenance);
+		let quarantine_form = document.getElementById("quarantine_action");
+		quarantine_form.addEventListener("submit", are_you_sure_quarantine);
+		
+		// Set up Logs link
+		const machineId = "{{ id }}";
+		document.getElementById('logs-link').href = buildGrafanaLogsUrl(machineId);
+	});
+</script>
+
+{% endblock %}

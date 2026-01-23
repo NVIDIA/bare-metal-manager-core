@@ -1,0 +1,32 @@
+[package]
+name = "carbide-mlxconfig-device"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "mlxconfig_device"
+
+[dependencies]
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+clap = { features = ["derive"], workspace = true }
+tokio = { features = ["full"], workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter"], workspace = true }
+quick-xml = { features = ["serialize"], workspace = true }
+prettytable-rs = { workspace = true }
+regex = { workspace = true }
+chrono = { features = ["serde"], workspace = true }
+hostname = { workspace = true }
+mac_address = { features = ["serde"], workspace = true }
+carbide-rpc = { path = "../rpc" }
+prost-types = { workspace = true }
+carbide-uuid = { path = "../uuid" }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

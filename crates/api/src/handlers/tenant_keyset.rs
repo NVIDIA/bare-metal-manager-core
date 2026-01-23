@@ -1,0 +1,226 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::fmt::{Display, Formatter, Result as FmtResult};
+
+use ::rpc::forge as rpc;
+use db::WithTransaction;
+use futures_util::FutureExt;
+use itertools::Itertools;
+use model::tenant::{
+    PublicKey, TenantKeyset, TenantKeysetIdentifier, TenantPublicKey,
+    TenantPublicKeyValidationRequest, UpdateTenantKeyset,
+};
+use tonic::{Request, Response, Status};
+
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+
+pub(crate) async fn create(
+    api: &Api,
+    request: Request<rpc::CreateTenantKeysetRequest>,
+) -> Result<Response<rpc::CreateTenantKeysetResponse>, Status> {
+    crate::api::log_request_data(&request);
+
+    let keyset_request: TenantKeyset = request
+        .into_inner()
+        .try_into()
+        .map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let keyset = db::tenant_keyset::create(&keyset_request, &mut txn).await?;
+
+    txn.commit().await?;
+
+    let public_keys = &keyset_request.keyset_content.public_keys;
+    tracing::info!(
+        organization_id = keyset_request.keyset_identifier.organization_id.to_string(),
+        keyset_id = keyset_request.keyset_identifier.keyset_id,
+        public_key_suffixes = PublicKeySuffixes(public_keys).to_string(),
+        public_key_suffixes_num = public_keys.len(),
+        version = keyset_request.version,
+        "Tenant keyset created"
+    );
+
+    Ok(Response::new(rpc::CreateTenantKeysetResponse {
+        keyset: Some(keyset.into()),
+    }))
+}
+
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::TenantKeysetSearchFilter>,
+) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
+    log_request_data(&request);
+
+    let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
+
+    let keyset_ids = api
+        .with_txn(|txn| db::tenant_keyset::find_ids(txn, filter).boxed())
+        .await??;
+
+    Ok(Response::new(rpc::TenantKeysetIdList {
+        keyset_ids: keyset_ids
+            .into_iter()
+            .map(rpc::TenantKeysetIdentifier::from)
+            .collect(),
+    }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::TenantKeysetsByIdsRequest>,
+) -> Result<Response<rpc::TenantKeySetList>, Status> {
+    log_request_data(&request);
+
+    let rpc::TenantKeysetsByIdsRequest {
+        keyset_ids,
+        include_key_data,
+        ..
+    } = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if keyset_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if keyset_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let keysets = api
+        .with_txn(|txn| db::tenant_keyset::find_by_ids(txn, keyset_ids, include_key_data).boxed())
+        .await?;
+
+    let result = keysets
+        .map(|vpc| rpc::TenantKeySetList {
+            keyset: vpc.into_iter().map(rpc::TenantKeyset::from).collect(),
+        })
+        .map(Response::new)?;
+
+    Ok(result)
+}
+
+pub(crate) async fn update(
+    api: &Api,
+    request: Request<rpc::UpdateTenantKeysetRequest>,
+) -> Result<Response<rpc::UpdateTenantKeysetResponse>, Status> {
+    crate::api::log_request_data(&request);
+
+    let update_request: UpdateTenantKeyset = request
+        .into_inner()
+        .try_into()
+        .map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    db::tenant_keyset::update(&update_request, &mut txn).await?;
+
+    txn.commit().await?;
+
+    let public_keys = &update_request.keyset_content.public_keys;
+    tracing::info!(
+        organization_id = update_request.keyset_identifier.organization_id.to_string(),
+        keyset_id = update_request.keyset_identifier.keyset_id,
+        public_key_suffixes = PublicKeySuffixes(public_keys).to_string(),
+        public_key_suffixes_num = public_keys.len(),
+        version = update_request.version,
+        "Tenant keyset updated"
+    );
+
+    Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
+}
+
+pub(crate) async fn delete(
+    api: &Api,
+    request: Request<rpc::DeleteTenantKeysetRequest>,
+) -> Result<Response<rpc::DeleteTenantKeysetResponse>, Status> {
+    crate::api::log_request_data(&request);
+
+    let rpc::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
+
+    let mut txn = api.txn_begin().await?;
+
+    let Some(keyset_identifier) = keyset_identifier else {
+        return Err(CarbideError::MissingArgument("keyset_identifier").into());
+    };
+
+    let keyset_identifier: TenantKeysetIdentifier =
+        keyset_identifier.try_into().map_err(CarbideError::from)?;
+
+    if !db::tenant_keyset::delete(&keyset_identifier, &mut txn).await? {
+        return Err(CarbideError::NotFoundError {
+            kind: "keyset",
+            id: format!("{keyset_identifier:?}"),
+        }
+        .into());
+    }
+
+    txn.commit().await?;
+    tracing::info!(
+        organization_id = keyset_identifier.organization_id.to_string(),
+        keyset_id = keyset_identifier.keyset_id,
+        "Tenant keyset deleted"
+    );
+
+    Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
+}
+
+pub(crate) async fn validate_public_key(
+    api: &Api,
+    request: Request<rpc::ValidateTenantPublicKeyRequest>,
+) -> Result<Response<rpc::ValidateTenantPublicKeyResponse>, Status> {
+    let request = TenantPublicKeyValidationRequest::try_from(request.into_inner())
+        .map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    db::tenant::validate_public_key(&request, &mut txn).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::ValidateTenantPublicKeyResponse {}))
+}
+
+struct PublicKeySuffixes<'a>(&'a Vec<TenantPublicKey>);
+
+impl Display for PublicKeySuffixes<'_> {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        self.0
+            .iter()
+            .map(|v| PublicKeySuffix(&v.public_key))
+            .join(",")
+            .fmt(fmt)
+    }
+}
+
+struct PublicKeySuffix<'a>(&'a PublicKey);
+
+impl Display for PublicKeySuffix<'_> {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        const PUB_KEY_SUFFIX_LEN: usize = 8;
+        self.0
+            .key
+            .chars()
+            .rev()
+            .take(PUB_KEY_SUFFIX_LEN)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<String>()
+            .fmt(fmt)
+    }
+}

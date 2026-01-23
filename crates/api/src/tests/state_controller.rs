@@ -1,0 +1,753 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use config_version::{ConfigVersion, Versioned};
+use db::DatabaseError;
+use futures::StreamExt;
+use model::StateSla;
+use model::controller_outcome::PersistentStateHandlerOutcome;
+use serde::{self, Deserialize, Serialize};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, PgConnection, Row};
+
+use crate::state_controller::config::IterationConfig;
+use crate::state_controller::controller::{
+    self, ControllerIterationId, QueuedObject, StateController,
+};
+use crate::state_controller::io::StateControllerIO;
+use crate::state_controller::metrics::NoopMetricsEmitter;
+use crate::state_controller::state_change_emitter::{
+    StateChangeEmitterBuilder, StateChangeEvent, StateChangeHook,
+};
+use crate::state_controller::state_handler::{
+    StateHandler, StateHandlerContext, StateHandlerContextObjects, StateHandlerError,
+    StateHandlerOutcome,
+};
+
+#[crate::sqlx_test]
+async fn test_start_iteration(pool: sqlx::PgPool) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
+
+    // First iteration can acquire the lock
+    let result = controller::db::lock_and_start_iteration(
+        &pool,
+        &work_lock_manager_handle,
+        TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.iteration_data.id.0, 1);
+
+    // Second lock will fail
+    assert!(
+        controller::db::lock_and_start_iteration(
+            &pool,
+            &work_lock_manager_handle,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME
+        )
+        .await
+        .is_err()
+    );
+
+    // Release the lock
+    std::mem::drop(result);
+
+    let result = controller::db::lock_and_start_iteration(
+        &pool,
+        &work_lock_manager_handle,
+        TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.iteration_data.id.0, 2);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_delete_outdated_iterations(pool: sqlx::PgPool) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
+
+    // If we insert up to 10 iterations, all of them shoudl be visible
+    for i in 1..=10 {
+        let result = controller::db::lock_and_start_iteration(
+            &pool,
+            &work_lock_manager_handle,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.iteration_data.id.0, i);
+
+        let mut txn = pool.begin().await?;
+        let results = controller::db::fetch_iterations(
+            &mut txn,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), i as usize);
+        for j in 0..i {
+            assert_eq!(results[j as usize].id.0, j + 1);
+        }
+
+        txn.commit().await.unwrap();
+    }
+
+    // Once we are above 10, we retain the latest 10 iterations
+    for i in 11..=20 {
+        let result = controller::db::lock_and_start_iteration(
+            &pool,
+            &work_lock_manager_handle,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.iteration_data.id.0, i);
+
+        let mut txn = pool.begin().await?;
+        let results = controller::db::fetch_iterations(
+            &mut txn,
+            TestStateControllerIO::DB_ITERATION_ID_TABLE_NAME,
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), 10);
+        for j in 0..10 {
+            assert_eq!(results[j as usize].id.0, i - 9 + j);
+        }
+
+        txn.commit().await.unwrap();
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+
+    let num_objects = 4;
+    let mut object_ids = Vec::new();
+    let mut txn = pool.begin().await.unwrap();
+    for idx in 0..num_objects {
+        let obj = create_test_object(idx.to_string(), &mut txn).await;
+        object_ids.push(obj.id);
+    }
+    txn.commit().await.unwrap();
+
+    // Test insert
+    let mut txn = pool.begin().await.unwrap();
+    controller::db::queue_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+        &[("0".to_string(), ControllerIterationId(1))],
+    )
+    .await
+    .unwrap();
+    controller::db::queue_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+        &[
+            ("1".to_string(), ControllerIterationId(2)),
+            ("2".to_string(), ControllerIterationId(3)),
+        ],
+    )
+    .await
+    .unwrap();
+
+    let queued = controller::db::fetch_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        queued,
+        vec![
+            QueuedObject {
+                object_id: "0".to_string(),
+                iteration_id: ControllerIterationId(1)
+            },
+            QueuedObject {
+                object_id: "1".to_string(),
+                iteration_id: ControllerIterationId(2)
+            },
+            QueuedObject {
+                object_id: "2".to_string(),
+                iteration_id: ControllerIterationId(3)
+            },
+        ]
+    );
+    txn.commit().await.unwrap();
+
+    // Test insert and update
+    let mut txn = pool.begin().await.unwrap();
+    controller::db::queue_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+        &[("0".to_string(), ControllerIterationId(22))],
+    )
+    .await
+    .unwrap();
+    controller::db::queue_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+        &[
+            ("3".to_string(), ControllerIterationId(44)),
+            ("2".to_string(), ControllerIterationId(33)),
+        ],
+    )
+    .await
+    .unwrap();
+    let queued = controller::db::fetch_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        queued,
+        vec![
+            QueuedObject {
+                object_id: "1".to_string(),
+                iteration_id: ControllerIterationId(2)
+            },
+            QueuedObject {
+                object_id: "0".to_string(),
+                iteration_id: ControllerIterationId(22)
+            },
+            QueuedObject {
+                object_id: "2".to_string(),
+                iteration_id: ControllerIterationId(33)
+            },
+            QueuedObject {
+                object_id: "3".to_string(),
+                iteration_id: ControllerIterationId(44)
+            },
+        ]
+    );
+    txn.commit().await.unwrap();
+
+    // Test dequeue
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
+    let mut txn2: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
+    let mut queued = controller::db::dequeue_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    queued.sort_by(|a, b| a.iteration_id.0.cmp(&b.iteration_id.0));
+    assert_eq!(
+        queued,
+        vec![
+            QueuedObject {
+                object_id: "1".to_string(),
+                iteration_id: ControllerIterationId(2)
+            },
+            QueuedObject {
+                object_id: "0".to_string(),
+                iteration_id: ControllerIterationId(22)
+            },
+            QueuedObject {
+                object_id: "2".to_string(),
+                iteration_id: ControllerIterationId(33)
+            },
+            QueuedObject {
+                object_id: "3".to_string(),
+                iteration_id: ControllerIterationId(44)
+            },
+        ]
+    );
+    let queued2 = controller::db::dequeue_queued_objects(
+        &mut txn2,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    assert!(queued2.is_empty());
+
+    txn.commit().await.unwrap();
+    txn2.commit().await.unwrap();
+
+    let mut txn = pool.begin().await.unwrap();
+    let queued = controller::db::dequeue_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    assert!(queued.is_empty());
+    txn.commit().await.unwrap();
+
+    Ok(())
+}
+
+#[derive(Debug, Default)]
+struct TestStateControllerIO {}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct TestObject {
+    pub id: String,
+    pub controller_state: Versioned<TestObjectControllerState>,
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+}
+
+impl<'r> FromRow<'r, PgRow> for TestObject {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let controller_state: sqlx::types::Json<TestObjectControllerState> =
+            row.try_get("controller_state")?;
+        let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
+            row.try_get("controller_state_outcome")?;
+
+        Ok(TestObject {
+            id: row.try_get("id")?,
+            controller_state: Versioned::new(
+                controller_state.0,
+                row.try_get("controller_state_version")?,
+            ),
+            controller_state_outcome: state_outcome.map(|x| x.0),
+        })
+    }
+}
+
+/// State of a IB subnet as tracked by the controller
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum TestObjectControllerState {
+    A,
+    B,
+    C,
+}
+
+pub struct TestStateControllerContextObjects {}
+
+impl StateHandlerContextObjects for TestStateControllerContextObjects {
+    type Services = ();
+    type ObjectMetrics = ();
+}
+
+async fn create_test_state_controller_tables(pool: &sqlx::PgPool) {
+    let mut txn = pool.begin().await.unwrap();
+
+    sqlx::query(
+        "CREATE TABLE test_objects(
+        id             varchar NOT NULL,
+        controller_state         jsonb       NOT NULL,
+        controller_state_version VARCHAR(64) NOT NULL,
+        controller_state_outcome JSONB
+    );",
+    )
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "CREATE TABLE test_state_controller_lock(
+        id uuid DEFAULT gen_random_uuid() NOT NULL
+    );",
+    )
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "CREATE TABLE test_state_controller_iteration_ids(
+        id BIGSERIAL PRIMARY KEY,
+        started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );",
+    )
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "CREATE TABLE test_state_controller_queued_objects(
+        object_id VARCHAR PRIMARY KEY,
+        iteration_id BIGINT
+    );",
+    )
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+
+    txn.commit().await.unwrap();
+}
+
+async fn create_test_object(id: String, txn: &mut PgConnection) -> TestObject {
+    let version: ConfigVersion = ConfigVersion::initial();
+    let state = TestObjectControllerState::A;
+
+    let query = "INSERT INTO test_objects(id, controller_state, controller_state_version)
+        VALUES($1, $2::json, $3)
+        RETURNING *";
+    sqlx::query_as(query)
+        .bind(id)
+        .bind(sqlx::types::Json(state))
+        .bind(version)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+        .unwrap()
+}
+
+#[async_trait::async_trait]
+impl StateControllerIO for TestStateControllerIO {
+    type ObjectId = String;
+    type State = TestObject;
+    type ControllerState = TestObjectControllerState;
+    type MetricsEmitter = NoopMetricsEmitter;
+    type ContextObjects = TestStateControllerContextObjects;
+
+    const DB_WORK_KEY: &'static str = "test_state_controller_lock";
+    const DB_ITERATION_ID_TABLE_NAME: &'static str = "test_state_controller_iteration_ids";
+    const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "test_state_controller_queued_objects";
+
+    const LOG_SPAN_CONTROLLER_NAME: &'static str = "test_state_controller";
+
+    async fn list_objects(
+        &self,
+        txn: &mut PgConnection,
+    ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
+        let query = "SELECT id FROM test_objects";
+        let mut results = Vec::new();
+        let mut segment_id_stream = sqlx::query_scalar(query).fetch(txn);
+        while let Some(maybe_id) = segment_id_stream.next().await {
+            let id = maybe_id.map_err(|e| DatabaseError::query(query, e))?;
+            results.push(id);
+        }
+
+        Ok(results)
+    }
+
+    /// Loads a state snapshot from the database
+    async fn load_object_state(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+    ) -> Result<Option<Self::State>, DatabaseError> {
+        let query = "SELECT * FROM test_objects where id = $1";
+        let object = sqlx::query_as::<_, TestObject>(query)
+            .bind(object_id)
+            .fetch_optional(txn)
+            .await
+            .map_err(|e| DatabaseError::new("select", e))?;
+
+        return Ok(object);
+    }
+
+    async fn load_controller_state(
+        &self,
+        _txn: &mut PgConnection,
+        _object_id: &Self::ObjectId,
+        state: &Self::State,
+    ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
+        Ok(state.controller_state.clone())
+    }
+
+    async fn persist_controller_state(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        old_version: ConfigVersion,
+        new_state: &Self::ControllerState,
+    ) -> Result<(), DatabaseError> {
+        let next_version = old_version.increment();
+
+        let query = "UPDATE test_objects SET controller_state_version=$1, controller_state=$2::json
+            where id=$3 AND controller_state_version=$4 returning id";
+        let query_result = sqlx::query_scalar::<_, String>(query)
+            .bind(next_version)
+            .bind(sqlx::types::Json(new_state))
+            .bind(object_id)
+            .bind(old_version)
+            .fetch_one(txn)
+            .await;
+
+        match query_result {
+            Ok(_object_id) => {}
+            Err(sqlx::Error::RowNotFound) => {}
+            Err(e) => return Err(DatabaseError::query(query, e)),
+        }
+
+        Ok(())
+    }
+
+    async fn persist_outcome(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        outcome: PersistentStateHandlerOutcome,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE test_objects SET controller_state_outcome=$1::json WHERE id=$2";
+        sqlx::query(query)
+            .bind(sqlx::types::Json(outcome))
+            .bind(object_id)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?;
+        Ok(())
+    }
+
+    fn metric_state_names(_state: &TestObjectControllerState) -> (&'static str, &'static str) {
+        ("a", "b")
+    }
+
+    fn state_sla(_state: &Versioned<Self::ControllerState>) -> StateSla {
+        StateSla {
+            sla: None,
+            time_in_state_above_sla: false,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct TestConcurrencyStateHandler {
+    /// The total count for the handler
+    pub count: Arc<AtomicUsize>,
+    /// We count for every object ID how often the handler was called
+    pub counts_per_id: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+#[async_trait::async_trait]
+impl StateHandler for TestConcurrencyStateHandler {
+    type State = TestObject;
+    type ControllerState = TestObjectControllerState;
+    type ObjectId = String;
+    type ContextObjects = TestStateControllerContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        object_id: &String,
+        state: &mut TestObject,
+        _controller_state: &Self::ControllerState,
+        _txn: &mut PgConnection,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+        assert_eq!(state.id, *object_id);
+        self.count.fetch_add(1, Ordering::SeqCst);
+        {
+            let mut guard = self.counts_per_id.lock().unwrap();
+            *guard.entry(object_id.to_string()).or_default() += 1;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        Ok(StateHandlerOutcome::do_nothing())
+    }
+}
+
+#[crate::sqlx_test]
+async fn test_multiple_state_controllers_schedule_object_only_once(
+    pool: sqlx::PgPool,
+) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
+
+    let num_objects = 4;
+    let mut object_ids = Vec::new();
+    let mut txn = pool.begin().await.unwrap();
+    for idx in 0..num_objects {
+        let obj = create_test_object(idx.to_string(), &mut txn).await;
+        object_ids.push(obj.id);
+    }
+    txn.commit().await.unwrap();
+
+    let state_handler = Arc::new(TestConcurrencyStateHandler::default());
+    const ITERATION_TIME: Duration = Duration::from_millis(100);
+    const TEST_TIME: Duration = Duration::from_secs(10);
+    let expected_iterations = (TEST_TIME.as_millis() / ITERATION_TIME.as_millis()) as f64;
+    let expected_total_count = expected_iterations * object_ids.len() as f64;
+
+    // We build multiple state controllers. But since only one should act at a time,
+    // the count should still not increase
+    let mut handles = Vec::new();
+    for _ in 0..10 {
+        handles.push(
+            StateController::<TestStateControllerIO>::builder()
+                .iteration_config(IterationConfig {
+                    iteration_time: ITERATION_TIME,
+                    ..Default::default()
+                })
+                .database(pool.clone(), work_lock_manager_handle.clone())
+                .services(Arc::new(()))
+                .state_handler(state_handler.clone())
+                .build_and_spawn()
+                .unwrap(),
+        );
+    }
+
+    tokio::time::sleep(TEST_TIME).await;
+    drop(handles);
+    // Wait some extra time until the controller background task shuts down
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let count = state_handler.count.load(Ordering::SeqCst) as f64;
+    assert!(
+        count >= 0.60 * expected_total_count && count <= 1.25 * expected_total_count,
+        "Expected count of {expected_total_count}, but got {count}"
+    );
+
+    for object_id in object_ids {
+        let guard = state_handler.counts_per_id.lock().unwrap();
+        let count = guard
+            .get(&object_id.to_string())
+            .copied()
+            .unwrap_or_default() as f64;
+
+        assert!(
+            count >= 0.60 * expected_iterations && count <= 1.25 * expected_iterations,
+            "Expected individual count of {expected_iterations}, but got {count} for {object_id}"
+        );
+    }
+
+    Ok(())
+}
+
+/// A state handler that transitions from A -> B -> C
+#[derive(Debug, Default, Clone)]
+pub struct TestTransitionStateHandler;
+
+#[async_trait::async_trait]
+impl StateHandler for TestTransitionStateHandler {
+    type State = TestObject;
+    type ControllerState = TestObjectControllerState;
+    type ObjectId = String;
+    type ContextObjects = TestStateControllerContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        _object_id: &String,
+        _state: &mut TestObject,
+        controller_state: &Self::ControllerState,
+        _txn: &mut PgConnection,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+        match controller_state {
+            TestObjectControllerState::A => Ok(StateHandlerOutcome::transition(
+                TestObjectControllerState::B,
+            )),
+            TestObjectControllerState::B => Ok(StateHandlerOutcome::transition(
+                TestObjectControllerState::C,
+            )),
+            TestObjectControllerState::C => Ok(StateHandlerOutcome::do_nothing()),
+        }
+    }
+}
+
+/// Captured state change data for test verification.
+#[derive(Debug, Clone)]
+struct CapturedStateChange {
+    object_id: String,
+    previous_state: Option<TestObjectControllerState>,
+    new_state: TestObjectControllerState,
+}
+
+/// A hook that sends events through a channel for deterministic test verification
+pub struct ChannelHook {
+    sender: tokio::sync::mpsc::UnboundedSender<CapturedStateChange>,
+}
+
+impl ChannelHook {
+    fn new() -> (
+        Self,
+        tokio::sync::mpsc::UnboundedReceiver<CapturedStateChange>,
+    ) {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        (Self { sender }, receiver)
+    }
+}
+
+impl StateChangeHook<String, TestObjectControllerState> for ChannelHook {
+    fn on_state_changed(&self, event: &StateChangeEvent<'_, String, TestObjectControllerState>) {
+        let captured = CapturedStateChange {
+            object_id: event.object_id.clone(),
+            previous_state: event.previous_state.cloned(),
+            new_state: event.new_state.clone(),
+        };
+        let _ = self.sender.send(captured);
+    }
+}
+
+#[crate::sqlx_test]
+async fn test_state_change_emitter_emits_events_on_transitions(
+    pool: sqlx::PgPool,
+) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
+
+    // Create a single test object in state A
+    let mut txn = pool.begin().await?;
+    let obj = create_test_object("test-obj-1".to_string(), &mut txn).await;
+    txn.commit().await?;
+
+    // Create a channel hook to receive events deterministically
+    let (hook, mut receiver) = ChannelHook::new();
+
+    // Build the emitter with our channel hook
+    let emitter = StateChangeEmitterBuilder::default()
+        .hook(Box::new(hook))
+        .build();
+
+    // Build the state controller with the emitter
+    let mut controller = StateController::<TestStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: Duration::from_millis(50),
+            ..Default::default()
+        })
+        .database(pool.clone(), work_lock_manager_handle.clone())
+        .services(Arc::new(()))
+        .state_handler(Arc::new(TestTransitionStateHandler))
+        .state_change_emitter(emitter)
+        .build_for_manual_iterations()?;
+
+    // Run first iteration: A -> B
+    controller.run_single_iteration().await;
+    let event1 = receiver
+        .recv()
+        .await
+        .expect("Expected first state change event");
+    assert_eq!(event1.object_id, obj.id);
+    assert_eq!(event1.previous_state, Some(TestObjectControllerState::A));
+    assert_eq!(event1.new_state, TestObjectControllerState::B);
+
+    // Run second iteration: B -> C
+    controller.run_single_iteration().await;
+    let event2 = receiver
+        .recv()
+        .await
+        .expect("Expected second state change event");
+    assert_eq!(event2.object_id, obj.id);
+    assert_eq!(event2.previous_state, Some(TestObjectControllerState::B));
+    assert_eq!(event2.new_state, TestObjectControllerState::C);
+
+    // Run third iteration: C -> do_nothing (no transition, no event)
+    controller.run_single_iteration().await;
+    // Verify no more events in the channel
+    assert!(
+        receiver.try_recv().is_err(),
+        "Expected no event for do_nothing outcome"
+    );
+
+    Ok(())
+}

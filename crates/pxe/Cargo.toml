@@ -1,0 +1,53 @@
+[package]
+name = "carbide-pxe"
+version = "0.0.1"
+description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "carbide"
+path = "src/main.rs"
+
+[dependencies]
+# [begin-local-dependencies]
+carbide-host-support = { path = "../host-support" }
+carbide-tls = { path = "../tls" }
+carbide-version = { path = "../version" }
+carbide-rpc = { path = "../rpc" }
+carbide-uuid = { path = "../uuid" }
+# [end-local-dependencies]
+
+axum = { workspace = true }
+axum-response-cache = { workspace = true }
+axum-client-ip = { workspace = true }
+axum-template = { workspace = true, features = ["tera"] }
+base64 = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+http-body = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+mime = { workspace = true }
+pin-project-lite = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+tera = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tonic = { workspace = true }
+tower = { workspace = true }
+tower-http = { features = ["fs"], workspace = true }
+tower-layer = { workspace = true }
+tower-service = { workspace = true }
+uuid = { features = ["v4", "serde"], workspace = true }
+
+[build-dependencies]
+carbide-version = { path = "../version" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+rand = { workspace = true }
+
+[lints]
+workspace = true

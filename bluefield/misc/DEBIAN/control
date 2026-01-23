@@ -1,0 +1,7 @@
+Package: forge-dpu
+Version: SED__DPU_AGENT_PKG_VERSION
+Section: base
+Priority: optional
+Architecture: arm64
+Maintainer: Forge team <swngc-forge-dev@nvidia.com>
+Description: Forge specific customizations for Bluefield-2 and future DPUs.

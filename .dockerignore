@@ -1,0 +1,8 @@
+forged/
+target/*
+!target/release/forge-admin-cli
+.git/
+pxe/mkiso/
+**/.mkosi*
+pxe/static/blobs/internal/*/.mkosi*
+**/.mkosi*

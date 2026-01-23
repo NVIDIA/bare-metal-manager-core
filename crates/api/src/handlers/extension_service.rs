@@ -1,0 +1,1089 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use ::rpc::errors::RpcDataConversionError;
+use ::rpc::forge as rpc;
+use carbide_uuid::extension_service::ExtensionServiceId;
+use config_version::ConfigVersion;
+use db::{WithTransaction, extension_service, instance};
+use forge_secrets::credentials::{CredentialKey, Credentials};
+use futures_util::FutureExt;
+use model::extension_service::{ExtensionServiceObservability, ExtensionServiceType};
+use model::tenant::TenantOrganizationId;
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
+use crate::CarbideError;
+use crate::api::{Api, log_request_data, log_tenant_organization_id};
+
+const MAX_POD_SPEC_SIZE: usize = 2 << 15; // 64 KB
+const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
+
+/// Creates a new extension service with an initial version.
+pub(crate) async fn create(
+    api: &Api,
+    request: Request<rpc::CreateDpuExtensionServiceRequest>,
+) -> Result<Response<rpc::DpuExtensionService>, Status> {
+    // Do not log_request_data as request may contain credential or sensitive data
+    tracing::Span::current().record("request", "CreateDpuExtensionServiceRequest { }");
+
+    let req = request.into_inner();
+
+    let service_id = match req.service_id {
+        Some(id) => id.parse::<ExtensionServiceId>().map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidUuid(
+                "ExtensionServiceId",
+                e.to_string(),
+            ))
+        })?,
+        None => ExtensionServiceId::from(Uuid::new_v4()),
+    };
+
+    log_tenant_organization_id(&req.tenant_organization_id);
+
+    let tenant_organization_id = req
+        .tenant_organization_id
+        .parse::<TenantOrganizationId>()
+        .map_err(|e| CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string())))?;
+
+    // Validate required fields
+    if req.service_name.is_empty() {
+        return Err(CarbideError::MissingArgument("service_name").into());
+    }
+    let service_type: ExtensionServiceType =
+        rpc::DpuExtensionServiceType::try_from(req.service_type)
+            .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?
+            .into();
+
+    let initial_version = ConfigVersion::initial();
+
+    // Validate data format based on service type
+    validate_extension_service_data(&service_type, &req.data)?;
+
+    // Validate credential if provided
+    if let Some(credential) = &req.credential {
+        validate_extension_service_credential(&service_type, credential)?;
+    }
+
+    let obvs_len = req
+        .observability
+        .as_ref()
+        .map(|o| o.configs.len())
+        .unwrap_or(0);
+    if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
+        return Err(CarbideError::InvalidConfiguration(
+            model::ConfigValidationError::InvalidValue(format!(
+                "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
+                obvs_len
+            )),
+        ).into());
+    }
+
+    let observability = req
+        .observability
+        .map(ExtensionServiceObservability::try_from)
+        .transpose()?;
+
+    // Store the new credential in Vault if provided. We have to do this before updating the data in
+    // the database, so that in case this fails, the database remains untouched. We can't use db
+    // transactions for this since it can cause issues if vault is unresponsive.
+    if let Some(credential) = &req.credential {
+        create_extension_service_credential(
+            &service_type,
+            &api.credential_provider,
+            create_extension_service_credential_key(&service_id, initial_version),
+            credential,
+        )
+        .await?;
+    }
+
+    // Finally, create the extension in the database. If this fails, the vault credential will be removed.
+    let (service, version) = match api
+        .with_txn(|txn| {
+            extension_service::create(
+                txn,
+                initial_version,
+                &service_id,
+                &service_type,
+                &req.service_name,
+                &tenant_organization_id,
+                req.description.as_deref(),
+                &req.data,
+                observability,
+                req.credential.is_some(),
+            )
+            .boxed()
+        })
+        .await
+    {
+        Ok(Ok(result)) => result,
+        Err(e) | Ok(Err(e)) => {
+            // If creating the extension fails, we need to delete the credential stored in Vault.
+            if req.credential.is_some() {
+                let credential_key =
+                    create_extension_service_credential_key(&service_id, initial_version);
+                // Best effort deletion - log but don't fail the request if deletion fails
+                if let Err(delete_err) =
+                    delete_extension_service_credential(&api.credential_provider, credential_key)
+                        .await
+                {
+                    tracing::warn!(
+                        "Failed to delete credential for extension service {} after transaction failure: {}",
+                        service_id,
+                        delete_err
+                    );
+                }
+            }
+            return Err(e.into());
+        }
+    };
+
+    // Sanity check: A newly created service should have exactly one version
+    let versions = api
+        .with_txn(|txn| extension_service::find_all_versions(txn, service.id).boxed())
+        .await??;
+    if versions.len() != 1 || versions.first().unwrap().version_nr() != 1 {
+        return Err(CarbideError::Internal {
+            message: "Initial extension service should only have a single version (1)".to_string(),
+        }
+        .into());
+    }
+
+    // Create response with service details
+    let response = rpc::DpuExtensionService {
+        service_id: service.id.to_string(),
+        service_type: rpc::DpuExtensionServiceType::from(service_type) as i32,
+        service_name: service.name,
+        tenant_organization_id: service.tenant_organization_id.to_string(),
+        version_ctr: service.version_ctr,
+        active_versions: versions.iter().map(|v| v.to_string()).collect(),
+        latest_version_info: Some(version.into()),
+        description: service.description,
+        created: service.created.to_string(),
+        updated: service.updated.to_string(),
+    };
+
+    Ok(Response::new(response))
+}
+
+/// Updates an existing extension service
+/// - If only metadata is provided, updates the metadata without creating a new version
+/// - If data or credential is provided, validates that the new data/credential differs from
+///   the latest version
+/// - Creates a new version with the updated data/credential, along with any name/description changes
+/// - Update will fail if new name conflicts with an existing service name
+/// - Stores the new credential in Vault if provided
+/// - Commits the transaction, or rolls back and deletes the credential on failure
+pub(crate) async fn update(
+    api: &Api,
+    request: Request<rpc::UpdateDpuExtensionServiceRequest>,
+) -> Result<Response<rpc::DpuExtensionService>, Status> {
+    // Do not log_request_data as request may contain credential or sensitive data
+    tracing::Span::current().record("request", "UpdateDpuExtensionServiceRequest { }");
+
+    let req = request.into_inner();
+
+    let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
+        CarbideError::from(RpcDataConversionError::InvalidUuid(
+            "ExtensionServiceId",
+            e.to_string(),
+        ))
+    })?;
+
+    if req.service_name.is_some() && req.service_name.as_ref().unwrap().is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("service_name cannot be empty".to_string()).into(),
+        );
+    }
+
+    // Determine if the update is a metadata-only update
+    let metadata_only = req.data.is_empty()
+        && req.credential.is_none()
+        && req.observability.is_none()
+        && (req.service_name.as_deref().is_some_and(|s| !s.is_empty())
+            || req.description.is_some());
+
+    let mut txn = api.txn_begin().await?;
+
+    // We lock the extension service for update so that no other request can update the service
+    let current_service_res = extension_service::find_by_ids(&mut txn, &[service_id], true).await?;
+    let current_service = match current_service_res.len() {
+        0 => {
+            return Err(CarbideError::NotFoundError {
+                kind: "extension_service",
+                id: service_id.to_string(),
+            }
+            .into());
+        }
+        1 => current_service_res.first().unwrap(),
+        _ => {
+            return Err(CarbideError::Internal {
+                message: "Multiple extension services found for the same ID".to_string(),
+            }
+            .into());
+        }
+    };
+
+    // If the if_version_ctr_match is provided, check if the current version matches the provided version
+    if let Some(version_ctr) = req.if_version_ctr_match
+        && current_service.version_ctr != version_ctr
+    {
+        return Err(CarbideError::ConcurrentModificationError(
+            "ExtensionService",
+            version_ctr.to_string(),
+        )
+        .into());
+    }
+
+    let (updated_service, latest_version_row) = if metadata_only {
+        // The name and description are updated in the database if provided, but no new version is
+        // created.
+        let updated_service = extension_service::update_metadata(
+            &mut txn,
+            service_id,
+            req.service_name.as_deref(),
+            req.description.as_deref(),
+        )
+        .await?;
+
+        let latest_version_row =
+            extension_service::find_version_info(&mut txn, service_id, None).await?;
+        txn.commit().await?;
+
+        (updated_service, latest_version_row)
+    } else {
+        // Data or credential is provided, update the extension service with the new version
+        let latest_version =
+            extension_service::find_version_info(&mut txn, service_id, None).await?;
+
+        // Close the txn to avoid holding it across a vault call
+        txn.commit().await?;
+
+        // Validate new data format based on service type
+        validate_extension_service_data(&current_service.service_type, &req.data)?;
+
+        // Validate new credential format based on service type if provided
+        if let Some(credential) = &req.credential {
+            validate_extension_service_credential(&current_service.service_type, credential)?;
+        }
+
+        // Validate if there is data or credential change, if there is no change, reject the update with an error
+        let latest_credential = if latest_version.has_credential {
+            Some(
+                get_extension_service_credential(
+                    &api.credential_provider,
+                    create_extension_service_credential_key(&service_id, latest_version.version),
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        let is_spec_changed = detect_extension_service_spec_change(
+            &current_service.service_type,
+            &req.data,
+            &latest_version.data,
+            req.credential.clone(),
+            latest_credential,
+        )?;
+        if !is_spec_changed {
+            return Err(CarbideError::InvalidArgument(
+                "No changes to data or credential from latest version".to_string(),
+            )
+            .into());
+        }
+
+        let obvs_len = req
+            .observability
+            .as_ref()
+            .map(|o| o.configs.len())
+            .unwrap_or(0);
+        if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
+            return Err(CarbideError::InvalidConfiguration(
+                model::ConfigValidationError::InvalidValue(format!(
+                    "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
+                    obvs_len
+                )),
+            ).into());
+        }
+
+        let observability = req
+            .observability
+            .map(ExtensionServiceObservability::try_from)
+            .transpose()?;
+
+        let version_change =
+            ConfigVersion::new(current_service.version_ctr.try_into().map_err(|e| {
+                CarbideError::internal(format!("Invalid version for extension service: {e}"))
+            })?)
+            .incremental_change();
+
+        // Store the new credential in Vault if provided. We have to do this before updating the
+        // data in the database, so that in case this fails, the database remains untouched. We
+        // can't use db transactions for this since it can cause issues if vault is unresponsive.
+        //
+        // It does mean we have to inherit the service_type from the current service, rather than
+        // the updated one, which is ok because that is not being updated here. It also means we
+        // have to pick the new version ourselves by incrermenting the current version, but this is
+        // safe because the database will use "WHERE version_ctr = {old_version}", failing if there
+        // is a race.
+        let vault_credential_created = if let Some(credential) = &req.credential {
+            create_extension_service_credential(
+                &current_service.service_type,
+                &api.credential_provider,
+                create_extension_service_credential_key(&service_id, version_change.new),
+                credential,
+            )
+            .await?;
+            true
+        } else {
+            false
+        };
+
+        // Update the extension service with the new version in the database. If fails, delete any
+        // credential we stored in vault.
+        let (updated_service, new_version_row) = match api
+            .with_txn(|txn| {
+                extension_service::update(
+                    txn,
+                    service_id,
+                    req.service_name.as_deref(),
+                    req.description.as_deref(),
+                    &req.data,
+                    observability,
+                    req.credential.is_some(),
+                    version_change,
+                )
+                .boxed()
+            })
+            .await
+        {
+            Ok(Ok(result)) => result,
+            Err(e) | Ok(Err(e)) => {
+                if vault_credential_created {
+                    let credential_key =
+                        create_extension_service_credential_key(&service_id, version_change.new);
+                    // Best effort deletion - log but don't fail the request if deletion fails
+                    // Note: one of the causes of a DatabaseError here may be that there is a race
+                    // condition where the extension version already exists in the database (due to
+                    // two requests to update the extension at the same time.) If this happens, the
+                    // vault credential should have also collided above, and we should have already
+                    // failed by this point. So it should be safe to delete the vault credential
+                    // now.
+                    if let Err(delete_err) = delete_extension_service_credential(
+                        &api.credential_provider,
+                        credential_key,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "Failed to delete credential for extension service {} after transaction failure: {}",
+                            service_id,
+                            delete_err
+                        );
+                    }
+                }
+                return Err(e.into());
+            }
+        };
+
+        (updated_service, new_version_row)
+    };
+
+    // Get all active versions for this service to return in the response
+    let versions = api
+        .with_txn(|txn| extension_service::find_all_versions(txn, service_id).boxed())
+        .await??;
+
+    let response = rpc::DpuExtensionService {
+        service_id: service_id.to_string(),
+        service_type: rpc::DpuExtensionServiceType::from(updated_service.service_type.clone())
+            as i32,
+        service_name: updated_service.name.clone(),
+        tenant_organization_id: updated_service.tenant_organization_id.to_string(),
+        version_ctr: updated_service.version_ctr,
+        active_versions: versions.iter().map(|v| v.to_string()).collect(),
+        latest_version_info: Some(latest_version_row.into()),
+        description: updated_service.description.clone(),
+        created: updated_service.created.to_string(),
+        updated: updated_service.updated.to_string(),
+    };
+
+    Ok(Response::new(response))
+}
+
+/// Deletes an extension service or specific versions.
+/// - Soft-deletes all versions if `versions` field is empty, or specific versions if provided
+/// - Checks if any versions are in use by instances before deletion
+/// - Soft-deletes the service itself if no versions remain
+/// - Removes associated credentials for all deleted versions from Vault
+pub(crate) async fn delete(
+    api: &Api,
+    request: Request<rpc::DeleteDpuExtensionServiceRequest>,
+) -> Result<Response<rpc::DeleteDpuExtensionServiceResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
+        CarbideError::from(RpcDataConversionError::InvalidUuid(
+            "ExtensionServiceId",
+            e.to_string(),
+        ))
+    })?;
+
+    let mut txn = api.txn_begin().await?;
+
+    // Parse versions from strings to ConfigVersion
+    let versions: Vec<config_version::ConfigVersion> = req
+        .versions
+        .iter()
+        .map(|v| {
+            v.parse::<config_version::ConfigVersion>().map_err(|e| {
+                CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
+                    "Failed to parse version: {}",
+                    e
+                )))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Lock the extension service for delete so that no other request can update the service
+    let current_service_res = extension_service::find_by_ids(&mut txn, &[service_id], true).await?;
+    match current_service_res.len() {
+        0 => {
+            return Err(CarbideError::NotFoundError {
+                kind: "extension_service",
+                id: service_id.to_string(),
+            }
+            .into());
+        }
+        1 => {}
+        _ => {
+            return Err(CarbideError::Internal {
+                message: "Multiple extension services found for the same ID".to_string(),
+            }
+            .into());
+        }
+    };
+
+    // Check the service or the service versions are not in use by any instance
+    // Notice this requires when instance attach/detach extension service, the txn must take the
+    // lock on the extension service.
+    let is_in_use = extension_service::is_service_in_use(&mut txn, service_id, &versions).await?;
+    if is_in_use {
+        return Err(Status::from(CarbideError::FailedPrecondition(
+            "One or more extension service version is in use by instances; detach before deleting"
+                .into(),
+        )));
+    }
+
+    // Find service versions with credentials
+    let credential_version =
+        extension_service::find_versions_with_credentials(&mut txn, service_id, &versions).await?;
+
+    // Delete the service version (if req.version is empty, delete all versions)
+    let deleted_versions =
+        extension_service::soft_delete_versions(&mut txn, service_id, &versions).await?;
+
+    // If no version was actually deleted in the last step, we don't need to do anything
+    if !deleted_versions.is_empty() {
+        // If the service has no versions left, delete the service
+        let all_versions = extension_service::find_all_versions(&mut txn, service_id).await?;
+        if all_versions.is_empty() {
+            extension_service::soft_delete_service(&mut txn, service_id).await?;
+        } else {
+            // Update the service updated timestamp to account for deletion of versions
+            extension_service::set_updated_timestamp(&mut txn, service_id).await?;
+        }
+    }
+
+    txn.commit().await?;
+
+    // Delete credentials from Vault for the deleted versions that had credentials
+    // Note: This happens after the transaction commit, so it's best-effort cleanup
+    if !credential_version.is_empty() {
+        for version in &credential_version {
+            let credential_key = create_extension_service_credential_key(&service_id, *version);
+
+            // Best effort deletion - log but don't fail if deletion fails
+            if let Err(e) =
+                delete_extension_service_credential(&api.credential_provider, credential_key).await
+            {
+                tracing::warn!(
+                    "Failed to delete credential for extension service {} version {}: {}",
+                    service_id,
+                    version,
+                    e
+                );
+            }
+        }
+    }
+
+    Ok(Response::new(rpc::DeleteDpuExtensionServiceResponse {}))
+}
+
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::DpuExtensionServiceSearchFilter>,
+) -> Result<Response<rpc::DpuExtensionServiceIdList>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    // Log tenant organization ID if present
+    if let Some(ref tenant_org_id_str) = req.tenant_organization_id {
+        log_tenant_organization_id(tenant_org_id_str);
+    }
+
+    // Validate tenant organization ID
+    let tenant_organization_id: Option<TenantOrganizationId> = req
+        .tenant_organization_id
+        .as_deref() // avoid moving the String; parse from &str
+        .map(|id| {
+            id.parse::<TenantOrganizationId>().map_err(|e| {
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
+            })
+        })
+        .transpose()?; // Result<Option<TenantOrganizationId>, CarbideError>
+
+    // Convert the service type from the request
+    let service_type_opt: Option<ExtensionServiceType> = match req.service_type {
+        None => None,
+        Some(v) => {
+            let service_type_rpc = rpc::DpuExtensionServiceType::try_from(v)
+                .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".into()))?;
+            Some(ExtensionServiceType::from(service_type_rpc))
+        }
+    };
+
+    let mut txn = api.txn_begin().await?;
+
+    let ids = extension_service::find_ids(
+        &mut txn,
+        service_type_opt,
+        req.name.as_deref(),
+        tenant_organization_id.as_ref(),
+        false,
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::DpuExtensionServiceIdList {
+        service_ids: ids.into_iter().map(|id| id.to_string()).collect(),
+    }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::DpuExtensionServicesByIdsRequest>,
+) -> Result<Response<rpc::DpuExtensionServiceList>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    // Parse the service IDs from the request
+    let mut ids: Vec<ExtensionServiceId> = Vec::with_capacity(req.service_ids.len());
+    for s in &req.service_ids {
+        let id = s.parse::<ExtensionServiceId>().map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidUuid(
+                "ExtensionServiceId",
+                e.to_string(),
+            ))
+        })?;
+        ids.push(id);
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let snapshots = extension_service::find_snapshots_by_ids(&mut txn, &ids)
+        .await
+        .map_err(Status::from)?;
+
+    txn.commit().await?;
+
+    let services_resp = snapshots
+        .into_iter()
+        .map(|snapshot| snapshot.into())
+        .collect();
+
+    Ok(Response::new(rpc::DpuExtensionServiceList {
+        services: services_resp,
+    }))
+}
+
+/// Get the version info based on the service ID and version.
+/// If version is not provided, return all version infos of the extension service.
+pub(crate) async fn get_versions_info(
+    api: &Api,
+    request: Request<rpc::GetDpuExtensionServiceVersionsInfoRequest>,
+) -> Result<Response<rpc::DpuExtensionServiceVersionInfoList>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    // Parse versions from strings to ConfigVersions
+    let versions: Option<Vec<ConfigVersion>> = if !req.versions.is_empty() {
+        let versions = req
+            .versions
+            .iter()
+            .map(|v| v.parse::<config_version::ConfigVersion>())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
+                    "Failed to parse version: {}",
+                    e
+                )))
+            })?;
+        Some(versions)
+    } else {
+        None
+    };
+
+    let mut txn = api.txn_begin().await?;
+
+    let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
+        CarbideError::from(RpcDataConversionError::InvalidUuid(
+            "ExtensionServiceId",
+            e.to_string(),
+        ))
+    })?;
+
+    // req.versions is optional, if not provided, return all version infos of the extension service
+    let versions_opt = versions.as_deref();
+    let versions = extension_service::find_versions_info(&mut txn, &service_id, versions_opt)
+        .await
+        .map_err(Status::from)?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::DpuExtensionServiceVersionInfoList {
+        version_infos: versions.into_iter().map(|version| version.into()).collect(),
+    }))
+}
+
+/// Find instances that have this extension service configured, or has this extension service
+/// terminating.
+/// If version is provided in the request, only return instances that have this specific version
+/// configured or terminating.
+pub(crate) async fn find_instances_by_extension_service(
+    api: &Api,
+    request: Request<rpc::FindInstancesByDpuExtensionServiceRequest>,
+) -> Result<Response<rpc::FindInstancesByDpuExtensionServiceResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    // Parse and validate extension service ID
+    let service_id = req.service_id.parse::<ExtensionServiceId>().map_err(|e| {
+        CarbideError::from(RpcDataConversionError::InvalidUuid(
+            "ExtensionServiceId",
+            e.to_string(),
+        ))
+    })?;
+
+    // Parse version from string to ConfigVersion if provided
+    let version = req
+        .version
+        .map(|v| {
+            v.parse::<config_version::ConfigVersion>().map_err(|e| {
+                CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
+                    "Failed to parse version: {}",
+                    e
+                )))
+            })
+        })
+        .transpose()?;
+
+    let mut txn = api.txn_begin().await?;
+
+    // Verify extension service exists
+    let extension_service_res =
+        extension_service::find_by_ids(&mut txn, &[service_id], false).await?;
+    match extension_service_res.len() {
+        0 => {
+            return Err(CarbideError::NotFoundError {
+                kind: "extension_service",
+                id: service_id.to_string(),
+            }
+            .into());
+        }
+        1 => {}
+        _ => {
+            return Err(CarbideError::Internal {
+                message: "Multiple extension services found for the same ID".to_string(),
+            }
+            .into());
+        }
+    };
+
+    // Find instances that have this extension service (and optionally a specific version)
+    // in its db extension services config
+    let instances = instance::find_by_extension_service(&mut txn, service_id, version).await?;
+    let mut instance_infos: Vec<rpc::InstanceDpuExtensionServiceInfo> = Vec::new();
+
+    for instance in instances {
+        // Get the extension service config for this instance
+        if let Some(ext_service_config) = instance
+            .config
+            .extension_services
+            .service_configs
+            .iter()
+            .find(|config| config.service_id == service_id)
+        {
+            let service_version = ext_service_config.version;
+            instance_infos.push(rpc::InstanceDpuExtensionServiceInfo {
+                instance_id: instance.id.to_string(),
+                service_id: service_id.to_string(),
+                version: service_version.to_string(),
+                removed: ext_service_config.removed.map(|ts| ts.to_string()),
+            });
+        } else {
+            return Err(CarbideError::Internal {
+                message: format!(
+                    "Instance {} returned by database query but no extension service config found",
+                    instance.id
+                ),
+            }
+            .into());
+        }
+    }
+
+    txn.commit().await?;
+
+    Ok(Response::new(
+        rpc::FindInstancesByDpuExtensionServiceResponse {
+            instances: instance_infos,
+        },
+    ))
+}
+
+/// Validates the pod spec file format for KubernetesPod service.
+/// The pod spec file must be a valid YAML/JSON object that must contain the following fields:
+/// - apiVersion
+/// - kind
+/// - metadata.name
+/// - spec.containers (must be an array and must have at least one container)
+fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
+    if data.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "Invalid empty data for KubernetesPod service, need a valid pod manifest".to_string(),
+        ));
+    }
+
+    let root = serde_yaml::from_str::<serde_yaml::Value>(data).map_err(|e| {
+        CarbideError::InvalidArgument(format!(
+            "Invalid pod spec file for KubernetesPod service: {}",
+            e
+        ))
+    })?;
+
+    match root {
+        serde_yaml::Value::Mapping(ref mapping) => {
+            // Check for apiVersion field
+            if !mapping.contains_key(serde_yaml::Value::String("apiVersion".to_string())) {
+                return Err(CarbideError::InvalidArgument(
+                    "Pod manifest missing required field: apiVersion".to_string(),
+                ));
+            }
+
+            // Check for kind field and verify it's "Pod"
+            let kind = mapping
+                .get(serde_yaml::Value::String("kind".to_string()))
+                .and_then(|v| v.as_str());
+            if kind != Some("Pod") {
+                return Err(CarbideError::InvalidArgument(
+                    "Pod manifest must have kind: Pod".to_string(),
+                ));
+            }
+
+            // Check for metadata.name field
+            let metadata = mapping
+                .get(serde_yaml::Value::String("metadata".to_string()))
+                .and_then(|v| v.as_mapping());
+            match metadata {
+                Some(meta_map) => {
+                    if !meta_map.contains_key(serde_yaml::Value::String("name".to_string())) {
+                        return Err(CarbideError::InvalidArgument(
+                            "Pod manifest missing required field: metadata.name".to_string(),
+                        ));
+                    }
+                }
+                None => {
+                    return Err(CarbideError::InvalidArgument(
+                        "Pod manifest missing required field: metadata".to_string(),
+                    ));
+                }
+            }
+
+            // Check for spec.containers as a non-empty array
+            let spec = mapping
+                .get(serde_yaml::Value::String("spec".to_string()))
+                .and_then(|v| v.as_mapping());
+            match spec {
+                Some(spec_map) => {
+                    let containers = spec_map
+                        .get(serde_yaml::Value::String("containers".to_string()))
+                        .and_then(|v| v.as_sequence());
+
+                    match containers {
+                        Some(container_list) => {
+                            if container_list.is_empty() {
+                                return Err(CarbideError::InvalidArgument(
+                                    "Pod manifest must have at least one container in spec.containers".to_string(),
+                                ));
+                            }
+                        }
+                        None => {
+                            return Err(CarbideError::InvalidArgument(
+                                "Pod manifest missing required field: spec.containers (must be an array)".to_string(),
+                            ));
+                        }
+                    }
+                }
+                None => {
+                    return Err(CarbideError::InvalidArgument(
+                        "Pod manifest missing required field: spec".to_string(),
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(CarbideError::InvalidArgument(
+                "Pod manifest must be a valid mapping object that contains apiVersion, kind, metadata, and spec.containers".to_string(),
+            ))
+        }
+    };
+
+    Ok(())
+}
+
+/// Validates extension service data fields based on service type
+fn validate_extension_service_data(
+    service_type: &ExtensionServiceType,
+    data: &str,
+) -> Result<(), CarbideError> {
+    if data.len() > MAX_POD_SPEC_SIZE {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Extension service data exceeds the maximum size: {} bytes",
+            MAX_POD_SPEC_SIZE
+        )));
+    }
+
+    match service_type {
+        ExtensionServiceType::KubernetesPod => {
+            validate_pod_spec_file(data)?;
+
+            Ok(())
+        }
+    }
+}
+
+/// Validates extension service credential fields based on service type
+fn validate_extension_service_credential(
+    service_type: &ExtensionServiceType,
+    credential: &rpc::DpuExtensionServiceCredential,
+) -> Result<(), CarbideError> {
+    match credential.r#type.as_ref() {
+        Some(rpc::dpu_extension_service_credential::Type::UsernamePassword(up)) => {
+            // @TODO(Felicity): Add more validation for username and password
+            if up.username.is_empty() || up.username.len() > 255 {
+                return Err(CarbideError::InvalidArgument(
+                    "Invalid username".to_string(),
+                ));
+            }
+            if up.password.is_empty() || up.password.len() > 255 {
+                return Err(CarbideError::InvalidArgument(
+                    "Invalid password".to_string(),
+                ));
+            }
+        }
+        _ => {
+            return Err(CarbideError::InvalidArgument(
+                "Invalid credential type".to_string(),
+            ));
+        }
+    };
+
+    match service_type {
+        ExtensionServiceType::KubernetesPod => {
+            // Validate registry URL, this will be fed into the credential provider as
+            // image match pattern. For example, if the registry URL is "nvcr.io/nvforge",
+            // kubelet will match all images under "nvcr.io/nvforge/*".
+            if credential.registry_url.is_empty() || credential.registry_url.len() > 255 {
+                return Err(CarbideError::InvalidArgument(
+                    "Invalid credential registry URL".to_string(),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Return true/false based on if there are any changes between old and new extension service specifications.
+fn detect_extension_service_spec_change(
+    service_type: &ExtensionServiceType,
+    new_data: &str,
+    old_data: &str,
+    new_cred: Option<rpc::DpuExtensionServiceCredential>,
+    old_cred: Option<rpc::DpuExtensionServiceCredential>,
+) -> Result<bool, CarbideError> {
+    let data_changed = match service_type {
+        ExtensionServiceType::KubernetesPod => {
+            let old_data_yaml =
+                serde_yaml::from_str::<serde_yaml::Value>(old_data).map_err(|e| {
+                    CarbideError::internal(format!(
+                        "Found corrupted data for KubernetesPod service: {}",
+                        e
+                    ))
+                })?;
+            let new_data_yaml =
+                serde_yaml::from_str::<serde_yaml::Value>(new_data).map_err(|e| {
+                    CarbideError::InvalidArgument(format!(
+                        "Invalid pod spec file for KubernetesPod service: {}",
+                        e
+                    ))
+                })?;
+            old_data_yaml != new_data_yaml
+        }
+    };
+
+    let cred_changed = match (old_cred.as_ref(), new_cred.as_ref()) {
+        (None, None) => false,
+        (Some(a), Some(b)) => a != b,
+        _ => true,
+    };
+
+    Ok(data_changed || cred_changed)
+}
+
+/// Create a credential key for extension service registry credentials
+pub(crate) fn create_extension_service_credential_key(
+    service_id: &ExtensionServiceId,
+    version: ConfigVersion,
+) -> CredentialKey {
+    CredentialKey::ExtensionService {
+        service_id: service_id.to_string(),
+        version: version.version_nr().to_string(),
+    }
+}
+
+/// Create the extension service credential in the vault based on the credential type
+async fn create_extension_service_credential(
+    service_type: &ExtensionServiceType,
+    credential_provider: &std::sync::Arc<dyn forge_secrets::credentials::CredentialProvider>,
+    credential_key: CredentialKey,
+    credential: &rpc::DpuExtensionServiceCredential,
+) -> Result<(), CarbideError> {
+    match service_type {
+        ExtensionServiceType::KubernetesPod => {
+            use ::rpc::forge::dpu_extension_service_credential::Type as CredType;
+
+            match credential.r#type.as_ref() {
+                Some(CredType::UsernamePassword(up)) => {
+                    // The username format is "url: {registry_url}, username: {username}" for KubernetesPod service credentials
+                    // Because we don't have a separate field for registry_url in the credential struct in vault
+                    let cred_username = format!(
+                        "url: {}, username: {}",
+                        credential.registry_url, up.username
+                    );
+
+                    let cred = forge_secrets::credentials::Credentials::UsernamePassword {
+                        username: cred_username,
+                        password: up.password.clone(),
+                    };
+
+                    credential_provider
+                        .create_credentials(&credential_key, &cred)
+                        .await
+                        .map_err(|e| {
+                            CarbideError::internal(format!(
+                                "Error creating credential for extension service: {e}"
+                            ))
+                        })
+                }
+                None => Err(CarbideError::InvalidArgument(
+                    "Missing credential".to_string(),
+                )),
+            }
+        }
+    }
+}
+
+/// Delete the extension service credential from the vault using the credential key
+async fn delete_extension_service_credential(
+    credential_provider: &std::sync::Arc<dyn forge_secrets::credentials::CredentialProvider>,
+    credential_key: CredentialKey,
+) -> Result<(), eyre::Report> {
+    credential_provider
+        .delete_credentials(&credential_key)
+        .await?;
+    Ok(())
+}
+
+/// Get the extension service credential from the vault using the credential key
+pub(crate) async fn get_extension_service_credential(
+    credential_provider: &std::sync::Arc<dyn forge_secrets::credentials::CredentialProvider>,
+    credential_key: CredentialKey,
+) -> Result<rpc::DpuExtensionServiceCredential, CarbideError> {
+    let credential = credential_provider
+        .get_credentials(&credential_key)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Could not find the credential: {}", e),
+        })?;
+
+    let (registry_url, username, password) = match credential {
+        Some(Credentials::UsernamePassword { username, password }) => {
+            // The username format is "url: {registry_url}, username: {username}" for KubernetesPod service credentials
+            // Because we store the credential in the vault as a single string, we need to parse it to get the registry URL and username
+            let parts: Vec<&str> = username.splitn(2, ", username: ").collect();
+
+            if parts.len() != 2 {
+                return Err(CarbideError::Internal {
+                    message: format!("Invalid credential format: {}", username),
+                });
+            }
+
+            // Extract registry URL (remove "url: " prefix)
+            let registry_url = parts[0]
+                .strip_prefix("url: ")
+                .ok_or_else(|| CarbideError::Internal {
+                    message: format!(
+                        "Invalid credential format, missing 'url: ' prefix: {}",
+                        username
+                    ),
+                })?
+                .to_string();
+
+            let actual_username = parts[1].to_string();
+
+            (registry_url, actual_username, password)
+        }
+        _ => {
+            return Err(CarbideError::Internal {
+                message: "Could not find the credential".to_string(),
+            });
+        }
+    };
+
+    Ok(rpc::DpuExtensionServiceCredential {
+        registry_url,
+        r#type: Some(
+            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
+                username,
+                password,
+            }),
+        ),
+    })
+}

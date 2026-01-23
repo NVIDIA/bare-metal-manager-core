@@ -1,0 +1,24 @@
+# tokio_unstable is required in order to enable tokio runtime metrics
+#
+# -A dependency-on-unit-never-type-fallback is here due to `!` falling back to `()`  is being removed and looks like sqlx hasn't updated yet
+[target.'cfg(all())']
+rustflags = [
+  "-D",
+  "warnings",
+  "--cfg",
+  "tokio_unstable",
+  "-A",
+  "dependency-on-unit-never-type-fallback",
+  "-A",
+  "unknown_lints",                          # Needed so that prior cargo checks tolerate custom lints like txn_held_across_await
+]
+
+# This linker seems faster than default, but not everyone is using it yet
+#[target.x86_64-unknown-linux-gnu]
+#rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=lld"]
+
+[env]
+RUST_TEST_THREADS = "8"
+
+[alias]
+xtask = "run --package xtask --"

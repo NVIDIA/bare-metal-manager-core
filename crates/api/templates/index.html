@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Root{% endblock %}
+
+{% block content %}
+<h1>Configuration</h1>
+
+<table class="detailsview">
+	<tr>
+		<th>Version</th>
+		<td>{{ version }}</td>
+	</tr>
+</table>
+
+<h2>Dynamic</h2>
+<table class="detailsview">
+	<tr>
+		<th>DPU agent upgrade policy</th>
+		<td>{{ agent_upgrade_policy }}</td>
+	</tr>
+	<tr>
+		<th>Site explorer create machines</th>
+		<td>{{ create_machines }}</td>
+	</tr>
+	<tr>
+		<th>RUST_LOG</th>
+		<td>{{ log_filter }}</td>
+	<tr/>
+	<tr>
+		<th>BMC Proxy</th>
+		<td>{{ bmc_proxy }}</td>
+	<tr/>
+</table>
+
+<h2>Static</h2>
+<table class="detailsview">
+	<tr>
+		<th>Listen Address</th>
+		<td>{{ carbide_config.listen.to_string() }}</td>
+	</tr>
+	<tr>
+		<th>Metrics Endpoint</th>
+		<td>
+			{% match carbide_config.metrics_endpoint %}
+			{% when Some with (val) %}
+			{{ val.to_string() }}
+			{% else %}
+			No value found
+			{% endmatch %}</td>
+	</tr>
+	<tr>
+		<th>Database URL</th>
+		<td>{{ carbide_config.database_url }}</td>
+	</tr>
+	<tr>
+		<th>Max Database Connections</th>
+		<td>{{ carbide_config.max_database_connections }}</td>
+	</tr>
+	<tr>
+		<th>IB Fabric</th>
+		<td>
+			{% match carbide_config.ib_config %}
+				{% when Some with (config) %}
+					{% if config.enabled %}
+						Enabled
+					{% else %}
+						Disabled
+					{% endif %}
+				{% else %}
+					Disabled
+			{% endmatch %}</td></tr>
+	<tr><th>ASN</th><td>{{ carbide_config.asn }}</td></tr>
+	<tr><th>DHCP Servers</th><td>{{ carbide_config.dhcp_servers.join(", ") }}</td></tr>
+	<tr><th>Route Server State</th><td>{% if carbide_config.enable_route_servers %}Enabled{% else %}Disabled{% endif %}</td></tr>
+	<tr><th>Route Servers</th><td>{{ carbide_config.route_servers.join(", ") }}</td></tr>
+	<tr><th>Deny Prefixes</th><td>
+			{% if carbide_config.deny_prefixes.len() != 0 %}
+			{% for prefix in carbide_config.deny_prefixes %}
+			{{ prefix }},
+			{% endfor %}
+			{% else %}
+			Not Configured
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<th>Site Fabric Prefixes</th>
+		<td>
+			{% if carbide_config.site_fabric_prefixes.len() != 0 %}
+			{% for prefix in carbide_config.site_fabric_prefixes %}
+			{{ prefix }},
+			{% endfor %}
+			{% else %}
+			Not Configured
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<th>VPC Isolation Behavior</th>
+		<td>
+			{{ carbide_config.vpc_isolation_behavior.to_string() }}
+		</td>
+	</tr>
+	<tr>
+		<th>Networks</th>
+		<td>
+			{% match carbide_config.networks %}
+			{% when Some with (val) %}
+			{% for network in val.keys() %}
+			{{ network }},
+			{% endfor %}
+			{% else %}
+			Not Configured
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<th>DPU IPMI Tool Impl</th>
+		<td>
+			{% match carbide_config.dpu_ipmi_tool_impl %}
+			{% when Some with (val) %}
+			{{ val }},
+			{% else %}
+			Not Configured
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<th>DPU IPMI Reboot Attempt</th>
+		<td>
+			{% match carbide_config.dpu_ipmi_reboot_attempts %}
+			{% when Some with (val) %}
+			{{ val }},
+			{% else %}
+			Not Configured (Default: 0)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<th>Initial Domain Name</th>
+		<td>
+			{% match carbide_config.initial_domain_name %}
+			{% when Some with (val) %}
+			{{ val }}
+			{% else %}
+			Not Configured
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<th>Initial DPU Agent Upgrade Policy</th>
+		<td>
+			{% match carbide_config.initial_dpu_agent_upgrade_policy %}
+			{% when Some with (val) %}
+			{{ val.to_string() }}
+			{% else %}
+			Not Configured (Default: Off)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<th>DPU NIC Firmware Versions</th>
+		<td>
+			{% for ver in carbide_config.dpu_config.dpu_nic_firmware_update_versions %}
+			{{ ver }},
+			{% endfor %}
+		</td>
+
+	</tr>
+	<tr>
+		<th>DPU Firmware Versions</th>
+		<td style="padding: 0;">
+			<table>
+			    {% match carbide_config.dpu_config.find_bf2_entry() %}
+			    {% when Some with (val) %}
+				<tr>
+					<td>BlueField 2</td>
+					<td>{{ val.version }}</td>
+				</tr>
+				{% else %}
+				Bf2 Firmware Not Configured
+				{% endmatch %}
+				{% match carbide_config.dpu_config.find_bf3_entry() %}
+				{% when Some with (val) %}
+				<tr>
+					<td>BlueField 3</td>
+					<td>{{ val.version }}</td>
+				</tr>
+				{% else %}
+				Bf3 Firmware Not Configured
+				{% endmatch %}
+			</table>
+		</td>
+	</tr>
+	<tr>
+		<th>DPU NIC Initial Update</th>
+		<td>{% if carbide_config.dpu_config.dpu_nic_firmware_initial_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
+	</tr>
+	<tr>
+		<th>DPU NIC Reprovision Update</th>
+		<td>{% if carbide_config.dpu_config.dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
+	</tr>
+	<tr>
+		<th>Max Concurrent Machine Update Absolute</th>
+		<td>
+			{% match carbide_config.machine_updater.max_concurrent_machine_updates_absolute %}
+			{% when Some with (val) %}
+			{{ val }}
+			{% else %}
+			Not Configured (Default: 0)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<th>Max Concurrent Machine Update Percentage</th>
+		<td>
+			{% match carbide_config.machine_updater.max_concurrent_machine_updates_percent %}
+			{% when Some with (val) %}
+			{{ val }}
+			{% else %}
+			Not Configured (Default: 0)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<th>Machine Update Runtime Interval</th>
+		<td>
+			{% match carbide_config.machine_update_run_interval %}
+			{% when Some with (val) %}
+			{{ val }}
+			{% else %}
+			Not Configured (Default: 0)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<th>NVUE Enabled</th>
+		<td>{{ carbide_config.nvue_enabled }}</td>
+	</tr>
+	<tr>
+		<th>Machine Attestation Enabled</th>
+		<td>{{ carbide_config.attestation_enabled }}</td>
+	</tr>
+	<tr>
+		<th>DPA Enabled</th>
+		<td>
+			{% match carbide_config.dpa_config %}
+			{% when Some with (val) %}
+			{{ val.enabled }}
+			{% else %}
+			Disabled
+			{% endmatch %}</td>
+	</tr>
+	<tr>
+		<th>MQTT Endpoint</th>
+		<td>
+			{% match carbide_config.dpa_config %}
+			{% when Some with (val) %}
+			{{ val.mqtt_endpoint }}
+			{% else %}
+			N/A
+			{% endmatch %}</td>
+	</tr>
+	<tr>
+		<th>DPU Secure Boot Enabled</th>
+		<td>
+      carbide_config.dpu_secure_boot_enabled
+    </td>
+	</tr>
+</table>
+{% endblock %}

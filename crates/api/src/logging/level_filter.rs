@@ -1,0 +1,122 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::fmt;
+
+use arc_swap::ArcSwap;
+use chrono::{DateTime, Utc};
+use tracing_subscriber::{EnvFilter, reload};
+
+use crate::logging::setup::dep_log_filter;
+
+pub trait Reloadable: Send + Sync {
+    fn reload(&self, f: EnvFilter) -> Result<(), eyre::Error>;
+}
+
+#[derive(Debug)]
+pub struct ReloadableFilter<S> {
+    handle: ReloadHandle<S>,
+}
+
+impl<S> ReloadableFilter<S> {
+    pub fn new(handle: ReloadHandle<S>) -> Self {
+        Self { handle }
+    }
+}
+
+impl<S> Reloadable for ReloadableFilter<S> {
+    fn reload(&self, f: EnvFilter) -> Result<(), eyre::Error> {
+        Ok(self.handle.reload(f)?)
+    }
+}
+
+pub type ReloadHandle<S> = reload::Handle<EnvFilter, S>;
+
+/// The current RUST_LOG setting.
+/// Immutable. Owner holds it in an ArcSwap and replaces the whole object using one of `with_base` or
+/// `reset_from`.
+pub struct ActiveLevel {
+    /// Handle to reload the logging level.
+    pub reload_handle: Option<Box<dyn Reloadable>>,
+
+    /// The current RUST_LOG
+    pub current: ArcSwap<String>,
+
+    /// The RUST_LOG we had on startup
+    pub base: String,
+
+    /// When to switch back to the RUST_LOG we had on startup
+    expiry: ArcSwap<Option<DateTime<Utc>>>,
+}
+
+impl fmt::Debug for ActiveLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ActiveLevel{{ current: {:?}, base: {:?}, expiry: {:?} }}",
+            self.current, self.base, self.expiry
+        )
+    }
+}
+
+impl Default for ActiveLevel {
+    fn default() -> Self {
+        Self {
+            reload_handle: None,
+            current: Default::default(),
+            base: "".to_string(),
+            expiry: Default::default(),
+        }
+    }
+}
+
+impl ActiveLevel {
+    pub fn new(f: EnvFilter, reload_handle: Option<Box<dyn Reloadable>>) -> Self {
+        Self {
+            current: ArcSwap::new(f.to_string().into()),
+            base: f.to_string(),
+            expiry: Default::default(),
+            reload_handle,
+        }
+    }
+
+    // Build a new ActiveLevel with the same 'base' as caller
+    pub fn update(&self, filter: &str, until: Option<DateTime<Utc>>) -> Result<(), eyre::Error> {
+        let current = dep_log_filter(EnvFilter::builder().parse(filter)?);
+        self.expiry.store(until.into());
+        if let Some(handle) = self.reload_handle.as_ref() {
+            handle.reload(current)?;
+        }
+        Ok(())
+    }
+
+    // Build a new ActiveLevel use 'base' as the RUST_LOG
+    pub fn reset_if_expired(&self) -> Result<(), eyre::Error> {
+        if let Some(expiry) = self.expiry.load().as_ref()
+            && *expiry < chrono::Utc::now()
+        {
+            self.update(&self.base, None)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl fmt::Display for ActiveLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let current = self.current.to_string();
+        match self.expiry.load().as_ref() {
+            None => write!(f, "{current}"),
+            Some(exp) => write!(f, "{current} until {exp}"),
+        }
+    }
+}

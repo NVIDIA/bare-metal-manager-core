@@ -1,0 +1,185 @@
+name: 'Setup mkosi Build Environment'
+description: 'Install mkosi and all required dependencies for building ephemeral images'
+inputs:
+  rust-version:
+    description: 'Rust toolchain version to install'
+    required: false
+    default: '1.90.0'
+  arch:
+    description: 'Target architecture (x86_64 or aarch64)'
+    required: false
+    default: 'x86_64'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Update package lists
+      shell: bash
+      run: |
+        sudo apt-get update
+
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        echo "Installing mkosi and bootable image creation tools..."
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          mkosi \
+          debootstrap \
+          systemd-container \
+          systemd-ukify \
+          bubblewrap \
+          debian-archive-keyring \
+          ubuntu-keyring \
+          apt-utils \
+          dosfstools \
+          mtools \
+          squashfs-tools \
+          erofs-utils \
+          tar \
+          cpio \
+          zstd \
+          xz-utils \
+          btrfs-progs \
+          e2fsprogs \
+          xfsprogs \
+          qemu-utils \
+          python3-pefile \
+          uidmap
+
+        # Install optional cross-architecture support
+        echo "Installing optional cross-architecture support..."
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          binfmt-support \
+          qemu-user-static || echo "Cross-arch tools optional, continuing..."
+
+        # Try to install optional package managers for other distros (may not be available)
+        echo "Installing optional package managers for cross-distro builds..."
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y dnf || echo "dnf not available, skipping..."
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y zypper || echo "zypper not available, skipping..."
+
+        echo "Installing build tools..."
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          build-essential \
+          automake \
+          cmake \
+          clang \
+          pkg-config \
+          binutils-aarch64-linux-gnu \
+          gcc-aarch64-linux-gnu \
+          curl \
+          wget \
+          git \
+          jq \
+          unzip
+
+        echo "Installing development libraries..."
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          libssl-dev \
+          libudev-dev \
+          libtss2-dev \
+          libssh-dev \
+          libgrpc-dev \
+          libprotobuf-dev \
+          liblzma-dev \
+          protobuf-compiler
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+    - name: Install Rust toolchain
+      shell: bash
+      run: |
+        if ! command -v rustc &> /dev/null; then
+          echo "Installing Rust ${{ inputs.rust-version }}..."
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ inputs.rust-version }}
+          source $HOME/.cargo/env
+        else
+          echo "Rust is already installed, checking version..."
+          rustc --version
+          if ! rustup toolchain list | grep -q "${{ inputs.rust-version }}"; then
+            echo "Installing Rust ${{ inputs.rust-version }} toolchain..."
+            rustup toolchain install ${{ inputs.rust-version }}
+          fi
+          rustup default ${{ inputs.rust-version }}
+        fi
+
+        # Ensure cargo is in PATH
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Install cargo-make
+      shell: bash
+      run: |
+        source $HOME/.cargo/env || true
+        if ! command -v cargo-make &> /dev/null; then
+          echo "Installing cargo-make..."
+          cargo install cargo-make --locked
+        else
+          echo "cargo-make is already installed"
+          cargo-make --version
+        fi
+
+    - name: Install sccache (optional build cache)
+      shell: bash
+      run: |
+        source $HOME/.cargo/env || true
+        if ! command -v sccache &> /dev/null; then
+          echo "Installing sccache..."
+          cargo install sccache --locked
+        else
+          echo "sccache is already installed"
+          sccache --version
+        fi
+
+    - name: Verify mkosi installation
+      shell: bash
+      run: |
+        echo "Verifying mkosi installation..."
+        mkosi --version || echo "Warning: mkosi version check failed"
+
+        echo "Verifying systemd-ukify installation..."
+        if command -v ukify &> /dev/null; then
+          ukify --version || echo "Note: ukify version check not supported"
+        else
+          echo "Warning: ukify command not found, checking systemd version..."
+          systemctl --version | head -1
+        fi
+
+        echo "Verifying debootstrap..."
+        debootstrap --version
+
+        echo "Verifying Docker (pre-installed on GitHub runners)..."
+        docker --version || echo "Note: Docker not available (should be pre-installed)"
+
+        echo "Verifying bubblewrap (mkosi sandboxing)..."
+        bwrap --version
+
+    - name: Display environment info
+      shell: bash
+      run: |
+        echo "=== Build Environment Summary ==="
+        echo "OS: $(lsb_release -d | cut -f2-)"
+        echo "Kernel: $(uname -r)"
+        echo "Architecture: $(uname -m)"
+        echo "Target architecture: ${{ inputs.arch }}"
+        echo ""
+        echo "=== Core Build Tools ==="
+        source $HOME/.cargo/env || true
+        echo "Rust: $(rustc --version 2>/dev/null || echo 'not installed')"
+        echo "Cargo: $(cargo --version 2>/dev/null || echo 'not installed')"
+        echo "cargo-make: $(cargo-make --version 2>/dev/null || echo 'not installed')"
+        echo "sccache: $(sccache --version 2>/dev/null || echo 'not installed')"
+        echo ""
+        echo "=== mkosi Ecosystem ==="
+        echo "mkosi: $(mkosi --version 2>&1 | head -1 || echo 'not installed')"
+        echo "debootstrap: $(debootstrap --version 2>&1 | head -1 || echo 'not installed')"
+        echo "bubblewrap: $(bwrap --version 2>&1 | head -1 || echo 'not installed')"
+        echo "systemd-ukify: $(ukify --version 2>&1 | head -1 || systemctl --version | head -1)"
+        echo ""
+        echo "=== Container/VM Tools ==="
+        echo "Docker: $(docker --version 2>/dev/null || echo 'not installed')"
+        echo "QEMU: $(qemu-img --version 2>&1 | head -1 || echo 'not installed')"
+        echo ""
+        echo "=== Filesystem Tools ==="
+        echo "e2fsprogs: $(e2fsck -V 2>&1 | head -1 || echo 'not installed')"
+        echo "xfsprogs: $(xfs_repair -V 2>&1 | head -1 || echo 'not installed')"
+        echo "dosfstools: $(mkfs.fat --help 2>&1 | head -1 || echo 'not installed')"
+        echo "================================="

@@ -1,0 +1,39 @@
+[tasks.check-cross-installed]
+workspace = false
+script = '''
+#/usr/bin/env bash
+
+which cross >/dev/null && exit 0
+
+echo "!!!! ERROR: 'cross' binary not found. install with 'cargo install cross'. !!!!!"
+exit 1
+'''
+
+[tasks.build-dhcp-server]
+category = "Build"
+description = "Build dhcp-server for aarch architecture."
+workspace = false
+script = '''
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
+    --env CARGO_HOME=/cargo \
+    -v $CARGO_HOME:/cargo \
+    build-artifacts-container-cross-aarch64:latest \
+    "cargo" \
+    "build" \
+    "--release" \
+    "--target=aarch64-unknown-linux-gnu" \
+    "--bin" \
+    "forge-dhcp-server" 
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server" \
+'''
+dependencies = [
+  { name = "check-cargo-home-set", path = "${REPO_ROOT}" },
+  { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+]
+
+[tasks.build-dhcp-server-ci]
+category = "Build"
+workspace = false
+command = "cargo"
+args = ["build", "--release", "--bin", "forge-dhcp-server"]

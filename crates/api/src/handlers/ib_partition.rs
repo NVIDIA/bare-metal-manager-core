@@ -1,0 +1,215 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use ::rpc::forge as rpc;
+use db::ib_partition::{self, NewIBPartition};
+use db::resource_pool::ResourcePoolDatabaseError;
+use db::{ObjectColumnFilter, WithTransaction};
+use futures_util::FutureExt;
+use model::ib::DEFAULT_IB_FABRIC_NAME;
+use model::ib_partition::PartitionKey;
+use model::resource_pool;
+use sqlx::PgConnection;
+use tonic::{Request, Response, Status};
+
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+
+pub(crate) async fn create(
+    api: &Api,
+    request: Request<rpc::IbPartitionCreationRequest>,
+) -> Result<Response<rpc::IbPartition>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
+    let mut resp = NewIBPartition::try_from(request.into_inner())?;
+    let fabric_config = api.ib_fabric_manager.get_config();
+
+    // IB Configurations.
+    resp.config.mtu = Some(fabric_config.mtu.clone());
+    resp.config.rate_limit = Some(fabric_config.rate_limit.clone());
+    resp.config.service_level = Some(fabric_config.service_level.clone());
+
+    resp.config.pkey = allocate_pkey(api, &mut txn, &resp.config.name).await?;
+    let resp = db::ib_partition::create(resp, &mut txn, fabric_config.max_partition_per_tenant)
+        .await
+        .map_err(|e| {
+            if e.is_not_found() {
+                // During IB paritiont creation, it will check the existing partition by a 'select' query.
+                // The 'RowNotFound' error means that the carbide can not find a valid row for the new IBPartition.
+                Status::invalid_argument("Maximum Limit of Infiniband partitions had been reached")
+            } else {
+                CarbideError::from(e).into()
+            }
+        })?;
+    let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
+
+    txn.commit().await?;
+
+    Ok(resp)
+}
+
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::IbPartitionSearchFilter>,
+) -> Result<Response<rpc::IbPartitionIdList>, Status> {
+    log_request_data(&request);
+
+    let filter: rpc::IbPartitionSearchFilter = request.into_inner();
+
+    let ib_partition_ids = api
+        .with_txn(|txn| db::ib_partition::find_ids(txn, filter).boxed())
+        .await??;
+
+    Ok(Response::new(rpc::IbPartitionIdList { ib_partition_ids }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::IbPartitionsByIdsRequest>,
+) -> Result<Response<rpc::IbPartitionList>, Status> {
+    log_request_data(&request);
+
+    let rpc::IbPartitionsByIdsRequest {
+        ib_partition_ids, ..
+    } = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if ib_partition_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if ib_partition_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let partitions = api
+        .with_txn(|txn| {
+            db::ib_partition::find_by(
+                txn,
+                ObjectColumnFilter::List(ib_partition::IdColumn, &ib_partition_ids),
+            )
+            .boxed()
+        })
+        .await??;
+
+    let mut result = Vec::with_capacity(partitions.len());
+    for ibp in partitions {
+        result.push(ibp.try_into()?);
+    }
+    Ok(Response::new(rpc::IbPartitionList {
+        ib_partitions: result,
+    }))
+}
+
+pub(crate) async fn delete(
+    api: &Api,
+    request: Request<rpc::IbPartitionDeletionRequest>,
+) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
+    let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
+
+    let uuid = id.ok_or(CarbideError::MissingArgument("id"))?;
+
+    let mut segments = db::ib_partition::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(ib_partition::IdColumn, &uuid),
+    )
+    .await?;
+
+    let segment = match segments.len() {
+        1 => segments.remove(0),
+        _ => {
+            return Err(CarbideError::NotFoundError {
+                kind: "ib_partition",
+                id: uuid.to_string(),
+            }
+            .into());
+        }
+    };
+
+    let resp = db::ib_partition::mark_as_deleted(&segment, &mut txn)
+        .await
+        .map(|_| rpc::IbPartitionDeletionResult {})
+        .map(Response::new)?;
+
+    txn.commit().await?;
+
+    Ok(resp)
+}
+
+pub(crate) async fn for_tenant(
+    api: &Api,
+    request: Request<rpc::TenantSearchQuery>,
+) -> Result<Response<rpc::IbPartitionList>, Status> {
+    log_request_data(&request);
+
+    let rpc::TenantSearchQuery {
+        tenant_organization_id,
+    } = request.into_inner();
+
+    let _tenant_organization_id: String = match tenant_organization_id {
+        Some(id) => id,
+        None => {
+            return Err(CarbideError::MissingArgument("tenant_organization_id").into());
+        }
+    };
+
+    let results = api
+        .with_txn(|txn| db::ib_partition::for_tenant(txn, _tenant_organization_id).boxed())
+        .await??;
+
+    let mut ib_partitions = Vec::with_capacity(results.len());
+
+    for result in results {
+        ib_partitions.push(result.try_into()?);
+    }
+
+    Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
+}
+
+/// Allocate a value from the pkey resource pool.
+///
+/// If the pool doesn't exist return error.
+/// If the pool exists but is empty or has en error, return that.
+async fn allocate_pkey(
+    api: &Api,
+    txn: &mut PgConnection,
+    owner_id: &str,
+) -> Result<Option<PartitionKey>, CarbideError> {
+    match db::resource_pool::allocate(api
+            .common_pools
+            .infiniband
+            .pkey_pools
+            .get(DEFAULT_IB_FABRIC_NAME)
+            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?, txn, resource_pool::OwnerType::IBPartition, owner_id)
+            .await
+        {
+            Ok(val) => Ok(Some(
+                PartitionKey::try_from(val)
+                .map_err(|_| CarbideError::internal(format!("Partition key {val} return from pool is not a valid pkey. Pool Definition is invalid")))?)),
+            Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
+                tracing::error!(owner_id, pool = "pkey", "Pool exhausted, cannot allocate");
+                Err(CarbideError::ResourceExhausted("pool pkey".to_string()))
+            }
+            Err(err) => {
+                tracing::error!(owner_id, error = %err, pool = "pkey", "Error allocating from resource pool");
+                Err(err.into())
+            }
+        }
+}

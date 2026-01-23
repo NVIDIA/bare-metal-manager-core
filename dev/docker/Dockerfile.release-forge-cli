@@ -1,0 +1,39 @@
+ARG CONTAINER_BUILD
+
+FROM $CONTAINER_BUILD as builder
+ARG CI_COMMIT_SHORT_SHA
+ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
+
+
+ARG VERSION
+ENV VERSION $VERSION
+ENV CONTAINER_REPO_ROOT=/carbide
+#RUN USER=root cargo new --bin carbide
+RUN mkdir /carbide
+WORKDIR ./carbide
+COPY . ./
+
+RUN cd /carbide && \
+export SCCACHE_DIR=/sccache && \
+export RUST_WRAPPER=sccache && \
+cargo build --release -p carbide-admin-cli
+
+FROM debian:12-slim
+
+RUN apt update && \
+    apt install -y \
+    jq \
+    libtss2-dev
+
+WORKDIR /app
+COPY --from=builder /carbide/target/release/carbide-admin-cli ./
+RUN mkdir -p /root/.nvinit/certs && \
+mkdir -p /root/.config && \
+mkdir -p /opt/forge
+COPY ./dev/certs/forge_root.pem /opt/forge
+RUN echo '{"forge_root_ca_path": "/opt/forge/forge_root.pem","client_key_path": "/root/.nvinit/certs/nvinit-user","client_cert_path": "/root/.nvinit/certs/nvinit-user.crt"}' > /root/.config/carbide_api_cli.json
+ENV PATH="$PATH:/app"
+
+ENTRYPOINT ["/app/carbide-admin-cli"]
+
+

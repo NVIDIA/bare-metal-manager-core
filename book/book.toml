@@ -1,0 +1,17 @@
+[book]
+title = "Carbide Documentation"
+authors = ["Carbide Development Team <carbide-dev@exchange.nvidia.com>"]
+
+[rust]
+edition = "2021"
+
+[preprocessor]
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[preprocessor.plantuml]
+command = "mdbook-plantuml"
+
+[output]
+[output.html]
+additional-js = ["svg-pan-zoom.js", "mermaid.min.js", "mermaid-init.js"]

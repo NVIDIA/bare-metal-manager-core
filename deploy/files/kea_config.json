@@ -1,0 +1,49 @@
+{
+  "Dhcp4": {
+    "interfaces-config": {
+      "interfaces": [
+        "eth0"
+      ],
+      "dhcp-socket-type": "udp"
+    },
+    "lease-database": {
+      "type": "memfile",
+      "lfc-interval": 3600
+    },
+    "match-client-id": false,
+    "authoritative": true,
+    "renew-timer": 3600,
+    "rebind-timer": 432000,
+    "valid-lifetime": 604800,
+    "hooks-libraries": [
+      {
+        "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
+        "parameters": {
+          "carbide-api-url": "https://carbide-api.forge-system.svc.cluster.local:1079",
+          "carbide-metrics-endpoint": "[::]:1089",
+          "carbide-nameservers": "{{ FORGE_UNBOUND_EXTERNAL_IP }}",
+          "carbide-ntpserver": "{{ CARBIDE_NTP_SERVERS_IP_0 }},{{ CARBIDE_NTP_SERVERS_IP_1 }},{{ CARBIDE_NTP_SERVERS_IP_2 }}",
+          "carbide-provisioning-server-ipv4": "{{ CARBIDE_PXE_IP }}"
+        }
+      }
+    ],
+    "subnet4": [
+      {
+        "subnet": "0.0.0.0/0",
+        "pools": [
+          {
+            "pool": "0.0.0.0-255.255.255.255"
+          }
+        ]
+      }
+    ],
+    "loggers": [
+      { "name": "kea-dhcp4", "severity": "DEBUG", "debuglevel": 20, "output_options": [ { "output": "stdout" } ] },
+      { "name": "kea-dhcp4.hosts", "severity": "DEBUG", "debuglevel": 99, "output_options": [ { "output": "stdout" } ] },
+      { "name": "kea-dhcp4.callouts", "severity": "DEBUG", "debuglevel": 99, "output_options": [ { "output": "stdout" } ]  },
+      { "name": "kea-dhcp4.dhcpsrv", "severity": "DEBUG", "debuglevel": 99, "output_options": [ { "output": "stdout" } ]  },
+      { "name": "kea-dhcp4.hooks", "severity": "DEBUG", "debuglevel": 99, "output_options": [ { "output": "stdout" } ]  },
+      { "name": "kea-dhcp4.carbide-rust", "severity": "INFO", "output_options": [ { "output": "stdout" } ]  }
+    ]
+  }
+}

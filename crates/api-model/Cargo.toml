@@ -1,0 +1,86 @@
+[package]
+name = "carbide-api-model"
+version = "0.0.0"
+edition.workspace = true
+description = "Domain models for carbide-api"
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "model"
+
+[dependencies]
+# [local-dependencies]
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
+bmc-vendor = { path = "../bmc-vendor" }
+config-version = { path = "../config-version", features = ["sqlx"] }
+carbide-host-support = { path = "../host-support", default-features = false }
+carbide-network = { path = "../network", features = ["sqlx"] }
+carbide-version = { path = "../version" }
+carbide-health-report = { path = "../health-report" }
+carbide-rpc = { path = "../rpc", features = ["sqlx"] }
+carbide-utils = { path = "../utils", features = ["sqlx"] }
+carbide-uuid = { path = "../uuid", features = ["sqlx"] }
+dns-record = { path = "../dns-record" }
+libnmxm = { path = "../libnmxm" }
+nras = { path = "../nras" }
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
+
+#these are alphabetized
+async-trait = { workspace = true }
+base64 = { workspace = true }
+casbin = { features = ["glob"], workspace = true }
+chrono = { workspace = true }
+duration-str = { workspace = true }
+eyre = { workspace = true }
+ipnetwork = { workspace = true, features = ["serde"] }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+libredfish = { workspace = true }
+mac_address = { features = ["serde"], workspace = true }
+once_cell = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+serde_regex = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+] }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tss-esapi = { optional = true, workspace = true }
+uuid = { features = ["v4", "serde"], workspace = true }
+version-compare = { workspace = true }
+tokio = { workspace = true }
+#these are alphabetized
+
+[features]
+default = ["linux-build"]
+linux-build = [
+  "tss-esapi",
+  "carbide-sqlx-testing/linux-build",
+  "carbide-host-support/linux-build",
+]
+
+[build-dependencies]
+carbide-version = { path = "../version" }
+
+[dev-dependencies]
+lazy_static = { workspace = true }
+carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+prost = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,213 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dhcp-external
+spec:
+  internalTrafficPolicy: Local
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-dhcp
+  ports:
+    - port: 67
+      targetPort: 67
+      name: udp
+      protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-ntp-external-0
+  labels:
+    app.kubernetes.io/part-of: carbide-ntp-instance-0
+spec:
+  externalTrafficPolicy: Local
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-ntp
+    statefulset.kubernetes.io/pod-name: carbide-ntp-0
+  ports:
+    - port: 123
+      targetPort: 123
+      name: ntp
+      protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-ntp-external-1
+  labels:
+    app.kubernetes.io/part-of: carbide-ntp-instance-1
+spec:
+  externalTrafficPolicy: Local
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-ntp
+    statefulset.kubernetes.io/pod-name: carbide-ntp-1
+  ports:
+    - port: 123
+      targetPort: 123
+      name: ntp
+      protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-ntp-external-2
+  labels:
+    app.kubernetes.io/part-of: carbide-ntp-instance-2
+spec:
+  externalTrafficPolicy: Local
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-ntp
+    statefulset.kubernetes.io/pod-name: carbide-ntp-2
+  ports:
+    - port: 123
+      targetPort: 123
+      name: ntp
+      protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dns-external-udp-0
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "carbide-dns-instance-0"
+  labels:
+    app.kubernetes.io/part-of: carbide-dns-instance-0
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-dns
+    statefulset.kubernetes.io/pod-name: carbide-dns-0
+  ports:
+    - port: 53
+      targetPort: 53
+      name: udp
+      protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dns-external-udp-1
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "carbide-dns-instance-1"
+  labels:
+    app.kubernetes.io/part-of: carbide-dns-instance-1
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-dns
+    statefulset.kubernetes.io/pod-name: carbide-dns-1
+  ports:
+    - port: 53
+      targetPort: 53
+      name: udp
+      protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dns-external-tcp-0
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "carbide-dns-instance-0"
+  labels:
+    app.kubernetes.io/part-of: carbide-dns-instance-0
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-dns
+    statefulset.kubernetes.io/pod-name: carbide-dns-0
+  ports:
+    - port: 53
+      targetPort: 53
+      name: tcp
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dns-external-tcp-1
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "carbide-dns-instance-1"
+  labels:
+    app.kubernetes.io/part-of: carbide-dns-instance-1
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-dns
+    statefulset.kubernetes.io/pod-name: carbide-dns-1
+  ports:
+    - port: 53
+      targetPort: 53
+      name: tcp
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-pxe-external
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "carbide-pxe"
+  labels:
+    app.kubernetes.io/part-of: carbide-pxe
+spec:
+  externalTrafficPolicy: Local
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-pxe
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-pxe-external-80
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "carbide-pxe"
+  labels:
+    app.kubernetes.io/part-of: carbide-pxe
+spec:
+  externalTrafficPolicy: Local
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-pxe
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-api-external
+spec:
+  externalTrafficPolicy: Local
+  internalTrafficPolicy: Local
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-api
+  ports:
+    - port: 443
+      targetPort: 1079
+      name: grpc
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-ssh-console-rs-external
+  namespace: forge-system
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: carbide-ssh-console-rs
+  ports:
+    - port: 22
+      targetPort: 22
+      name: ssh
+      protocol: TCP

@@ -1,0 +1,421 @@
+name: Build Artifacts (Boot & Ephemeral Images)
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        description: 'Target architecture: x86_64 or aarch64'
+        required: true
+        type: string
+      cargo_make_task:
+        description: 'Cargo make task to execute'
+        required: true
+        type: string
+      build_type:
+        description: 'Build type: boot or ephemeral'
+        required: true
+        type: string
+      build_container:
+        description: 'Build container image to use (for container mode only)'
+        required: false
+        type: string
+        default: ''
+      runner:
+        description: 'Runner label to use'
+        required: true
+        type: string
+      version:
+        description: 'Build version string (used for debian packages)'
+        required: true
+        type: string
+      use_container:
+        description: 'Run in container (true) or directly on runner (false for mkosi)'
+        required: false
+        default: true
+        type: boolean
+      sa_enablement:
+        description: 'Enable SA enablement'
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      artifacts_json:
+        description: 'Artifacts paths as JSON array'
+        value: ${{ jobs.build.outputs.artifacts }}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
+    outputs:
+      artifacts: ${{ steps.collect-artifacts.outputs.paths }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0  # Full git history needed for git describe
+
+      - name: Initialize submodules at pinned commits
+        run: |
+          set -e
+
+          # Try standard git submodule update first (respects pinned commits)
+          echo "Attempting git submodule update..."
+          git submodule update --init --recursive 2>&1 || echo "⚠️  git submodule command failed"
+
+          # Check if submodules were actually cloned (command can succeed but not clone anything)
+          if [ -f "pxe/ipxe/upstream/src/Makefile" ] && [ -d "pxe/mkosi/.git" ]; then
+            echo "✅ Submodules initialized via git submodule"
+          else
+            echo "⚠️  Submodules not present after git submodule, using manual fallback..."
+
+            # Get the pinned commits from the Git tree (matches GitLab's GIT_SUBMODULE_STRATEGY: recursive)
+            IPXE_COMMIT=$(git ls-tree HEAD pxe/ipxe/upstream | awk '{print $3}')
+            MKOSI_COMMIT=$(git ls-tree HEAD pxe/mkosi | awk '{print $3}')
+
+            # Fallback: If Git tree doesn't have submodule commits (sanitized repo),
+            # read from .gitmodules which has FIXME hardcoded commits
+            if [ -z "$IPXE_COMMIT" ]; then
+              echo "⚠️  Git tree missing submodule metadata, reading from .gitmodules..."
+              IPXE_COMMIT=$(git config -f .gitmodules --get submodule.pxe/ipxe/upstream.commit)
+              MKOSI_COMMIT=$(git config -f .gitmodules --get submodule.mkosi.commit)
+            fi
+
+            echo "📌 iPXE pinned to: ${IPXE_COMMIT}"
+            echo "📌 mkosi pinned to: ${MKOSI_COMMIT}"
+
+            # Clone iPXE at the specific pinned commit
+            if [ ! -f "pxe/ipxe/upstream/src/Makefile" ]; then
+              echo "📦 Cloning iPXE at pinned commit..."
+              rm -rf pxe/ipxe/upstream
+              git clone https://github.com/ipxe/ipxe.git pxe/ipxe/upstream
+              cd pxe/ipxe/upstream
+              git checkout ${IPXE_COMMIT}
+              cd ../../..
+            fi
+
+            # Clone mkosi at the specific pinned commit
+            if [ ! -d "pxe/mkosi/.git" ]; then
+              echo "📦 Cloning mkosi at pinned commit..."
+              rm -rf pxe/mkosi
+              git clone https://github.com/systemd/mkosi.git pxe/mkosi
+              cd pxe/mkosi
+              git checkout ${MKOSI_COMMIT}
+              cd ../..
+            fi
+          fi
+
+          # Verify submodules are present
+          [ -f "pxe/ipxe/upstream/src/Makefile" ] || { echo "❌ iPXE missing"; exit 1; }
+          [ -d "pxe/mkosi" ] || { echo "❌ mkosi missing"; exit 1; }
+
+          # Show what we got (for debugging)
+          echo "✅ iPXE commit: $(cd pxe/ipxe/upstream && git rev-parse --short HEAD)"
+          echo "✅ mkosi commit: $(cd pxe/mkosi && git rev-parse --short HEAD)"
+          echo "✅ Submodules ready"
+
+      # For ephemeral builds, download boot artifacts first
+      - name: Download prerequisite boot artifacts
+        if: inputs.build_type == 'ephemeral'
+        uses: actions/download-artifact@v4
+        with:
+          name: boot-artifacts-${{ inputs.arch }}-${{ github.run_id }}
+          path: .
+        continue-on-error: false
+
+      # Setup mkosi environment for ephemeral builds (runs on shell)
+      - name: Setup mkosi environment
+        if: inputs.build_type == 'ephemeral'
+        uses: ./.github/actions/setup-mkosi-environment
+        with:
+          rust-version: '1.90.0'
+          arch: ${{ inputs.arch }}
+
+      # Setup Docker for container-based builds
+      - name: Setup Docker authentication
+        if: inputs.use_container == true
+        uses: ./.github/actions/docker-auth
+        with:
+          username: ${{ secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Pull build container
+        if: inputs.use_container == true && inputs.build_container != ''
+        run: |
+          echo "Pulling build container: ${{ inputs.build_container }}"
+          docker pull ${{ inputs.build_container }}
+
+      - name: Set up environment variables
+        run: |
+          echo "CARGO_HOME=${{ github.workspace }}/cargo" >> $GITHUB_ENV
+          echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
+          echo "CACHE_DIRECTORY=${{ github.workspace }}/cache" >> $GITHUB_ENV
+          echo "APT_CACHE_DIR=${{ github.workspace }}/apt" >> $GITHUB_ENV
+          echo "LOGNAME=root" >> $GITHUB_ENV
+          echo "KEA_BIN_PATH=/usr/bin" >> $GITHUB_ENV
+          echo "KEA_INCLUDE_PATH=/usr/include/kea" >> $GITHUB_ENV
+          echo "REPO_ROOT=${{ github.workspace }}" >> $GITHUB_ENV
+          echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+          echo "FORGE_CA=prod" >> $GITHUB_ENV
+
+          # Add cargo and sbin to PATH (needed for mkosi)
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "/sbin" >> $GITHUB_PATH
+          echo "/usr/sbin" >> $GITHUB_PATH
+
+      - name: Create cache directories
+        run: |
+          mkdir -p ${{ github.workspace }}/cargo
+          mkdir -p ${{ github.workspace }}/cache
+          mkdir -p ${{ github.workspace }}/apt
+          mkdir -p pxe/static/blobs/internal/${{ inputs.arch }}
+
+      - name: Display build information
+        run: |
+          echo "============================================"
+          echo "Building: ${{ inputs.build_type }} artifacts"
+          echo "============================================"
+          echo "Architecture: ${{ inputs.arch }}"
+          echo "Task: ${{ inputs.cargo_make_task }}"
+          echo "Version: ${{ inputs.version }}"
+          echo "Runner: ${{ inputs.runner }}"
+          echo "Use container: ${{ inputs.use_container }}"
+          if [ -n "${{ inputs.build_container }}" ]; then
+            echo "Container: ${{ inputs.build_container }}"
+          fi
+          echo "Working directory: $(pwd)"
+          echo "============================================"
+
+      # Run build in container mode (for boot artifacts)
+      - name: Run cargo make task (container mode)
+        if: inputs.use_container == true
+        run: |
+          # Set up environment variables for container (matches GitLab CI global variables)
+          ENV_ARGS="-e CARGO_HOME=/workspace/cargo"
+          ENV_ARGS="$ENV_ARGS -e CARGO_INCREMENTAL=0"
+          ENV_ARGS="$ENV_ARGS -e CACHE_DIRECTORY=/workspace/cache"
+          ENV_ARGS="$ENV_ARGS -e APT_CACHE_DIR=/workspace/apt"
+          ENV_ARGS="$ENV_ARGS -e LOGNAME=root"
+          ENV_ARGS="$ENV_ARGS -e KEA_BIN_PATH=/usr/bin"
+          ENV_ARGS="$ENV_ARGS -e KEA_INCLUDE_PATH=/usr/include/kea"
+          ENV_ARGS="$ENV_ARGS -e REPO_ROOT=/workspace"
+          ENV_ARGS="$ENV_ARGS -e VERSION=${{ inputs.version }}"
+          ENV_ARGS="$ENV_ARGS -e FORGE_CA=prod"
+
+          echo "============================================"
+          echo "Running in container: ${{ inputs.build_container }}"
+          echo "VERSION=${{ inputs.version }}"
+          echo "FORGE_CA=prod"
+          echo "============================================"
+
+          EXTRA_DOCKER_ARGS=""
+          if [[ "${{ inputs.cargo_make_task }}" == "build-boot-artifacts-bfb-ci" ]]; then
+            # bfb build runs `docker pull/save` (see pxe/Makefile.toml tasks.bfb-hbn-pull/export).
+            # Allow docker CLI inside the build container to talk to the host Docker daemon.
+            EXTRA_DOCKER_ARGS="${EXTRA_DOCKER_ARGS} -v /var/run/docker.sock:/var/run/docker.sock"
+
+            # Also pass Docker auth config so pulls from NVCR work.
+            # Copy to temp dir (not :ro) because docker buildx needs to write to DOCKER_CONFIG/buildx
+            if [[ -d "${HOME}/.docker" ]]; then
+              DOCKER_CONFIG_TMP="/tmp/docker-config-$$"
+              mkdir -p "${DOCKER_CONFIG_TMP}"
+              cp -r "${HOME}/.docker/"* "${DOCKER_CONFIG_TMP}/" 2>/dev/null || true
+              EXTRA_DOCKER_ARGS="${EXTRA_DOCKER_ARGS} -v ${DOCKER_CONFIG_TMP}:/docker-config -e DOCKER_CONFIG=/docker-config"
+            else
+              echo "⚠️  ${HOME}/.docker not found; NVCR pulls inside the build container may fail"
+            fi
+          fi
+
+          # Only set SA_ENABLEMENT when explicitly enabled (not setting it allows cargo-make
+          # to use env_not_set conditions correctly)
+          SA_ENABLEMENT_ARG=""
+          if [[ "${{ inputs.sa_enablement }}" == "true" ]]; then
+            SA_ENABLEMENT_ARG="--env SA_ENABLEMENT=1"
+          fi
+
+          # Run cargo make in container
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            ${EXTRA_DOCKER_ARGS} \
+            -w /workspace \
+            ${ENV_ARGS} \
+            ${{ inputs.build_container }} \
+            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe ${SA_ENABLEMENT_ARG} ${{ inputs.cargo_make_task }}"
+
+      # Run build directly on runner (for ephemeral images with mkosi)
+      - name: Run cargo make task (shell mode)
+        if: inputs.use_container == false
+        run: |
+          set -euo pipefail
+
+          # Configure git to trust the workspace
+          git config --global --add safe.directory "${{ github.workspace }}" || true
+
+          # Source cargo environment
+          source $HOME/.cargo/env
+
+          # Only set SA_ENABLEMENT when explicitly enabled
+          SA_ENABLEMENT_ARG=""
+          if [[ "${{ inputs.sa_enablement }}" == "true" ]]; then
+            SA_ENABLEMENT_ARG="--env SA_ENABLEMENT=1"
+          fi
+
+          echo "============================================"
+          echo "Running on shell runner (mkosi mode)"
+          echo "VERSION=${{ inputs.version }}"
+          echo "SA_ENABLEMENT=${{ inputs.sa_enablement }}"
+          echo "============================================"
+
+          # Run the cargo make task with full output
+          cargo make --cwd pxe ${SA_ENABLEMENT_ARG} ${{ inputs.cargo_make_task }} 2>&1 | tee build.log
+
+          echo "Build completed!"
+
+      - name: Verify generated artifacts (informational only)
+        continue-on-error: true  # Don't fail build - matches GitLab CI behavior (no verification step)
+        run: |
+          echo "============================================"
+          echo "Checking generated artifacts (informational)"
+          echo "GitLab CI has no verification - uploads whatever exists with 'when: always'"
+          echo "This check provides debug info but won't fail the build"
+          echo "============================================"
+
+          # Expected files match GitLab CI artifact paths
+          if [[ "${{ inputs.build_type }}" == "boot" ]]; then
+            if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+              EXPECTED_FILES=(
+                "pxe/static/blobs/internal/x86_64/ipxe.efi"
+                "target/debug/carbide-admin-cli"
+                # target/debs/* checked separately
+              )
+            else
+              # Full list from GitLab CI lines 608-615
+              EXPECTED_FILES=(
+                "pxe/static/blobs/internal/aarch64/ipxe.efi"
+                "pxe/static/blobs/internal/aarch64/carbide.efi"
+                "pxe/static/blobs/internal/aarch64/carbide.root"
+                "pxe/static/blobs/internal/aarch64/preingestion.bfb"
+                "pxe/static/blobs/internal/aarch64/forge.bfb"
+                "pxe/static/blobs/internal/apt"
+                "target/aarch64-unknown-linux-gnu/release/forge-scout"
+                # target/debs/* checked separately
+              )
+            fi
+          elif [[ "${{ inputs.build_type }}" == "ephemeral" ]]; then
+            if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+              EXPECTED_FILES=(
+                "pxe/static/blobs/internal/x86_64/scout.efi"
+                "pxe/static/blobs/internal/x86_64/scout.cpio.zst"
+                "pxe/static/blobs/internal/x86_64/qcow-imager.efi"
+                # target/debs/* checked separately
+              )
+            else
+              EXPECTED_FILES=(
+                "pxe/static/blobs/internal/aarch64/scout.efi"
+                "pxe/static/blobs/internal/aarch64/scout.cpio.zst"
+                "pxe/static/blobs/internal/aarch64/qcow-imager.efi"
+                # pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/* checked separately
+                # target/debs/* checked separately
+              )
+            fi
+          fi
+
+          echo ""
+          echo "Checking individual files:"
+          MISSING_COUNT=0
+          for file in "${EXPECTED_FILES[@]}"; do
+            if [[ -f "$file" ]] || [[ -d "$file" ]]; then
+              if [[ -f "$file" ]]; then
+                size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
+                echo "  ✓ Found: $file (${size} bytes)"
+              else
+                echo "  ✓ Found: $file (directory)"
+              fi
+            else
+              echo "  ⚠️  Missing: $file"
+              MISSING_COUNT=$((MISSING_COUNT + 1))
+            fi
+          done
+
+          # Check for .deb files
+          if ls target/debs/*.deb >/dev/null 2>&1; then
+            DEB_COUNT=$(ls target/debs/*.deb 2>/dev/null | wc -l)
+            echo "  ✓ Found: target/debs/*.deb (${DEB_COUNT} files)"
+          else
+            echo "  ⚠️  Missing: target/debs/*.deb"
+            MISSING_COUNT=$((MISSING_COUNT + 1))
+          fi
+
+          echo ""
+          echo "============================================"
+          if [[ $MISSING_COUNT -eq 0 ]]; then
+            echo "✅ All expected artifacts found"
+          else
+            echo "⚠️  ${MISSING_COUNT} expected artifact(s) missing"
+            echo "Note: Some artifacts may be disabled (e.g., BFB build)"
+            echo "This is informational only - build continues"
+          fi
+          echo "============================================"
+
+      - name: Collect artifacts metadata
+        id: collect-artifacts
+        run: |
+          # Determine artifacts based on build type and architecture
+          # Note: Lists match GitLab CI artifact paths; upload step uses if-no-files-found: warn
+          # so missing files (like BFB artifacts when disabled) won't fail the build
+          if [[ "${{ inputs.build_type }}" == "boot" ]]; then
+            if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+              ARTIFACTS='["pxe/static/blobs/internal/x86_64/ipxe.efi", "target/debug/carbide-admin-cli", "target/debs/*"]'
+            else
+              # Lists all expected BFB artifacts even though some may not be generated (BFB build is disabled)
+              # This matches GitLab CI behavior where artifact paths are listed but upload succeeds if files don't exist
+              ARTIFACTS='["pxe/static/blobs/internal/aarch64/secure-boot-pk.pem", "pxe/static/blobs/internal/aarch64/ipxe.efi", "pxe/static/blobs/internal/aarch64/carbide.efi", "pxe/static/blobs/internal/aarch64/carbide.root", "pxe/static/blobs/internal/aarch64/preingestion.bfb", "pxe/static/blobs/internal/aarch64/forge.bfb", "pxe/static/blobs/internal/apt", "target/aarch64-unknown-linux-gnu/release/forge-scout", "target/debs/*"]'
+            fi
+          else
+            if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
+              ARTIFACTS='["pxe/static/blobs/internal/x86_64/scout.efi", "pxe/static/blobs/internal/x86_64/scout.cpio.zst", "pxe/static/blobs/internal/x86_64/qcow-imager.efi", "target/debs/*"]'
+            else
+              ARTIFACTS='["pxe/static/blobs/internal/aarch64/scout.efi", "pxe/static/blobs/internal/aarch64/scout.cpio.zst", "pxe/static/blobs/internal/aarch64/qcow-imager.efi", "pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/*", "target/debs/*"]'
+            fi
+          fi
+
+          echo "paths=${ARTIFACTS}" >> $GITHUB_OUTPUT
+          echo "Artifacts to upload: ${ARTIFACTS}"
+
+      - name: Upload artifacts
+        if: always()  # Upload artifacts even if build fails (matches GitLab CI 'when: always')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.build_type }}-artifacts-${{ inputs.arch }}-${{ github.run_id }}
+          path: |
+            pxe/static/blobs/
+            target/debug/carbide-admin-cli
+            target/debs/
+            target/aarch64-unknown-linux-gnu/
+            pxe/mkosi.profiles/
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Upload build log on failure
+        if: failure() && inputs.build_type == 'ephemeral'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.build_type }}-build-log-${{ inputs.arch }}-${{ github.run_id }}
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Display build summary
+        run: |
+          echo "============================================"
+          echo "✅ ${{ inputs.build_type }} Build Completed"
+          echo "============================================"
+          echo "Architecture: ${{ inputs.arch }}"
+          echo "Task: ${{ inputs.cargo_make_task }}"
+          echo "Version: ${{ inputs.version }}"
+          echo "Container mode: ${{ inputs.use_container }}"
+          echo ""
+          echo "Generated Artifacts:"
+          find pxe/static/blobs/internal/${{ inputs.arch }} -type f 2>/dev/null || echo "No blobs found"
+          echo "============================================"

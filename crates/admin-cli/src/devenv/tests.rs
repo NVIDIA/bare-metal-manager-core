@@ -1,0 +1,178 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+// The intent of the tests.rs file is to test the integrity of the
+// command, including things like basic structure parsing, enum
+// translations, and any external input validators that are
+// configured. Specific "categories" are:
+//
+// Command Structure - Baseline debug_assert() of the entire command.
+// Argument Parsing  - Ensure required/optional arg combinations parse correctly.
+// ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
+
+use clap::{CommandFactory, Parser};
+
+use super::args::*;
+
+// verify_cmd_structure runs a baseline clap debug_assert()
+// to do basic command configuration checking and validation,
+// ensuring things like unique argument definitions, group
+// configurations, argument references, etc. Things that would
+// otherwise be missed until runtime.
+#[test]
+fn verify_cmd_structure() {
+    Cmd::command().debug_assert();
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Argument Parsing
+//
+// This section contains tests specific to argument parsing,
+// including testing required arguments, as well as optional
+// flag-specific checking.
+
+// parse_config_apply_network_segment ensures config
+// apply parses with network-segment mode.
+#[test]
+fn parse_config_apply_network_segment() {
+    let cmd = Cmd::try_parse_from([
+        "devenv",
+        "config",
+        "apply",
+        "/path/to/config.toml",
+        "--mode",
+        "network-segment",
+    ])
+    .expect("should parse config apply");
+
+    match cmd {
+        Cmd::Config(DevEnvConfig::Apply(args)) => {
+            assert_eq!(args.path, "/path/to/config.toml");
+            assert_eq!(args.mode, NetworkChoice::NetworkSegment);
+        }
+    }
+}
+
+// parse_config_apply_vpc_prefix ensures config apply
+// parses with vpc-prefix mode.
+#[test]
+fn parse_config_apply_vpc_prefix() {
+    let cmd = Cmd::try_parse_from([
+        "devenv",
+        "config",
+        "apply",
+        "/path/to/config.toml",
+        "--mode",
+        "vpc-prefix",
+    ])
+    .expect("should parse config apply with vpc-prefix");
+
+    match cmd {
+        Cmd::Config(DevEnvConfig::Apply(args)) => {
+            assert_eq!(args.mode, NetworkChoice::VpcPrefix);
+        }
+    }
+}
+
+// parse_config_apply_short_mode ensures config apply
+// parses with -m short flag.
+#[test]
+fn parse_config_apply_short_mode() {
+    let cmd = Cmd::try_parse_from([
+        "devenv",
+        "config",
+        "apply",
+        "/path/to/config.toml",
+        "-m",
+        "network-segment",
+    ])
+    .expect("should parse with -m");
+
+    match cmd {
+        Cmd::Config(DevEnvConfig::Apply(args)) => {
+            assert_eq!(args.mode, NetworkChoice::NetworkSegment);
+        }
+    }
+}
+
+// parse_config_alias ensures config has visible alias 'c'.
+#[test]
+fn parse_config_alias() {
+    let cmd = Cmd::try_parse_from([
+        "devenv",
+        "c",
+        "apply",
+        "/path/to/config.toml",
+        "-m",
+        "network-segment",
+    ])
+    .expect("should parse via config alias");
+
+    assert!(matches!(cmd, Cmd::Config(_)));
+}
+
+// parse_apply_alias ensures apply has visible alias 'a'.
+#[test]
+fn parse_apply_alias() {
+    let cmd = Cmd::try_parse_from([
+        "devenv",
+        "config",
+        "a",
+        "/path/to/config.toml",
+        "-m",
+        "network-segment",
+    ])
+    .expect("should parse via apply alias");
+
+    assert!(matches!(cmd, Cmd::Config(DevEnvConfig::Apply(_))));
+}
+
+// parse_missing_path_fails ensures config apply
+// requires path.
+#[test]
+fn parse_missing_path_fails() {
+    let result = Cmd::try_parse_from(["devenv", "config", "apply", "-m", "network-segment"]);
+    assert!(result.is_err(), "should fail without path");
+}
+
+// parse_missing_mode_fails ensures config apply
+// requires --mode.
+#[test]
+fn parse_missing_mode_fails() {
+    let result = Cmd::try_parse_from(["devenv", "config", "apply", "/path/to/config.toml"]);
+    assert!(result.is_err(), "should fail without --mode");
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// ValueEnum Parsing
+//
+// These tests are for testing argument values which derive
+// ValueEnum, ensuring the string representations of said
+// values correctly convert back into their expected variant,
+// or fail otherwise.
+
+// network_choice_value_enum ensures NetworkChoice parses
+// from kebab-case strings.
+#[test]
+fn network_choice_value_enum() {
+    use clap::ValueEnum;
+
+    assert!(matches!(
+        NetworkChoice::from_str("network-segment", false),
+        Ok(NetworkChoice::NetworkSegment)
+    ));
+    assert!(matches!(
+        NetworkChoice::from_str("vpc-prefix", false),
+        Ok(NetworkChoice::VpcPrefix)
+    ));
+    assert!(NetworkChoice::from_str("invalid", false).is_err());
+}

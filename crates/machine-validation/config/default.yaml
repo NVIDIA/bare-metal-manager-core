@@ -1,0 +1,30 @@
+ExternalConfigs: 
+  - "shoreline"
+Tests: 
+  Cpu:
+    BenchMark:
+      CpuEcho1:
+        ContainerImageName: "nvcr.io/nvidian/nvforge/machine-validation-runner:latest"
+        ExecuteInHost: true
+        Command: "echo "
+        Desc: "Test desc"
+        Args: " test"
+        Contexts:
+          - Discovery
+          - Cleanup
+          - OnDemand
+  Shoreline:
+    Runbook:
+      ForgeRunBook:
+        ContainerImageName: "docker.io/shorelinesoftware/agent:release-24.0.22-multiarch-lt"
+        ContainerArg: --net-host  --env-file /tmp/machine_validation/external_config/shoreline --mount type=bind,src=/opt/shorelineagent/databases,dst=/agent/databases,options=rbind:rw   --mount type=bind,src=/opt/shorelineagent/onprem,dst=/agent/onprem,options=rbind:rw   --mount type=bind,src=/opt/shorelineagent/secrets,dst=/agent/secrets,options=rbind:rw   --mount type=bind,src=/opt/shorelineagent/scraper.yml,dst=/agent/etc/scraper.yml,options=rbind:rw   --mount type=bind,src=/root/.ssh,dst=/agent/.host_ssh,options=rbind:ro   --mount type=bind,src=/opt/shorelineagent/shoreline,dst=/agent/host-etc-shoreline,options=rbind:ro   --memory-limit 524288000   --cpus 0.5
+        RequiredExternalConfigFile: shoreline
+        Command: ""
+        Desc: "Shoreline Runbook"
+        ExtraOutputFile: "/tmp/output"
+        ExtraErrFile: "/tmp/error"
+        Args: ""
+        Contexts:
+          - Discovery
+          - Cleanup
+          - OnDemand

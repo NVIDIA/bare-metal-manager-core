@@ -1,0 +1,24 @@
+[package]
+name = "carbide-mlxconfig-lockdown"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "A Rust crate for managing Mellanox NIC hardware access locks."
+
+[lib]
+name = "mlxconfig_lockdown"
+
+[dependencies]
+clap = { features = ["derive"], workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { features = ["serde"], workspace = true }
+
+carbide-rpc = { path = "../rpc" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,41 @@
+# syntax = docker/dockerfile:1.4
+
+# SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+FROM debian:bookworm-slim as carbide
+
+RUN mkdir -p /opt/carbide/migrations && \
+  mkdir -p /opt/carbide/pxe/templates && \
+  mkdir -p /opt/carbide/static \
+  mkdir -p /forge-boot-artifacts/blobs/internal/aarch64
+
+
+# This is required for kea pid file
+RUN mkdir -p /var/run/kea
+
+RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -y --no-install-recommends \
+  postgresql-client-15 \
+  ca-certificates \
+  curl \
+  iproute2 \
+  iputils-ping \
+  kea-dev \
+  kea-dhcp4-server  \
+  libssl-dev \
+  libudev1 \
+  ca-certificates \
+  curl \
+  ipmitool \
+  iproute2 \
+  iputils-ping \
+  libudev1 \
+  tpm2-tools \
+  nginx \
+  libtss2-dev

@@ -1,0 +1,26 @@
+[package]
+name = "carbide-certs"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "forge_certs"
+
+[dependencies]
+eyre = { workspace = true }
+rand = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+
+# [local-dependencies]
+carbide-host-support = { path = "../host-support" }
+carbide-tls = { path = "../tls" }
+carbide-rpc = { path = "../rpc" }
+
+[lints]
+workspace = true

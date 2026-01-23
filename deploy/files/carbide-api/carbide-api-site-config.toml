@@ -1,0 +1,70 @@
+dhcp_servers = ["CARBIDE_DHCP_EXTERNAL_IP"]
+# route_servers = [
+#   "FRR_ROUTING_0_EXTERNAL_IP",
+#   "FRR_ROUTING_1_EXTERNAL_IP",
+#   "FRR_ROUTING_2_EXTERNAL_IP"
+# ]
+enable_route_servers = true
+initial_domain_name = "ENVIORNMENT_NAME.frg.nvidia.com"
+sitename = "ENVIORNMENT_NAME"
+attestation_enabled = false
+bypass_rbac = true
+max_concurrent_machine_updates = 20
+
+# List all tenant overlays here
+site_fabric_prefixes = ["SITE_FABRIC_PREFIX_1"]
+
+# Site infrastructure prefixes instances are not allowed to talk to.
+# These should include admin pool, site controller nodes IPMI pools and managed hosts IPMI pools
+deny_prefixes = [
+  "ADMIN_NETWORK_IP_POOL",
+  "CONTROL_PLANE_IPMI_POOL_1", # control plane IPMI
+  # add CONTROL_PLANE_IPMI_POOL_2 and more as needed, one in each line terminated by ','
+  "MANAGED_HOST_IPMI_POOL_1",
+  # add MANAGED_HOST_IPMI_POOL_2 and more as needed, one in each line terminated by ','
+]
+
+[site_explorer]
+run_interval = "30s"
+
+[machine_validation_config]
+enabled = true
+
+[bom_validation]
+enabled = true
+ignore_unassigned_machines = true
+
+[pools.lo-ip]
+type = "ipv4"
+ranges = [{ start = "DPU_LOOPBACK_START_IP", end = "DPU_LOOPBACK_END_IP " }]
+
+[pools.vlan-id]
+type = "integer"
+ranges = [{ start = "100", end = "501" }]
+
+[pools.vni]
+type = "integer"
+ranges = [{ start = "1024500", end = "1024800" }]
+
+[pools.vpc-vni]
+type = "integer"
+ranges = [{ start = "0", end = "100" }]
+
+
+[networks.admin]
+type = "admin"
+prefix = "ADMIN_NETWORK_IP_POOL"
+gateway = "ADMIN_NETWORK_GATEWAY_IP"
+mtu = 9000
+reserve_first = 5
+
+# Add one network section for each of the managed host IPMI pools
+# No restrictions on network names; but they must be unique
+[networks.MANAGED_HOST_IPMI_NETWORK_1]
+type = "underlay"
+prefix = "MANAGED_HOST_IPMI_POOL_1"
+gateway = "MANAGED_HOST_IPMI_POOL_1_GATEWAY_IP"
+mtu = 1500
+reserve_first = 2
+
+# Add metworks.MANAGED_HOST_IPMI_NETWORK_2 and more as needed. All managed host IPMI networks must be added

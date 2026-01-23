@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Switch State History - {{ id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col">
+            <h1>Switch State History</h1>
+            <p class="text-muted">Switch ID: {{ id }}</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col">
+            {% include "switch_state_history_table.html" %}
+        </div>
+    </div>
+</div>
+{% endblock %}

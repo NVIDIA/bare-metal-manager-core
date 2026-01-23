@@ -1,0 +1,278 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use std::fmt::Write;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
+use std::time::Duration;
+
+use carbide_uuid::machine::MachineId;
+use diff::Result as DiffResult;
+use eyre::{OptionExt, WrapErr};
+use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
+use hickory_resolver::Name;
+use hickory_resolver::config::ResolverConfig;
+use hyper::service::Service;
+use resolv_conf::Config;
+use rpc::forge::{
+    InstancePhoneHomeLastContactRequest, ManagedHostNetworkConfigRequest, VersionRequest,
+};
+use rpc::forge_tls_client::ForgeClientT;
+use rpc::{Instance, Timestamp, forge_resolver};
+
+pub fn compare_lines(left: &str, right: &str, strip_behavior: Option<StripType>) -> CompareResult {
+    let (left, right) = match strip_behavior {
+        None => (left, right),
+        Some(_) => unreachable!(),
+    };
+    let results = diff::lines(left, right);
+    let identical = results
+        .iter()
+        .all(|r| matches!(r, diff::Result::Both(_, _)));
+    match identical {
+        true => CompareResult::Identical,
+        false => {
+            let mut report = String::new();
+            results.into_iter().for_each(|r| {
+                let (col1, linecontent) = match r {
+                    DiffResult::Both(line, _) => (' ', line),
+                    DiffResult::Left(line) => ('-', line),
+                    DiffResult::Right(line) => ('+', line),
+                };
+                writeln!(&mut report, "{col1}{linecontent}").expect("can't write line to results?");
+            });
+            CompareResult::Different(report)
+        }
+    }
+}
+
+pub enum CompareResult {
+    Identical,
+    Different(String),
+}
+
+impl CompareResult {
+    pub fn report(&self) -> &str {
+        match self {
+            CompareResult::Identical => "",
+            CompareResult::Different(s) => s.as_str(),
+        }
+    }
+
+    pub fn is_identical(&self) -> bool {
+        matches!(self, CompareResult::Identical)
+    }
+}
+
+pub enum StripType {}
+
+pub struct UrlResolver {
+    nameservers: Vec<IpAddr>,
+    resolver: ForgeResolver,
+}
+
+impl UrlResolver {
+    pub fn try_new() -> Result<Self, eyre::Report> {
+        let config = Self::try_get_resolver_config()?;
+        let nameservers = config
+            .nameservers
+            .iter()
+            .map(|x| x.into())
+            .collect::<Vec<IpAddr>>();
+
+        let resolver = Self::try_get_resolver(config)?;
+        Ok(Self {
+            nameservers,
+            resolver,
+        })
+    }
+    pub fn nameservers(&self) -> Vec<IpAddr> {
+        self.nameservers.clone()
+    }
+
+    fn try_get_resolver_config() -> Result<Config, eyre::Report> {
+        let forge_resolv_config =
+            forge_resolver::resolver::ForgeResolveConf::with_system_resolv_conf()?;
+        let parsed_config = forge_resolv_config.parsed_configuration();
+        Ok(parsed_config)
+    }
+
+    fn try_get_resolver(resolver_config: Config) -> Result<ForgeResolver, eyre::Report> {
+        let forge_resolver_config =
+            forge_resolver::resolver::into_forge_resolver_config(resolver_config)?;
+
+        let hickory_resolver_config = ResolverConfig::from_parts(
+            forge_resolver_config.0.domain,
+            forge_resolver_config.0.search_domain,
+            forge_resolver_config.0.inner.into_inner(),
+        );
+
+        let updated_opts = ForgeResolverOpts::new()
+            .use_mgmt_vrf()
+            .timeout(Duration::from_secs(5));
+        let resolver_cfg =
+            ForgeResolver::with_config_and_options(hickory_resolver_config, updated_opts);
+
+        Ok(resolver_cfg)
+    }
+
+    /// Input name should be hostname, not url.
+    /// valid: carbide-pxe.forge, nvidia.com, www.nvidia.com
+    /// Invalid: https://www.nvidia.com/extra/uri
+    pub async fn resolve(&mut self, name: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
+        let ip = self
+            .resolver
+            .call(Name::from_str(name)?)
+            .await?
+            .filter_map(|x| match x.ip() {
+                IpAddr::V4(x) => Some(x),
+                _ => None,
+            })
+            .collect::<Vec<Ipv4Addr>>();
+
+        Ok(ip)
+    }
+}
+
+// get_instance finds the instance associated with this dpu
+pub async fn get_instance(
+    client: &mut ForgeClientT,
+    dpu_machine_id: &MachineId,
+) -> Result<Option<Instance>, eyre::Error> {
+    let request = tonic::Request::new(*dpu_machine_id);
+
+    let instances = match client.find_instance_by_machine_id(request).await {
+        Ok(response) => response.into_inner().instances,
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Error while executing the FindInstanceByMachineId gRPC call: {}",
+                err.to_string()
+            ));
+        }
+    };
+
+    Ok(instances.first().cloned())
+}
+
+pub async fn get_sitename(client: &mut ForgeClientT) -> Result<Option<String>, eyre::Error> {
+    let request = tonic::Request::new(VersionRequest {
+        display_config: true,
+    });
+
+    let resp = match client.version(request).await {
+        Ok(response) => response.into_inner(),
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Error while executing the Version gRPC call: {}",
+                err.to_string()
+            ));
+        }
+    };
+
+    let sn = match resp.runtime_config {
+        Some(rc) => rc.sitename,
+        None => return Ok(None),
+    };
+
+    Ok(sn)
+}
+
+// Use grpc call GetPeriodicDpuConfig and return the retrieved info
+pub async fn get_periodic_dpu_config(
+    client: &mut ForgeClientT,
+    dpu_machine_id: &MachineId,
+) -> Result<rpc::forge::ManagedHostNetworkConfigResponse, eyre::Error> {
+    let request = tonic::Request::new(ManagedHostNetworkConfigRequest {
+        dpu_machine_id: Some(*dpu_machine_id),
+    });
+
+    let resp = match client.get_managed_host_network_config(request).await {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Error while executing the GetManagedHostNetworkConfig gRPC call: {}",
+                err.to_string()
+            ));
+        }
+    };
+
+    Ok(resp.into_inner())
+}
+
+// phone_home returns the timestamp returned from Carbide as a string
+pub async fn phone_home(
+    client: &mut ForgeClientT,
+    dpu_machine_id: &MachineId,
+) -> Result<Timestamp, eyre::Error> {
+    let Some(instance) = get_instance(client, dpu_machine_id).await? else {
+        return Err(eyre::eyre!(
+            "No instance found with dpu_machine {}.",
+            dpu_machine_id
+        ));
+    };
+
+    let request: tonic::Request<InstancePhoneHomeLastContactRequest> =
+        tonic::Request::new(InstancePhoneHomeLastContactRequest {
+            instance_id: instance.id,
+        });
+
+    let response = client
+        .update_instance_phone_home_last_contact(request)
+        .await?;
+
+    response
+        .into_inner()
+        .timestamp
+        .ok_or_else(|| eyre::eyre!("timestamp is empty in response"))
+}
+
+pub fn get_host_boot_timestamp() -> Result<u64, eyre::Error> {
+    let proc_stat = File::open("/proc/stat")
+        .map(BufReader::new)
+        .wrap_err("Couldn't open /proc/stat")?;
+    let btime_value = proc_stat
+        .lines()
+        .find_map(|line| match line {
+            // We're looking for a line like this:
+            // `btime 123456789`
+            Ok(line) => match line.split_once(' ') {
+                Some(("btime", value)) => {
+                    let value = String::from(value);
+                    Some(Ok(value))
+                }
+                _ => None,
+            },
+            err => Some(err),
+        })
+        .transpose()
+        .wrap_err("Couldn't read /proc/stat")?
+        .ok_or_eyre("Couldn't find btime line in /proc/stat")?;
+    btime_value
+        .parse()
+        .wrap_err("Couldn't parse btime value as u64")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_get_host_boot_timestamp() {
+        let boot_timestamp = get_host_boot_timestamp().expect("Couldn't get boot timestamp");
+        dbg!(&boot_timestamp);
+        // This was around July 14, 2017 -- hopefully your machine hasn't been
+        // running without a reboot that long. :)
+        assert!(boot_timestamp >= 1500000000);
+    }
+}

@@ -1,0 +1,513 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+//! The Carbide DPF library.
+//!
+//! This library provides the Carbide DPF implementation.
+
+pub mod crds;
+
+#[cfg(test)]
+pub mod test;
+
+use std::collections::{BTreeMap, HashMap};
+
+use k8s_openapi::api::core::v1::{ConfigMap, Secret};
+use kube::api::{ListParams, Patch, PatchParams, PostParams};
+use kube::core::ObjectMeta;
+use kube::{Api, Client};
+use rustls::crypto::{CryptoProvider, aws_lc_rs};
+use tera::{Context, Tera};
+use tokio::time::Duration;
+
+use crate::crds::bfb_generated::{BFB, BfbSpec, BfbStatusPhase};
+use crate::crds::dpu_flavor_generated::{DPUFlavor, DpuFlavorDpuMode, DpuFlavorSpec};
+use crate::crds::dpu_set_generated::{
+    DPUSet, DpuSetDpuTemplate, DpuSetDpuTemplateSpec, DpuSetDpuTemplateSpecBfb,
+    DpuSetDpuTemplateSpecNodeEffect, DpuSetSpec, DpuSetStrategy, DpuSetStrategyType,
+};
+
+pub const NAMESPACE: &str = "dpf-operator-system";
+const BFB_NAME: &str = "bf-bundle";
+const DPUSET_NAME: &str = "carbide-dpu-set";
+const DPUFLAVOR_NAME: &str = "carbide-dpu-flavor";
+const SECRET_NAME: &str = "bmc-shared-password";
+
+const BFCFG_CONFIGMAP_NAME: &str = "carbide-dpf-bf-cfg-template";
+const BF_CFG_DATA_TEMPLATE: &str = include_str!("../files/bf.cfg");
+const BF_CFG_FW_UPDATE_DATA_TEMPLATE: &str = include_str!("../../../pxe/templates/bmc_fw_update");
+
+const BFB_URL: &str = "http://carbide-pxe.forge/public/blobs/internal/aarch64/forge.bfb";
+
+fn bfb_crd(name: &str) -> BFB {
+    BFB {
+        metadata: ObjectMeta {
+            name: Some(name.to_string()),
+            namespace: Some(NAMESPACE.to_string()),
+            ..Default::default()
+        },
+        spec: BfbSpec {
+            file_name: None,
+            url: BFB_URL.to_string(),
+        },
+        status: None,
+    }
+}
+
+/// Trait for a Kubernetes client implementation.
+#[async_trait::async_trait]
+pub trait KubeImpl {
+    async fn get_object<K>(&self) -> Result<Api<K>, DpfError>
+    where
+        K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope>,
+        K: kube::Resource,
+        <K as kube::Resource>::DynamicType: Default;
+}
+
+/// Production Kubernetes client implementation.
+pub struct Production;
+
+#[async_trait::async_trait]
+impl KubeImpl for Production {
+    async fn get_object<K>(&self) -> Result<Api<K>, DpfError>
+    where
+        K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope>,
+        K: kube::Resource,
+        <K as kube::Resource>::DynamicType: Default,
+    {
+        let client = Client::try_default().await.map_err(DpfError::KubeError)?;
+        let object: Api<K> = Api::namespaced(client, NAMESPACE);
+        Ok(object)
+    }
+}
+
+/// Error type for DPF operations.
+#[derive(thiserror::Error, Debug)]
+pub enum DpfError {
+    #[error("Kubernetes client error: {0}")]
+    KubeError(#[from] kube::Error),
+    #[error("BFB is still not ready after {0} seconds.")]
+    BFBNotReady(u32),
+    #[error("Template error: {0}")]
+    TemplateError(#[from] tera::Error),
+}
+
+/// Creates all necessary Custom Resource Definitions (CRDs) and a Secret in the Kubernetes cluster to set up the DPF (Data Processing Framework) system.
+///
+/// This function coordinates the following steps:
+/// 1. Ensures a Kubernetes Secret exists to store the BMC (Baseboard Management Controller) password, creating it if necessary.
+/// 2. Ensures the DPUFlavor CRD exists in the cluster, creating it if necessary.
+/// 3. Creates a new BFB (BlueField Bundle) CRD and waits for it to become ready.
+/// 4. Creates or updates the DPUSet CRD, pointing it to the new BFB.
+/// 5. Deletes all outdated BFB CRDs, retaining only the most recently created one.
+/// 6. Creates or updates the ConfigMap containing the bf.cfg configuration using the provided context.
+///
+/// # Arguments
+/// * `bfcfg_context` - A context map used for rendering the bf.cfg template and populating the ConfigMap.
+/// * `bmc_password` - The BMC root password to store in the Secret.
+///
+/// # Returns
+/// * `Result<(), DpfError>` - Returns Ok if all resources are created or exist; returns a DpfError if any step fails.
+pub async fn create_crds_and_secret(
+    bfcfg_context: HashMap<String, String>,
+    bmc_password: String,
+) -> Result<(), DpfError> {
+    let mode = Production {};
+    create_crds_and_secret_with_client(bfcfg_context, bmc_password, &mode).await
+}
+
+/// Creates all required CRDs and a Secret using the provided Kubernetes client implementation.
+///
+/// This function allows injection of a custom `KubeImpl` (real or mockable) for testing or production use.
+/// It performs the following steps:
+/// 1. Ensures the Kubernetes Secret for the BMC password exists.
+/// 2. Ensures the DPUFlavor CRD exists in the cluster.
+/// 3. Creates a new BFB CRD and waits for it to become ready.
+/// 4. Creates or updates the DPUSet CRD, referencing the new BFB.
+/// 5. Deletes all outdated BFB CRDs, keeping only the latest.
+/// 6. Creates/updates the ConfigMap for bf.cfg configuration.
+///
+/// # Arguments
+/// * `bfcfg_context` - Context for rendering the bf.cfg template into the ConfigMap.
+/// * `bmc_password` - The BMC root password to be stored in the Secret.
+/// * `mode` - The injected KubeImpl client (used for actual or test clients).
+///
+/// # Returns
+/// * `Result<(), DpfError>` - Ok if setup is successful, or an error if any step fails.
+pub async fn create_crds_and_secret_with_client(
+    bfcfg_context: HashMap<String, String>,
+    bmc_password: String,
+    mode: &impl KubeImpl,
+) -> Result<(), DpfError> {
+    CryptoProvider::install_default(aws_lc_rs::default_provider()).unwrap();
+
+    // Step 0: Create secret for bmc password
+    create_secret_for_bmc_password(bmc_password, mode).await?;
+
+    // Step 1: Create DPUFlavor if not exists
+    create_dpuflavor_if_not_exists(mode).await?;
+
+    // Step 3: Create and wait for BFB
+    let bfb_name = create_and_wait_for_bfb(mode).await?;
+
+    // Step 4: Create DPUSet and update bfb name in it.
+    create_dpuset_crd(&bfb_name, mode).await?;
+
+    // Step 5: Delete all old BFB CRDs
+    delete_all_old_bfb_crds(bfb_name, mode).await?;
+
+    // Step 6: Create configmap for bf.cfg
+    // No need tor edeploy dpf-operator-config as it will pick the configmap changes automatically.
+    create_bfcfg_configmap(bfcfg_context, mode).await?;
+
+    Ok(())
+}
+
+/// Creates a Kubernetes Secret containing the provided BMC password if it does not already exist.
+///
+/// # Arguments
+/// * `password` - The BMC root password to store in the Secret.
+///
+/// # Returns
+/// * `Result<(), DpfError>` - Returns Ok(()) if the secret is ensured or created successfully, or a DpfError on failure.
+///
+/// This function is idempotent: if the secret already exists, it will not recreate or overwrite it.
+async fn create_secret_for_bmc_password(
+    password: String,
+    kube_impl: &impl KubeImpl,
+) -> Result<(), DpfError> {
+    let secrets = kube_impl.get_object::<Secret>().await?;
+
+    if let Some(existing_secret) = secrets.get_opt(SECRET_NAME).await? {
+        tracing::info!(
+            "Secret '{}' already exists. Skipping creation.",
+            existing_secret.metadata.name.unwrap()
+        );
+    } else {
+        // Secret does not exist, define it
+        let mut data = BTreeMap::new();
+        data.insert("password".into(), k8s_openapi::ByteString(password.into()));
+
+        let new_secret = Secret {
+            metadata: ObjectMeta {
+                name: Some(SECRET_NAME.to_string()),
+                ..Default::default()
+            },
+            data: Some(data),
+            ..Default::default()
+        };
+
+        secrets.create(&PostParams::default(), &new_secret).await?;
+        tracing::info!("Secret '{}' created successfully.", SECRET_NAME);
+    }
+
+    Ok(())
+}
+
+/// Creates or updates a Kubernetes ConfigMap for `bf.cfg` using the values in `bfcfg_context`.
+///
+/// # Arguments
+/// * `bfcfg_context` - A HashMap containing key-value pairs used to render the `bf.cfg` template.
+///
+/// # Returns
+/// * `Result<(), DpfError>` - Returns Ok(()) if successful, or a `DpfError` if an error occurred.
+pub async fn create_bfcfg_configmap(
+    bfcfg_map: HashMap<String, String>,
+    kube_impl: &impl KubeImpl,
+) -> Result<(), DpfError> {
+    // Render the bf.cfg file from the provided context using the Tera template engine.
+    let context = Context::from_serialize(&bfcfg_map).map_err(DpfError::TemplateError)?;
+    let bf_cfg =
+        Tera::one_off(BF_CFG_DATA_TEMPLATE, &context, false).map_err(DpfError::TemplateError)?;
+    let data = Some(BTreeMap::from([("BF_CFG_TEMPLATE".to_string(), bf_cfg)]));
+
+    // Initialize Kubernetes client and construct the API object for ConfigMaps.
+    let configmaps = kube_impl.get_object::<ConfigMap>().await?;
+
+    // Build the ConfigMap object.
+    let configmap_cr = ConfigMap {
+        immutable: Some(false),
+        metadata: ObjectMeta {
+            name: Some(BFCFG_CONFIGMAP_NAME.to_string()),
+            namespace: Some(NAMESPACE.to_string()),
+            ..Default::default()
+        },
+        data,
+        binary_data: None,
+    };
+
+    // Apply the ConfigMap using server-side apply.
+    configmaps
+        .patch(
+            BFCFG_CONFIGMAP_NAME,
+            &PatchParams::apply("carbide-controller").force(),
+            &Patch::Apply(&configmap_cr),
+        )
+        .await
+        .map_err(DpfError::KubeError)?;
+    Ok(())
+}
+
+pub fn get_fw_update_data() -> String {
+    let context: Context = Context::new();
+    let rendered: String =
+        Tera::one_off(BF_CFG_FW_UPDATE_DATA_TEMPLATE, &(context), false).unwrap_or_default();
+    rendered
+}
+
+/// This function ensures that a DPUFlavor Custom Resource (CR) exists in the Kubernetes cluster.
+///
+/// - Tries to connect to the cluster and initialize the API for DPUFlavor resources.
+/// - Checks if a DPUFlavor with the name `DPUFLAVOR_NAME` already exists in the current namespace using `get_opt`.
+/// - If the DPUFlavor does not exist:
+///     - Constructs a new DPUFlavor CR object with a "ZeroTrust" mode and no additional configuration.
+///     - Creates the resource in the cluster with default post parameters.
+/// - Returns `Ok(())` if successful, or a wrapped error if the Kubernetes client or API calls fail.
+async fn create_dpuflavor_if_not_exists(kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
+    // Initialize Kubernetes client and the API object for DPUFlavor in the given namespace.
+    let dpuflavors = kube_impl.get_object::<DPUFlavor>().await?;
+
+    // Attempt to retrieve the DPUFlavor CR; proceed if it does not exist.
+    if dpuflavors
+        .get_opt(DPUFLAVOR_NAME)
+        .await
+        .map_err(DpfError::KubeError)?
+        .is_none()
+    {
+        // Construct the DPUFlavor CR with default/empty fields and "ZeroTrust" mode.
+        let dpuflavor_cr = DPUFlavor {
+            metadata: ObjectMeta {
+                name: Some(DPUFLAVOR_NAME.to_string()),
+                namespace: Some(NAMESPACE.to_string()),
+                ..Default::default()
+            },
+            spec: DpuFlavorSpec {
+                dpu_mode: Some(DpuFlavorDpuMode::ZeroTrust),
+                dpu_resources: None,
+                bfcfg_parameters: None,
+                config_files: None,
+                containerd_config: None,
+                grub: None,
+                host_network_interface_configs: None,
+                nvconfig: None,
+                ovs: None,
+                sysctl: None,
+                system_reserved_resources: None,
+            },
+        };
+        // Create the DPUFlavor CR in the cluster.
+        dpuflavors
+            .create(&PostParams::default(), &dpuflavor_cr)
+            .await
+            .map_err(DpfError::KubeError)?;
+    }
+    Ok(())
+}
+
+/// This function ensures that a DPUSet Custom Resource (CR) exists in the Kubernetes cluster.
+///
+/// - Tries to connect to the cluster and initialize the API for DPUSet resources.
+/// - Checks if a DPUSet with the name `DPUSET_NAME` already exists in the current namespace using `get_opt`.
+/// - If the DPUSet does not exist:
+///     - Constructs a new DPUSet CR object with default/empty fields.
+///     - Creates the resource in the cluster with default post parameters.
+/// - Returns `Ok(())` if successful, or a wrapped error if the Kubernetes client or API calls fail.
+async fn create_dpuset_crd(bfb_name: &str, kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
+    let dpusets = kube_impl.get_object::<DPUSet>().await?;
+
+    // Construct the DPUSet CR with default/empty fields.
+    let dpuset_cr = DPUSet {
+        metadata: ObjectMeta {
+            name: Some(DPUSET_NAME.to_string()),
+            namespace: Some(NAMESPACE.to_string()),
+            ..Default::default()
+        },
+        spec: DpuSetSpec {
+            dpu_node_selector: None,
+            dpu_selector: None,
+            dpu_template: DpuSetDpuTemplate {
+                annotations: None,
+                spec: Some(DpuSetDpuTemplateSpec {
+                    bfb: Some(DpuSetDpuTemplateSpecBfb {
+                        name: Some(bfb_name.to_string()),
+                    }),
+                    cluster: None,
+                    dpu_flavor: DPUFLAVOR_NAME.to_string(),
+                    node_effect: Some(DpuSetDpuTemplateSpecNodeEffect {
+                        apply_on_label_change: Some(false),
+                        custom_action: None,
+                        custom_label: None,
+                        drain: None,
+                        force: Some(false),
+                        hold: Some(true),
+                        no_effect: None,
+                        node_maintenance_additional_requestors: None,
+                        taint: None,
+                    }),
+                }),
+            },
+            strategy: Some(DpuSetStrategy {
+                rolling_update: None,
+                r#type: Some(DpuSetStrategyType::OnDelete),
+            }),
+        },
+        status: None,
+    };
+
+    // Apply the DPUSet CR.
+    dpusets
+        .patch(
+            DPUSET_NAME,
+            &PatchParams::apply("carbide-controller").force(),
+            &Patch::Apply(&dpuset_cr),
+        )
+        .await
+        .map_err(DpfError::KubeError)?;
+    tracing::info!("DPUSet CR applied successfully.");
+    Ok(())
+}
+
+/// This function checks if a BFB Custom Resource (CR) exists in the Kubernetes cluster.
+///
+/// - Tries to connect to the cluster and initialize the API for BFB resources.
+/// - Checks if a BFB with the name `BFB_NAME` already exists in the current namespace using `get_opt`.
+/// - Returns `Ok(Option<BFB>)` containing the BFB CR if it exists, or `Ok(None)` if it does not exist.
+/// - Returns a wrapped error if the Kubernetes client or API calls fail.
+pub async fn check_if_bfb_exists(
+    name: &str,
+    kube_impl: &impl KubeImpl,
+) -> Result<Option<BFB>, DpfError> {
+    let bfb = kube_impl.get_object::<BFB>().await?;
+    let bfb_crd = bfb.get_opt(name).await.map_err(DpfError::KubeError)?;
+    Ok(bfb_crd)
+}
+
+/// This function deletes a BFB Custom Resource (CR) from the Kubernetes cluster.
+///
+/// - Tries to connect to the cluster and initialize the API for BFB resources.
+/// - Deletes the BFB CR with the name `BFB_NAME` using default delete parameters.
+/// - Returns `Ok(true)` if successful, or a wrapped error if the Kubernetes client or API calls fail.
+pub async fn delete_bfb_crd(name: &str, kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
+    let bfb = kube_impl.get_object::<BFB>().await?;
+    bfb.delete(name, &Default::default())
+        .await
+        .map_err(DpfError::KubeError)?;
+    Ok(())
+}
+
+/// Deletes all BFB (BlueField Bundle) Custom Resources in the Kubernetes cluster
+/// except for the one with the provided `latest_bfb_name`.
+///
+/// # Arguments
+/// * `latest_bfb_name` - The name of the BFB CRD to keep (all others will be deleted).
+///
+/// # Returns
+/// * `Result<(), DpfError>` - Returns Ok(()) if successful, or a DpfError on failure.
+async fn delete_all_old_bfb_crds(
+    latest_bfb_name: String,
+    kube_impl: &impl KubeImpl,
+) -> Result<(), DpfError> {
+    let bfb = kube_impl.get_object::<BFB>().await?;
+    let bfb_crds = bfb.list(&ListParams::default()).await?;
+    for bfb_crd in bfb_crds {
+        let name = bfb_crd.metadata.name.unwrap_or_default();
+        if name != latest_bfb_name {
+            tracing::info!("Deleting BFB CRD {name}");
+            if let Err(err) = bfb.delete(&name, &Default::default()).await {
+                tracing::error!("Failed to delete BFB CRD {name}: {err}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Creates a BFB (BlueField Bundle) Custom Resource in the Kubernetes cluster and waits until it is ready.
+///
+/// This function performs the following:
+/// - Generates a unique BFB CRD name using the base name and a UUID.
+/// - Attempts up to 3 times to:
+///   * Delete any existing BFB CRD with the generated name to ensure a clean state.
+///   * Create a new BFB CRD in the Kubernetes cluster.
+///   * Waits (polling every second, up to 60 seconds) for the BFB CRD's `.status.phase` to become "Ready".
+///     - If the status becomes "Error", it waits 15 seconds and tries again.
+/// - Returns the name of the created BFB CRD upon success.
+///
+/// # Returns
+/// * `Ok(String)` - The name of the ready BFB CRD.
+/// * `Err(DpfError)` - If creation fails, the CRD is not ready in time, or a Kubernetes error occurs.
+///
+/// # Errors
+/// Returns `DpfError::BFBNotReady` if the BFB CRD does not become ready after all attempts,
+/// or propagates errors from Kubernetes or API operations.
+pub async fn create_and_wait_for_bfb(kube_impl: &impl KubeImpl) -> Result<String, DpfError> {
+    // All the constants might need calibration once we move to vanilla BFB.
+    const TIMEOUT_SECONDS: u32 = 60;
+    tracing::info!("Starting creation and waiting for BFB to become ready");
+
+    let bfb = kube_impl.get_object::<BFB>().await?;
+
+    for attempt in 0..3 {
+        let bfb_name = format!("{}-{}", BFB_NAME, uuid::Uuid::new_v4());
+        tracing::info!("Creating new BFB CRD {}...", bfb_name);
+        bfb.create(&PostParams::default(), &bfb_crd(&bfb_name))
+            .await
+            .map_err(DpfError::KubeError)?;
+
+        for wait_sec in 0..TIMEOUT_SECONDS {
+            if let Some(bfb_crd) = check_if_bfb_exists(&bfb_name, kube_impl).await?
+                && let Some(status) = bfb_crd.status
+            {
+                tracing::debug!(
+                    "Checked BFB CRD status at second {}: {:?}",
+                    wait_sec,
+                    status.phase
+                );
+
+                if matches!(status.phase, BfbStatusPhase::Ready) {
+                    tracing::info!(
+                        "BFB CRD is ready after {} seconds (attempt {})",
+                        wait_sec,
+                        attempt + 1
+                    );
+                    return Ok(bfb_name);
+                }
+                if matches!(status.phase, BfbStatusPhase::Error) {
+                    // This is possible if pxe is not up yet.
+                    tracing::warn!(
+                        "BFB CRD status is Error. Waiting 10 seconds before retry in attempt {}",
+                        attempt + 1
+                    );
+                    // It will deleted in the delete_all_old_bfb_crds function.
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                    continue;
+                }
+            } else {
+                tracing::debug!(
+                    "BFB CRD not present or status missing at second {}",
+                    wait_sec
+                );
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        tracing::warn!(
+            "BFB CRD did not become ready in {} seconds for attempt {}. Retrying if attempts remain.",
+            TIMEOUT_SECONDS,
+            attempt + 1
+        );
+    }
+    tracing::error!(
+        "BFB CRD was not ready after {} attempts of {} seconds each. Giving up.",
+        3,
+        TIMEOUT_SECONDS
+    );
+    Err(DpfError::BFBNotReady(TIMEOUT_SECONDS))
+}

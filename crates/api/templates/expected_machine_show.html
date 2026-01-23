@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Expected Machines{% endblock %}
+
+{% block content %}
+{% if active_filter == "all" %}
+<div id="json"><a href="/admin/expected-machine-definition.json">JSON</a></div>
+{% endif %}
+<h1>Expected Machines - {{ active_filter|capitalize }}</h1>
+
+<form id="filter-container" action="" method="get">
+	<label title="All expected machines"><input type="radio" name="filter" value="all" {% if active_filter == "all" %}checked="checked"{% endif %}>All ({{ all_count }})</label>
+	<label title="Success"><input type="radio" name="filter" value="completed" {% if active_filter == "completed" %}checked="checked"{% endif %}>Completed ({{ completed_count }})</label>
+	<label title="Has not sent DHCP"><input type="radio" name="filter" value="unseen" {% if active_filter == "unseen" %}checked="checked"{% endif %}>Unseen ({{ unseen_count }})</label>
+	<label title="Not Redfish explored yet"><input type="radio" name="filter" value="unexplored" {% if active_filter == "unexplored" %}checked="checked"{% endif %}>Unexplored ({{ unexplored_count }})</label>
+	<label title="Not paired with managed host yet"><input type="radio" name="filter" value="unlinked" {% if active_filter == "unlinked" %}checked="checked"{% endif %}>Unlinked ({{ unlinked_count }})</label>
+</form>
+<table class="sortable overview">
+	<thead>
+	<tr>
+		<th>Serial number</th>
+		<th>Interface MAC address</th>
+		<th>Explored Endpoint</th>
+		<th>Managed Host</th>
+	</tr>
+	</thead>
+	<tbody>
+		{% for m in machines %}
+		<tr>
+			<td>{{ m.serial_number }}</td>
+			{% if m.interface_id.is_empty() %}
+				                <td class="cell-error">{{ m.bmc_mac_address }}</td>
+				<td></td>
+				<td></td>
+			{% else %}
+				<td><a href="/admin/interface/{{ m.interface_id }}">{{ m.bmc_mac_address }}</a></td>
+				{% if m.address.is_empty() %}
+					                <td class="cell-error">Unexplored</td>
+					<td></td>
+				{% else %}
+					<td><a href="/admin/explored-endpoint/{{ m.address }}">{{ m.address }}</a></td>
+					{% if m.machine_id.is_empty() %}
+						                <td class="cell-warning">Unlinked</td>
+					{% else %}
+						<td>{{ m.machine_id|machine_id_link|safe }}</td>
+					{% endif %}
+				{% endif %}
+			{% endif %}
+		</tr>
+		{% endfor %}
+	</tbody>
+	<tfoot>
+		<tr>
+			<th>{{ machines.len() }} item{% if machines.len() != 1 %}s{% endif %}</th>
+			<th></th>
+			<th></th>
+			<th></th>
+		</tr>
+	</tfoot>
+</table>
+
+{% endblock %}
+
+{% block script %}
+document.addEventListener('DOMContentLoaded', function() {
+	const form = document.getElementById('filter-container');
+	const radioButtons = form.querySelectorAll('input[type="radio"]');
+
+	radioButtons.forEach(function(radioButton) {
+		radioButton.addEventListener('change', function() {
+			form.submit();
+		});
+	});
+});
+{% endblock %}

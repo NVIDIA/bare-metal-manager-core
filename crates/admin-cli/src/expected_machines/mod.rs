@@ -1,0 +1,169 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+pub mod args;
+pub mod cmds;
+
+#[cfg(test)]
+mod tests;
+
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
+
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+pub use args::Cmd;
+use serde::{Deserialize, Serialize};
+
+use crate::cfg::dispatch::Dispatch;
+use crate::cfg::runtime::RuntimeContext;
+
+impl Dispatch for Cmd {
+    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Cmd::Show(query) => {
+                cmds::show_expected_machines(
+                    &query,
+                    &ctx.api_client,
+                    ctx.config.format,
+                    &mut ctx.output_file,
+                )
+                .await?;
+                Ok(())
+            }
+            Cmd::Add(expected_machine_data) => {
+                if expected_machine_data.has_duplicate_dpu_serials() {
+                    eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
+                    return Ok(());
+                }
+                let metadata = expected_machine_data
+                    .metadata()
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                let host_nics = Vec::new();
+                ctx.api_client
+                    .add_expected_machine(
+                        expected_machine_data.bmc_mac_address,
+                        expected_machine_data.bmc_username.clone(),
+                        expected_machine_data.bmc_password.clone(),
+                        expected_machine_data.chassis_serial_number.clone(),
+                        expected_machine_data.fallback_dpu_serial_numbers.clone(),
+                        metadata,
+                        expected_machine_data.sku_id.clone(),
+                        expected_machine_data.id.clone(),
+                        host_nics,
+                        expected_machine_data.rack_id.clone(),
+                        expected_machine_data.default_pause_ingestion_and_poweron,
+                    )
+                    .await?;
+                Ok(())
+            }
+            Cmd::Delete(query) => {
+                ctx.api_client
+                    .0
+                    .delete_expected_machine(::rpc::forge::ExpectedMachineRequest {
+                        bmc_mac_address: query.bmc_mac_address.to_string(),
+                        id: None,
+                    })
+                    .await?;
+                Ok(())
+            }
+            Cmd::Patch(expected_machine_data) => {
+                if let Err(e) = expected_machine_data.validate() {
+                    eprintln!("{e}");
+                    return Ok(());
+                }
+                ctx.api_client
+                    .patch_expected_machine(
+                        expected_machine_data.bmc_mac_address,
+                        expected_machine_data.bmc_username.clone(),
+                        expected_machine_data.bmc_password.clone(),
+                        expected_machine_data.chassis_serial_number.clone(),
+                        expected_machine_data.fallback_dpu_serial_numbers.clone(),
+                        expected_machine_data.meta_name.clone(),
+                        expected_machine_data.meta_description.clone(),
+                        expected_machine_data.labels.clone(),
+                        expected_machine_data.sku_id.clone(),
+                        expected_machine_data.rack_id.clone(),
+                        expected_machine_data.default_pause_ingestion_and_poweron,
+                    )
+                    .await?;
+                Ok(())
+            }
+            Cmd::Update(request) => {
+                let json_file_path = Path::new(&request.filename);
+                let file_content = std::fs::read_to_string(json_file_path)?;
+                let expected_machine: args::ExpectedMachineJson =
+                    serde_json::from_str(&file_content)?;
+
+                let metadata = expected_machine.metadata.unwrap_or_default();
+
+                // Use patch API but provide all fields from JSON for full replacement
+                ctx.api_client
+                    .patch_expected_machine(
+                        expected_machine.bmc_mac_address,
+                        Some(expected_machine.bmc_username),
+                        Some(expected_machine.bmc_password),
+                        Some(expected_machine.chassis_serial_number),
+                        expected_machine.fallback_dpu_serial_numbers,
+                        Some(metadata.name),
+                        Some(metadata.description),
+                        Some(
+                            metadata
+                                .labels
+                                .into_iter()
+                                .map(|label| {
+                                    if let Some(value) = label.value {
+                                        format!("{}:{}", label.key, value)
+                                    } else {
+                                        label.key
+                                    }
+                                })
+                                .collect(),
+                        ),
+                        expected_machine.sku_id,
+                        expected_machine.rack_id,
+                        expected_machine.default_pause_ingestion_and_poweron,
+                    )
+                    .await?;
+                Ok(())
+            }
+            Cmd::ReplaceAll(request) => {
+                let json_file_path = Path::new(&request.filename);
+                let reader = BufReader::new(File::open(json_file_path)?);
+                #[derive(Debug, Serialize, Deserialize)]
+                struct ExpectedMachineList {
+                    expected_machines: Vec<args::ExpectedMachineJson>,
+                    expected_machines_count: Option<usize>,
+                }
+                let expected_machine_list: ExpectedMachineList = serde_json::from_reader(reader)?;
+
+                if expected_machine_list
+                    .expected_machines_count
+                    .is_some_and(|c| c != expected_machine_list.expected_machines.len())
+                {
+                    eprintln!(
+                        "WARNING: expected_machines_count does not match actual number of entries"
+                    );
+                }
+
+                ctx.api_client
+                    .replace_all_expected_machines(expected_machine_list.expected_machines)
+                    .await?;
+                Ok(())
+            }
+            Cmd::Erase => {
+                ctx.api_client.0.delete_all_expected_machines().await?;
+                Ok(())
+            }
+        }
+    }
+}

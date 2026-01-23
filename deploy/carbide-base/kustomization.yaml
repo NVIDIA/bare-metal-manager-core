@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/part-of: site-controller
+
+resources:
+  - api
+  - dhcp
+  - dns
+  - hardware-health
+  - pxe
+  - ssh-console-rs
+  - ntp

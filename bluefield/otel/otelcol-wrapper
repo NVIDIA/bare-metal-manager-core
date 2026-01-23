@@ -1,0 +1,20 @@
+#!/bin/bash -p
+
+
+$HOSTNAME=$(hostname)
+
+if [[ "$HOSTNAME" == "localhost" ]]; then
+    echo "hostname cannot be 'localhost'"
+    exit 1
+fi
+
+source /etc/otelcol-contrib/otelcol-wrapper-imports
+
+# This should protect us on start-up in the event that bad extension config was left behind.
+# We'll at least get the minimum expected metrics.
+if /usr/bin/otelcol-contrib validate --config=/etc/otelcol-contrib/config.yaml ${ADDITIONAL_CONFIGS}; then
+    exec /usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml ${ADDITIONAL_CONFIGS}
+else
+    echo "WARN: DPU service extension config found but does not pass validation so continuing without it."
+    exec /usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml
+fi

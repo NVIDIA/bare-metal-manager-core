@@ -1,0 +1,65 @@
+[package]
+name = "carbide-api-test-helper"
+version = "0.0.0"
+description = "Helpers to launch carbide-api for integration testing"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "api_test_helper"
+
+[dependencies]
+
+# [local-dependencies]
+bmc-mock = { path = "../bmc-mock" }
+carbide-api = { path = "../api", default-features = false }
+carbide-version = { path = "../version" }
+carbide-rpc = { path = "../rpc" }
+carbide-machine-a-tron = { path = "../machine-a-tron" }
+carbide-tls = { path = "../tls" }
+carbide-secrets = { path = "../secrets" }
+carbide-utils = { path = "../utils" }
+metrics-endpoint = { path = "../metrics-endpoint" }
+carbide-uuid = { path = "../uuid" }
+
+chrono = { workspace = true }
+eyre = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+] }
+tempfile = { workspace = true }
+tokio.workspace = true
+tracing = { workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+ctor = { workspace = true }
+temp-dir = { workspace = true }
+rand = { workspace = true }
+lazy_static = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+carbide-version = { path = "../version" }
+
+[lints]
+workspace = true
+
+[features]
+linux-build = ["carbide-api/linux-build"]

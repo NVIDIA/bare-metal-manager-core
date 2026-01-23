@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}DPA Detail{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>DPA Detail</h1>
+
+<table class="detailsview">
+	<tr><th>ID</th><td>{{ id }}</td></tr>
+	<tr><th>Machine ID</th><td>{{ machine_id }}</td></tr>
+	<tr><th>MacAddr</th><td>{{ macaddr }}</td></tr>
+	<tr><th>Created</th><td>{{ created }}</td></tr>
+	<tr><th>Updated</th><td>{{ updated }}</td></tr>
+	<tr><th>Deleted</th><td>{{ deleted }}</td></tr>
+	<tr><th>State</th><td>{{ state }}</td></tr>
+	<tr><th>Underlay IP</th><td>{{ underlay_ip }}</td></tr>
+	<tr><th>Overlay IP</th><td>{{ overlay_ip }}</td></tr>
+	<tr><th>State Version</th><td>{{ state_version }}</td></tr>
+	<tr><th>Network Config</th><td>{{ network_config }}</td></tr>
+	<tr><th>Network Config Version</th><td>{{ network_config_version }}</td></tr>
+	<tr><th>Network Status Observation</th><td>{{ network_status_observation }}</td></tr>
+</table>
+
+<h3>History</h3>
+{{ history|safe }}
+
+{% endblock %}

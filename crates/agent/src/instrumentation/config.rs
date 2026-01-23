@@ -1,0 +1,178 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use std::ops::Deref;
+use std::sync::LazyLock;
+
+use eyre::WrapErr;
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Meter, MeterProvider};
+use opentelemetry_prometheus::ExporterBuilder;
+use opentelemetry_sdk::metrics::{
+    Aggregation, Instrument, InstrumentKind, MetricError, SdkMeterProvider, Stream, View,
+};
+use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
+use prometheus::Registry;
+
+static SINGLETON: LazyLock<InstrumentationSingleton> =
+    LazyLock::new(InstrumentationSingleton::init_for_dpu_agent);
+
+struct InstrumentationSingleton {
+    // SdkMeterProvider has an inner Arc, no need to Arc-wrap it ourselves.
+    _meter_provider: SdkMeterProvider,
+
+    // Registry has an inner Arc, no need to Arc-wrap it.
+    prometheus_registry: Registry,
+
+    // Meter has an inner Arc.
+    dpu_agent_meter: Meter,
+}
+
+impl InstrumentationSingleton {
+    // Build the standard instrumentation config for dpu-agent.
+    fn try_init_for_dpu_agent() -> eyre::Result<Self> {
+        let prometheus_registry = Registry::new();
+        let exporter = ExporterBuilder::default()
+            .with_registry(prometheus_registry.clone())
+            .without_scope_info()
+            .without_target_info()
+            .build()
+            .context("Could not build Prometheus exporter")?;
+
+        // This defines attributes that are set on the exported logs **and** metrics
+        let resource_attributes = opentelemetry_sdk::Resource::builder()
+            .with_attributes([
+                KeyValue::new(SERVICE_NAME, "dpu-agent"),
+                KeyValue::new(SERVICE_NAMESPACE, "forge-system"),
+            ])
+            .build();
+
+        let meter_provider = SdkMeterProvider::builder()
+            .with_reader(exporter)
+            .with_resource(resource_attributes)
+            .with_view(
+                create_retry_histogram_view().context("Couldn't create retry histogram View")?,
+            )
+            .with_view(
+                create_network_latency_view().context("Couldn't create network latency View")?,
+            )
+            .with_view(create_network_loss_view().context("Couldn't create network loss View")?)
+            .build();
+
+        let dpu_agent_meter = meter_provider.meter("forge-dpu-agent");
+
+        // We expect our internal users to use the interfaces inside this module,
+        // but if there are other OpenTelemetry users in our dependencies, let's
+        // make sure they pick up our provider.
+        opentelemetry::global::set_meter_provider(meter_provider.clone());
+
+        Ok(InstrumentationSingleton {
+            _meter_provider: meter_provider,
+            prometheus_registry,
+            dpu_agent_meter,
+        })
+    }
+
+    // Note that this function will panic if its inner try_ function returns
+    // an error, which is probably caused by one of its builders returning
+    // an error. We generally don't expect this to happen outside of breaking
+    // upgrades of the crates involved. There's a unit test below that should
+    // ensure it always succeeds.
+    fn init_for_dpu_agent() -> Self {
+        Self::try_init_for_dpu_agent().unwrap()
+    }
+}
+
+pub fn get_prometheus_registry() -> Registry {
+    let s = SINGLETON.deref();
+    s.prometheus_registry.clone()
+}
+
+pub fn get_dpu_agent_meter() -> Meter {
+    let s = SINGLETON.deref();
+    s.dpu_agent_meter.clone()
+}
+
+/// Configures a View for Histograms that describe retries or attempts for
+/// operations The view reconfigures the histogram to use a small set of buckets
+/// that track the exact amount of retry attempts up to 3, and 2 additional
+/// buckets up to 10. This is more useful than the default histogram range where
+/// the lowest sets of buckets are 0, 5, 10, 25
+fn create_retry_histogram_view() -> Result<Box<dyn View>, MetricError> {
+    let mut criteria = Instrument::new().name("*_(attempts|retries)_*");
+    criteria.kind = Some(InstrumentKind::Histogram);
+    let mask = Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
+        boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
+        record_min_max: true,
+    });
+    opentelemetry_sdk::metrics::new_view(criteria, mask)
+}
+
+fn create_network_latency_view() -> Result<Box<dyn View>, MetricError> {
+    opentelemetry_sdk::metrics::new_view(
+        Instrument::new().name("*_network_latency*"),
+        Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
+            boundaries: vec![
+                0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 5.0, 10.0, 100.0, 500.0, 1000.0,
+            ],
+            record_min_max: true,
+        }),
+    )
+}
+
+fn create_network_loss_view() -> Result<Box<dyn View>, MetricError> {
+    opentelemetry_sdk::metrics::new_view(
+        Instrument::new().name("*_network_loss_percentage*"),
+        Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
+            boundaries: vec![0.2, 0.4, 0.6, 0.8, 1.0],
+            record_min_max: true,
+        }),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_view_creators() {
+        // All of these calls should be infallible in practice. We don't expect
+        // errors from them outside of crate upgrade breakage.
+        let _retry_histogram_view = create_retry_histogram_view()
+            .expect("The create_retry_histogram_view() function must not fail");
+        let _network_latency_view = create_network_latency_view()
+            .expect("The create_network_latency_view() function must not fail");
+        let _network_loss_view = create_network_loss_view()
+            .expect("The create_network_loss_view() function must not fail");
+    }
+
+    #[test]
+    fn test_singleton_init_function() {
+        let _s = InstrumentationSingleton::try_init_for_dpu_agent().expect(
+            "The instrumentaion singleton's initialization function must not return an error",
+        );
+    }
+
+    #[test]
+    fn test_singletons_are_send_and_sync() {
+        // Anything we're potentially handing out singletons of will have to be
+        // Send and Sync, so let's make sure they all typecheck as such.
+        require_send_and_sync::<Registry>();
+        require_send_and_sync::<Meter>();
+        require_send_and_sync::<InstrumentationSingleton>();
+    }
+
+    fn require_send_and_sync<T>()
+    where
+        T: Send + Sync,
+    {
+    }
+}

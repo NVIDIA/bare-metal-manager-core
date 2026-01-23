@@ -1,0 +1,58 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::time::Duration;
+
+use common::api_fixtures::create_test_env;
+use rpc::forge::forge_server::Forge;
+use tracing_subscriber::filter::EnvFilter;
+
+use crate::tests::common;
+
+#[crate::sqlx_test]
+async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = create_test_env(db_pool.clone()).await;
+    // Real env does this in api/lib.rs::run
+    env.api
+        .dynamic_settings
+        .start_reset_task(Duration::from_millis(300));
+
+    // 1. It's correct when we start
+    // This is actually set in TestEnv so not especially useful check, but we need it later
+    let local = EnvFilter::builder()
+        .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
+        .unwrap()
+        .to_string();
+    let base = env.api.log_filter_string();
+    assert_eq!(local, base, "Startup log filter does not match RUST_LOG");
+
+    // 2. set_log_filter changes it correctly
+    let req = rpc::forge::SetDynamicConfigRequest {
+        setting: rpc::forge::ConfigSetting::LogFilter.into(),
+        value: "trace".to_string(),
+        expiry: Some("500ms".to_string()),
+    };
+    env.api.set_dynamic_config(tonic::Request::new(req)).await?;
+    let current = env.api.log_filter_string();
+    // it should be something like: "trace until 2024-03-27 18:20:33.723829221 UTC"
+    assert!(
+        current.starts_with("trace until "),
+        "set_log_filter did not update log to expected"
+    );
+
+    // 3. After 'expiry' it automatically reverts
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let base = env.api.log_filter_string();
+    assert_eq!(local, base, "Expiry task did not revert log filter");
+
+    Ok(())
+}

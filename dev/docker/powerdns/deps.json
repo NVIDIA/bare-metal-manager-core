@@ -1,0 +1,15 @@
+{
+    "runtime_dependencies": [
+        "libyaml-cpp0.7",
+        "libluajit-5.1-2",
+        "librtmp1",
+        "libssh2-1",
+        "libpsl5",
+        "libbrotli1",
+        "libldap-2.5-0",
+        "libsasl2-2",
+        "libcurl4",
+        "libboost-serialization1.74.0",
+        "libboost-program-options1.74.0"
+    ]
+}

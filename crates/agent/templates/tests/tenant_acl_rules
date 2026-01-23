@@ -1,0 +1,23 @@
+# This file is managed by the Forge DPU agent.
+
+[iptables]
+# Allow associated VPC prefixes for tenant interface pf0hpf_if
+-A FORWARD -i pf0hpf_if -d 10.217.5.160/30 -j ACCEPT
+-A FORWARD -i pf0hpf_if -d 10.217.5.168/29 -j ACCEPT
+# Drop traffic to deny_prefix list for tenant interface pf0hpf_if
+-A FORWARD -i pf0hpf_if -d 10.217.0.0/16 -j DROP
+-A FORWARD -i pf0hpf_if -d 192.0.2.0/24 -j DROP
+-A FORWARD -i pf0hpf_if -d 198.51.100.0/24 -j DROP
+# Allow associated VPC prefixes for tenant interface pf0vf0_if
+-A FORWARD -i pf0vf0_if -d 10.217.5.160/30 -j ACCEPT
+-A FORWARD -i pf0vf0_if -d 10.217.5.168/29 -j ACCEPT
+# Drop traffic to deny_prefix list for tenant interface pf0vf0_if
+-A FORWARD -i pf0vf0_if -d 10.217.0.0/16 -j DROP
+-A FORWARD -i pf0vf0_if -d 192.0.2.0/24 -j DROP
+-A FORWARD -i pf0vf0_if -d 198.51.100.0/24 -j DROP
+# Block access to nvued API
+-A INPUT -p tcp --dport 8765 -j DROP
+
+[ebtables]
+# Suppress ARP packets before they get encapsulated.
+-A OUTPUT -o vxlan48 -p ARP -j DROP

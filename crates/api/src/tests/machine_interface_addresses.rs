@@ -1,0 +1,73 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::net::IpAddr;
+use std::str::FromStr;
+
+use ipnetwork::IpNetwork;
+use mac_address::MacAddress;
+use model::address_selection_strategy::AddressSelectionStrategy;
+use model::network_prefix::NewNetworkPrefix;
+use model::network_segment::{
+    NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
+};
+
+use crate::tests::common::api_fixtures::create_test_env;
+
+#[crate::sqlx_test]
+async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
+    let domain = db::dns::domain::find_by_name(&mut txn, "dwrt1.com")
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+
+    let new_ns = NewNetworkSegment {
+        name: "PDX01-M01-H14-IPMITOR-01".to_string(),
+        // domain id from tests/fixtures/create_domain.sql
+        subdomain_id: Some(domain.id),
+        vpc_id: None,
+        mtu: 1490,
+        prefixes: vec![NewNetworkPrefix {
+            prefix: IpNetwork::V4("192.168.0.0/24".parse().unwrap()),
+            gateway: Some(IpAddr::V4("192.168.0.1".parse().unwrap())),
+            num_reserved: 14,
+        }],
+        vlan_id: None,
+        vni: None,
+        segment_type: NetworkSegmentType::Underlay,
+        id: uuid::uuid!("f9860f19-37d5-44f6-b637-84de4648cd39").into(),
+        can_stretch: None,
+    };
+    let network_segment =
+        db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
+            .await?;
+    // An interface that isn't attached to a Machine. This is what BMC interfaces are.
+    let interface = db::machine_interface::create(
+        &mut txn,
+        &network_segment,
+        &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
+        Some(domain.id),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await?;
+    let bmc_ip = interface.addresses.iter().find(|x| x.is_ipv4()).copied();
+    assert!(bmc_ip.is_some());
+    let res = db::machine_interface_address::find_by_address(&mut txn, bmc_ip.unwrap()).await?;
+    assert!(res.is_some());
+    assert_eq!(res.unwrap().id, interface.id);
+
+    Ok(())
+}

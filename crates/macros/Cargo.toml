@@ -1,0 +1,31 @@
+[package]
+name = "carbide-macros"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "carbide_macros"
+proc-macro = true
+
+[dependencies]
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+] }
+sqlx-macros-core = { workspace = true }
+syn = { workspace = true }
+quote = { default-features = false, workspace = true }
+eyre = { workspace = true }
+proc-macro2 = { features = ["proc-macro"], workspace = true }
+
+[lints]
+workspace = true

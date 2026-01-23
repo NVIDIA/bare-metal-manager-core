@@ -1,0 +1,97 @@
+# Default machine-a-tron configuration. Default options are commented out.
+
+# It is recommended you copy this file somewhere else and edit it, as many
+# config options (like IP addresses and interface) are specific to different
+# environments, and the default config will likely not work for anyone.
+
+carbide_api_url = "https://carbide-api.forge:443"
+
+# tui_enabled enables a TUI view of machine-a-tron. If set to true, you need to
+# specify log_file to redirect logs.
+#
+# tui_enabled = true
+
+# Logs will be written here, because machine-a-tron shows a TUI by default. You
+# can omit this if tui_enabled = false
+log_file = "/tmp/mat.log"
+
+# Network interface to bind to when creating addresses for BMC mocks. BMC mocks
+# will be configured with whatever IP address carbide assigns them, so they will
+# assign new addresses to this interface via `ip address add`.
+interface = "cni0"
+
+# Set this to false if you want machine-a-tron to make real DHCP requests over
+# UDP to the configured DHCP relays. If set to true, it will use the carbide API
+# to simulate DHCP requests.
+#
+# use_dhcp_api = true
+
+# Set use_pxe_api to true if you want to avoid running a PXE server and instead
+# have machine-a-tron use the carbide API to simulate PXE requests.
+# pxe_server_host and pxe_server_port can be omitted if use_pxe_api=true.
+#
+use_pxe_api = false
+
+# pxe_server_{host,port} should point at a running PXE server, generally the
+# address of the carbide-pxe-external service in kubernetes. These must be set
+# if use_pxe_api = true
+pxe_server_host = "192.168.1.77"
+pxe_server_port = "8080"
+
+# bmc_mock_host_tar configures default mocked data for BMC-mock to use for host
+# machines in machine-a-tron. Path is relative to REPO_ROOT.  Defaults to data
+# captured from a dell server (check `default_bmc_mock_host_tar` in config.rs).
+#
+# bmc_mock_host_tar = "dev/bmc-mock/dell_poweredge_r750.tar.gz"
+
+# bmc_mock_dpu_tar configures default mocked data for BMC-mock to use for dpu
+# machines in machine-a-tron. Path is relative to REPO_ROOT.  Defaults to data
+# captured from a real DPU.
+#
+# bmc_mock_dpu_tar = "dev/bmc-mock/nvidia_dpu.tar.gz"
+
+# Port to listen on for running bmc-mock instances for each host/DPU. We use a
+# nonstandard port to avoid needing to run as root. Note: This must correspond
+# with the value of the site_explorer.override_target_port option in carbide's
+# site-config.toml to work, otherwise carbide will use port 443 to contact the
+# mock BMC instances. Alternatively, you can leave this at 443 and use `sysctl
+# net.ipv4.ip_unprivileged_port_start=0` to allow non-root users to bind to
+# port 443.
+#
+bmc_mock_port = 2000
+
+# Set this to "sudo" or "doas" if you're not running this as root. This allows
+# the DHCP mocks to bind to interfaces in the assigned IP range. Must be
+# configured to run without a password.
+#
+# sudo_command = "/usr/bin/sudo" # default: not set, will require root
+
+[machines.config]
+host_count = 3
+vpc_count = 10
+dpu_per_host_count = 1
+subnets_per_vpc = 2
+boot_delay = 10
+dpu_reboot_delay = 20  # in units of seconds
+host_reboot_delay = 20 # in units of seconds
+
+# These addresses must correspond to subnets defined in your
+# carbide-api-site-config.toml. Nothing actually binds to these addresses, it is
+# only used for filling in gateway/relay fields in the DHCP request object
+# (which carbide uses to determine what network the request came from.)
+oob_dhcp_relay_address = "192.168.2.1"
+admin_dhcp_relay_address = "192.164.0.1"
+
+# Configures the location of some JSON templates machine-a-tron uses as a basis
+# for mocking certain data. There is no reason to change this from the default.
+#
+# template_dir = "dev/machine-a-tron/templates"
+
+# Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the bmc_proxy host through the
+# dynamic configuration API. (this will be combined with bmc_mock_port to form a host:port pair.) This is useful if you
+# want to attach machine-a-tron to a carbide instance that isn't already preconfigured to speak to it.
+#
+# If the carbide API server is not configured to allow overriding this config, it will not work and machine-a-tron will
+# emit a warning.
+#
+# configure_carbide_bmc_proxy_host = <some IP or hostname>

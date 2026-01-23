@@ -1,0 +1,10 @@
+#!ipxe
+
+# if carbide_static_pxe_url is configured in the environment, static_pxe_url
+# will use that url. Otherwise, carbide_static_pxe_url will be the same as carbide_pxe_url.
+
+set base-url {{ static_pxe_url }}/public/blobs/
+set cloudinit-url {{ pxe_url }}/api/v0/cloud-init/
+
+{{ ipxe }}
+

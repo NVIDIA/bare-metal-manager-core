@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}VPC Detail{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>VPC Detail</h1>
+
+<table class="detailsview">
+	<tr><th>Id</th><td>{{ id }}</td></tr>
+	<tr><th>Tenant</th><td><a href="/admin/tenant/{{ tenant_organization_id }}">{{ tenant_organization_id }}</a></td></tr>
+	<tr><th>Keyset ID</th><td><a href="/admin/tenant_keyset/{{ tenant_organization_id }}/{{ tenant_keyset_id }}">{{ tenant_keyset_id }}</a></td></tr>
+	<tr><th>Network Virtualization</th><td>{{ network_virtualization_type }}</td></tr>
+	<tr><th>VNI</th><td>{{ vni }}</td></tr>
+	<tr><th>Version</th><td>{{ version }}</td></tr>
+</table>
+
+<h2>Metadata</h2>
+<table class="detailsview">
+	<tr><th>Name</th><td>{{ metadata.name }}</td></tr>
+	<tr><th>Description</th><td>{{ metadata.description }}</td></tr>
+	<tr><th>Labels</th><td>{{ metadata.labels|label_list_fmt(false)|safe }}</td></tr>
+</table>
+
+{% endblock %}

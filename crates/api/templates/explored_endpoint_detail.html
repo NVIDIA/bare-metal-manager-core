@@ -1,0 +1,496 @@
+{% extends "base.html" %}
+
+{% block title %}Explored Endpoint {{ endpoint.address }}{% endblock %}
+
+{% block content %}
+<div id="json">
+    {% if has_machine %}
+    <a id="delete-link" class="disabled" href="#" onclick="return false;">Delete</a>
+    {% else %}
+    <a id="delete-link" href="#" onclick="if(confirm('Are you sure you want to delete this endpoint?')) { document.getElementById('delete-form').submit(); } return false;">Delete</a>
+    {% endif %}
+    <a id="logs-link" href="" target="_blank">Logs</a>
+    <a id="json-link" href="">JSON</a>
+</div>
+
+<form id="delete-form" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/delete" hidden>
+</form>
+
+<h1>Endpoint {{ endpoint.address }}</h1>
+
+<!-- Tab Navigation -->
+<div class="tab-nav">
+	<button class="tab-button active" data-tab="overview">Overview</button>
+	{% match endpoint.report %}
+	{% when Some with (report) %}
+	<button class="tab-button" data-tab="systems">Systems</button>
+	<button class="tab-button" data-tab="managers">Managers</button>
+	<button class="tab-button" data-tab="chassis">Chassis</button>
+	<button class="tab-button" data-tab="services">Services</button>
+	{% else %}
+	{% endmatch %}
+	<div class="tab-indicator"></div>
+</div>
+
+<!-- Overview Tab -->
+<div class="tab-content active" id="tab-overview">
+	<table class="detailsview">
+		<tr>
+			<th>Address</th>
+			<td class="action-cell">
+				<div>
+					{{ endpoint.address }}
+				</div>
+				<div>
+					<form method="GET" action="/admin/redfish-browser">
+						<input type="hidden" name="url" value="https://{{ endpoint.address }}/redfish/v1">
+						<input type="submit" value="Redfish Browser">
+					</form>
+				</div>
+			</td>
+		</tr>
+		{% match endpoint.report %}
+		{% when Some with (report) %}
+		<tr><th>Endpoint Type</th><td>{{ report.endpoint_type }}</td></tr>
+		<tr><th>Vendor</th><td>{% match report.vendor %}{% when Some with (vendor) %} {{ vendor|capitalize }} {% else %}{% endmatch %}</td></tr>
+		<tr>
+			<th title="The MachineId that is calculated based on exploration data">Derived Machine ID</th>
+			<td>{% match report.machine_id %}{% when Some with (machine_id) %} {{ machine_id|machine_id_link|safe }} {% else %}{% endmatch %}</td>
+		</tr>
+		<tr>
+			<th>Last Exploration Latency</th>
+			<td>{% match report.last_exploration_latency %}{% when Some with (latency) %}{{ latency.seconds }}s{% else %}{% endmatch %}</td>
+		</tr>
+		{% else %}
+		{% endmatch %}
+		<tr><th>Preingestion State</th><td><span class="bubble">{{ endpoint.preingestion_state }}</span></td></tr>
+		<tr><th>Report Version</th><td style="display: flex; align-items: center; gap: 1rem;">
+			<span>{{ endpoint.report_version|config_version|safe }}</span>
+			{% if has_exploration_error %}
+			<span class="bubble error">Error while exploring endpoint, report may be outdated</span>
+			{% else %}
+			<span class="bubble">Last updated {{ report_age }} ago</span>
+			{% endif %}
+		</td></tr>
+	</table>
+
+	<h2>Actions</h2>
+	<table class="detailsview">
+		{% if has_exploration_error %}
+		<tr>
+			<th>Last Exploration Error</th>
+			<td class="action-cell">
+				<div style="overflow: auto;">
+					<pre><code class="prettyjson">{{ last_exploration_error }}</code></pre>
+				</div>
+				<div style="margin-left: 1rem;">
+					<form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-last-error">
+						<input type="submit" value="Clear">
+					</form>
+				</div>
+			</td>
+		</tr>
+		{% endif %}
+		<tr>
+			<th>Exploration Requested</th>
+			<td class="action-cell">
+				<div><span class="bubble {% if endpoint.exploration_requested %}warning{% endif %}">{{ endpoint.exploration_requested }}</span></div>
+				{% if !endpoint.exploration_requested %}
+				<div>
+					<form id="reexplore_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/reexplore">
+						<input type="hidden" name="if_version_match" value="{{ endpoint.report_version }}"/>
+						<input type="submit" value="Request re-exploration">
+					</form>
+				</div>
+				{% endif %}
+			</td>
+		</tr>
+		<tr>
+			<th>Power Actions</th>
+			<td class="action-cell">
+				<div>
+					Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
+					<br>
+					Last Redfish BMC Powercycle: {{ endpoint.last_redfish_powercycle }}
+				</div>
+				<div>
+					{% set bmc_ip = endpoint.address.clone() %}
+					{% include "power_control.html" %}
+				</div>
+			</td>
+		</tr>
+		<tr>
+			<th>BMC Actions</th>
+			<td class="action-cell">
+				<div>
+					Last Redfish BMC Reset: {{ endpoint.last_redfish_bmc_reset }}
+					<br>
+					Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
+				</div>
+				<div>
+					{% set bmc_ip = endpoint.address.clone() %}
+					{% include "bmc_reset.html" %}
+				</div>
+			</td>
+		</tr>
+		<tr>
+			<th>Machine Setup</th>
+			<td class="action-cell">
+				<div>
+					<span class="bubble {% if machine_setup_status == "OK" %}success{% else %}error{% endif %}">{{ machine_setup_status }}</span>
+				</div>
+						<div>
+				<form id="machine_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/machine-setup">
+					<div style="display: flex; gap: 8px; align-items: center;">
+						{% if is_dell_endpoint %}
+						<input type="text" id="boot_interface_mac" name="boot_interface_mac" 
+							   placeholder="Boot Interface MAC"
+							   title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
+							   required>
+						{% endif %}
+						<input type="submit" value="Machine Setup" class="disabled">
+					</div>
+				</form>
+
+			</div>
+			</td>
+		</tr>
+		<tr>
+			<th>Configuration</th>
+			<td>
+				<div class="config-cards-grid">
+					<!-- Credentials Card -->
+					<div class="config-card">
+						<div class="config-card-header">
+							<div class="config-card-title">Credentials</div>
+							<span class="bubble {% if credentials_set == "Configured" %}success{% else %}error{% endif %}">{{ credentials_set }}</span>
+						</div>
+						<form id="clear_credentials" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-credentials" class="config-card-action">
+							<div class="config-card-reminder">Deletes credentials from vault.</div>
+							<input type="submit" class="delete-button" value="Clear Credentials">
+						</form>
+					</div>
+					{% if !has_machine %}
+					<!-- Remediation Card -->
+					<div class="config-card">
+						<div class="config-card-header">
+							<div class="config-card-title">Remediation</div>
+							<span class="bubble {% if pause_remediation %}warning{% else %}success{% endif %}">
+								{% if pause_remediation %}Paused{% else %}Active{% endif %}
+							</span>
+						</div>
+						{% if pause_remediation %}
+						<form id="resume_remediation" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/pause-remediation" class="config-card-action">
+							<div class="config-card-reminder">Allows auto BMC resets.</div>
+							<input type="hidden" name="pause" value="false"/>
+							<input type="submit" value="Resume Remediation">
+						</form>
+						{% else %}
+						<form id="pause_remediation" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/pause-remediation" class="config-card-action">
+							<div class="config-card-reminder">Prevents auto BMC resets.</div>
+							<input type="hidden" name="pause" value="true"/>
+							<input type="submit" value="Pause Remediation" class="warning-button">
+						</form>
+						{% endif %}
+					</div>
+					{% endif %}
+					<!-- Secure Boot Card -->
+					<div class="config-card">
+						<div class="config-card-header">
+						<div class="config-card-title">Secure Boot</div>
+						<span class="bubble
+						{% if secure_boot_status == "Disabled" %}
+							success
+						{% else if secure_boot_status == "Unknown" %}
+						{% else %}
+							error
+						{% endif %}
+						">{{ secure_boot_status }}</span>
+						</div>
+						<form id="disable_secure_boot" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-secure-boot" class="config-card-action">
+							<div class="config-card-reminder">Reboot required to take effect.</div>
+							<input type="submit" value="Disable Secure Boot" class="{% if secure_boot_status == "Unknown" %}disabled{% endif %}" {% if secure_boot_status == "Unknown" %}onclick="return false;"{% endif %}>
+						</form>
+					</div>
+					<!-- Lockdown Card -->
+					<div class="config-card">
+						<div class="config-card-header">
+							<div class="config-card-title">Lockdown</div>
+						<span class="bubble
+						{% if lockdown_status == "Enabled" %}
+							success
+						{% else if lockdown_status == "Partial" %}
+							warning
+						{% else if lockdown_status == "Unknown" %}
+						{% else %}
+							error
+						{% endif %}
+						">{{ lockdown_status }}</span>
+						</div>
+						{% if lockdown_status == "Disabled" %}
+						<form id="enable_lockdown" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/enable-lockdown" class="config-card-action">
+							<div class="config-card-reminder">Reboot required to take effect.</div>
+							<input type="submit" value="Enable Lockdown">
+						</form>
+						{% else %}
+						<form id="disable_lockdown" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-lockdown" class="config-card-action">
+							<div class="config-card-reminder">Reboot required to take effect.</div>
+							<input type="submit" value="Disable Lockdown" class="{% if lockdown_status == "Unknown" %}disabled{% endif %}" {% if lockdown_status == "Unknown" %}onclick="return false;"{% endif %}>
+						</form>
+						{% endif %}
+					</div>
+				</div>
+			</td>
+		</tr>
+		
+	</table>
+
+	</div>
+
+{% match endpoint.report %}
+{% when Some with (report) %}
+
+<!-- Systems Tab -->
+<div class="tab-content" id="tab-systems">
+	{% for system in report.systems %}
+	<table class="detailsview" style ="table-layout: fixed;">
+		<tr><th>ID</th><td>{{ system.id }}</td></tr>
+		<tr><th>Manufacturer</th><td>{{ system.manufacturer|option_fmt }}</td></tr>
+		<tr><th>Model</th><td>{{ system.model|option_fmt }}</td></tr>
+		<tr><th>Serial Number</th><td>{{ system.serial_number|option_fmt }}</td></tr>
+		<tr><th>Power State</th><td>{{ "{:?}"|format(system.power_state()) }}</td></tr>
+		<tr>
+			<th>Boot Order</th>
+			<td>
+				<div style="margin-bottom: 12px;">
+					<form id="set_first_boot_order" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/set-dpu-first-boot-order" onsubmit="reminder(event)">
+						<div style="display: flex; gap: 8px; align-items: center;">
+							<input type="text" name="boot_interface_mac" 
+								   placeholder="Boot Interface MAC"
+								   title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
+								   style="width: 200px;"
+								   required>
+							<input type="submit" value="Set First">
+							{% include "restart_reminder.html" %}
+						</div>
+					</form>
+				</div>
+				<div style="max-height: 300px; overflow: auto;">
+					<pre><code>{{ system.boot_order|boot_order_fmt }}</code></pre>
+				</div>
+			</td>
+		</tr>
+		<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
+			<table>
+				<thead>
+					<tr>
+						<th>ID</th>
+						<th>MAC</th>
+						<th>Enabled</th>
+						<th>Description</th>
+					</tr>
+				</thead>
+				<tbody>
+				{% for iface in system.ethernet_interfaces %}
+					<tr>
+						<td>{{ iface.id|option_fmt }}</td>
+						<td>{{ iface.mac_address|option_fmt }}</td>
+						<td>{{ iface.interface_enabled|option_fmt }}</td>
+						<td>{{ iface.description|option_fmt }}</td>
+					</tr>
+				{% endfor %}
+				</tbody>
+			</table>
+		</td></tr>
+		<tr>
+			<th>PCIe Devices</th>
+			<td style="padding: 0;">
+				<div style="overflow-x: auto;">
+					<table>
+						<thead>
+							<tr>
+								<th>ID</th>
+								<th>Name</th>
+								<th>Manufacturer</th>
+								<th>Description</th>
+								<th>Firmware Version</th>
+								<th>GPU Vendor</th>
+								<th>Part Number</th>
+								<th>Serial Number</th>
+							</tr>
+						</thead>
+						<tbody>
+							{% for pci in system.pcie_devices %}
+							<tr>
+								<td>{{ pci.id|option_fmt }}</td>
+								<td>{{ pci.name|option_fmt }}</td>
+								<td>{{ pci.manufacturer|option_fmt }}</td>
+								<td>{{ pci.description|option_fmt }}</td>
+								<td>{{ pci.firmware_version|option_fmt }}</td>
+								<td>{{ pci.gpu_vendor|option_fmt }}</td>
+								<td>{{ pci.part_number|option_fmt }}</td>
+								<td>{{ pci.serial_number|option_fmt }}</td>
+							</tr>
+							{% endfor %}
+						</tbody>
+					</table>
+				</div>
+			</td>
+		</tr>
+	</table>
+	{% endfor %}
+</div>
+
+<!-- Managers Tab -->
+<div class="tab-content" id="tab-managers">
+	{% for manager in report.managers %}
+	<table class="detailsview">
+		<tr><th>ID</th><td>{{ manager.id }}</td></tr>
+		<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
+			<table>
+				<thead>
+					<tr>
+						<th>ID</th>
+						<th>MAC</th>
+						<th>Enabled</th>
+						<th>Description</th>
+					</tr>
+				</thead>
+				<tbody>
+				{% for iface in manager.ethernet_interfaces %}
+					<tr>
+						<td>{{ iface.id|option_fmt }}</td>
+						<td>{{ iface.mac_address|option_fmt }}</td>
+						<td>{{ iface.interface_enabled|option_fmt }}</td>
+						<td>{{ iface.description|option_fmt }}</td>
+					</tr>
+				{% endfor %}
+				</tbody>
+			</table>
+		</td></tr>
+	</table>
+	{% endfor %}
+</div>
+
+<!-- Chassis Tab -->
+<div class="tab-content" id="tab-chassis">
+	{% for chassis in report.chassis %}
+	<table class="detailsview">
+		<tr><th>ID</th><td>{{ chassis.id }}</td></tr>
+		<tr><th>Manufacturer</th><td>{{ chassis.manufacturer|option_fmt }}</td></tr>
+		<tr><th>Model</th><td>{{ chassis.model|option_fmt }}</td></tr>
+		<tr><th>Serial Number</th><td>{{ chassis.serial_number|option_fmt }}</td></tr>
+		<tr><th>Part Number</th><td>{{ chassis.part_number|option_fmt }}</td></tr>
+		<tr><th>Network Adapters</th><td style="padding: 0;">
+			<table>
+				<thead>
+					<tr>
+						<th>ID</th>
+						<th>Manufacturer</th>
+						<th>Model</th>
+						<th>Part Number</th>
+						<th>Serial Number</th>
+					</tr>
+				</thead>
+				<tbody>
+				{% for iface in chassis.network_adapters %}
+					<tr>
+						<td>{{ iface.id }}</td>
+						<td>{{ iface.manufacturer|option_fmt }}</td>
+						<td>{{ iface.model|option_fmt }}</td>
+						<td>{{ iface.part_number|option_fmt }}</td>
+						<td>{{ iface.serial_number|option_fmt }}</td>
+					</tr>
+				{% endfor %}
+				</tbody>
+			</table>
+		</td></tr>
+	</table>
+	{% endfor %}
+</div>
+
+<!-- Services Tab -->
+<div class="tab-content" id="tab-services">
+	{% for service in report.service %}
+	<table class="detailsview">
+		<tr><th>ID</th><td>{{ service.id }}</td></tr>
+		<tr><th>Inventory</th><td style="padding: 0;">
+			<table>
+				<thead>
+					<tr>
+						<th>ID</th>
+						<th>Version</th>
+						<th>Release Date</th>
+						<th>Description</th>
+					</tr>
+				</thead>
+				<tbody>
+				{% for item in service.inventories %}
+					<tr>
+						<td>{{ item.id }}</td>
+						<td>{{ item.version|option_fmt }}</td>
+						<td>{{ item.release_date|option_fmt }}</td>
+						<td>{{ item.description|option_fmt }}</td>
+					</tr>
+				{% endfor %}
+				</tbody>
+			</table>
+		</td></tr>
+	</table>
+	{% endfor %}
+</div>
+
+<script>
+// tab switching with a sliding indicator
+document.addEventListener('DOMContentLoaded', function() {
+	const nav = document.querySelector('.tab-nav');
+	const indicator = document.querySelector('.tab-indicator');
+	const contents = document.querySelectorAll('.tab-content');
+
+	function moveIndicator(button) {
+		if (!indicator || !button) return;
+		indicator.style.width = button.offsetWidth + 'px';
+		indicator.style.transform = `translateX(${button.offsetLeft}px)`;
+	}
+
+	function setActive(button) {
+		const currentBtn = nav.querySelector('.tab-button.active');
+		if (currentBtn) currentBtn.classList.remove('active');
+		button.classList.add('active');
+
+		const currentContent = document.querySelector('.tab-content.active');
+		if (currentContent) currentContent.classList.remove('active');
+		const targetId = 'tab-' + button.getAttribute('data-tab');
+		const nextContent = document.getElementById(targetId);
+		if (nextContent) nextContent.classList.add('active');
+
+		moveIndicator(button);
+	}
+
+	// Initialize on first or existing active button
+	const initial = nav.querySelector('.tab-button.active') || nav.querySelector('.tab-button');
+	if (initial) moveIndicator(initial);
+
+	// Event delegation for all tab buttons
+	nav.addEventListener('click', function(e) {
+		const button = e.target.closest('.tab-button');
+		if (!button || !nav.contains(button)) return;
+		setActive(button);
+	});
+
+	// Keep indicator aligned on resize
+	window.addEventListener('resize', function() {
+		moveIndicator(nav.querySelector('.tab-button.active'));
+	});
+
+	// Set up Logs link
+	const bmcIp = "{{ endpoint.address }}";
+	document.getElementById('logs-link').href = buildGrafanaLogsUrl(bmcIp);
+});
+</script>
+
+{% else %}
+{% endmatch %}
+
+{% endblock %}
+

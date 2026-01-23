@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: carbide-ntp
+  namespace: default
+spec:
+  serviceName: carbide-ntp
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: carbide-ntp
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - carbide-ntp
+                topologyKey: "kubernetes.io/hostname"
+      containers:
+        - name: chrony
+          image: 'dockurr/chrony:latest'
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 123
+              protocol: UDP
+          env:
+            - name: NTP_SERVERS
+              value: "time1.google.com,time2.google.com,time3.google.com,time4.google.com,carbide-ntp-1.carbide-ntp.forge-system.svc.cluster.local,carbide-ntp-2.carbide-ntp.forge-system.svc.cluster.local,carbide-ntp-3.carbide-ntp.forge-system.svc.cluster.local"
+            - name: NTP_DIRECTIVES
+              value: "ratelimit"

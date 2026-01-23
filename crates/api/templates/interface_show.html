@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Machine Interfaces{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>Machine Interfaces</h1>
+<table class="sortable overview">
+	<thead>
+	<tr>
+		<th>ID</th>
+		<th>MAC Address</th>
+		<th>IP Address</th>
+		<th>Machine ID</th>
+		<th>Hostname</th>
+		<th>Vendor</th>
+		<th>Domain Name</th>
+	</tr>
+	</thead>
+	<tbody>
+	{% for iface in interfaces %}
+		<tr>
+			<td><a href="/admin/interface/{{ iface.id }}">{{ iface.id }}</a></td>
+			<td>{{ iface.mac_address }}</td>
+			<td>{{ iface.ip_address }}</td>
+			<td>{{ iface.machine_id|machine_id_link|safe }}</td>
+			<td>{{ iface.hostname }}</td>
+			<td>{{ iface.vendor }}</td>
+			<td>{{ iface.domain_name }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+{% endblock %}

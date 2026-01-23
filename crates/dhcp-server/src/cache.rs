@@ -1,0 +1,126 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+/// Cache DHCP responses from API server
+///
+/// We usually get about four DHCP requests from the same host in rapid succession, so this
+/// prevents us asking the API server every time. Cache is optional, and contents should
+/// be short lived.
+///
+use std::{
+    net::IpAddr,
+    time::{Duration, Instant},
+};
+
+use lru::LruCache;
+use rpc::forge::DhcpRecord;
+
+/// Data in cache is only valid this long
+const MACHINE_CACHE_TIMEOUT: Duration = Duration::from_secs(60);
+/// How many entries to keep. After that we evict the entry used the longest ago.
+pub const MACHINE_CACHE_SIZE: usize = 1000;
+/// If the cache key comes out shorter than this something went wrong, don't use it.
+const MIN_KEY_LEN: usize = 10;
+
+#[derive(Debug, Clone)]
+pub struct CacheEntry {
+    pub dhcp_record: DhcpRecord,
+    pub timestamp: Instant,
+}
+
+/// Fetch an entry from the cache.
+///
+/// Result is owned by the caller, it is a clone of cached item.
+/// Takes a global lock on the cache.
+/// Returns None if we don't have that item in cache, or if we did but
+/// it's no longer valid (e.g. too old).
+pub fn get(
+    mac_address: &str,
+    link_address: IpAddr,
+    circuit_id: &Option<String>,
+    remote_id: &Option<String>,
+    vendor_id: &str,
+    cache: &mut LruCache<String, CacheEntry>,
+) -> Option<CacheEntry> {
+    let key = &key(mac_address, link_address, circuit_id, remote_id, vendor_id);
+    if key.len() < MIN_KEY_LEN {
+        tracing::debug!("Unexpected cache key, skipping: '{key}'");
+        return None;
+    }
+    if let Some(entry) = cache.get(key) {
+        if !entry.has_expired() {
+            return Some(entry.clone());
+        } else {
+            tracing::debug!("removed expired cached response for {mac_address:?}");
+            let _removed = cache.pop_entry(key);
+        }
+    }
+    None
+}
+
+/// Insert or update an item in the cache
+pub fn put(
+    mac_address: &str,
+    link_address: IpAddr,
+    circuit_id: Option<String>,
+    remote_id: Option<String>,
+    vendor_id: &str,
+    dhcp_record: DhcpRecord,
+    machine_cache: &mut LruCache<String, CacheEntry>,
+) {
+    let key = key(
+        mac_address,
+        link_address,
+        &circuit_id,
+        &remote_id,
+        vendor_id,
+    );
+    let new_entry = CacheEntry {
+        timestamp: Instant::now(),
+        dhcp_record,
+    };
+    machine_cache.put(key, new_entry);
+}
+
+//
+// Internals
+//
+
+// Unique identifier for this entry
+fn key(
+    mac_address: &str,
+    link_address: IpAddr,
+    circuit_id: &Option<String>,
+    remote_id: &Option<String>,
+    vendor_id: &str,
+) -> String {
+    format!(
+        "{}_{}_{}_{}_{}",
+        mac_address,
+        link_address,
+        match circuit_id {
+            Some(cid) => cid.as_str(),
+            None => "",
+        },
+        match remote_id {
+            Some(rid) => rid.as_str(),
+            None => "",
+        },
+        vendor_id,
+    )
+}
+
+impl CacheEntry {
+    fn has_expired(&self) -> bool {
+        self.timestamp.elapsed() >= MACHINE_CACHE_TIMEOUT
+    }
+}

@@ -1,0 +1,22 @@
+[package]
+name = "carbide-health-report"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "health_report"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { features = ["serde"], workspace = true }
+thiserror = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

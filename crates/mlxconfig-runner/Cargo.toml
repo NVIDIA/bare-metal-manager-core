@@ -1,0 +1,28 @@
+[package]
+name = "carbide-mlxconfig-runner"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Pulls together the mlxconfig-{registry,variables} crates to safely execute mlxconfig commands."
+
+[lib]
+name = "mlxconfig_runner"
+
+[dependencies]
+carbide-mlxconfig-device = { path = "../mlxconfig-device" }
+carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
+carbide-rpc = { path = "../rpc" }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+uuid = { features = ["v4"], workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+backon = { workspace = true }
+wait-timeout = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+serde_json = { workspace = true }

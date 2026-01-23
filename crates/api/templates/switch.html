@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Switches{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col">
+            <h1>Switches</h1>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Switches</h5>
+                </div>
+                <div class="card-body">
+                    {% if !switches.is_empty() %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>State</th>
+                                <th>Location</th>
+                                <th>Actions</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for switch in switches %}
+                            <tr>
+                                <td>{{ switch.id }}</td>
+                                <td>{{ switch.name }}</td>
+                                <td>{{ switch.state }}</td>
+                                <td>{{ switch.location }}</td>
+                                <td>
+                                    <a href="/admin/switch/{{ switch.id }}/state-history"
+                                       class="btn btn-sm btn-outline-primary">
+                                        State History
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No switches found.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

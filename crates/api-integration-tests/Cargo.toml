@@ -1,0 +1,36 @@
+[package]
+name = "carbide-api-integration-tests"
+version = "0.0.0"
+edition.workspace = true
+description = "Integration tests for carbide-api"
+license.workspace = true
+authors.workspace = true
+
+[dev-dependencies]
+# [local-dependencies]
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
+carbide-machine-a-tron = { path = "../machine-a-tron" }
+carbide-utils = { path = "../utils", features = ["sqlx"] }
+carbide-api-test-helper = { path = "../api-test-helper" }
+bmc-mock = { path = "../bmc-mock" }
+# DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
+
+#these are alphabetized
+askama_escape = { workspace = true }
+ctor = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["postgres"] }
+temp-dir = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+#these are alphabetized
+
+[lints]
+workspace = true
+
+[features]
+default = ["linux-build"]
+linux-build = ["carbide-api-test-helper/linux-build"]

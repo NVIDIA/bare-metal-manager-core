@@ -1,0 +1,178 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::sync::Arc;
+
+use askama::Template;
+use axum::Json;
+use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::response::{Html, IntoResponse, Response};
+use hyper::http::StatusCode;
+use rpc::forge as forgerpc;
+use rpc::forge::forge_server::Forge;
+
+use super::filters;
+use crate::api::Api;
+
+#[derive(Template)]
+#[template(path = "tenant_show.html")]
+struct TenantShow {
+    tenants: Vec<TenantDisplay>,
+}
+
+struct TenantDisplay {
+    organization_id: String,
+    routing_profile_type: String,
+    metadata: rpc::forge::Metadata,
+    version: String,
+}
+
+impl From<forgerpc::Tenant> for TenantDisplay {
+    fn from(tenant: forgerpc::Tenant) -> Self {
+        Self {
+            routing_profile_type: if tenant.routing_profile_type.is_none() {
+                "None"
+            } else {
+                tenant.routing_profile_type().as_str_name()
+            }
+            .to_string(),
+            organization_id: tenant.organization_id,
+            metadata: tenant.metadata.unwrap_or_default(),
+            version: tenant.version,
+        }
+    }
+}
+
+/// List tenants
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    let out = match fetch_tenants(state).await {
+        Ok(m) => m,
+        Err(err) => {
+            tracing::error!(%err, "fetch_tenants");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading tenants").into_response();
+        }
+    };
+
+    let tmpl = TenantShow {
+        tenants: out.tenants.into_iter().map(|t| t.into()).collect(),
+    };
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    let out: forgerpc::TenantList = match fetch_tenants(state).await {
+        Ok(m) => m,
+        Err(err) => {
+            tracing::error!(%err, "fetch_tenants");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading tenants").into_response();
+        }
+    };
+    (StatusCode::OK, Json(out)).into_response()
+}
+
+async fn fetch_tenants(api: Arc<Api>) -> Result<forgerpc::TenantList, tonic::Status> {
+    let request = tonic::Request::new(forgerpc::TenantSearchFilter {
+        tenant_organization_name: None,
+    });
+
+    let tenant_ids = api
+        .find_tenant_organization_ids(request)
+        .await?
+        .into_inner()
+        .tenant_organization_ids;
+
+    let mut tenants = Vec::new();
+    let mut offset = 0;
+    while offset != tenant_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(tenant_ids.len() - offset);
+        let next_ids = &tenant_ids[offset..offset + page_size];
+        let next_vpcs = api
+            .find_tenants_by_organization_ids(tonic::Request::new(
+                forgerpc::TenantByOrganizationIdsRequest {
+                    organization_ids: next_ids.to_vec(),
+                },
+            ))
+            .await?
+            .into_inner();
+
+        tenants.extend(next_vpcs.tenants.into_iter());
+        offset += page_size;
+    }
+
+    tenants.sort_by(|t1, t2| t1.organization_id.cmp(&t2.organization_id));
+
+    Ok(forgerpc::TenantList { tenants })
+}
+
+#[derive(Template)]
+#[template(path = "tenant_detail.html")]
+struct TenantDetail {
+    tenant: TenantDisplay,
+}
+
+impl From<forgerpc::Tenant> for TenantDetail {
+    fn from(tenant: forgerpc::Tenant) -> Self {
+        Self {
+            tenant: tenant.into(),
+        }
+    }
+}
+
+/// View tenant
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(organization_id): AxumPath<String>,
+) -> Response {
+    let (show_json, organization_id) = match organization_id.strip_suffix(".json") {
+        Some(organization_id) => (true, organization_id.to_string()),
+        None => (false, organization_id),
+    };
+
+    let request = tonic::Request::new(forgerpc::TenantByOrganizationIdsRequest {
+        organization_ids: vec![organization_id.clone()],
+    });
+    let tenant = match state
+        .find_tenants_by_organization_ids(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(x) if x.tenants.is_empty() => {
+            return super::not_found_response(organization_id);
+        }
+        Ok(x) if x.tenants.len() != 1 => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Tenant list for {organization_id} returned {} tenants",
+                    x.tenants.len()
+                ),
+            )
+                .into_response();
+        }
+        Ok(mut x) => x.tenants.remove(0),
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return super::not_found_response(organization_id);
+        }
+        Err(err) => {
+            tracing::error!(%err, %organization_id, "find_tenants");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading tenants").into_response();
+        }
+    };
+
+    if show_json {
+        return (StatusCode::OK, Json(tenant)).into_response();
+    }
+
+    let tenant_detail: TenantDetail = tenant.into();
+    (StatusCode::OK, Html(tenant_detail.render().unwrap())).into_response()
+}

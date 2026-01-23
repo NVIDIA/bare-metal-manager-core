@@ -1,0 +1,28 @@
+[package]
+name = "carbide-mlxconfig-embedded"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Example CLI tool for working with the mlxconfig_registry/variables crates."
+
+[lib]
+name = "mlxconfig_embedded"
+
+[[bin]]
+name = "mlxconfig-embedded"
+path = "src/main.rs"
+
+[dependencies]
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+regex = { workspace = true }
+clap = { features = ["derive"], workspace = true }
+prettytable-rs = { workspace = true }
+carbide-mlxconfig-device = { path = "../mlxconfig-device" }
+carbide-mlxconfig-lockdown = { path = "../mlxconfig-lockdown" }
+carbide-mlxconfig-profile = { path = "../mlxconfig-profile" }
+carbide-mlxconfig-registry = { path = "../mlxconfig-registry" }
+carbide-mlxconfig-runner = { path = "../mlxconfig-runner" }
+carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }

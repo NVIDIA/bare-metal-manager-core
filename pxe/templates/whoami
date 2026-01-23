@@ -1,0 +1,11 @@
+#!ipxe
+set esc:hex 1b
+set bold ${esc:string}[1m
+set boldoff ${esc:string}[22m
+
+set nvgreen ${esc:string}[32m
+set white ${esc:string}[37m
+
+echo ${nvgreen}${bold}Machine Information:
+echo ${nvgreen}${bold}FQDN.....${boldoff}${white} {{ fqdn }}
+echo ${nvgreen}${bold}MAC Address..${boldoff}${white} {{ mac_address }}

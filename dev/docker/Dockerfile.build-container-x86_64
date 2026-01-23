@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+# This should match rust-toolchain.toml
+FROM rust:1.90.0-slim-bookworm
+
+# Set in gitlab-templates/scripts/build-push-container-image.sh
+ARG CI_COMMIT_SHORT_SHA
+ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
+ENV RUST_NIGHTLY nightly-2025-11-14
+
+# Change CACHEKEY to whatever so docker doesn't re-use the cache from before if you want apt to actually run.
+#
+# https://github.com/moby/moby/issues/1996
+# https://github.com/moby/buildkit/issues/4294
+#
+RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
+	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt upgrade -y && \
+	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y \
+	automake \
+	binutils-aarch64-linux-gnu \
+	build-essential \
+	clang \
+	cmake \
+	curl \
+	fdisk dosfstools \
+	gcc-aarch64-linux-gnu \
+	ipmitool \
+	iproute2 \
+	iputils-ping \
+	jq \
+	kea-dev \
+	kea-dhcp4-server \
+	libboost-dev \
+	libgrpc-dev \
+	libopenipmi-dev \
+	libprotobuf-dev \
+	libssh-dev \
+	libssl-dev \
+	libudev-dev \
+	libgrpc++-dev \
+	libaio-dev \
+	libtss2-dev \
+	lld \
+	openipmi \
+	pkg-config \
+	protobuf-compiler-grpc \
+	postgresql-15 \
+	protobuf-compiler \
+	sudo \
+	tpm2-tools \
+	unzip \
+	wget \
+        plantuml \
+	git && \
+	rm -rf /var/lib/apt/lists/*
+
+# make LLVM's linker lld the default, because ld crashes using too much memory
+RUN update-alternatives --install /usr/bin/ld ld /usr/bin/lld 50
+
+RUN rustup component add rustfmt
+
+# Install a nightly toolchain just for running cargo fmt
+RUN rustup toolchain install ${RUST_NIGHTLY} --profile minimal
+RUN rustup component add --toolchain ${RUST_NIGHTLY} rustfmt rust-src rustc-dev llvm-tools-preview
+
+# The mdbook crates need to be installed with matching version numbers
+# in order to be compatible
+# They need to be installed without --locked to avoid build failures
+RUN cargo install cargo-cache cargo-make sccache cargo-watch taplo-cli cargo-deny --locked && \
+	cargo install mdbook@0.4.52 mdbook-plantuml@0.8.0 mdbook-mermaid@0.16.2 && \
+	cargo cache -r registry-index,registry-sources
+
+# install stuff that's not in debian
+RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.14.0/kind-linux-amd64  && chmod +x ./kind && mv kind /usr/local/bin
+RUN cd /tmp && curl -Lo ./grpcurl.tar.gz https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz && tar xzf grpcurl.tar.gz && chmod +x ./grpcurl && mv grpcurl /usr/local/bin/ && rm LICENSE && rm grpcurl.tar.gz
+RUN cd /tmp && curl -Lo vault.zip https://releases.hashicorp.com/vault/1.14.1/vault_1.14.1_linux_amd64.zip && unzip vault.zip && chmod u+x vault && mv vault /usr/local/bin/ && rm vault.zip
+RUN cd /usr/local/bin && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+RUN export GO_VERSION="1.22.0" && \
+	export PLATFORM=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
+	export TARFILE=go${GO_VERSION}.linux-${PLATFORM}.tar.gz && \
+	export URL=https://golang.org/dl/${TARFILE} && \
+	export GOTMPDIR=/tmp/gobuild && \
+	mkdir -p ${GOTMPDIR} && \
+	wget -q $URL --directory-prefix=${GOTMPDIR} --tries=5 --continue --timeout=30 && \
+	tar -C ${GOTMPDIR} -xzf ${GOTMPDIR}/${TARFILE} && \
+	mv ${GOTMPDIR}/go /usr/local/go && \
+	rm -rf ${GOTMPDIR}
+
+# create a postgres user
+RUN /etc/init.d/postgresql start && su postgres -c "/usr/lib/postgresql/15/bin/createuser -d root" && /etc/init.d/postgresql stop

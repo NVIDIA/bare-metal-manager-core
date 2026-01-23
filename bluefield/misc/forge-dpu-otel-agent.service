@@ -1,0 +1,22 @@
+[Unit]
+Description=Forge DPU OpenTelemetry mTLS certificate renewal agent service
+After=networking.service network-online.target time-sync.target containerd@mgmt.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+ExecStart=ip vrf exec mgmt /usr/bin/forge-dpu-otel-agent \
+    --config-path=/etc/forge-dpu-otel-agent/config.toml \
+    run \
+    --source-tls-cert-path=/opt/forge/machine_cert.pem \
+    --source-tls-key-path=/opt/forge/machine_cert.key
+KillMode=mixed
+Restart=always
+RestartSec=5
+
+Type=simple
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

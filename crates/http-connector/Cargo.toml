@@ -1,0 +1,32 @@
+[package]
+name = "carbide-http-connector"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# TODO: rename to carbide_http_connector in source
+[lib]
+name = "forge_http_connector"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hickory-resolver = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+tracing = { workspace = true }
+socket2 = { workspace = true }
+hyper = { workspace = true, features = ["client"] }
+hyper-util = { features = ["tokio"], workspace = true }
+
+futures-util = { workspace = true }
+tower-service = { workspace = true }
+tokio-socks = { workspace = true }
+tryhard = { workspace = true }
+
+[dev-dependencies]
+hyper = { workspace = true, features = ["client", "http1", "http2"] }
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[lints]
+workspace = true

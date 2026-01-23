@@ -1,0 +1,212 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+//! State Controller implementation for Machines
+
+use carbide_uuid::machine::MachineId;
+use db::attestation::ek_cert_verification_status;
+use db::measured_boot::machine::{get_measurement_bundle_state, get_measurement_machine_state};
+use eyre::eyre;
+use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use model::attestation::EkCertVerificationStatus;
+use model::machine::{
+    FailureCause, FailureDetails, FailureSource, MeasuringState, StateMachineArea,
+};
+use sqlx::PgConnection;
+
+use super::state_handler::StateHandlerError;
+
+pub mod context;
+pub mod handler;
+pub mod io;
+pub mod metrics;
+
+/// Fields of span that should be logged for each message.
+pub fn extra_logfmt_logging_fields() -> Vec<String> {
+    vec!["object_id".to_string()]
+}
+
+/// get_measurement_failure_cause gets the currently associated
+/// measurement bundle for a given machine ID (if one exists), and
+/// maps the state of the bundle to a FailureCause.
+///
+/// This is intended to be used when a machine is in MeasuringFailed,
+/// and we want to dig into the corresponding bundle state to see why
+/// it failed (e.g. retired or revoked).
+///
+/// If a bundle is not associated, or the associated bundle is not
+/// in a retired or revoked state, then this will return an error.
+///
+/// TODO(chet): There's probably a world where the bundle state
+/// could be stored in the journal entry itself (so there's no need
+/// for a subsequent query), or a world where I introduce some
+/// ComposedState type of thing where I can join across the journal
+/// and bundle to do a single query + return a single ComposedState
+/// that has everything I want.
+async fn get_measurement_failure_cause(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<FailureCause, StateHandlerError> {
+    let (_, ek_cert_status) = get_measuring_prerequisites(machine_id, txn).await?;
+    if !ek_cert_status.signing_ca_found {
+        return Ok(FailureCause::MeasurementsCAValidationFailed {
+            err: "Measuremets CA Validation Failed".to_string(),
+        });
+    }
+
+    let state = get_measurement_bundle_state(txn, machine_id)
+        .await
+        .map_err(StateHandlerError::GenericError)?
+        .ok_or(StateHandlerError::MissingData {
+            object_id: machine_id.to_string(),
+            missing: "expected bundle reference from journal for failed measurements",
+        })?;
+
+    let failure_cause = match state {
+        MeasurementBundleState::Retired => FailureCause::MeasurementsRetired {
+            err: "measurements matched retired bundle".to_string(),
+        },
+        MeasurementBundleState::Revoked => FailureCause::MeasurementsRevoked {
+            err: "measurements matched revoked bundle".to_string(),
+        },
+        _ => {
+            return Err(StateHandlerError::MissingData {
+                object_id: machine_id.to_string(),
+                missing: "expected retired or revoked bundle for failure cause",
+            });
+        }
+    };
+
+    Ok(failure_cause)
+}
+
+#[derive(PartialEq, Debug)]
+pub enum MeasuringOutcome {
+    PassedOk,
+    NoChange,
+    WaitForGoldenValues,
+    WaitForScoutToSendMeasurements,
+    Unsuccessful((FailureDetails, MachineId)),
+}
+
+async fn get_measuring_prerequisites(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<(MeasurementMachineState, EkCertVerificationStatus), StateHandlerError> {
+    let machine_state = get_measurement_machine_state(txn, *machine_id)
+        .await
+        .map_err(StateHandlerError::DBError)?;
+
+    let ek_cert_verification_status =
+        ek_cert_verification_status::get_by_machine_id(txn, *machine_id)
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre!(
+                    "No EkCertVerificationStatus found for MachineId {} due to error: {}",
+                    machine_id,
+                    e
+                ))
+            })?
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: machine_id.to_string(),
+                missing: "ek_cert_verification_status",
+            })?;
+
+    Ok((machine_state, ek_cert_verification_status))
+}
+
+pub(crate) async fn handle_measuring_state(
+    measuring_state: &MeasuringState,
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+    attestation_enabled: bool,
+) -> Result<MeasuringOutcome, StateHandlerError> {
+    if !attestation_enabled {
+        return Ok(MeasuringOutcome::PassedOk);
+    }
+    let (machine_state, ek_cert_verification_status) =
+        get_measuring_prerequisites(machine_id, txn).await?;
+
+    if !ek_cert_verification_status.signing_ca_found {
+        return Ok(MeasuringOutcome::Unsuccessful((
+            FailureDetails {
+                cause: FailureCause::MeasurementsCAValidationFailed {
+                    err: format!("The EK for MachineId {machine_id} has not been CA verified"),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::Default),
+            },
+            *machine_id,
+        )));
+    }
+
+    match measuring_state {
+        // In this state, the machine has been discovered, and the
+        // API is now waiting for a measurement report, which is up
+        // to Scout to send (as part of reacting to an Action::Measure
+        // response from the API).
+        //
+        // Once a measurement report is received, it will be verified
+        // (where if that fails, will move to ManagedHostState::Failed
+        // with a MeasurementsFailedSignatureCheck reason), and matched
+        // against a bundle.
+        //
+        // If no match is found, then the machine will hang out in
+        // MeasuringState::PendingBundle.
+        MeasuringState::WaitingForMeasurements => {
+            Ok(match machine_state {
+                // "Discovered" is the MeasurementMachineState equivalent of
+                // "no measurements have been sent yet". If that's the case,
+                // then continue waiting for measurements.
+                MeasurementMachineState::Discovered => MeasuringOutcome::NoChange,
+                MeasurementMachineState::PendingBundle => MeasuringOutcome::WaitForGoldenValues,
+                MeasurementMachineState::Measured => MeasuringOutcome::PassedOk,
+                MeasurementMachineState::MeasuringFailed => MeasuringOutcome::Unsuccessful((
+                    FailureDetails {
+                        cause: get_measurement_failure_cause(txn, machine_id).await?,
+                        failed_at: chrono::Utc::now(),
+                        source: FailureSource::StateMachineArea(StateMachineArea::Default),
+                    },
+                    *machine_id,
+                )),
+            })
+        }
+        // In this state, a measurement report of PCR values has been
+        // received (and verified), but the values don't match a bundle
+        // yet. Check to see if they match one now (which happens via
+        // bundle promotion). If not, keep on waiting.
+        MeasuringState::PendingBundle => {
+            Ok(match machine_state {
+                // "PendingBundle" is the current state, so if this is returned,
+                // just keep on waiting for a matching bundle.
+                MeasurementMachineState::PendingBundle => MeasuringOutcome::NoChange,
+                // "Discovered" is the MeasurementMachineState equivalent of
+                // "no measurements have been sent yet". If this is happens,
+                // it means measurements must have been wiped, so lets transition
+                // *back* to WaitingForMeasurements (which will tell the API to
+                // ask Scout for measurements again).
+                MeasurementMachineState::Discovered => {
+                    MeasuringOutcome::WaitForScoutToSendMeasurements
+                }
+                MeasurementMachineState::Measured => MeasuringOutcome::PassedOk,
+                MeasurementMachineState::MeasuringFailed => MeasuringOutcome::Unsuccessful((
+                    FailureDetails {
+                        cause: get_measurement_failure_cause(txn, machine_id).await?,
+                        failed_at: chrono::Utc::now(),
+                        source: FailureSource::StateMachineArea(StateMachineArea::Default),
+                    },
+                    *machine_id,
+                )),
+            })
+        }
+    }
+}

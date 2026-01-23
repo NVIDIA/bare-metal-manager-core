@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-ssh-console-rs
+spec:
+  ports:
+    - port: 22
+      name: ssh
+      protocol: TCP

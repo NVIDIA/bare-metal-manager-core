@@ -1,0 +1,20 @@
+#!/bin/bash
+#
+# For integration / local testing
+# Pretend to be the DPUs mlxprivhost (usually in /usr/bin/) and report that we are correctly in restricted mode
+#
+
+OUT='Host configurations
+-------------------
+level                         : RESTRICTED
+
+Port functions status:
+-----------------------
+disable_rshim                 : TRUE
+disable_tracer                : TRUE
+disable_port_owner            : TRUE
+disable_counter_rd            : TRUE
+
+'
+
+printf "$OUT"

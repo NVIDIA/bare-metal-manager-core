@@ -1,0 +1,221 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::fmt::Write;
+
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::forge::{self as forgerpc};
+use carbide_uuid::vpc::VpcId;
+use prettytable::{Table, row};
+
+use super::args::{SetVpcVirt, ShowVpc};
+use crate::rpc::ApiClient;
+
+pub async fn show(
+    args: ShowVpc,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+    page_size: usize,
+) -> CarbideCliResult<()> {
+    let is_json = output_format == OutputFormat::Json;
+    if let Some(id) = args.id {
+        show_vpc_details(id, is_json, api_client).await?;
+    } else {
+        show_vpcs(
+            is_json,
+            api_client,
+            page_size,
+            args.tenant_org_id,
+            args.name,
+            args.label_key,
+            args.label_value,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn show_vpcs(
+    json: bool,
+    api_client: &ApiClient,
+    page_size: usize,
+    tenant_org_id: Option<String>,
+    name: Option<String>,
+    label_key: Option<String>,
+    label_value: Option<String>,
+) -> CarbideCliResult<()> {
+    let all_vpcs = match api_client
+        .get_all_vpcs(
+            tenant_org_id.clone(),
+            name.clone(),
+            page_size,
+            label_key,
+            label_value,
+        )
+        .await
+    {
+        Ok(all_vpcs) => all_vpcs,
+        Err(e) => return Err(e),
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&all_vpcs)?);
+    } else {
+        convert_vpcs_to_nice_table(all_vpcs).printstd();
+    }
+    Ok(())
+}
+
+async fn show_vpc_details(
+    vpc_id: VpcId,
+    json: bool,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let vpcs = api_client.0.find_vpcs_by_ids(vec![vpc_id]).await?;
+
+    if vpcs.vpcs.len() != 1 {
+        return Err(CarbideCliError::GenericError("Unknown VPC ID".to_string()));
+    }
+
+    let vpcs = &vpcs.vpcs[0];
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(vpcs)?);
+    } else {
+        println!(
+            "{}",
+            convert_vpc_to_nice_format(vpcs).unwrap_or_else(|x| x.to_string())
+        );
+    }
+    Ok(())
+}
+
+fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
+    let mut table = Table::new();
+
+    table.set_titles(row![
+        "Id",
+        "Name",
+        "TenantOrg",
+        "Network Security Group",
+        "Version",
+        "Created",
+        "Virt Type",
+        "Labels",
+    ]);
+    let default_metadata = Default::default();
+
+    for vpc in vpcs.vpcs {
+        let metadata = vpc.metadata.as_ref().unwrap_or(&default_metadata);
+        let virt_type = forgerpc::VpcVirtualizationType::try_from(
+            vpc.network_virtualization_type.unwrap_or_default(),
+        )
+        .unwrap_or_default()
+        .as_str_name()
+        .to_string();
+
+        table.add_row(row![
+            vpc.id.unwrap_or_default(),
+            vpc.name,
+            vpc.tenant_organization_id,
+            vpc.network_security_group_id.unwrap_or_default(),
+            vpc.version,
+            vpc.created.unwrap_or_default(),
+            virt_type,
+            metadata
+                .labels
+                .iter()
+                .map(|label| {
+                    let key = &label.key;
+                    let value = label.value.clone().unwrap_or_default();
+                    format!("\"{key}:{value}\"")
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+        ]);
+    }
+
+    table.into()
+}
+
+fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
+    let width = 25;
+    let mut lines = String::new();
+
+    let data = vec![
+        ("ID", vpc.id.unwrap_or_default().to_string()),
+        ("NAME", vpc.name.clone()),
+        ("TENANT ORG", vpc.tenant_organization_id.clone()),
+        (
+            "NETWORK SECURITY GROUP",
+            vpc.network_security_group_id().to_string(),
+        ),
+        ("VERSION", vpc.version.clone()),
+        ("CREATED", vpc.created.unwrap_or_default().to_string()),
+        ("UPDATED", vpc.updated.unwrap_or_default().to_string()),
+        (
+            "DELETED",
+            match vpc.deleted {
+                Some(ts) => ts.to_string(),
+                None => "".to_string(),
+            },
+        ),
+        (
+            "TENANT KEYSET",
+            vpc.tenant_keyset_id.clone().unwrap_or_default(),
+        ),
+        ("VNI", format!("{}", vpc.vni.unwrap_or_default())),
+        ("DPA_VNI", format!("{}", vpc.dpa_vni.unwrap_or_default())),
+        (
+            "NW VIRTUALIZATION",
+            forgerpc::VpcVirtualizationType::try_from(
+                vpc.network_virtualization_type.unwrap_or_default(),
+            )
+            .unwrap_or_default()
+            .as_str_name()
+            .to_string(),
+        ),
+    ];
+
+    for (key, value) in data {
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
+    }
+
+    Ok(lines)
+}
+
+/// set_network_virtualization_type is the CLI handler for wrapping
+/// a `vpc set-virtualizer` command, taking configuration and doing
+/// necessary prep work before handing off to the actual RPC handler
+/// to send out an RPC (rpc::set_vpc_network_virtualization_type).
+///
+/// This is intended for dev use only, and can only be done on a VPC
+/// with 0 instances (an error will be returned otherwise).
+pub async fn set_network_virtualization_type(
+    api_client: &ApiClient,
+    args: SetVpcVirt,
+) -> CarbideCliResult<()> {
+    // TODO(chet): This should probably just be implied
+    // and handled as part of set_vpc_network_virtualization_type,
+    // and if it's not found, just return that. BUT, since if_version_match
+    // comes into play, an `fetch_one` error might be returned if
+    // the VPC doesn't exist, OR if there's a version mismatch, so
+    // it can be kind of misleading. For now, just do this.
+    let mut vpcs = api_client.0.find_vpcs_by_ids(&[args.id]).await?;
+
+    if vpcs.vpcs.len() != 1 {
+        return Err(CarbideCliError::GenericError("Unknown VPC ID".to_string()));
+    }
+
+    api_client
+        .set_vpc_network_virtualization_type(vpcs.vpcs.remove(0), args.virtualizer.into())
+        .await
+}

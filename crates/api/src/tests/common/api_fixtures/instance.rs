@@ -1,0 +1,616 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::ops::DerefMut;
+use std::time::SystemTime;
+
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcPrefixId;
+use model::instance::config::network::DeviceLocator;
+use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::instance::snapshot::InstanceSnapshot;
+use model::instance::status::network::InstanceNetworkStatusObservation;
+use model::machine::{
+    CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
+};
+use rpc::forge::InstanceDpuExtensionServicesConfig;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::instance_interface_config::NetworkDetails;
+use rpc::{InstanceReleaseRequest, Timestamp};
+
+use super::{TestEnv, inject_machine_measurements, persist_machine_validation_result};
+use crate::tests::common::api_fixtures::{RpcInstance, TestManagedHost};
+
+pub struct TestInstanceBuilder<'a, 'b> {
+    env: &'a TestEnv,
+    config: rpc::InstanceConfig,
+    tenant: rpc::TenantConfig,
+    metadata: Option<rpc::Metadata>,
+    mh: &'b TestManagedHost,
+}
+
+impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
+    pub fn new(env: &'a TestEnv, mh: &'b TestManagedHost) -> Self {
+        Self {
+            env,
+            config: rpc::InstanceConfig {
+                tenant: None,
+                os: Some(default_os_config()),
+                network: None,
+                infiniband: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+                nvlink: None,
+            },
+            tenant: default_tenant_config(),
+            metadata: None,
+            mh,
+        }
+    }
+
+    pub fn config(mut self, config: rpc::InstanceConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    pub fn network(mut self, network: rpc::InstanceNetworkConfig) -> Self {
+        self.config.network = Some(network);
+        self
+    }
+
+    pub fn extension_services(
+        mut self,
+        extension_services: InstanceDpuExtensionServicesConfig,
+    ) -> Self {
+        self.config.dpu_extension_services = Some(extension_services);
+        self
+    }
+
+    pub fn single_interface_network_config(self, segment_id: NetworkSegmentId) -> Self {
+        self.network(single_interface_network_config(segment_id))
+    }
+
+    pub fn keyset_ids(mut self, ids: &[&str]) -> Self {
+        self.tenant.tenant_keyset_ids = ids.iter().map(|s| (*s).into()).collect();
+        self
+    }
+
+    pub fn metadata(mut self, metadata: rpc::Metadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    pub fn hostname(mut self, hostname: impl Into<String>) -> Self {
+        self.tenant.hostname = Some(hostname.into());
+        self
+    }
+
+    pub fn tenant_org(mut self, tenant_org: impl Into<String>) -> Self {
+        self.tenant.tenant_organization_id = tenant_org.into();
+        self
+    }
+
+    pub async fn build(self) -> TestInstance<'a, 'b> {
+        let (tinstance, _) = self.build_and_return().await;
+        tinstance
+    }
+
+    pub async fn build_and_return(mut self) -> (TestInstance<'a, 'b>, RpcInstance) {
+        if self.config.tenant.is_none() {
+            self.config.tenant = Some(self.tenant);
+        }
+        let instance_id = self
+            .env
+            .api
+            .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+                instance_id: None,
+                machine_id: Some(self.mh.host().id),
+                instance_type_id: None,
+                config: Some(self.config),
+                metadata: self.metadata,
+                allow_unhealthy_machine: false,
+            }))
+            .await
+            .expect("Create instance failed.")
+            .into_inner()
+            .id
+            .expect("Missing instance ID");
+
+        advance_created_instance_into_ready_state(self.env, self.mh).await;
+        let tinstance = TestInstance {
+            id: instance_id,
+            env: self.env,
+            mh: self.mh,
+        };
+        let rpc_instance = tinstance.rpc_instance().await;
+        (tinstance, rpc_instance)
+    }
+}
+
+pub struct TestInstance<'a, 'b> {
+    pub id: InstanceId,
+    env: &'a TestEnv,
+    mh: &'b TestManagedHost,
+}
+
+type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
+
+impl<'a, 'b> TestInstance<'a, 'b> {
+    pub async fn db_instance(&self, txn: &mut Txn<'_>) -> InstanceSnapshot {
+        db::instance::find_by_id(txn, self.id)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    pub async fn rpc_instance(&self) -> RpcInstance {
+        let mut result = self
+            .env
+            .api
+            .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+                instance_ids: vec![self.id],
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(result.instances.len(), 1);
+        RpcInstance::new(result.instances.remove(0))
+    }
+
+    pub async fn delete(&self) {
+        self.mh.delete_instance(self.env, self.id).await
+    }
+}
+
+pub async fn create_instance_with_ib_config<'a, 'b>(
+    env: &'a TestEnv,
+    mh: &'b TestManagedHost,
+    ib_config: rpc::forge::InstanceInfinibandConfig,
+    network_segment_id: NetworkSegmentId,
+) -> (TestInstance<'a, 'b>, RpcInstance) {
+    mh.instance_builer(env)
+        .config(config_for_ib_config(ib_config, network_segment_id))
+        .build_and_return()
+        .await
+}
+
+pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::InstanceNetworkConfig {
+    rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(segment_id),
+            network_details: Some(NetworkDetails::SegmentId(segment_id)),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: None,
+        }],
+    }
+}
+
+pub fn single_interface_network_config_with_vfs(
+    segment_ids: Vec<NetworkSegmentId>,
+) -> rpc::InstanceNetworkConfig {
+    let mut segment_iter = segment_ids.into_iter().enumerate();
+    let (_function_id, segment_id) = segment_iter.next().unwrap();
+    let mut interfaces = vec![rpc::InstanceInterfaceConfig {
+        function_type: rpc::InterfaceFunctionType::Physical as i32,
+        network_segment_id: Some(segment_id),
+        network_details: Some(NetworkDetails::SegmentId(segment_id)),
+        device: None,
+        device_instance: 0,
+        virtual_function_id: None,
+    }];
+
+    interfaces.extend(
+        segment_iter.map(|(function_id, segment_id)| rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            network_segment_id: Some(segment_id),
+            network_details: Some(NetworkDetails::SegmentId(segment_id)),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: Some(function_id as u32),
+        }),
+    );
+
+    rpc::InstanceNetworkConfig { interfaces }
+}
+
+pub fn interface_network_config_with_devices(
+    segment_ids: &[NetworkSegmentId],
+    device_locators: &[DeviceLocator],
+) -> rpc::InstanceNetworkConfig {
+    let interfaces = device_locators
+        .iter()
+        .zip(segment_ids)
+        .map(|(dl, segment_id)| rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(*segment_id),
+            network_details: Some(NetworkDetails::SegmentId(*segment_id)),
+            device: Some(dl.device.clone()),
+            device_instance: dl.device_instance as u32,
+            virtual_function_id: None,
+        })
+        .collect();
+    rpc::InstanceNetworkConfig { interfaces }
+}
+
+pub fn single_interface_network_config_with_vpc_prefix(
+    prefix_id: VpcPrefixId,
+) -> rpc::InstanceNetworkConfig {
+    rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: None,
+            network_details: Some(NetworkDetails::VpcPrefixId(prefix_id)),
+            device: None,
+            device_instance: 0u32,
+            virtual_function_id: None,
+        }],
+    }
+}
+
+pub fn default_os_config() -> rpc::forge::OperatingSystem {
+    rpc::forge::OperatingSystem {
+        phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData".to_string()),
+        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+            rpc::forge::IpxeOperatingSystem {
+                ipxe_script: "SomeRandomiPxe".to_string(),
+                user_data: Some("SomeRandomData".to_string()),
+            },
+        )),
+    }
+}
+
+pub fn default_tenant_config() -> rpc::TenantConfig {
+    rpc::TenantConfig {
+        user_data: None,
+        custom_ipxe: "".to_string(),
+        phone_home_enabled: false,
+        always_boot_with_custom_ipxe: false,
+        tenant_organization_id: "Tenant1".to_string(),
+        tenant_keyset_ids: vec![],
+        hostname: None,
+    }
+}
+
+pub fn config_for_ib_config(
+    ib_config: rpc::forge::InstanceInfinibandConfig,
+    network_segment_id: NetworkSegmentId,
+) -> rpc::forge::InstanceConfig {
+    rpc::forge::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(network_segment_id)),
+        infiniband: Some(ib_config),
+        nvlink: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+    }
+}
+
+pub fn config_for_nvlink_config(
+    nvl_config: rpc::forge::InstanceNvLinkConfig,
+    network_segment_id: NetworkSegmentId,
+) -> rpc::forge::InstanceConfig {
+    rpc::forge::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(network_segment_id)),
+        infiniband: None,
+        nvlink: Some(nvl_config),
+        network_security_group_id: None,
+        dpu_extension_services: None,
+    }
+}
+
+pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestManagedHost) {
+    // Run network state machine handler here.
+    env.run_network_segment_controller_iteration().await;
+
+    // - zero run: state controller moves state to DpaProvisioning
+    env.run_machine_state_controller_iteration().await;
+    // - first run: state controller moves state to WaitingForDpaToBeReady
+    env.run_machine_state_controller_iteration().await;
+    // - second run: state controller moves state to WaitingForNetworkSegmentToBeReady
+    env.run_machine_state_controller_iteration().await;
+    // - third run: state controller moves state to WaitingForNetworkConfig
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        mh.host().rpc_machine().await.state,
+        "Assigned/WaitingForNetworkConfig".to_string()
+    );
+    // - second run: Run one iteration in WaitingForNetworkConfig
+    // This will request to bind IB ports. We will then observe that these have been bound
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        mh.host().rpc_machine().await.state,
+        "Assigned/WaitingForNetworkConfig".to_string()
+    );
+    // - forge-dpu-agent gets an instance network to configure, reports it configured
+    mh.network_configured(env).await;
+    // If IB is used, another state controller iteration might be required to bind the IB ports
+    // and get actually out of the state
+    // This iteration will call bind_ib_ports
+    env.run_machine_state_controller_iteration().await;
+
+    let state = mh.host().rpc_machine().await.state;
+    if state == "Assigned/WaitingForNetworkConfig" {
+        // Also report that we are no longer on the tenant network for IB
+        // That can require one more state controller iteration after the fabric
+        // monitor supplied the results
+        env.run_ib_fabric_monitor_iteration().await;
+        env.run_ib_fabric_monitor_iteration().await;
+        env.run_nvl_partition_monitor_iteration().await;
+        env.run_nvl_partition_monitor_iteration().await;
+        env.run_machine_state_controller_iteration().await;
+    }
+    assert_eq!(
+        mh.host().rpc_machine().await.state,
+        "Assigned/WaitingForRebootToReady".to_string()
+    );
+    // - simulate that the host's hardware is reported healthy
+    super::simulate_hardware_health_report(
+        env,
+        &mh.host().id,
+        health_report::HealthReport::empty("hardware-health".to_string()),
+    )
+    .await;
+
+    // - third run: state controller runs again, advances state to Ready
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        10,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::Ready,
+        },
+    )
+    .await;
+}
+
+pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestManagedHost) {
+    env.api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(instance_id),
+            issue: None,
+            is_repair_tenant: None,
+        }))
+        .await
+        .expect("Delete instance failed.");
+
+    // The instance should show up immediatly as terminating - even if the state handler didn't yet run
+    let instance = env.one_instance(instance_id).await;
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        5,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+                platform_config_state:
+                    model::machine::HostPlatformConfigurationState::CheckHostConfig,
+            },
+        },
+    )
+    .await;
+
+    mh.network_configured(env).await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::WaitingForDpusToUp,
+        },
+    )
+    .await;
+
+    mh.network_configured(env).await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: model::machine::RetryInfo { count: 0 },
+            },
+        },
+    )
+    .await;
+    handle_delete_post_bootingwithdiscoveryimage(env, mh).await;
+
+    assert!(
+        env.find_instances(vec![instance_id])
+            .await
+            .instances
+            .is_empty()
+    );
+
+    // Run network state machine handler here.
+    env.run_network_segment_controller_iteration().await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+}
+
+pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &TestManagedHost) {
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Run state machine twice.
+    // First DeletingManagedResource updates use_admin_network, transitions to WaitingForNetworkReconfig
+    // Second to discover we are now in WaitingForNetworkReconfig
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        2,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::WaitingForNetworkReconfig,
+        },
+    )
+    .await;
+
+    // Apply switching back to admin network
+    mh.network_configured(env).await;
+    env.run_machine_state_controller_iteration().await;
+    let state = mh.host().rpc_machine().await.state;
+    if state == "Assigned/WaitingForNetworkReconfig" {
+        // Also report that we are no longer on the tenant network for IB
+        // That can require one more state controller iteration after the fabric
+        // monitor supplied the results
+        env.run_ib_fabric_monitor_iteration().await;
+        env.run_ib_fabric_monitor_iteration().await;
+        env.run_machine_state_controller_iteration().await;
+    }
+
+    if env.attestation_enabled {
+        inject_machine_measurements(env, mh.host().id).await;
+    }
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        3,
+        ManagedHostState::WaitingForCleanup {
+            cleanup_state: CleanupState::HostCleanup {
+                boss_controller_id: None,
+            },
+        },
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
+    db::machine::update_cleanup_time(&machine, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        3,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Cleanup".to_string(),
+                    id: uuid::Uuid::default(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
+            },
+        },
+    )
+    .await;
+
+    let mut machine_validation_result = rpc::forge::MachineValidationResult {
+        validation_id: None,
+        name: "instance".to_string(),
+        description: "desc".to_string(),
+        command: "echo".to_string(),
+        args: "test".to_string(),
+        std_out: "".to_string(),
+        std_err: "".to_string(),
+        context: "Cleanup".to_string(),
+        exit_code: 0,
+        start_time: Some(Timestamp::from(SystemTime::now())),
+        end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("instance".to_string()),
+    };
+
+    let response = mh.host().forge_agent_control().await;
+    let uuid = &response.data.unwrap().pair[1].value;
+
+    machine_validation_result.validation_id = Some(rpc::Uuid {
+        value: uuid.to_owned(),
+    });
+    persist_machine_validation_result(env, machine_validation_result.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    db::machine::update_machine_validation_time(&mh.host().id, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        3,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: false,
+            },
+        },
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        3,
+        ManagedHostState::Ready,
+    )
+    .await;
+}
+
+pub async fn update_instance_network_status_observation(
+    dpu_id: &MachineId,
+    obs: &InstanceNetworkStatusObservation,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) {
+    let query = "UPDATE machines SET network_status_observation = jsonb_set(network_status_observation, ARRAY['instance_network_observation'], $1) WHERE id=$2";
+    let _query_result = sqlx::query(query)
+        .bind(sqlx::types::Json(obs))
+        .bind(dpu_id.to_string())
+        .execute(txn.deref_mut())
+        .await
+        .unwrap();
+}
+
+pub async fn create_instance_with_nvlink_config<'a, 'b>(
+    env: &'a TestEnv,
+    mh: &'b TestManagedHost,
+    nvl_config: rpc::forge::InstanceNvLinkConfig,
+    network_segment_id: NetworkSegmentId,
+) -> (TestInstance<'a, 'b>, RpcInstance) {
+    mh.instance_builer(env)
+        .config(config_for_nvlink_config(nvl_config, network_segment_id))
+        .build_and_return()
+        .await
+}
+
+pub async fn update_instance_nvlink_config(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &InstanceId,
+    config: &InstanceNvLinkConfig,
+) {
+    let query = "UPDATE instances SET nvlink_config=$1::json where id = $2::uuid returning id";
+    let _query_result = sqlx::query(query)
+        .bind(sqlx::types::Json(config))
+        .bind(id.to_string())
+        .execute(txn.deref_mut())
+        .await
+        .unwrap();
+}

@@ -1,0 +1,165 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use common::api_fixtures::{TestEnv, TestManagedHost, create_test_env};
+use rpc::forge::forge_server::Forge;
+
+use crate::tests::common;
+use crate::tests::common::api_fixtures::create_managed_host;
+use crate::tests::common::api_fixtures::instance::{
+    TestInstance, default_os_config, default_tenant_config, single_interface_network_config,
+};
+
+#[crate::sqlx_test]
+async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_interface = mh.host().first_interface(&mut txn).await;
+    txn.rollback().await.unwrap();
+    let host_arch = rpc::forge::MachineArchitecture::X86;
+
+    let tinstance = create_instance(&env, &mh, false, segment_id).await;
+    assert!(
+        !tinstance
+            .rpc_instance()
+            .await
+            .config()
+            .tenant()
+            .always_boot_with_custom_ipxe
+    );
+
+    // First boot should return custom iPXE instructions
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
+
+    // Second boot should return "exit"
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert!(
+        pxe.pxe_script.contains("Current state: Assigned/Ready"),
+        "Actual script: {}",
+        pxe.pxe_script
+    );
+    assert!(pxe.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
+
+    // A regular reboot attempt should still lead to returning "exit"
+    invoke_instance_power(&env, mh.id, false).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert!(
+        pxe.pxe_script.contains("Current state: Assigned/Ready"),
+        "Actual script: {}",
+        pxe.pxe_script
+    );
+    assert!(pxe.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
+
+    // A reboot with flag `boot_with_custom_ipxe` should provide the custom iPXE
+    invoke_instance_power(&env, mh.id, true).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
+
+    // The next reboot should again lead to returning "exit"
+    invoke_instance_power(&env, mh.id, false).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert!(
+        pxe.pxe_script.contains("Current state: Assigned/Ready"),
+        "Actual script: {}",
+        pxe.pxe_script
+    );
+    assert!(pxe.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
+}
+
+#[crate::sqlx_test]
+async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_interface = mh.host().first_interface(&mut txn).await;
+    txn.rollback().await.unwrap();
+    let host_arch = rpc::forge::MachineArchitecture::X86;
+
+    let tinstance = create_instance(&env, &mh, true, segment_id).await;
+    assert!(
+        tinstance
+            .rpc_instance()
+            .await
+            .config()
+            .tenant()
+            .always_boot_with_custom_ipxe
+    );
+
+    // First boot should return custom iPXE instructions
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
+
+    // Second boot should also return custom iPXE instructions
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
+
+    // A regular reboot attempt should also return custom iPXE instructions
+    invoke_instance_power(&env, mh.id, false).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
+
+    // A reboot with flag `boot_with_custom_ipxe` should also return custom iPXE instructions
+    invoke_instance_power(&env, mh.id, true).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
+}
+
+async fn invoke_instance_power(
+    env: &TestEnv,
+    host_machine_id: MachineId,
+    boot_with_custom_ipxe: bool,
+) {
+    env.api
+        .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
+            machine_id: Some(host_machine_id),
+            operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
+            boot_with_custom_ipxe,
+            apply_updates_on_reboot: false,
+        }))
+        .await
+        .unwrap();
+}
+
+pub async fn create_instance<'a, 'b>(
+    env: &'a TestEnv,
+    mh: &'b TestManagedHost,
+    run_provisioning_instructions_on_every_boot: bool,
+    segment_id: NetworkSegmentId,
+) -> TestInstance<'a, 'b> {
+    let mut os: rpc::forge::OperatingSystem = default_os_config();
+    os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(os),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+        nvlink: None,
+    };
+    mh.instance_builer(env).config(config).build().await
+}

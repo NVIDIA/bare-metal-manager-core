@@ -1,0 +1,279 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use ::rpc::protos::dns::{
+    CreateDomainRequest, Domain, DomainDeletionRequest, DomainDeletionResult, DomainList,
+    DomainSearchQuery, UpdateDomainRequest,
+};
+use db::dns::domain;
+use db::{self, ObjectColumnFilter, WithTransaction};
+use futures_util::FutureExt;
+use model::dns::NewDomain;
+use tonic::{Request, Response, Status};
+
+use crate::CarbideError;
+use crate::api::Api;
+
+pub(crate) async fn create(
+    api: &Api,
+    request: Request<CreateDomainRequest>,
+) -> Result<Response<Domain>, Status> {
+    crate::api::log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
+    let req = request.into_inner();
+    let new_domain = NewDomain::new(req.name);
+
+    let domain = domain::persist(new_domain, &mut txn).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(Domain::from(domain)))
+}
+
+pub(crate) async fn update(
+    api: &Api,
+    request: Request<UpdateDomainRequest>,
+) -> Result<Response<Domain>, Status> {
+    crate::api::log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
+    let req = request.into_inner();
+    let domain_proto = req
+        .domain
+        .ok_or_else(|| CarbideError::MissingArgument("domain"))?;
+
+    let uuid = domain_proto
+        .id
+        .ok_or_else(|| CarbideError::MissingArgument("id"))?;
+
+    let mut domain =
+        domain::find_by_uuid(&mut txn, uuid)
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "domain",
+                id: uuid.to_string(),
+            })?;
+
+    domain.name = domain_proto.name;
+
+    domain.increment_serial();
+
+    let updated_domain = domain::update(&mut domain, &mut txn).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(Domain::from(updated_domain)))
+}
+
+pub(crate) async fn delete(
+    api: &Api,
+    request: Request<DomainDeletionRequest>,
+) -> Result<Response<DomainDeletionResult>, Status> {
+    crate::api::log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
+    let req = request.into_inner();
+    let uuid = req.id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
+
+    let domain =
+        domain::find_by_uuid(&mut txn, uuid)
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "domain",
+                id: uuid.to_string(),
+            })?;
+
+    // TODO: This needs to validate that nothing references the domain anymore
+    // (like NetworkSegments)
+
+    domain::delete(domain, &mut txn).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(DomainDeletionResult {}))
+}
+
+pub(crate) async fn find(
+    api: &Api,
+    request: Request<DomainSearchQuery>,
+) -> Result<Response<DomainList>, Status> {
+    crate::api::log_request_data(&request);
+
+    let DomainSearchQuery { id, name, .. } = request.into_inner();
+
+    let domains = api
+        .with_txn(|txn| {
+            async move {
+                match (id, name) {
+                    (Some(id), _) => {
+                        domain::find_by(txn, ObjectColumnFilter::One(domain::IdColumn, &id)).await
+                    }
+                    (None, Some(name)) => domain::find_by_name(txn, &name).await,
+                    (None, None) => {
+                        domain::find_by(txn, ObjectColumnFilter::<domain::IdColumn>::All).await
+                    }
+                }
+            }
+            .boxed()
+        })
+        .await?;
+
+    let result = domains
+        .map(|domain| ::rpc::protos::dns::DomainList {
+            domains: domain.into_iter().map(Domain::from).collect(),
+        })
+        .map(Response::new)
+        .map_err(CarbideError::from)?;
+
+    Ok(result)
+}
+
+// ============================================================================
+// LEGACY ADAPTER HANDLERS - DEPRECATED
+// These handlers provide backward compatibility
+// They convert legacy types to new types and delegate to the handlers above
+// TODO: Remove these once clients have migrated
+// ============================================================================
+
+use ::rpc::protos::forge::{
+    DomainDeletionLegacy, DomainDeletionResultLegacy, DomainLegacy, DomainListLegacy,
+    DomainSearchQueryLegacy,
+};
+
+/// Compatibility adapter for legacy create_domain RPC
+pub async fn create_legacy_compat(
+    api: &Api,
+    request: Request<DomainLegacy>,
+) -> Result<Response<DomainLegacy>, Status> {
+    tracing::warn!(
+        "Legacy RPC method create_domain_legacy called - please migrate to CreateDomain"
+    );
+
+    let domain_legacy = request.into_inner();
+
+    // Convert legacy Domain to CreateDomainRequest
+    let create_request = CreateDomainRequest {
+        name: domain_legacy.name,
+    };
+
+    // Call the new handler
+    let response = create(api, Request::new(create_request)).await?;
+    let domain = response.into_inner();
+
+    // Convert new Domain back to legacy format (drops metadata/soa)
+    Ok(Response::new(DomainLegacy {
+        id: domain.id,
+        name: domain.name,
+        created: domain.created,
+        updated: domain.updated,
+        deleted: domain.deleted,
+    }))
+}
+
+/// Compatibility adapter for legacy update_domain RPC
+pub async fn update_legacy_compat(
+    api: &Api,
+    request: Request<DomainLegacy>,
+) -> Result<Response<DomainLegacy>, Status> {
+    tracing::warn!(
+        "Legacy RPC method update_domain_legacy called - please migrate to UpdateDomain"
+    );
+
+    let domain_legacy = request.into_inner();
+
+    // Convert legacy Domain to UpdateDomainRequest
+    let update_request = UpdateDomainRequest {
+        domain: Some(Domain {
+            id: domain_legacy.id,
+            name: domain_legacy.name,
+            created: domain_legacy.created,
+            updated: domain_legacy.updated,
+            deleted: domain_legacy.deleted,
+            metadata: None, // Legacy doesn't have metadata
+            soa: None,      // Legacy doesn't have SOA
+        }),
+    };
+
+    // Call the new handler
+    let response = update(api, Request::new(update_request)).await?;
+    let domain = response.into_inner();
+
+    // Convert new Domain back to legacy format
+    Ok(Response::new(DomainLegacy {
+        id: domain.id,
+        name: domain.name,
+        created: domain.created,
+        updated: domain.updated,
+        deleted: domain.deleted,
+    }))
+}
+
+/// Compatibility adapter for legacy delete_domain RPC
+pub async fn delete_legacy_compat(
+    api: &Api,
+    request: Request<DomainDeletionLegacy>,
+) -> Result<Response<DomainDeletionResultLegacy>, Status> {
+    tracing::warn!(
+        "Legacy RPC method delete_domain_legacy called - please migrate to DeleteDomain"
+    );
+
+    let deletion_legacy = request.into_inner();
+
+    // Convert to new request format
+    let deletion_request = DomainDeletionRequest {
+        id: deletion_legacy.id,
+    };
+
+    // Call the new handler
+    let _ = delete(api, Request::new(deletion_request)).await?;
+
+    // Return legacy result format
+    Ok(Response::new(DomainDeletionResultLegacy {}))
+}
+
+/// Compatibility adapter for legacy find_domain RPC
+pub async fn find_legacy_compat(
+    api: &Api,
+    request: Request<DomainSearchQueryLegacy>,
+) -> Result<Response<DomainListLegacy>, Status> {
+    tracing::warn!("Legacy RPC method find_domain_legacy called - please migrate to FindDomain");
+
+    let query_legacy = request.into_inner();
+
+    // Convert to new query format
+    let query = DomainSearchQuery {
+        id: query_legacy.id,
+        name: query_legacy.name,
+    };
+
+    // Call the new handler
+    let response = find(api, Request::new(query)).await?;
+    let domain_list = response.into_inner();
+
+    // Convert new DomainList to legacy format
+    Ok(Response::new(DomainListLegacy {
+        domains: domain_list
+            .domains
+            .into_iter()
+            .map(|d| DomainLegacy {
+                id: d.id,
+                name: d.name,
+                created: d.created,
+                updated: d.updated,
+                deleted: d.deleted,
+            })
+            .collect(),
+    }))
+}

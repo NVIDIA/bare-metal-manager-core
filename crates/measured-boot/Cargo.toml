@@ -1,0 +1,30 @@
+[package]
+name = "carbide-measured-boot"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "measured_boot"
+
+[features]
+sqlx = ["dep:sqlx", "carbide-uuid/sqlx"]
+cli = ["dep:prettytable-rs", "dep:eyre", "dep:clap", "carbide-rpc/cli"]
+
+[dependencies]
+# workspace dependencies
+carbide-uuid = { path = "../uuid" }
+carbide-rpc = { path = "../rpc" }
+
+thiserror = { workspace = true }
+sqlx = { workspace = true, optional = true }
+prettytable-rs = { optional = true, workspace = true }
+clap = { workspace = true, optional = true }
+eyre = { optional = true, workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+tonic = { workspace = true }
+
+[lints]
+workspace = true

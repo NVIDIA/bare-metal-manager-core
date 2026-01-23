@@ -1,0 +1,21 @@
+[package]
+name = "carbide-mlxconfig-variables"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Type definitions for Mellanox hardware configuration registry."
+
+[lib]
+name = "mlxconfig_variables"
+
+[dependencies]
+serde = { features = ["derive"], workspace = true }
+serde_yaml = { workspace = true }
+hex = { workspace = true }
+carbide-mlxconfig-device = { path = "../mlxconfig-device" }
+carbide-rpc = { path = "../rpc" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+mac_address = { features = ["serde"], workspace = true }

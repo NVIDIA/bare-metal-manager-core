@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>carbide-web | {% block title %}Base{% endblock %}</title>
+		<link href="/admin/static/carbide.css" rel="stylesheet" />
+		<link href="/admin/static/sortable.css" rel="stylesheet" />
+		{% block head %}{% endblock %}
+	</head>
+	<body>
+		<nav>
+			<h3><a href="/admin" id="site-name">carbide-web</a></h3>
+			<form action="/admin/search" class="search-container">
+				<input type="search" placeholder="fm100.., 10.2.., etc" name="q" tabindex="1" title="Enter a machine id, UUID, IP address, MAC address, serial number, or shortcode">
+				<input type="submit" value="">
+			</form>
+			<ul>
+				<li><a href="/admin">Configuration</a></li>
+				<li><a href="/admin/resource-pool">Resource Pools</a></li>
+			</ul>
+			<hr />
+			<h3>Racks</h3>
+			<ul>
+				<li><a href="/admin/rack">Managed Racks</a></li>
+			</ul>
+			<hr />
+			<h3>Switches</h3>
+			<ul>
+				<li><a href="/admin/switch">Managed Switches</a></li>
+			</ul>
+			<hr />
+			<h3>Power Shelves</h3>
+			<ul>
+				<li><a href="/admin/power-shelf">Managed Power Shelves</a></li>
+			</ul>
+			<hr />
+			<h3>Machines</h3>
+			<ul>
+				<li>
+					<a href="/admin/managed-host">Managed Hosts</a>
+					<ul>
+						<li><a href="/admin/expected-machine">Expected</a></li>
+					</ul>
+				</li>
+				<li><a href="/admin/host">Hosts</a></li>
+				<li><a href="/admin/dpu">DPUs</a>
+					<ul>
+						<li><a href="/admin/network-status">Network Status</a></li>
+						<li><a href="/admin/dpu/versions">Versions</a></li>
+					</ul>
+				</li>
+				<li><a href="/admin/interface">Machine Interfaces</a></li>
+				<li><a href="/admin/network-device">Network Devices</a></li>
+				<li><a href="/admin/machinevalidation">Machine Validation</a>
+					<ul>
+						<li><a href="/admin/machinevalidation/tests">Tests</a></li>
+						<li><a href="/admin/machinevalidation/external-config">External-config</a></li>
+					</ul>
+				</li>
+				<li><a href="/admin/sku">SKUs</a></li>
+				<li><a href="/admin/attestation-summary">Attestations</a></li>
+				<li><a href="/admin/instance-type">Instance Types</a></li>
+				<li><a href="/admin/dpa">DPAs</a></li>
+			</ul>
+			<hr/>
+			<h3>BMCs and Site Explorer</h3>
+			<ul>
+				<li><a href="/admin/explored-endpoint">Explored Endpoints</a>
+					<ul>
+						<li><a href="/admin/explored-endpoint/paired">Paired</a></li>
+						<li><a href="/admin/explored-endpoint/unpaired">Unpaired</a></li>
+					</ul>
+				</li>
+				<li><a href="/admin/redfish-browser">Redfish Browser</a></li>
+				<li><a href="/admin/redfish-actions">Redfish Actions</a></li>
+			</ul>
+			<hr />
+			<h3>InfiniBand</h3>
+			<ul>
+				<li><a href="/admin/ib-fabric">Fabrics</a></li>
+				<li><a href="/admin/ufm-browser">UFM Browser</a></li>
+			</ul>
+			<hr />
+                        <h3>NVLink</h3>
+                        <ul>
+                               <li><a href="/admin/nmxm-browser">NMX-M Browser</a></li>
+                        </ul>
+			<hr />
+
+			<h3>Tenant Objects</h3>
+			<ul>
+				<li><a href="/admin/domain">Domains</a></li>
+				<li><a href="/admin/vpc">VPCs</a></li>
+				<li><a href="/admin/ib-partition">InfiniBand Partitions</a></li>
+				<li><a href="/admin/nvlink-partition">NVLink Partitions</a></li>
+				<li><a href="/admin/network-segment">Network Segments</a></li>
+				<li><a href="/admin/instance">Instances</a></li>
+				<li><a href="/admin/tenant">Tenants</a></li>
+				<li><a href="/admin/tenant_keyset">Keysets</a></li>
+				<li><a href="/admin/network-security-group">Network Security Groups</a></li>
+			</ul>
+			<hr/>
+			<h3>Tools</h3>
+			<ul>
+				<li><a id="grafana-url" href="https://grafana-dev3.frg.nvidia.com/">Grafana</a></li>
+				<li><a id="serial-console-url" href="https://grafana-dev3.frg.nvidia.com/">Serial Console Logs</a></li>
+				<li><a id="argo-url" href="https://argocd-dev3.frg.nvidia.com/">Argo CD</a></li>
+				<li><a href="https://stg.ngc.nvidia.com/">NGC Stg</a></li>
+				<li><a href="https://console.ngc.nvidia.com/">NGC Prod</a></li>
+			</ul>
+		</nav>
+		<main>{% block content %}{% endblock %}</main>
+		<script src="/admin/static/sortable.js"></script>
+		<script>
+
+			// Extract site name from URL (e.g., "dev3" from "api-dev3.frg.nvidia.com")
+			// If URL doesn't match the pattern, returns defaultSiteName (defaults to "dev3")
+			function getSiteName(defaultSiteName = "dev3") {
+				const url = window.location.href;
+				const match = url.match(/https?:\/\/api-([^.]+)\.frg\.nvidia\.com/);
+				return match ? match[1] : defaultSiteName;
+			}
+
+			// On domains like api-dev3.frg.nvidia.com extract "dev3" and use that to build Grafana and Argo CD URLs
+			function setURLs() {
+				const displayName = getSiteName("localDev");
+				const name = displayName === "localDev" ? "dev3" : displayName;
+				
+				// Set the site name
+				let siteNameElement = document.getElementById("site-name");
+				if (siteNameElement) {
+					siteNameElement.innerHTML = `carbide • ${displayName}`;
+				}
+				
+				let grafanaBaseUrl = "https://grafana-"+ name +".frg.nvidia.com";
+				document.getElementById("grafana-url").href = grafanaBaseUrl;
+				document.getElementById("serial-console-url").href = grafanaBaseUrl + "/d/ssh-console-rs-logs/serial-console-rust-version?orgId=1";
+				document.getElementById("argo-url").href = "https://argocd-"+ name +".frg.nvidia.com/";
+			}
+
+			function create_el(type, attributes, htmlAttributes) {
+				const el = document.createElement(type);
+				Object.assign(el, attributes);
+				if (htmlAttributes && htmlAttributes != undefined) {
+					for (const [key, value] of Object.entries(htmlAttributes)) {
+						el.setAttribute(key, value);
+					}
+				}
+				return el;
+			}
+
+			// Build Grafana logs URL for a given search term (machine ID or BMC IP)
+			function buildGrafanaLogsUrl(searchTerm) {
+				const siteName = getSiteName();
+				const grafanaBaseUrl = 'https://grafana-' + siteName + '.frg.nvidia.com';
+				const query = '{k8s_container_name="carbide-api"} |= `' + searchTerm + '` != `SPAN`';
+				const panesJson = {
+					"KLl": {
+						"datasource": "P8E80F9AEF21F6940",
+						"queries": [{
+							"refId": "A",
+							"expr": query,
+							"queryType": "range",
+							"datasource": {
+								"type": "loki",
+								"uid": "P8E80F9AEF21F6940"
+							},
+							"editorMode": "builder"
+						}],
+						"range": {
+							"from": "now-6h",
+							"to": "now"
+						}
+					}
+				};
+				return grafanaBaseUrl + '/explore?panes=' + encodeURIComponent(JSON.stringify(panesJson)) + '&schemaVersion=1&orgId=1';
+			}
+
+			// "Show" pages have a JSON link, fill in its target
+			function attachJsonLink() {
+				let jsonLink = document.getElementById("json-link");
+				if (!jsonLink) {
+					return;
+				}
+				jsonLink.href = window.location.href + ".json";
+			}
+
+			function prettifyJSONs() {
+				let elems = document.getElementsByClassName("prettyjson");
+				for (elem of elems) {
+					// No need to set whiteSpace style as it's handled by CSS now
+					try {
+						let jsObj = JSON.parse(elem.innerText);
+
+						// In some well-known member fields on the highest level,
+						// the data stored in the field is also JSON.
+						// We expand that inner data
+						const deserializeField = (obj, field) => {
+							if (obj[field] != null) {
+								try {
+									obj[field] = JSON.parse(obj[field]);
+								} catch (e) {
+								}
+							}
+						};
+
+						const unpackFields = ["ResponseBody"];
+						for (unpackField of unpackFields) {
+							deserializeField(jsObj, unpackField);
+						}
+						elem.innerText = JSON.stringify(jsObj, null,4);
+					} catch (e) {
+					}
+				}
+			}
+
+			document.addEventListener("DOMContentLoaded", function(event){
+				attachJsonLink();
+				setURLs();
+				prettifyJSONs();
+			});
+
+			// Updates the title of spans to render the localized version
+			// of the timestamp stored inside a span
+			function setTitleToLocalizedTime(element) {
+				let date = new Date(element.innerText);
+				// TODO: This format is not exactly equal to the non-localized format
+				element.title = date.toString();
+			}
+			{% block script %}{% endblock %}
+		</script>
+	</body>
+</html>
+

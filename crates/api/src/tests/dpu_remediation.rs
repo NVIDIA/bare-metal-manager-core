@@ -1,0 +1,310 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use model::dpu_remediation::{ApproveRemediation, EnableRemediation, NewRemediation, Reviewer};
+use rpc::forge::{CreateRemediationRequest, RemediationApplicationStatus};
+
+use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
+
+#[test]
+fn test_try_from_rpc() -> Result<(), Box<dyn std::error::Error>> {
+    let bad_request_negative_retries = CreateRemediationRequest {
+        retries: -1,
+        ..Default::default()
+    };
+    let good_author = "good_author_string".to_string();
+
+    assert!(NewRemediation::try_from((bad_request_negative_retries, good_author.clone())).is_err());
+
+    let mut bad_request_too_long_script = CreateRemediationRequest::default();
+    let too_long_string = "x".repeat(2 << (13 + 1));
+    bad_request_too_long_script.script = too_long_string;
+
+    assert!(NewRemediation::try_from((bad_request_too_long_script, good_author.clone())).is_err());
+
+    let mut bad_request_no_script = CreateRemediationRequest::default();
+    let empty_string = String::new();
+    bad_request_no_script.script = empty_string;
+
+    assert!(NewRemediation::try_from((bad_request_no_script, good_author.clone())).is_err());
+
+    let good_request = CreateRemediationRequest {
+        script: "echo 'hello world'".to_string(),
+        ..Default::default()
+    };
+
+    assert!(NewRemediation::try_from((good_request, good_author)).is_ok());
+
+    Ok(())
+}
+#[crate::sqlx_test(fixtures("create_dpu_remediation"))]
+async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let test_managed_host = create_managed_host_multi_dpu(&env, 2).await;
+    let mut txn = env.pool.begin().await?;
+    let mut all_dpus = test_managed_host.dpu_db_machines(&mut txn).await;
+    let test_dpu_1 = all_dpus.pop().expect("missing first dpu?");
+    let test_dpu_2 = all_dpus.pop().expect("missing second dpu?");
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("unable to create transaction on database pool");
+
+    let ids = db::dpu_remediation::find_remediation_ids(&mut txn).await?;
+    let remediations = db::dpu_remediation::find_remediations_by_ids(&mut txn, &ids).await?;
+
+    assert_eq!(ids.len(), remediations.len());
+
+    let (enabled_remediations, disabled_remediations): (Vec<_>, Vec<_>) = remediations
+        .into_iter()
+        .partition(|remediation| remediation.enabled);
+
+    assert_eq!(enabled_remediations.len(), 2);
+
+    // first, we test that we can apply the same remediation to two different machines concurrently.
+    let next_remediation_to_apply_1 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+            .await?
+            .expect("no remediation to apply?");
+    let next_remediation_to_apply_2 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
+            .await?
+            .expect("no remediation to apply?");
+
+    db::dpu_remediation::remediation_applied(
+        &mut txn,
+        test_dpu_1.id,
+        next_remediation_to_apply_1.id,
+        RemediationApplicationStatus {
+            succeeded: true,
+            metadata: None,
+        },
+    )
+    .await?;
+
+    db::dpu_remediation::remediation_applied(
+        &mut txn,
+        test_dpu_2.id,
+        next_remediation_to_apply_2.id,
+        RemediationApplicationStatus {
+            succeeded: true,
+            metadata: None,
+        },
+    )
+    .await?;
+
+    // now we validate they're applied and successful
+    let applied_remediations_1 =
+        db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
+            &mut txn,
+            next_remediation_to_apply_1.id,
+            &test_dpu_1.id,
+        )
+        .await?;
+    let applied_remediation_1 = applied_remediations_1
+        .first()
+        .expect("no applied remediation?");
+    assert!(applied_remediation_1.succeeded);
+
+    let applied_remediations_2 =
+        db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
+            &mut txn,
+            next_remediation_to_apply_2.id,
+            &test_dpu_2.id,
+        )
+        .await?;
+    let applied_remediation_2 = applied_remediations_2
+        .first()
+        .expect("no applied remediation?");
+    assert!(applied_remediation_2.succeeded);
+
+    // now we test the retry logic
+    // first, apply the same remediation 3 times and fail it, and validate that the 4th attempt does not give a remediation back to the DPU.
+    let next_remediation_to_apply_1 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+            .await?
+            .expect("no remediation to apply?");
+    let same_id_1 = next_remediation_to_apply_1.id;
+    db::dpu_remediation::remediation_applied(
+        &mut txn,
+        test_dpu_1.id,
+        next_remediation_to_apply_1.id,
+        RemediationApplicationStatus {
+            succeeded: false,
+            metadata: None,
+        },
+    )
+    .await?;
+    let next_remediation_to_apply_1 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+            .await?
+            .expect("no remediation to apply?");
+    // it should give back the same id
+    assert_eq!(same_id_1, next_remediation_to_apply_1.id.clone());
+
+    db::dpu_remediation::remediation_applied(
+        &mut txn,
+        test_dpu_1.id,
+        next_remediation_to_apply_1.id,
+        RemediationApplicationStatus {
+            succeeded: false,
+            metadata: None,
+        },
+    )
+    .await?;
+    let next_remediation_to_apply_1 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+            .await?
+            .expect("no remediation to apply?");
+    // it should give back the same id
+    assert_eq!(same_id_1, next_remediation_to_apply_1.id.clone());
+
+    db::dpu_remediation::remediation_applied(
+        &mut txn,
+        test_dpu_1.id,
+        next_remediation_to_apply_1.id,
+        RemediationApplicationStatus {
+            succeeded: false,
+            metadata: None,
+        },
+    )
+    .await?;
+    let next_remediation_to_apply_1 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id).await?;
+    assert!(next_remediation_to_apply_1.is_none());
+
+    // finally, validate we can fail once, and then pass once, and then not get the remediation back after it succeeds
+    let next_remediation_to_apply_2 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
+            .await?
+            .expect("no remediation to apply?");
+    let same_id_2 = next_remediation_to_apply_2.id;
+
+    db::dpu_remediation::remediation_applied(
+        &mut txn,
+        test_dpu_2.id,
+        next_remediation_to_apply_2.id,
+        RemediationApplicationStatus {
+            succeeded: false,
+            metadata: None,
+        },
+    )
+    .await?;
+
+    let next_remediation_to_apply_2 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
+            .await?
+            .expect("no remediation to apply?");
+    // it should give back the same id
+    assert_eq!(same_id_2, next_remediation_to_apply_2.id.clone());
+    db::dpu_remediation::remediation_applied(
+        &mut txn,
+        test_dpu_2.id,
+        next_remediation_to_apply_2.id,
+        RemediationApplicationStatus {
+            succeeded: true,
+            metadata: None,
+        },
+    )
+    .await?;
+
+    let next_remediation_to_apply_2 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id).await?;
+    assert!(next_remediation_to_apply_2.is_none());
+
+    // next up, test the enabling logic.  we should _not_ be able to enable a remediation that isn't reviewed
+    let (reviewed_remediations, unreviewed_remediations): (Vec<_>, Vec<_>) = disabled_remediations
+        .into_iter()
+        .partition(|remediation| remediation.reviewer.is_some());
+
+    let unreviewed_remediation_id = unreviewed_remediations.first().unwrap().id;
+    let result = db::dpu_remediation::persist_enable_remediation(
+        EnableRemediation {
+            id: unreviewed_remediation_id,
+        },
+        &mut txn,
+    )
+    .await;
+    assert!(result.is_err());
+
+    // and we _should_ be able to enable one that has been approved
+    let reviewed_remediation_id = reviewed_remediations.first().unwrap().id;
+    db::dpu_remediation::persist_enable_remediation(
+        EnableRemediation {
+            id: reviewed_remediation_id,
+        },
+        &mut txn,
+    )
+    .await?;
+
+    // once it has been enabled, we should be able to successfully FindNext it
+    let next_remediation_to_apply_1 =
+        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+            .await?
+            .expect("no remediation to apply?");
+    db::dpu_remediation::remediation_applied(
+        &mut txn,
+        test_dpu_1.id,
+        next_remediation_to_apply_1.id,
+        RemediationApplicationStatus {
+            succeeded: true,
+            metadata: None,
+        },
+    )
+    .await?;
+    // and it should be successfully applied
+    let applied_remediations_1 =
+        db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
+            &mut txn,
+            next_remediation_to_apply_1.id,
+            &test_dpu_1.id,
+        )
+        .await?;
+    let applied_remediation_1 = applied_remediations_1
+        .first()
+        .expect("no applied remediation?");
+    assert!(applied_remediation_1.succeeded);
+
+    // test: we should _not_ be able to review unreviewed remediations using the same reviewer as the author of the remediation
+    let unreviewed_remediation_id = unreviewed_remediations.first().unwrap().id;
+    let unreviewed_remediation_author = unreviewed_remediations.first().unwrap().author.clone();
+    let should_fail = db::dpu_remediation::persist_approve_remediation(
+        ApproveRemediation {
+            id: unreviewed_remediation_id,
+            reviewer: Reviewer::from(unreviewed_remediation_author.to_string()),
+        },
+        &mut txn,
+    )
+    .await;
+    assert!(should_fail.is_err());
+
+    // and lastly, we should be able to review a remediation, and then enable it
+    let remediation_id_to_test = unreviewed_remediation_id;
+    db::dpu_remediation::persist_approve_remediation(
+        ApproveRemediation {
+            id: remediation_id_to_test,
+            reviewer: Reviewer::from("totally_a_real_reviewer".to_string()),
+        },
+        &mut txn,
+    )
+    .await?;
+    db::dpu_remediation::persist_enable_remediation(
+        EnableRemediation {
+            id: remediation_id_to_test,
+        },
+        &mut txn,
+    )
+    .await?;
+
+    Ok(())
+}

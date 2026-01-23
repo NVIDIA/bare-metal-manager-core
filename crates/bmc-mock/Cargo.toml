@@ -1,0 +1,42 @@
+[package]
+name = "bmc-mock"
+version = "0.1.0"
+description = "HTTP server that pretends to be a BMC / libredfish. For integration and local testing."
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+arc-swap = { workspace = true }
+axum = { workspace = true }
+axum-server = { features = ["tls-rustls"], workspace = true }
+clap = { workspace = true }
+duration-str = { workspace = true }
+tokio.workspace = true
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter"], workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tar = { workspace = true }
+eyre = { workspace = true }
+flate2 = { workspace = true }
+tower = { workspace = true }
+hyper = { workspace = true }
+http-body = { workspace = true }
+regex = { workspace = true }
+lazy_static = { workspace = true }
+mac_address = { features = ["serde"], workspace = true }
+chrono = { workspace = true }
+tower-http = { features = ["normalize-path"], workspace = true }
+bytes = { workspace = true }
+form_urlencoded = { workspace = true }
+itertools = { workspace = true }
+futures = { workspace = true }
+rand = { workspace = true }
+rustls = { workspace = true, features = ["default", "ring"] }
+rustls-pemfile = { workspace = true }
+http-body-util = { workspace = true }
+
+[lints]
+workspace = true

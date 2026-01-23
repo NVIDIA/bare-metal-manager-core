@@ -1,0 +1,28 @@
+
+ExternalConfigs: 
+  - "shoreline"
+Tests: 
+  Cpu:
+    BenchMark:
+      CpuMemoryTestFor10Min:
+        Desc: "Test runs for 60 min on CPU"
+        Command: runc
+        Args: "--action=run --config=config-2017-gcc-linux-x86.cfg --iterations=1 --output_format=csv,text --size=train --tune=base --copies=128 --threads=128 cactuBSSN_r nab_r fotonik3d_r"
+        Contexts:
+          - Discovery
+  Gpu:
+    MemoryTest:
+      GpuMemoryTestFor60Min:
+        Desc: "Test runs for 60 min on GPU memory"
+        Command: dcgmi
+        Args: "diag -r 4 -p memtest.test0=true\;memtest.test1=true\;memtest.test2=true\;memtest.test3=true\;memtest test4=true\;memtest.test5=true\;memtest.test6=true\;memtest.test7=true\;memtest.test8=true\;memtest.test9=true\;memtest.test10=true\;memtest.test_duration=3600"
+        Contexts:
+          - Cleanup
+          - Discovery
+    PulseTest:
+      GpuPulseTestFor60Min:
+        Desc: "Pulse test 60 min"
+        Command: "dcgmi"
+        Args: "diag -r pulse_test"
+        Contexts:`
+          - Cleanup

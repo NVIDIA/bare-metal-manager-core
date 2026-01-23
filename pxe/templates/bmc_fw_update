@@ -1,0 +1,118 @@
+# Generate DPU BMC password compliant with NVIDIA BlueField DPU policy
+# https://docs.nvidia.com/networking/display/bf3dpu/bluefield+dpu+administrator+quick+start+guide
+rand_chars() {
+  local charset="$1"
+  local length="$2"
+  tr -dc "$charset" </dev/urandom | head -c "$length"
+}
+
+generate_bmc_password() {
+  local part1 part2 part3 part4 part5
+
+  part1=$(rand_chars 'A-Za-z0-9' 4) # 4 alphanumeric
+  part2=$(rand_chars 'A-Za-z0-9' 4) # 4 alphanumeric
+  part3=$(rand_chars '0-9' 2)       # 2 digits
+  part4=$(rand_chars 'a-z' 2)       # 2 lowercase
+  part5=$(rand_chars 'A-Z' 2)       # 2 uppercase
+
+  echo "${part1}-${part2}_${part3}${part4}${part5}"
+}
+
+BMC_PASSWORD="$(generate_bmc_password)"
+BMC_USER="firmware_updater"
+USER_ID=8
+
+# Shell function called by BFB's installer before updating BMC components
+# https://docs.nvidia.com/networking/display/bluefieldbsp4130/customizing-bluefield-software-deployment
+pre_bmc_components_update() {
+  set -x
+  run_with_timeout "ipmitool user set name $USER_ID ''"
+  run_with_timeout "ipmitool user set name $USER_ID $BMC_USER"
+  run_with_timeout "ipmitool user set password $USER_ID $BMC_PASSWORD" "ipmitool user set password $USER_ID REDACTED"
+  run_with_timeout "ipmitool user test $USER_ID 20 $BMC_PASSWORD" "ipmitool user test $USER_ID 20 REDACTED"
+  run_with_timeout "ipmitool user enable $USER_ID"
+  run_with_timeout "ipmitool channel setaccess 1 $USER_ID ipmi=on"
+  run_with_timeout "ipmitool user priv $USER_ID 0x4 1"
+  set +x
+}
+
+run_with_timeout() {
+  local cmd="$1"
+  local printcmd="${2:-$1}"
+
+  for i in {1..5}; do
+    delay=$((2 ** i))
+    ilog "Running with timeout (30s): $printcmd"
+    if timeout 30s /bin/bash -c "$cmd"; then
+      break
+    else
+      ilog "Attempt $i failed, retrying in $delay seconds"
+      # Adding sleep in case DPU BMC is not ready to apply a change
+      sleep "$delay"
+    fi
+  done
+}
+
+add_db_cert() {
+  tee data.json <<DOF
+    {
+        "CertificateString": "$(openssl x509 -inform der -outform pem -in /mnt/lib/firmware/mellanox/boot/capsule/certs/prod/db.cer | sed -e 's/[[:space:]]*$//' -e 's/$/\\n/')",
+        "CertificateType": "PEM"
+    }
+DOF
+  num_certs=$($CURL_CMD https://"$BMC_IP"/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates | jq -r '."Members@odata.count"')
+  ilog "Found the following number of certs in the certdb - $num_certs"
+  if ((num_certs == 0)); then
+    # Only run the call if there are no existing certs, otherwise it could cause subsequent installs of the DPU to fail
+    $CURL_CMD -d @data.json https://"$BMC_IP"/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates
+  fi
+}
+
+wait_bmc_boot() {
+  ilog "Waiting DPU BMC to reboot..."
+
+  local tries_ok=0
+  local tries=0
+  local max_tries=30
+
+  while ((tries_ok < 2 && tries < max_tries)); do
+    http_code=$($CURL_CMD -s --retry 0 --max-time 5 -w "%{http_code}" https://"$BMC_IP"/redfish/v1/ -o /dev/null)
+    [[ "$http_code" == "200" ]] && ((tries_ok++))
+    ((tries++))
+    sleep 5
+  done
+
+  if ((tries_ok < 2)); then
+    ilog "WARN: DPU BMC boot timeout after $tries attempts"
+  fi
+}
+
+# This function is called as a last step before reboot. All eMMC/SSD partitions are unmounted at this stage.
+# https://docs.nvidia.com/networking/display/bluefieldbsp4130/customizing-bluefield-software-deployment
+bfb_post_install() {
+  set -x
+  ilog "Run BFB post install script"
+  CURL_CMD="curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD"
+
+  # Calling create_vlan function defined in the upstream installer
+  # https://github.com/Mellanox/bfb-build/blob/bf-bundle-3.2.0-113_25.10_ubuntu-22.04/common/install.env/bmc#L135
+  create_vlan
+
+  # Restore NVIDIA Secure Boot db certificate
+  # There is a possibility that all db certificates have been lost. If this occurs, all capsule updates (UEFI/ATF) will fail.
+  add_db_cert
+
+  # The BlueField-2 BMC needs a graceful reboot in order to update itself
+  if (lspci -n | grep -wq '15b3:a2d6'); then
+    ilog "Found BlueField-2 card (15b3:a2d6)"
+    if [[ "$BMC_FIRMWARE_UPDATED" == "yes" ]]; then
+      ilog "DPU BMC reboot is triggered to apply new BMC version"
+      bmc_reboot
+      wait_bmc_boot
+    fi
+  fi
+
+  ilog "Removing $BMC_USER user after BFB install complete"
+  $CURL_CMD -X DELETE https://"$BMC_IP"/redfish/v1/AccountService/Accounts/"$BMC_USER"
+  set +x
+}

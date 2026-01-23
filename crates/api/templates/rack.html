@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Racks{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col">
+            <h1>Racks</h1>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Racks</h5>
+                </div>
+                <div class="card-body">
+                    {% if !racks.is_empty() %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>State</th>
+                                <th>Expected Compute Trays</th>
+                                <th>Current Compute Trays</th>
+                                <th>Expected Power Shelves</th>
+                                <th>Current Power Shelves</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for rack in racks %}
+                            <tr>
+                                <td>{{ rack.id }}</td>
+                                <td>{{ rack.rack_state }}</td>
+                                <td>{{ rack.expected_compute_trays }}</td>
+                                <td>{{ rack.current_compute_trays }}</td>
+                                <td>{{ rack.expected_power_shelves }}</td>
+                                <td>{{ rack.current_power_shelves }}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No racks found.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

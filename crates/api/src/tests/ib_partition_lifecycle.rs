@@ -1,0 +1,342 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use carbide_uuid::infiniband::IBPartitionId;
+use db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
+use db::{self, ObjectColumnFilter};
+use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
+use rpc::forge::TenantState;
+use rpc::forge::forge_server::Forge;
+use tonic::Request;
+
+use crate::api::Api;
+use crate::api::rpc::IbPartitionConfig;
+use crate::cfg::file::IBFabricConfig;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::TestEnvOverrides;
+
+const FIXTURE_CREATED_IB_PARTITION_NAME: &str = "ib_partition_1";
+const FIXTURE_TENANT_ORG_ID: &str = "tenant";
+
+async fn create_ib_partition_with_api(
+    api: &Api,
+    name: String,
+) -> Result<tonic::Response<rpc::IbPartition>, tonic::Status> {
+    let request = rpc::forge::IbPartitionCreationRequest {
+        id: None,
+        config: Some(IbPartitionConfig {
+            name,
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        }),
+    };
+
+    api.create_ib_partition(Request::new(request)).await
+}
+
+async fn get_partition_state(api: &Api, ib_partition_id: IBPartitionId) -> TenantState {
+    let segment = api
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![ib_partition_id],
+            include_history: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_partitions
+        .remove(0);
+
+    let status = segment.status.unwrap();
+
+    TenantState::try_from(status.state).unwrap()
+}
+
+async fn test_ib_partition_lifecycle_impl(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let partition =
+        create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
+            .await
+            .unwrap()
+            .into_inner();
+
+    let partition_id: IBPartitionId = partition.id.unwrap();
+    // The TenantState only switches after the state controller recognized the update
+    assert_eq!(
+        get_partition_state(&env.api, partition_id).await,
+        TenantState::Provisioning
+    );
+
+    env.run_ib_partition_controller_iteration().await;
+
+    // After 1 controller iterations, the partition should be ready
+    assert_eq!(
+        get_partition_state(&env.api, partition_id).await,
+        TenantState::Ready
+    );
+
+    env.run_ib_partition_controller_iteration().await;
+    // After another controller iterations, the partition should still be ready even the
+    // controller can not find the partition.
+    assert_eq!(
+        get_partition_state(&env.api, partition_id).await,
+        TenantState::Ready
+    );
+
+    env.api
+        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+            id: partition.id,
+        }))
+        .await
+        .expect("expect deletion to succeed");
+
+    // After the API request, the partition should show up as deleting
+    assert_eq!(
+        get_partition_state(&env.api, partition_id).await,
+        TenantState::Terminating
+    );
+
+    // Deletion is idempotent
+    env.api
+        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+            id: partition.id,
+        }))
+        .await
+        .expect("expect deletion to succeed");
+
+    // Make the controller aware about termination too
+    env.run_ib_partition_controller_iteration().await;
+    env.run_ib_partition_controller_iteration().await;
+
+    let partitions = env
+        .api
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![partition.id.unwrap()],
+            include_history: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_partitions;
+
+    assert!(partitions.is_empty());
+
+    // After the partition is fully gone, deleting it again should return NotFound
+    // Calling the API again in this state should be a noop
+    let err = env
+        .api
+        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+            id: partition.id,
+        }))
+        .await
+        .expect_err("expect deletion to fail");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+    assert_eq!(
+        err.message(),
+        format!("ib_partition not found: {}", partition.id.unwrap())
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_ib_partition_lifecycle(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    test_ib_partition_lifecycle_impl(pool).await
+}
+
+#[crate::sqlx_test]
+async fn test_find_ib_partition_for_tenant(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let created_ib_partition =
+        create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
+            .await
+            .unwrap()
+            .into_inner();
+    let created_ib_partition_id: IBPartitionId = created_ib_partition.id.unwrap();
+
+    let find_ib_partition = env
+        .api
+        .ib_partitions_for_tenant(Request::new(rpc::forge::TenantSearchQuery {
+            tenant_organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_partitions
+        .remove(0);
+    let find_ib_partition_id: IBPartitionId = find_ib_partition.id.unwrap();
+
+    assert_eq!(created_ib_partition_id, find_ib_partition_id);
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_create_ib_partition_over_max_limit(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    // create max number of ib partitions for the tenant
+    for _i in 1..=IBFabricConfig::default_max_partition_per_tenant() {
+        let _ =
+            create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
+                .await?;
+    }
+
+    // create one more ib partition for this tenant, should be fail with no rows retruned from DB.
+    let response =
+        create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string()).await;
+
+    let error = response
+        .expect_err("expected create ibpartition to fail")
+        .to_string();
+    assert!(
+        error.contains("Maximum Limit of Infiniband partitions had been reached"),
+        "Error message should contain 'Maximum Limit of Infiniband partitions had been reached', but is {error}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn create_ib_partition_with_api_with_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let id = IBPartitionId::from(uuid::Uuid::new_v4());
+    let request = rpc::forge::IbPartitionCreationRequest {
+        id: Some(id),
+        config: Some(IbPartitionConfig {
+            name: "partition1".to_string(),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        }),
+    };
+
+    let partition = env
+        .api
+        .create_ib_partition(Request::new(request))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(partition.id, Some(id));
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let id = IBPartitionId::from(uuid::Uuid::new_v4());
+    let new_partition = NewIBPartition {
+        id,
+        config: IBPartitionConfig {
+            name: "partition1".to_string(),
+            pkey: Some(42.try_into().unwrap()),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
+            mtu: Some(IBMtu::default()),
+            rate_limit: Some(IBRateLimit::default()),
+            service_level: Some(IBServiceLevel::default()),
+        },
+    };
+    let mut txn = pool.begin().await?;
+    let mut partition: IBPartition = db::ib_partition::create(new_partition, &mut txn, 10).await?;
+    txn.commit().await?;
+
+    let mut txn = pool.begin().await?;
+    let results = db::ib_partition::for_tenant(&mut txn, FIXTURE_TENANT_ORG_ID.to_string()).await?;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(partition.config, results[0].config);
+
+    let ibnetwork = IBNetwork {
+        pkey: 42,
+        name: "x".to_string(),
+        qos_conf: Some(IBQosConf {
+            mtu: IBMtu(2),
+            service_level: IBServiceLevel(15),
+            rate_limit: IBRateLimit(112),
+        }),
+        ipoib: false,
+        associated_guids: None,
+        membership: None,
+        // Not implemented yet
+        // enable_sharp: false,
+        // index0: false,
+    };
+    let qos_conf = ibnetwork.qos_conf.as_ref().unwrap();
+    partition.status = Some(IBPartitionStatus {
+        partition: ibnetwork.name.clone(),
+        mtu: qos_conf.mtu.clone(),
+        rate_limit: qos_conf.rate_limit.clone(),
+        service_level: qos_conf.service_level.clone(),
+    });
+    // What we're testing
+    let mut txn = pool.begin().await?;
+    db::ib_partition::update(&partition, &mut txn).await?;
+    txn.commit().await?;
+
+    let mut txn = pool.begin().await?;
+    let partition2 = db::ib_partition::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db::ib_partition::IdColumn, &partition.id),
+    )
+    .await?
+    .remove(0);
+    assert_eq!(IBNetwork::from(&partition), IBNetwork::from(&partition2));
+    txn.commit().await?;
+
+    Ok(())
+}

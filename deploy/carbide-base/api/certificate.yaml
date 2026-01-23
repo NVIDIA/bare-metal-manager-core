@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-api-certificate
+  namespace: default
+spec:
+  duration: 720h0m0s
+  renewBefore: 360h0m0s
+  dnsNames:
+    - carbide-api.default.svc.cluster.local
+  uris:
+    - spiffe://forge.local/default/sa/carbide-api #TODO: it's using "forge"
+  privateKey:
+    algorithm: ECDSA
+    size: 384
+  issuerRef:
+    kind: ClusterIssuer
+    name: vault-forge-issuer # TODO: it's using "forge"
+    group: cert-manager.io
+  secretName: carbide-api-certificate

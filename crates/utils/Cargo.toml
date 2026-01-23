@@ -1,0 +1,54 @@
+[package]
+name = "carbide-utils"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# TODO: rename to carbide_utils in source
+[lib]
+name = "utils"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+sqlx = ["carbide-network/sqlx", "dep:sqlx"]
+
+[dependencies]
+byte-unit = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+eyre = { workspace = true }
+prettytable-rs = { default-features = false, features = [
+  "csv",
+], workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+ipnetwork = { workspace = true }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+], optional = true }
+tonic = { workspace = true }
+humantime = { workspace = true }
+
+# [local-dependencies]
+config-version = { path = "../config-version" }
+carbide-health-report = { path = "../health-report" }
+carbide-network = { path = "../network" }
+carbide-uuid = { path = "../uuid" }
+carbide-rpc = { path = "../rpc" }
+
+[lints]
+workspace = true

@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: carbide-dns
+  namespace: default
+  annotations:
+    configmap.reloader.stakater.com/reload: "carbide-dns, carbide-dns-config"
+spec:
+  serviceName: carbide-dns
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: carbide-dns
+  template:
+    metadata:
+    spec:
+      containers:
+        - name: carbide-dns
+          image: yourdockerregistry.com/path/to/carbide-core:latest
+          command: ["/bin/sh", "-c", "/opt/carbide/carbide-dns run --carbide-url=\"${CARBIDE_API}\" --listen=\"[::]:53\""]  # yamllint disable-line
+          env:
+            - name: CARBIDE_API
+              valueFrom:
+                configMapKeyRef:
+                  name: carbide-dns
+                  key: CARBIDE_API
+            - name: FORGE_ROOT_CA_PATH
+              value: "/run/secrets/spiffe.io/ca.crt"
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: RUST_LIB_BACKTRACE # See https://doc.rust-lang.org/std/backtrace/index.html#environment-variables
+              value: "0"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          ports:
+            - name: udp
+              containerPort: 53
+            - name: tcp
+              containerPort: 53
+          volumeMounts:
+            - name: spiffe
+              mountPath: /var/run/secrets/spiffe.io
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: carbide-dns-certificate

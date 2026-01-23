@@ -1,0 +1,21 @@
+[package]
+name = "carbide-mlxconfig-registry"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Compile-time Mellanox hardware configuration registry."
+
+[lib]
+name = "mlxconfig_registry"
+
+[dependencies]
+once_cell = { workspace = true }
+carbide-mlxconfig-device = { path = "../mlxconfig-device" }
+carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+carbide-mlxconfig-device = { path = "../mlxconfig-device" }
+carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }

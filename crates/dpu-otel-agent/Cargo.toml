@@ -1,0 +1,50 @@
+[package]
+name = "carbide-dpu-otel-agent"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "otel_agent"
+
+[[bin]]
+# TODO: rename to carbide-dpu-otel-agent
+name = "forge-dpu-otel-agent"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+eyre = { workspace = true }
+humantime = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
+typed-builder = { workspace = true }
+
+# [local-dependencies]
+carbide-certs = { path = "../certs" }
+carbide-host-support = { path = "../host-support" }
+carbide-systemd = { path = "../systemd" }
+carbide-tls = { path = "../tls" }
+carbide-rpc = { path = "../rpc" }
+
+[dev-dependencies]
+ctor = { workspace = true }
+tempfile = { workspace = true }
+prost = { workspace = true }
+reqwest = { default-features = false, features = [
+  "rustls-tls",
+  "stream",
+], workspace = true }
+rustls-pemfile = { workspace = true }
+rustls-pki-types = { workspace = true }
+
+[lints]
+workspace = true

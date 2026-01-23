@@ -1,0 +1,64 @@
+diff --git a/src/image/efi_image.c b/src/image/efi_image.c
+index 468c0095..c34482d4 100644
+--- a/src/image/efi_image.c
++++ b/src/image/efi_image.c
+@@ -32,6 +32,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
+ #include <ipxe/efi/efi_pxe.h>
+ #include <ipxe/efi/efi_driver.h>
+ #include <ipxe/efi/efi_image.h>
++#include <ipxe/efi/efi_watchdog.h>
+ #include <ipxe/efi/efi_shim.h>
+ #include <ipxe/image.h>
+ #include <ipxe/init.h>
+@@ -247,9 +248,17 @@ static int efi_image_exec ( struct image *image ) {
+ 
+ 	/* Attempt loading image */
+ 	handle = NULL;
++
++	/* Disable the BootServices Watchdog timer, LoadImage() can take a long
++	 * time on some platforms for unknown reasons. */
++	bs->SetWatchdogTimer ( 0, 0, 0, NULL );
++	efi_watchdog_stop();
++
+ 	if ( ( efirc = bs->LoadImage ( FALSE, efi_image_handle, path,
+ 				       user_to_virt ( exec->data, 0 ),
+ 				       exec->len, &handle ) ) != 0 ) {
++		efi_watchdog_start();
++
+ 		/* Not an EFI image */
+ 		rc = -EEFI_LOAD ( efirc );
+ 		DBGC ( image, "EFIIMAGE %s could not load: %s\n",
+@@ -260,6 +269,7 @@ static int efi_image_exec ( struct image *image ) {
+ 			goto err_load_image;
+ 		}
+ 	}
++	efi_watchdog_start();
+ 
+ 	/* Get the loaded image protocol for the newly loaded image */
+ 	efirc = bs->OpenProtocol ( handle, &efi_loaded_image_protocol_guid,
+@@ -378,9 +388,17 @@ static int efi_image_probe ( struct image *image ) {
+ 
+ 	/* Attempt loading image */
+ 	handle = NULL;
++
++	/* Disable the BootServices Watchdog timer, LoadImage() can take a long
++	 * time on some platforms for unknown reasons. */
++	bs->SetWatchdogTimer ( 0, 0, 0, NULL );
++	efi_watchdog_stop();
++
+ 	if ( ( efirc = bs->LoadImage ( FALSE, efi_image_handle, &empty_path,
+ 				       user_to_virt ( image->data, 0 ),
+ 				       image->len, &handle ) ) != 0 ) {
++		efi_watchdog_start();
++
+ 		/* Not an EFI image */
+ 		rc = -EEFI_LOAD ( efirc );
+ 		DBGC ( image, "EFIIMAGE %s could not load: %s\n",
+@@ -391,6 +409,7 @@ static int efi_image_probe ( struct image *image ) {
+ 			goto err_load_image;
+ 		}
+ 	}
++	efi_watchdog_start();
+ 
+ 	/* Unload the image.  We can't leave it loaded, because we
+ 	 * have no "unload" operation.

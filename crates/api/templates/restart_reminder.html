@@ -1,0 +1,29 @@
+
+    <div class="notification-banner">
+        This operation will require rebooting the host.
+    </div>
+
+    <script>
+        function reminder(event) {
+            event.preventDefault();
+
+            const form = event.target;
+            const container = form.parentElement;
+            const notification = container.querySelector('.notification-banner');
+            
+            if (notification) {
+                notification.style.display = 'inline-block';
+                notification.style.opacity = 1;
+
+                // Start fade-out after 1.75 seconds
+                setTimeout(() => {
+                    notification.style.opacity = 0;
+                }, 1750);
+
+                // Submit form after 2.4 seconds
+                setTimeout(() => {
+                    form.submit();
+                }, 2400);
+            }
+        }
+    </script>

@@ -1,0 +1,151 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use ::rpc::forge as rpc;
+// use db::nvl_logical_partition::{LogicalPartition, LogicalPartitionSearchConfig};
+use db::nvl_partition;
+use db::{ObjectColumnFilter, WithTransaction};
+use futures_util::FutureExt;
+use tonic::{Request, Response, Status};
+
+use crate::CarbideError;
+use crate::api::{Api, log_request_data, log_tenant_organization_id};
+
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::NvLinkPartitionSearchFilter>,
+) -> Result<Response<rpc::NvLinkPartitionIdList>, Status> {
+    log_request_data(&request);
+
+    let filter: rpc::NvLinkPartitionSearchFilter = request.into_inner();
+
+    if let Some(ref tenant_org_id_str) = filter.tenant_organization_id {
+        log_tenant_organization_id(tenant_org_id_str);
+    }
+
+    let partition_ids = api
+        .with_txn(|txn| db::nvl_partition::find_ids(txn, filter).boxed())
+        .await??;
+
+    Ok(Response::new(rpc::NvLinkPartitionIdList { partition_ids }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::NvLinkPartitionsByIdsRequest>,
+) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
+    log_request_data(&request);
+
+    let rpc::NvLinkPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if partition_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if partition_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let partitions = api
+        .with_txn(|txn| {
+            db::nvl_partition::find_by(
+                txn,
+                ObjectColumnFilter::List(nvl_partition::IdColumn, &partition_ids),
+            )
+            .boxed()
+        })
+        .await??;
+
+    let mut result = Vec::with_capacity(partitions.len());
+    for ibp in partitions {
+        result.push(ibp.try_into()?);
+    }
+    Ok(Response::new(rpc::NvLinkPartitionList {
+        partitions: result,
+    }))
+}
+
+pub(crate) async fn for_tenant(
+    api: &Api,
+    request: Request<rpc::TenantSearchQuery>,
+) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
+    log_request_data(&request);
+
+    let rpc::TenantSearchQuery {
+        tenant_organization_id,
+    } = request.into_inner();
+
+    let tenant_org_id_str: String = match tenant_organization_id {
+        Some(id) => id,
+        None => {
+            return Err(CarbideError::MissingArgument("tenant_organization_id").into());
+        }
+    };
+
+    log_tenant_organization_id(&tenant_org_id_str);
+
+    let results = api
+        .with_txn(|txn| db::nvl_partition::for_tenant(txn, tenant_org_id_str).boxed())
+        .await??;
+
+    let mut partitions = Vec::with_capacity(results.len());
+
+    for result in results {
+        partitions.push(result.try_into()?);
+    }
+
+    Ok(Response::new(rpc::NvLinkPartitionList { partitions }))
+}
+
+pub(crate) async fn nmxm_browse(
+    api: &Api,
+    request: Request<rpc::NmxmBrowseRequest>,
+) -> Result<tonic::Response<rpc::NmxmBrowseResponse>, Status> {
+    log_request_data(&request);
+
+    let request = request.into_inner();
+
+    if let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref()
+        && nvlink_config.enabled
+    {
+        let nmx_m_client = api
+            .nmxm_pool
+            .create_client(&nvlink_config.nmx_m_endpoint, None)
+            .await
+            .map_err(|e| CarbideError::internal(format!("Failed to create NMX-M client: {e}")))?;
+
+        let response = nmx_m_client
+            .raw_get(&request.path)
+            .await
+            .map_err(|e| CarbideError::internal(format!("Failed to get raw response: {e}")))?;
+
+        Ok(tonic::Response::new(::rpc::forge::NmxmBrowseResponse {
+            body: response.body,
+            code: response.code.into(),
+            headers: response
+                .headers
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k.map(|k| k.to_string()).unwrap_or_default(),
+                        String::from_utf8_lossy(v.as_bytes()).to_string(),
+                    )
+                })
+                .collect(),
+        }))
+    } else {
+        Err(CarbideError::internal("nvlink config not enabled".to_string()).into())
+    }
+}

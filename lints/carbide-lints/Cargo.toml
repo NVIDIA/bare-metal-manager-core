@@ -1,0 +1,11 @@
+[package]
+name = "carbide-lints"
+version = "0.1.0"
+edition = "2024"
+
+[dev-dependencies]
+compiletest_rs = "0.11.2"
+similar = "2.7.0"
+
+# An empty [workspace] is needed so that cargo doesn't think this package is in a parent workspace
+[workspace]

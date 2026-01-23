@@ -1,0 +1,14 @@
+
+[tasks.fullstack-terraform]
+category = "Docker Compose"
+description = "Re-runs terraform in the running environment"
+workspace = false
+command = "docker-compose"
+args = ["run", "terraform", "apply", "-auto-approve"]
+
+[tasks.fullstack-refresh-postgresql]
+category = "Docker Compose"
+description = "Reloads postgres in the running container"
+workspace = false
+command = "docker-compose"
+args = ["exec", "postgresql", "kill", "-HUP", "1"]

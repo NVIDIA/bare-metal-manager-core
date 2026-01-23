@@ -1,0 +1,521 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+extend = [{ path = "Makefile-package.toml" }, { path = "Makefile-build.toml" }]
+
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+REPO_ROOT = { script = [
+  "dirname $(cargo locate-project --message-format plain --workspace)",
+] }
+CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
+  "CARBIDE_ENVIRONMENT",
+] } }
+FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
+FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
+
+# Nightly is *ONLY* used for check-format-nightly, which enables a
+# more-opinionated rustfmt that sorts imports for us. rust-toolchain.toml is
+# respected for everything else.
+#
+# Make sure to update the RUST_NIGHTLY variable in
+# dev/docker/Dockerfile.build-container-x86_64 if you change this.
+RUST_NIGHTLY = "nightly-2025-11-14"
+
+[tasks.book]
+workspace = false
+command = "find"
+args = ["public"]
+dependencies = [
+  "book-compile",
+  #	"generate-database-schema",  # - needs build image changes.  Will update later.
+]
+
+[tasks.generate-database-schema]
+workspace = false
+command = "mermerd" # not a typo. go install github.com/KarnerTh/mermerd@latest
+args = [
+  '-c',
+  "${DATABASE_URL}",
+  '-s',
+  'public',
+  '--useAllTables',
+  '--showAllConstraints',
+  '--encloseWithMermaidBackticks',
+  '-o',
+  'book/src/development/schema.md',
+]
+# To generate manually:
+# Start docker-compose and wait until all migrations are in the DB
+# mermerd -c postgresql://carbide_development:REPLACE_WITH_PW@172.20.0.16 -s public --useAllTables --showAllConstraints --encloseWithMermaidBackticks -o book/src/development/schema.md
+# docker pull minlag/mermaid-cli
+# docker run --rm -u `id -u`:`id -g` -v /home/graham/src/carbide/book/src/development:/data minlag/mermaid-cli -i schema.md
+# Copy its output to `schema.svg`
+# (I had to edit _sqlx_migrations table, it doesn't like the underscore)
+# Add to top of schema.md:
+#  [View SVG](schema.svg)
+
+[tasks.build-cli-ci]
+category = "Build"
+description = "Build carbide-admin-cli in CI"
+workspace = false
+script = '''
+cargo build -p carbide-admin-cli
+'''
+
+[tasks.build-cli]
+category = "Build"
+description = "Build carbide-admin-cli locally using debian container. Ensures correct GCC version is used."
+workspace = false
+script = '''
+docker run \
+	--rm \
+	--user $(id -u):$(id -g) \
+	--volume $(pwd):/code \
+	--workdir /code \
+	--volume $CARGO_HOME:/cargo \
+	--env CARGO_HOME=/cargo \
+	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
+	cargo build -p carbide-admin-cli --release
+'''
+dependencies = ["check-cargo-home-set"]
+
+[tasks.build-health]
+category = "Build"
+description = "Build carbide-hw-health locally using debian container."
+workspace = false
+script = '''
+docker run \
+	--rm \
+	--user $(id -u):$(id -g) \
+	--volume $(pwd):/code \
+	--workdir /code \
+	--volume $CARGO_HOME:/cargo \
+	--env CARGO_HOME=/cargo \
+	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
+	cargo build -p carbide-health
+'''
+dependencies = ["check-cargo-home-set"]
+
+[tasks.build-log-parser]
+category = "Build"
+description = "Build forge-log-parser locally using debian container."
+workspace = false
+script = '''
+docker run \
+	--rm \
+	--user $(id -u):$(id -g) \
+	--volume $(pwd):/code \
+	--workdir /code \
+	--volume $CARGO_HOME:/cargo \
+	--env CARGO_HOME=/cargo \
+	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
+	cargo build -p carbide-log-parser
+'''
+dependencies = ["check-cargo-home-set"]
+
+[tasks.check-cargo-home-set]
+category = "Build"
+description = "validates CARGO_HOME env var is set to something"
+workspace = false
+script = '''
+# Check if CARGO_HOME is not set or is empty
+if [ -z "$CARGO_HOME" ]; then
+  # Set CARGO_HOME to $HOME/.cargo if it is not set
+  CARGO_HOME="$HOME/.cargo"
+fi
+'''
+
+[tasks.build-cli-cross-aarch64]
+category = "Build"
+description = "Cross compile forge-scout and carbide-admin-cli for aarch64, intended only for local artifact builds."
+workspace = false
+script = '''
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
+    --env CARGO_HOME=/cargo \
+    -v $CARGO_HOME:/cargo \
+    build-artifacts-container-cross-aarch64:latest \
+    "cargo" \
+    "build" \
+    "--release" \
+    "--target=aarch64-unknown-linux-gnu" \
+    "-p" \
+    "carbide-admin-cli" \
+    "-p" \
+    "carbide-scout"
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/carbide-admin-cli" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"   
+'''
+dependencies = ["check-cargo-home-set", "build-cross-docker-image"]
+
+[tasks.build-cross-docker-image]
+category = "Build"
+description = "Build cross docker image for aarch64, intended only for local artifact builds."
+workspace = false
+script = '''
+#!/usr/bin/env bash
+
+docker build ${REPO_ROOT}/dev/docker -f ${REPO_ROOT}/dev/docker/Dockerfile.build-artifacts-container-cross-aarch64 -t build-artifacts-container-cross-aarch64
+'''
+
+[tasks.build-x86-build-container]
+condition_script = '''
+  if [ "${CARBIDE_ARCH}" != "x86_64" ] || [ ! -z "${CI}" ]
+  then
+    echo "NOT BUILDING X86_64 BUILD CONTAINER"
+    exit 1
+  fi
+'''
+category = "Kind"
+description = "Build the x86 build container"
+workspace = false
+command = "docker"
+args = [
+  "build",
+  "-t",
+  "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest",
+  "-f",
+  "${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64",
+  ".",
+]
+cwd = "${REPO_ROOT}/dev/docker"
+
+[tasks.build-arm-build-container]
+condition_script = '''
+  if [ "${CARBIDE_ARCH}" != "aarch64" ] || [ ! -z "${CI}" ]
+  then
+    echo "NOT BUILDING aarch64 BUILD CONTAINER"
+    exit 1
+  fi
+'''
+category = "Kind"
+description = "Build the ARM build container"
+workspace = false
+command = "docker"
+args = [
+  "build",
+  "-t",
+  "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest",
+  "-f",
+  "${REPO_ROOT}/dev/docker/Dockerfile.build-container-arm",
+  ".",
+]
+cwd = "${REPO_ROOT}/dev/docker"
+
+[tasks.runtime-container]
+category = "Docker Compose"
+description = "Build the runtime container base image for Carbide components"
+workspace = false
+command = "docker"
+args = [
+  "build",
+  "-t",
+  "carbide-runtime:latest",
+  ".",
+  "-f",
+  "dev/docker/Dockerfile.build-container-x86_64",
+]
+env = { "DOCKER_BUILDKIT" = "1" }
+
+[tasks.fullstack-up]
+category = "Docker Compose"
+description = "Brings up a full Carbide stack"
+workspace = false
+command = "docker-compose"
+args = ["up", "-d", "--build", "--pull"]
+dependencies = [
+  { name = "mkdir-static-x86_64", path = "${REPO_ROOT}/pxe" },
+  { name = "mkdir-static-aarch64", path = "${REPO_ROOT}/pxe" },
+]
+
+[tasks.fullstack-down]
+category = "Docker Compose"
+description = "Brings down the full Carbide stack"
+workspace = false
+command = "docker-compose"
+args = ["down", "-v"]
+
+[tasks.fullstack-cert-renew]
+category = "Docker Compose"
+description = "Renews all the certificates in the containers and reloads the services"
+workspace = false
+dependencies = [
+  { name = "fullstack-terraform", path = "include/Makefile-docker-compose.toml" },
+  { name = "fullstack-refresh-postgresql", path = "include/Makefile-docker-compose.toml" },
+]
+
+
+[tasks.book-compile]
+workspace = false
+command = "mdbook"
+args = ["build", "-d", "../public", "book"]
+
+[tasks.attribution]
+workspace = false
+command = "cargo"
+args = ["license", "--avoid-build-deps", "--avoid-dev-deps", "--json"]
+
+
+[tasks.bootstrap-forge-base-docker]
+category = "Bootstrap"
+workspace = false
+env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
+dependencies = [
+  { name = "build-bootstrap-forge-base-docker", path = "include/Makefile-bootstrap.toml" },
+]
+[tasks.bootstrap-forge-base-kube]
+category = "Bootstrap"
+workspace = false
+env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
+dependencies = [
+  { name = "build-bootstrap-forge-base-kube", path = "include/Makefile-bootstrap.toml" },
+]
+
+[tasks.bootstrap-forge-dpu-discovery-docker]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  { name = "build-bootstrap-forge-dpu-discovery-docker", path = "include/Makefile-bootstrap.toml" },
+]
+[tasks.bootstrap-forge-dpu-discovery-kube]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  { name = "build-bootstrap-forge-dpu-discovery-kube", path = "include/Makefile-bootstrap.toml" },
+]
+
+[tasks.bootstrap-forge-vmhost-init-docker]
+category = "Bootstrap"
+workspace = false
+run_task = [
+  { name = "build-bootstrap-forge-vmhost-init-docker", path = "include/Makefile-bootstrap.toml" },
+]
+
+[tasks.bootstrap-forge-vmhost-init-kube]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  { name = "build-bootstrap-forge-vmhost-init-kube", path = "include/Makefile-bootstrap.toml" },
+]
+
+[tasks.bootstrap-forge-docker]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  { name = "build-bootstrap-forge-docker", path = "include/Makefile-bootstrap.toml" },
+]
+[tasks.bootstrap-forge-kube]
+category = "Bootstrap"
+workspace = false
+dependencies = [
+  { name = "build-bootstrap-forge-kube", path = "include/Makefile-bootstrap.toml" },
+]
+
+
+[tasks.test-instance-forge-docker]
+workspace = false
+dependencies = [
+  { name = "test-instance-forge-docker", path = "include/Makefile-bootstrap.toml" },
+]
+
+[tasks.test-dpu-reprov-forge-docker]
+workspace = false
+dependencies = [
+  { name = "test-dpu-reprov-forge-docker", path = "include/Makefile-bootstrap.toml" },
+]
+
+[tasks.pre-commit-verify]
+description = "Runs the same set of tasks CI will."
+category = "CI"
+dependencies = [
+  "pre-commit-verify-workspace",
+  "build-and-test-release-container-services",
+]
+
+[tasks.pre-commit-verify-workspace]
+workspace = false
+description = "Tasks that run on workspace level (not crate level) in pre-commit-verify"
+category = "CI"
+# clippy-flow, check-format-flow are default targets provided by cargo-make.
+# NOTE: If you add something here, and you also want it to be checked by CI, make sure to call it from dev/docker/Dockerfile.release-container-x86_64 too.
+dependencies = [
+  "clippy-flow",
+  "carbide-lints",
+  "check-format-flow",
+  "check-format-nightly",
+  "check-workspace-deps",
+  "check-licenses",
+  "check-bans",
+]
+
+[tasks.clippy]
+workspace = false
+description = "Runs clippy code linter."
+category = "Test"
+dependencies = ["install-clippy"]
+command = "cargo"
+args = ["clippy", "--locked", "--all-targets", "--all-features"]
+
+[tasks.build-debug-test-prerequisites]
+script = '''
+cargo build -p carbide-agent -p carbide-admin-cli -p carbide-api
+'''
+workspace = false
+
+[tasks.correctly-execute-tests]
+dependencies = ["build-debug-test-prerequisites", "test"]
+workspace = false
+
+[tasks.check-measured-boot-endpoints-enabled]
+workspace = false
+description = "Check if measured boot endpoints are not disabled"
+dependencies = ["build-release"]
+script = '''
+RESULT1=`strings target/release/carbide-api|grep "Could not unmarshal AK Pub"`
+RESULT2=`strings target/release/carbide-api|grep "Could not unmarshall Attest struct"`
+
+if [ -z "$RESULT1" ] || [ -z "$RESULT2" ]; then
+  @@fail
+fi
+'''
+
+[tasks.build-release]
+args = [
+  "build",
+  "--locked",
+  "--release",
+  "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+]
+
+[tasks.build-and-test-release-container-services]
+workspace = false
+# Important: We only build perform a single build task here since every additional
+# build has a high change to also rebuild all dependencies due to different feature
+# combinations.
+# No new build tasks for single binaries should be added for this task which is
+# called by CI. If necessary separate tasks can be defined for workflows which
+# do not require everything.
+dependencies = [
+  "build-release", # Start with release builds, since some artifacts are used in integration tests
+  "test-flow",     # Then run all tests
+]
+
+[tasks.clippy-ci-flow]
+condition = { env_set = ["CARGO_MAKE_RUN_CLIPPY"] }
+
+[tasks.helmupdate]
+workspace = false
+description = "Runs helm dependency builds in the right directories"
+script = '''
+for dir in charts/*/
+do
+  cd $dir
+  helm dep update
+  helm dep build
+  cd -
+done
+'''
+
+[tasks.build-scout-x86_64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
+run_task = "build-component-local"
+
+[tasks.build-scout-aarch64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+run_task = "build-component-local"
+
+[tasks.build-scout-aarch64-release-cross]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+run_task = "build-component-in-container"
+
+[tasks.package-scout-x86_64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
+run_task = "package-component-local"
+
+[tasks.package-scout-aarch64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+run_task = "package-component-local"
+
+[tasks.package-scout-aarch64-release-cross]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+run_task = "package-component-in-container"
+
+[tasks.package-scout-cross-x86_64-release]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
+run_task = "package-component-in-container"
+
+[tasks.setup-nightly-rust]
+description = "Install pinned nightly toolchain and components for running format-nightly and carbide-lints tasks"
+script = [
+  # Don't waste cycles, only install what isn't installed
+  "rustup toolchain list | grep -Fq ${RUST_NIGHTLY} || rustup toolchain install ${RUST_NIGHTLY} --profile minimal",
+  "for component in rustfmt rust-src rustc-dev; do rustup component list --installed --toolchain ${RUST_NIGHTLY} | grep -q \"^${component}\" || rustup component add --toolchain ${RUST_NIGHTLY} ${component}; done",
+  # llvm-tools is installed via a different name than it's queried
+  "rustup component list --installed --toolchain ${RUST_NIGHTLY} | grep -q '^llvm-tools' || rustup component add --toolchain ${RUST_NIGHTLY} llvm-tools-preview",
+]
+
+[tasks.format-nightly]
+workspace = false
+description = "Format with nightly rustfmt options for grouping and sorting import statements"
+category = "Formatting"
+dependencies = ["setup-nightly-rust"]
+script = [
+  "cargo +${RUST_NIGHTLY} fmt --all -- --config imports_granularity=Module,group_imports=StdExternalCrate",
+]
+
+[tasks.check-format-nightly]
+workspace = false
+description = "Check format with nightly rustfmt options for grouping and sorting import statements"
+category = "Formatting"
+dependencies = ["setup-nightly-rust"]
+script = [
+  "cargo +${RUST_NIGHTLY} fmt --all -- --config imports_granularity=Module,group_imports=StdExternalCrate --check",
+]
+
+[tasks.setup-carbide-lints]
+workspace = false
+description = "Set up the `cargo carbide-lints` command"
+dependencies = ["setup-nightly-rust"]
+script = [
+  # Don't waste cycles, only install what isn't installed
+  "which cargo-carbide-lints >/dev/null 2>&1 || (cd \"${REPO_ROOT}/lints/carbide-lints\" && cargo +${RUST_NIGHTLY} install --path .)",
+]
+
+[tasks.carbide-lints]
+workspace = false
+description = "Run custom lints defined in lints/carbide-lints"
+dependencies = ["setup-carbide-lints"]
+script = ["cargo carbide-lints --all-targets --all-features"]
+
+[tasks.check-workspace-deps]
+workspace = false
+description = "Check Cargo.toml files for dependency versions declared in crates instead of the workspace root"
+script = [
+  "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)",
+]
+
+[tasks.check-licenses]
+workspace = false
+description = "Check cargo-deny against licenses we're using to validate that we're not introducing new licenses inadvertently"
+category = "Licensing"
+script = ["cargo deny check license"]
+
+[tasks.check-bans]
+workspace = false
+description = "Check cargo-deny against bans we're using to validate that we're not introducing banned crates inadvertently"
+script = ["cargo deny check bans"]

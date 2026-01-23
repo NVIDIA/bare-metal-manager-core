@@ -1,0 +1,7 @@
+[submodule "mkosi"]
+	path = pxe/mkosi
+	url = https://github.com/systemd/mkosi.git
+[submodule "pxe/ipxe/upstream"]
+	path = pxe/ipxe/upstream
+	url = https://github.com/ipxe/ipxe.git
+	ignore = dirty

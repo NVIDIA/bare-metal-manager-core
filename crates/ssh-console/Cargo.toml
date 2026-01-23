@@ -1,0 +1,71 @@
+[package]
+name = "carbide-ssh-console"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "ssh_console"
+
+[[bin]]
+# TODO: rename to carbide-ssh-console
+name = "ssh-console"
+path = "src/main.rs"
+
+[dependencies]
+
+# local dependencies
+carbide-rpc = { path = "../rpc" }
+carbide-uuid = { path = "../uuid" }
+carbide-tls = { path = "../tls" }
+
+ctor = { workspace = true }
+lazy_static = { workspace = true }
+tokio = { workspace = true, features = [
+  "tokio-macros",
+  "rt-multi-thread",
+  "sync",
+  "macros",
+] }
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter"], workspace = true }
+uuid = { features = ["v4"], workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+clap = { features = ["color", "derive", "env"], workspace = true }
+russh = { workspace = true }
+http = { workspace = true }
+tonic = { workspace = true, features = ["default"] }
+ringbuf = { workspace = true }
+nix = { features = ["process", "term", "fs"], workspace = true }
+libc = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+duration-str = { workspace = true }
+chrono = { workspace = true }
+strip-ansi-escapes = { workspace = true }
+rand = { workspace = true }
+opentelemetry = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+prometheus = { workspace = true }
+opentelemetry-prometheus = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+http-body-util = { workspace = true }
+size = { features = ["serde"], workspace = true }
+
+[dev-dependencies]
+bmc-mock = { path = "../bmc-mock" }
+carbide-machine-a-tron = { path = "../machine-a-tron" }
+temp-dir = { workspace = true }
+futures = { workspace = true }
+carbide-api-test-helper = { path = "../api-test-helper" }
+carbide-ssh-console-mock-api-server = { path = "../ssh-console-mock-api-server" }
+eyre = { workspace = true }
+indoc = { workspace = true }
+prometheus-text-parser = { path = "../prometheus-text-parser" }
+
+[lints]
+workspace = true

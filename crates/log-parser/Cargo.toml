@@ -1,0 +1,35 @@
+[package]
+name = "carbide-log-parser"
+version = "0.0.2"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+# TODO: rename to carbide-log-parser
+name = "forge-log-parser"
+path = "src/main.rs"
+
+[dependencies]
+regex = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+getopts = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+
+# [local-dependencies]
+carbide-health-report = { path = "../health-report" }
+carbide-rpc = { path = "../rpc" }
+carbide-uuid = { path = "../uuid" }
+carbide-tls = { path = "../tls" }
+carbide-version = { path = "../version" }
+
+[build-dependencies]
+carbide-version = { path = "../version" }
+
+[lints]
+workspace = true

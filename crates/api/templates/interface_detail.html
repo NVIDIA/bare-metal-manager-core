@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Machine Interface{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>Machine Interface</h1>
+
+<table class="sortable overview">
+	<tr><th>ID</th><td>{{ id }}</td></tr>
+	<tr><th>DPU ID</th><td>{{ dpu_machine_id|machine_id_link|safe }}{% if is_bmc && !dpu_machine_id.is_empty() %} (BMC){% endif %}</td></tr>
+	<tr><th>Machine ID</th><td>{{ machine_id|machine_id_link|safe }}{% if is_bmc && !machine_id.is_empty() %} (BMC){% endif %}</td></tr>
+	<tr><th>Segment ID</th><td><a href="/admin/network-segment/{{ segment_id }}">{{ segment_id }}</a></td></tr>
+	<tr><th>Domain ID</th><td><a href="/admin/domain">{{ domain_id }}</a></td></tr>
+	<tr><th>Domain Name</th><td>{{ domain_name }}</td></tr>
+	<tr><th>Hostname</th><td>{{ hostname }}</td></tr>
+	<tr><th>Is Primary?</th><td>{{ is_primary }}</td></tr>
+	<tr><th>MAC Address</th><td>{{ mac_address }}</td></tr>
+	<tr><th>IP Address</th><td>{{ ip_address }}</td></tr>
+	<tr><th>Vendor</th><td>{{ vendor }}</td></tr>
+	<tr><th>Created</th><td>{{ created }}</td></tr>
+	<tr><th>Last DHCP</th><td>{{ last_dhcp }}</td></tr>
+</table>
+{% endblock %}

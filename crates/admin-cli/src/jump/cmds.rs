@@ -1,0 +1,365 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::net::IpAddr;
+use std::str::FromStr;
+
+use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::forge as forgerpc;
+use carbide_uuid::machine::MachineId;
+use mac_address::MacAddress;
+
+use super::args::Cmd;
+use crate::cfg::runtime::RuntimeContext;
+use crate::{
+    domain, dpa, instance, machine, machine_interfaces, network_segment, resource_pool,
+    site_explorer, vpc,
+};
+
+pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()> {
+    // Is it a machine ID?
+    // Grab the machine details.
+    if let Ok(machine_id) = args.id.parse::<MachineId>() {
+        machine::handle_show(
+            machine::ShowMachine {
+                machine: Some(machine_id),
+                help: None,
+                hosts: false,
+                all: false,
+                dpus: false,
+                instance_type_id: None,
+                history_count: 5,
+            },
+            &ctx.config.format,
+            &mut ctx.output_file,
+            &ctx.api_client,
+            ctx.config.page_size,
+            &ctx.config.sort_by,
+        )
+        .await?;
+
+        return Ok(());
+    }
+
+    // Is it an IP?
+    if IpAddr::from_str(&args.id).is_ok() {
+        let req = forgerpc::FindIpAddressRequest {
+            ip: args.id.clone(),
+        };
+
+        let resp = ctx.api_client.0.find_ip_address(req).await?;
+
+        // Go through each object that matched the IP search,
+        // and perform any more specific searches available for
+        // the object type of the owner.   E.g., if it's an IP
+        // attached to an instance, get the details of the instance.
+        for m in resp.matches {
+            let ip_type = match forgerpc::IpType::try_from(m.ip_type) {
+                Ok(t) => t,
+                Err(err) => {
+                    tracing::error!(ip_type = m.ip_type, error = %err, "Invalid IpType");
+                    continue;
+                }
+            };
+
+            let config_format = ctx.config.format.clone();
+
+            use forgerpc::IpType::*;
+            match ip_type {
+                StaticDataDhcpServer => tracing::info!("DHCP Server"),
+                StaticDataRouteServer => tracing::info!("Route Server"),
+                RouteServerFromConfigFile => tracing::info!("Route Server from Carbide config"),
+                RouteServerFromAdminApi => tracing::info!("Route Server from Admin API"),
+                InstanceAddress => {
+                    instance::cmds::handle_show(
+                        instance::args::ShowInstance {
+                            id: m.owner_id.ok_or(CarbideCliError::GenericError(
+                                "failed to unwrap owner_id after finding instance for IP"
+                                    .to_string(),
+                            ))?,
+                            extrainfo: true,
+                            tenant_org_id: None,
+                            vpc_id: None,
+                            label_key: None,
+                            label_value: None,
+                            instance_type_id: None,
+                        },
+                        &mut ctx.output_file,
+                        &config_format,
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                        &ctx.config.sort_by,
+                    )
+                    .await?
+                }
+                MachineAddress | BmcIp | LoopbackIp => {
+                    machine::handle_show(
+                        machine::ShowMachine {
+                            machine: Some(
+                                m.owner_id
+                                    .and_then(|id| id.parse::<MachineId>().ok())
+                                    .ok_or(CarbideCliError::GenericError(
+                                        "failed to unwrap owner_id after finding machine for IP"
+                                            .to_string(),
+                                    ))?,
+                            ),
+                            help: None,
+                            hosts: false,
+                            all: false,
+                            dpus: false,
+                            instance_type_id: None,
+                            history_count: 5,
+                        },
+                        &config_format,
+                        &mut ctx.output_file,
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                        &ctx.config.sort_by,
+                    )
+                    .await?;
+                }
+
+                ExploredEndpoint => {
+                    site_explorer::show_site_explorer_discovered_managed_host(
+                        &ctx.api_client,
+                        &mut ctx.output_file,
+                        config_format,
+                        ctx.config.page_size,
+                        site_explorer::args::GetReportMode::Endpoint(
+                            site_explorer::args::EndpointInfo {
+                                address: if m.owner_id.is_some() {
+                                    m.owner_id
+                                } else {
+                                    color_eyre::eyre::bail!(CarbideCliError::GenericError(
+                                        "IP type is explored-endpoint but returned owner_id is empty".to_string()
+                                    ))
+                                },
+                                erroronly: false,
+                                successonly: false,
+                                unpairedonly: false,
+                                vendor: None,
+                            },
+                        ),
+                    )
+                    .await?;
+                }
+
+                NetworkSegment => {
+                    network_segment::cmds::handle_show(
+                        network_segment::args::ShowNetworkSegment {
+                            network: Some(
+                                m.owner_id
+                                    .ok_or(CarbideCliError::GenericError(
+                                        "failed to unwrap owner_id after finding network segment for IP".to_string(),
+                                    ))?
+                                    .parse()?,
+                            ),
+                            tenant_org_id: None,
+                            name: None,
+                        },
+                        config_format,
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                    )
+                    .await?
+                }
+                ResourcePool => resource_pool::cmds::list(&ctx.api_client).await?,
+                DpaInterface =>  {
+                    dpa::cmds::show(
+                        &dpa::args::ShowDpa {
+                            id: Some(m.owner_id.ok_or(CarbideCliError::GenericError(
+                                "failed to unwrap owner_id after dpa interface for IP".to_string(),
+                            ))?.parse()?),
+                        },
+                        config_format,
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                    )
+                    .await?
+                }
+            };
+        }
+
+        return Ok(());
+    }
+
+    // Is it the UUID of some type of object?
+    // Try to identify the type of object and then perform
+    // a search for the object's details.  E.g., if it's the
+    // UUID of an instance, then get the details of the instance.
+    if let Ok(u) = args.id.parse::<uuid::Uuid>() {
+        match ctx.api_client.identify_uuid(u).await {
+            Ok(o) => match o {
+                forgerpc::UuidType::NetworkSegment => {
+                    network_segment::cmds::handle_show(
+                        network_segment::args::ShowNetworkSegment {
+                            network: Some(args.id.parse()?),
+                            tenant_org_id: None,
+                            name: None,
+                        },
+                        ctx.config.format.clone(),
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                    )
+                    .await?
+                }
+                forgerpc::UuidType::Instance => {
+                    instance::cmds::handle_show(
+                        instance::args::ShowInstance {
+                            id: args.id.clone(),
+                            extrainfo: true,
+                            tenant_org_id: None,
+                            vpc_id: None,
+                            label_key: None,
+                            label_value: None,
+                            instance_type_id: None,
+                        },
+                        &mut ctx.output_file,
+                        &ctx.config.format,
+                        &ctx.api_client,
+                        ctx.config.page_size,
+                        &ctx.config.sort_by,
+                    )
+                    .await?
+                }
+                forgerpc::UuidType::MachineInterface => {
+                    machine_interfaces::cmds::handle_show(
+                        machine_interfaces::args::ShowMachineInterfaces {
+                            interface_id: Some(args.id.parse()?),
+                            all: false,
+                            more: true,
+                        },
+                        ctx.config.format.clone(),
+                        &ctx.api_client,
+                    )
+                    .await?
+                }
+                forgerpc::UuidType::Vpc => {
+                    vpc::cmds::show(
+                        vpc::args::ShowVpc {
+                            id: Some(args.id.parse()?),
+                            tenant_org_id: None,
+                            name: None,
+                            label_key: None,
+                            label_value: None,
+                        },
+                        ctx.config.format.clone(),
+                        &ctx.api_client,
+                        1,
+                    )
+                    .await?
+                }
+                forgerpc::UuidType::Domain => {
+                    domain::cmds::handle_show(
+                        &domain::args::ShowDomain {
+                            domain: Some(args.id.parse()?),
+                            all: false,
+                        },
+                        ctx.config.format.clone(),
+                        &ctx.api_client,
+                    )
+                    .await?
+                }
+                forgerpc::UuidType::DpaInterfaceId => {
+                    dpa::cmds::show(
+                        &dpa::args::ShowDpa {
+                            id: Some(args.id.parse()?),
+                        },
+                        ctx.config.format.clone(),
+                        &ctx.api_client,
+                        1,
+                    )
+                    .await?
+                }
+            },
+            Err(e) => {
+                color_eyre::eyre::bail!(e);
+            }
+        }
+
+        return Ok(());
+    }
+
+    // Is it a MAC?
+    // Grab the details for the interface it's associated with.
+    if let Ok(m) = MacAddress::from_str(&args.id) {
+        match ctx.api_client.identify_mac(m).await {
+            Ok((mac_owner, primary_key)) => match mac_owner {
+                forgerpc::MacOwner::MachineInterface => {
+                    machine_interfaces::cmds::handle_show(
+                        machine_interfaces::args::ShowMachineInterfaces {
+                            interface_id: Some(primary_key.parse()?),
+                            all: false,
+                            more: true,
+                        },
+                        ctx.config.format.clone(),
+                        &ctx.api_client,
+                    )
+                    .await?
+                }
+                forgerpc::MacOwner::ExploredEndpoint => {
+                    color_eyre::eyre::bail!(
+                        "Searching explored-endpoints from MAC not yet implemented"
+                    );
+                }
+                forgerpc::MacOwner::ExpectedMachine => {
+                    color_eyre::eyre::bail!(
+                        "Searching expected-machines from MAC not yet implemented"
+                    );
+                }
+                forgerpc::MacOwner::DpaInterface => {
+                    dpa::cmds::show(
+                        &dpa::args::ShowDpa {
+                            id: Some(primary_key.parse()?),
+                        },
+                        ctx.config.format.clone(),
+                        &ctx.api_client,
+                        1,
+                    )
+                    .await?
+                }
+            },
+            Err(e) => {
+                color_eyre::eyre::bail!(e);
+            }
+        }
+
+        return Ok(());
+    }
+
+    // Is it a serial number?!??!?!
+    // Grab the machine ID and look-up the machine.
+    if let Ok(machine_id) = ctx.api_client.identify_serial(args.id, false).await {
+        machine::handle_show(
+            machine::ShowMachine {
+                machine: Some(machine_id),
+                help: None,
+                hosts: false,
+                all: false,
+                dpus: false,
+                instance_type_id: None,
+                history_count: 5,
+            },
+            &ctx.config.format,
+            &mut ctx.output_file,
+            &ctx.api_client,
+            ctx.config.page_size,
+            &ctx.config.sort_by,
+        )
+        .await?;
+
+        return Ok(());
+    }
+
+    // Do we have no idea what it is?
+    color_eyre::eyre::bail!("Unable to determine ID type");
+}
