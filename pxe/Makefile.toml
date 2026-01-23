@@ -619,11 +619,10 @@ script = '''
 [tasks.ipxe-install-efi-x86_64]
 category = "iPXE Kernel"
 description = "Copy the x86_64 EFI iPXE kernel to the boot controller static files directory"
-command = "mv"
-args = [
-  "ipxe/upstream/src/bin-x86_64-efi/snponly.efi",
-  "static/blobs/internal/x86_64/ipxe.efi",
-]
+script = '''
+  mv "ipxe/upstream/src/bin-x86_64-efi/snponly.efi" "static/blobs/internal/x86_64/ipxe.efi"
+  mv "ipxe/upstream/src/bin-x86_64-efi/golan.efi" "static/blobs/internal/x86_64/golan.efi"
+'''
 dependencies = ["ipxe-build-efi-x86_64"]
 
 [tasks.ipxe-aarch64]
@@ -651,11 +650,10 @@ dependencies = [
 [tasks.ipxe-install-efi-aarch64]
 category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
-command = "mv"
-args = [
-  "ipxe/upstream/src/bin-arm64-efi/ipxe.efi",
-  "static/blobs/internal/aarch64/ipxe.efi",
-]
+script = '''
+  mv "ipxe/upstream/src/bin-arm64-efi/ipxe.efi" "static/blobs/internal/aarch64/ipxe.efi"
+  mv "ipxe/upstream/src/bin-arm64-efi/golan.efi" "static/blobs/internal/aarch64/golan.efi"
+'''
 dependencies = ["ipxe-build-efi-aarch64"]
 
 [tasks.ipxe-install-efi-aarch64-ci]
@@ -682,6 +680,11 @@ script = '''
     VERSION=${IPXE_BANNER_VERSION} \
     EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
     DEBUG=tls
+  make -j ${LD_ARG} \
+    bin-x86_64-efi/golan.efi \
+    VERSION=${IPXE_BANNER_VERSION} \
+    EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
+    DEBUG=tls
 '''
 cwd = "ipxe/upstream/src"
 
@@ -702,10 +705,23 @@ script = '''
       EMBED=/src/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls \
       EXTRA_CFLAGS="-Wno-unused-parameter -Wno-unused-variable"
+    make -j \
+      CROSS_COMPILE=aarch64-linux-gnu- \
+      bin-arm64-efi/golan.efi \
+      VERSION=${IPXE_BANNER_VERSION} \
+      EMBED=/src/pxe/ipxe/local/embed.ipxe \
+      DEBUG=snp,tls \
+      EXTRA_CFLAGS="-Wno-unused-parameter -Wno-unused-variable"
   else
     make -j \
       CROSS_COMPILE=aarch64-linux-gnu- \
       bin-arm64-efi/ipxe.efi \
+      VERSION=${IPXE_BANNER_VERSION} \
+      EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
+      DEBUG=snp,tls
+    make -j \
+      CROSS_COMPILE=aarch64-linux-gnu- \
+      bin-arm64-efi/golan.efi \
       VERSION=${IPXE_BANNER_VERSION} \
       EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls
