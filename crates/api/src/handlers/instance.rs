@@ -400,7 +400,10 @@ async fn handle_instance_release_from_repair_tenant(
         "Processing repair tenant release with repair status"
     );
 
-    if repair_status.as_deref() == Some("Completed") {
+    if repair_status
+        .as_deref()
+        .is_some_and(|s| s.eq_ignore_ascii_case("completed"))
+    {
         // Repair completed successfully - Good to remove the RequestRepair override.
         remove_health_override(
             txn,
