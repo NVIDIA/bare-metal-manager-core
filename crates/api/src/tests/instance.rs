@@ -60,7 +60,7 @@ use model::network_security_group::NetworkSecurityGroupStatusObservation;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::vpc::UpdateVpcVirtualization;
 use rpc::forge::{
-    DpuExtensionService, Issue, IssueCategory, NetworkSegmentSearchFilter, OperatingSystem,
+    DpuExtensionService, Issue, IssueCategory, NetworkSegmentSearchFilter,
     TpmCaCert, TpmCaCertId,
 };
 use rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp};
@@ -192,19 +192,7 @@ async fn test_allocate_and_release_instance_impl(
     let os = instance.config().os();
     assert_eq!(os, &expected_os);
 
-    // For backward compatibilty reasons, the OS details are still signaled
-    // via `TenantConfig`
-    let mut expected_tenant_config = default_tenant_config();
-    match &expected_os.variant {
-        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
-            expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
-            expected_tenant_config.user_data = expected_os.user_data.clone();
-        }
-        _ => panic!("Unexpected OS"),
-    }
-    expected_tenant_config.always_boot_with_custom_ipxe =
-        expected_os.run_provisioning_instructions_on_every_boot;
-    expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
+    let expected_tenant_config = default_tenant_config();
     assert_eq!(tenant_config, &expected_tenant_config);
 
     let mut txn = env.db_txn().await;
@@ -373,19 +361,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let os = instance.config().os();
     assert_eq!(os, &expected_os);
 
-    // For backward compatibilty reasons, the OS details are still signaled
-    // via `TenantConfig`
-    let mut expected_tenant_config = default_tenant_config();
-    match &expected_os.variant {
-        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
-            expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
-            expected_tenant_config.user_data = expected_os.user_data.clone();
-        }
-        _ => panic!("Unexpected OS"),
-    }
-    expected_tenant_config.always_boot_with_custom_ipxe =
-        expected_os.run_provisioning_instructions_on_every_boot;
-    expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
+    let expected_tenant_config = default_tenant_config();
     assert_eq!(tenant_config, &expected_tenant_config);
 
     let mut txn = env.db_txn().await;
@@ -2079,10 +2055,6 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
         tenant: Some(rpc::TenantConfig {
-            user_data: None,
-            custom_ipxe: "".to_string(),
-            phone_home_enabled: false,
-            always_boot_with_custom_ipxe: false,
             tenant_organization_id: "Tenant1".to_string(),
             tenant_keyset_ids: vec![
                 "a".to_string(),
@@ -2132,10 +2104,6 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
         tenant: Some(rpc::TenantConfig {
-            user_data: None,
-            custom_ipxe: "".to_string(),
-            phone_home_enabled: false,
-            always_boot_with_custom_ipxe: false,
             tenant_organization_id: "Tenant1".to_string(),
             tenant_keyset_ids: vec![
                 "a".to_string(),
@@ -2292,23 +2260,10 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     let config = rpc::InstanceConfig {
         tenant: Some(rpc::TenantConfig {
             tenant_organization_id: "abc".to_string(),
-            user_data: None,
-            custom_ipxe: "exit".to_string(),
-            always_boot_with_custom_ipxe: false,
-            phone_home_enabled: false,
             hostname: Some("xyz".to_string()),
             tenant_keyset_ids: vec![],
         }),
-        os: Some(OperatingSystem {
-            phone_home_enabled: false,
-            run_provisioning_instructions_on_every_boot: false,
-            user_data: Some("".to_string()),
-            variant: Some(rpc::forge::operating_system::Variant::OsImageId(
-                rpc::Uuid {
-                    value: uuid::Uuid::new_v4().to_string(),
-                },
-            )),
-        }),
+        os: Some(default_os_config()),
         network: Some(x),
         infiniband: None,
         nvlink: None,
@@ -2430,19 +2385,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let os = instance.config().os();
     assert_eq!(os, &expected_os);
 
-    // For backward compatibilty reasons, the OS details are still signaled
-    // via `TenantConfig`
-    let mut expected_tenant_config = default_tenant_config();
-    match &expected_os.variant {
-        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
-            expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
-            expected_tenant_config.user_data = expected_os.user_data.clone();
-        }
-        _ => panic!("Unexpected OS"),
-    }
-    expected_tenant_config.always_boot_with_custom_ipxe =
-        expected_os.run_provisioning_instructions_on_every_boot;
-    expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
+    let expected_tenant_config = default_tenant_config();
     assert_eq!(tenant_config, &expected_tenant_config);
 
     let mut txn = env.db_txn().await;
@@ -4272,23 +4215,10 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
     let config = rpc::InstanceConfig {
         tenant: Some(rpc::TenantConfig {
             tenant_organization_id: "abc".to_string(),
-            user_data: None,
-            custom_ipxe: "exit".to_string(),
-            always_boot_with_custom_ipxe: false,
-            phone_home_enabled: false,
             hostname: Some("xyz".to_string()),
             tenant_keyset_ids: vec![],
         }),
-        os: Some(OperatingSystem {
-            phone_home_enabled: false,
-            run_provisioning_instructions_on_every_boot: false,
-            user_data: Some("".to_string()),
-            variant: Some(rpc::forge::operating_system::Variant::OsImageId(
-                rpc::Uuid {
-                    value: uuid::Uuid::new_v4().to_string(),
-                },
-            )),
-        }),
+        os: Some(default_os_config()),
         network: Some(network_config),
         infiniband: None,
         nvlink: None,

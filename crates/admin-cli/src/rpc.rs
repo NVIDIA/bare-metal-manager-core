@@ -1310,10 +1310,6 @@ impl ApiClient {
             ));
         }
         let tenant_config = rpc::TenantConfig {
-            user_data: None,
-            custom_ipxe: "Non-existing-ipxe".to_string(),
-            phone_home_enabled: false,
-            always_boot_with_custom_ipxe: false,
             tenant_organization_id: tenant_org,
             tenant_keyset_ids: vec![],
             hostname: None,

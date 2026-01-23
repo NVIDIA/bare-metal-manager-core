@@ -16,9 +16,9 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
+use rpc::forge::operating_system::Variant;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, MachineType, MachinesByIdsRequest, PxeInstructions,
-    SetDynamicConfigRequest,
+    ConfigSetting, ExpectedMachine, IpxeOperatingSystem, MachineType, MachinesByIdsRequest, OperatingSystem, PxeInstructions, SetDynamicConfigRequest
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 
@@ -321,10 +321,6 @@ impl ApiClient {
         };
 
         let tenant_config = rpc::TenantConfig {
-            user_data: None,
-            custom_ipxe: "Non-existing-ipxe".to_string(),
-            phone_home_enabled: false,
-            always_boot_with_custom_ipxe: false,
             tenant_organization_id: "Forge-simulation-tenant".to_string(),
             tenant_keyset_ids: vec![],
             hostname: None,
@@ -332,7 +328,15 @@ impl ApiClient {
 
         let instance_config = rpc::InstanceConfig {
             tenant: Some(tenant_config),
-            os: None,
+            os: Some(OperatingSystem {
+                variant: Some(Variant::Ipxe(IpxeOperatingSystem {
+                    ipxe_script: "Non-existing-ipxe".to_string(),
+                    user_data: None,
+                })),
+                user_data: None,
+                phone_home_enabled: false,
+                run_provisioning_instructions_on_every_boot: false,
+            }),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![interface_config],
             }),
