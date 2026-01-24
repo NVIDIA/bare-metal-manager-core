@@ -1378,10 +1378,12 @@ enum TenantState {
 
 // Describe the desired configuration of an IBPartition
 message IBPartitionConfig {
-  // The name of IBPartition.
+  // Deprecated: use Metadata instead  - the name of IBPartition.
   string name = 1;
   // The ID of tenant that IBPartition belong to
   string tenantOrganizationId = 2; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  // Metadata associated with this IB Partition
+  Metadata metadata = 3;
 }
 
 // Describe the status and applied configuration of an IBPartition
