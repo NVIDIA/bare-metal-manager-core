@@ -79,6 +79,16 @@ pub struct IBPartitionConfig {
     pub metadata: Metadata,
 }
 
+impl From<IBPartitionConfig> for rpc::IbPartitionConfig {
+    fn from(conf: IBPartitionConfig) -> Self {
+        rpc::IbPartitionConfig {
+            name: conf.metadata.name.clone(), // Deprecated field
+            tenant_organization_id: conf.tenant_organization_id.to_string(),
+            metadata: Some(conf.metadata.into()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IBPartitionStatus {
     pub partition: String,
@@ -264,16 +274,10 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
             service_level,
         });
 
-        let config = Some(rpc::IbPartitionConfig {
-            name: src.config.metadata.name.clone(), // Deprecated field
-            tenant_organization_id: src.config.tenant_organization_id.to_string(),
-            metadata: Some(src.config.metadata.into()),
-        });
-
         Ok(rpc::IbPartition {
             id: Some(src.id),
             config_version: src.version.version_string(),
-            config,
+            config: Some(src.config.into()),
             status,
         })
     }
