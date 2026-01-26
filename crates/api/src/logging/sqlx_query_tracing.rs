@@ -97,6 +97,29 @@ impl SqlxQueryDataAggregation {
             self.max_query_duration_summary = query_data.db_statement.clone();
         }
     }
+
+    /// Calculates the diff between the most recent query data aggregation (`self`)
+    /// and a previous query data aggregation. This diff contains information
+    /// about the queries between the previous and most recent aggregation.
+    ///
+    /// The diff can not provide accurate information about the longest
+    /// query (`max_query_duration`).
+    pub fn diff(&self, previous: &SqlxQueryDataAggregation) -> Self {
+        Self {
+            num_queries: self.num_queries.saturating_sub(previous.num_queries),
+            total_rows_affected: self
+                .total_rows_affected
+                .saturating_sub(previous.total_rows_affected),
+            total_rows_returned: self
+                .total_rows_returned
+                .saturating_sub(previous.total_rows_returned),
+            max_query_duration: self.max_query_duration,
+            max_query_duration_summary: self.max_query_duration_summary.clone(),
+            total_query_duration: self
+                .total_query_duration
+                .saturating_sub(previous.total_query_duration),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]

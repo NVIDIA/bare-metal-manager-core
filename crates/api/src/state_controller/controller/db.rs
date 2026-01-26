@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,6 +11,8 @@
  */
 
 //! Database access methods used in the StateController framework
+
+use std::fmt::Write;
 
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use db::{BIND_LIMIT, DatabaseError};
@@ -33,13 +35,16 @@ async fn create_iteration(
         .map_err(|e| DatabaseError::new("ControllerIteration::insert", e))
 }
 
-/// Loads all iterations, with the latest iteration being the last entry in the results
-#[cfg(test)]
+/// Loads the given amount iterations, starting by the newest iteration
 pub async fn fetch_iterations(
     txn: &mut PgConnection,
     table_id: &str,
+    limit: Option<usize>,
 ) -> Result<Vec<ControllerIteration>, DatabaseError> {
-    let query = format!("SELECT * FROM {table_id} ORDER BY id ASC");
+    let mut query = format!("SELECT * FROM {table_id} ORDER BY id DESC");
+    if let Some(limit) = limit {
+        write!(&mut query, " LIMIT {limit}").unwrap();
+    }
     sqlx::query_as::<_, ControllerIteration>(&query)
         .fetch_all(txn)
         .await
@@ -99,6 +104,8 @@ pub enum LockIterationTableError {
 }
 
 /// Enqueues object IDs for processing into the queued objects table with name `table_id`
+/// If the object is enqueued, then keep the current entry. That guarantees that the object will be processed
+/// with the oldest possible run id and that the processed_by field won't get lost.
 pub async fn queue_objects(
     txn: &mut PgConnection,
     table_id: &str,
@@ -119,7 +126,7 @@ pub async fn queue_objects(
             b.push_bind(object_id).push_bind(iteration_id.0);
         });
 
-        builder.push("ON CONFLICT (object_id) DO UPDATE SET iteration_id=EXCLUDED.iteration_id");
+        builder.push("ON CONFLICT (object_id) DO NOTHING");
         let query = builder.build();
 
         let _result = query
@@ -147,27 +154,66 @@ pub async fn fetch_queued_objects(
     Ok(result)
 }
 
-/// Dequeues all objects which have been scheduled for execution
-pub async fn dequeue_queued_objects(
+/// Fetches a certain amount of queued objects from the database which will be processed by the
+/// current processor.
+/// The objects will be marked as `processed_by` with the given ID - which will avoid
+/// other processors to pick up the objects.
+pub async fn acquire_queued_objects(
     txn: &mut PgConnection,
     table_id: &str,
+    count: u32, // u32 to avoid u64 numbers getting passed that are not valid in postgres
+    processor_id: &str,
+    max_outdated: std::time::Duration,
 ) -> Result<Vec<QueuedObject>, DatabaseError> {
-    // This query is more complicated that it needs to be:
-    // DELETE FROM {table_id} RETURNING *
-    // would achieve the same. however this meant to be forward compatible with adding a limit
-    // of dequeued objects. If we dequeue with a limit, we want to make sure we dequeue old
-    // objects first
     let query = format!(
         "WITH dequeued_ids AS (
-            SELECT object_id FROM {table_id} ORDER BY iteration_id ASC FOR UPDATE SKIP LOCKED
+            SELECT object_id FROM {table_id} WHERE (processed_by IS NULL OR processing_started_at + $1::interval < now()) ORDER BY iteration_id ASC FOR UPDATE SKIP LOCKED LIMIT {count}
         )
-        DELETE FROM {table_id} WHERE object_id in (SELECT object_id FROM dequeued_ids) RETURNING *"
+        UPDATE {table_id} SET processed_by=$2, processing_started_at=now() WHERE object_id in (SELECT object_id FROM dequeued_ids) RETURNING *"
     );
 
     let result = sqlx::query_as(&query)
+        .bind(max_outdated)
+        .bind(processor_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new("StateController::dequeue_queued_objects", e))?;
+        .map_err(|e| DatabaseError::new("StateController::acquire_queued_objects", e))?;
 
     Ok(result)
+}
+
+pub async fn delete_queued_objects(
+    txn: &mut PgConnection,
+    table_id: &str,
+    object_ids: &[String],
+    processor_id: &str,
+) -> Result<usize, DatabaseError> {
+    // Make sure we are not running into the BIND_LIMIT
+    // The theoretical limit would be BIND_LIMIT/2 (for 2 parameters)
+    // However shorter transactions are ok here - we still queue 1k objects
+    // per chunk
+    const OBJECTS_PER_QUERY: usize = BIND_LIMIT / 32;
+
+    let mut num_deleted = 0;
+    for queued_objects in object_ids.chunks(OBJECTS_PER_QUERY) {
+        let mut builder = sqlx::QueryBuilder::new("DELETE FROM ");
+        builder.push(table_id);
+        builder.push(" WHERE object_id IN(");
+        let mut separated = builder.separated(", ");
+        for object_id in queued_objects.iter() {
+            separated.push_bind(object_id);
+        }
+        builder.push(") AND processed_by = ");
+        builder.push_bind(processor_id);
+
+        let query = builder.build();
+        let result = query
+            .execute(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new("StateController::delete_queued_objects", e))?;
+
+        num_deleted += result.rows_affected();
+    }
+
+    Ok(num_deleted as usize)
 }
