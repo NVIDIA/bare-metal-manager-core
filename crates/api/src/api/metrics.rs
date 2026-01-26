@@ -77,14 +77,7 @@ impl ApiMetrics {
             return;
         }
 
-        // Extract product serial and name from hardware info
-        let product_serial = machine
-            .hardware_info
-            .as_ref()
-            .and_then(|hi| hi.dmi_data.as_ref())
-            .map(|dmi| dmi.product_serial.clone())
-            .unwrap_or_else(|| "unknown".to_string());
-
+        // Extract product name, and vendor from hardware info
         let product_name = machine
             .hardware_info
             .as_ref()
@@ -92,10 +85,17 @@ impl ApiMetrics {
             .map(|dmi| dmi.product_name.clone())
             .unwrap_or_else(|| "unknown".to_string());
 
-        // Record histogram with product serial, name, and request mode as attributes
+        let vendor = machine
+            .hardware_info
+            .as_ref()
+            .and_then(|hi| hi.dmi_data.as_ref())
+            .map(|dmi| dmi.sys_vendor.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Record histogram with product serial, name, vendor, and request mode as attributes
         let attributes = [
-            KeyValue::new("product_serial", product_serial),
             KeyValue::new("product_name", product_name),
+            KeyValue::new("vendor", vendor),
             KeyValue::new("reboot_mode", last_reboot_requested.mode.to_string()),
         ];
 
