@@ -141,6 +141,13 @@ jobs:
           username: ${{ secrets.NVCR_USERNAME }}
           token: ${{ secrets.NVCR_TOKEN }}
 
+      - name: Pull carbide-extras container
+        if: inputs.use_container == true && inputs.build_container != ''
+        run: |
+          echo "Pulling carbide-extras container ${{ inputs.extras_container }}"
+          docker pull ${{ inputs.extras_container }}
+
+
       - name: Pull build container
         if: inputs.use_container == true && inputs.build_container != ''
         run: |
@@ -187,6 +194,41 @@ jobs:
           fi
           echo "Working directory: $(pwd)"
           echo "============================================"
+
+      # TODO(ajf): This is NVIDIA specific stuff and really needs to be genericized
+      - name: Inject carbide_extras content into build
+        if: inputs.build_type == 'ephermeral'
+        run: |
+          set -euo pipefail
+          CARBIDE_EXTRAS_IMAGE="${{ inputs.extras_container }}"
+          PROFILE_DIR="pxe/mkosi.profiles/scout-oss-${{ input.arch }}"
+
+          container_id=$(docker create "${CARBIDE_EXTRAS_IMAGE}" /bin/true)
+
+          echo "Extracting Sources from container..."
+          mkdir -p pxe/.scout-extras
+          docker cp "${container_id}:/extras/." pxe/.scout-extras
+
+          echo "Removing temporary container..."
+          docker rm "${container_id}"
+
+          echo "Copying files into mkosi.profiles"
+          mkdir -p "${PROFILE_DIR}/mkosi.extra/build-output/extras"
+          cp -a pxe/.scout-extras "${PROFILE_DIR}/mkosi.extra/build-output/extras"
+
+          echo "Appending postinstall extras script"
+          if [ -f "pxe/.scout-extras/postinst-extras.sh" ]; then
+            cat pxe/.scout-extras/postinst-extras.sh >> "${PROFILE_DIR}/mkosi.postinst.chroot"
+            echo "✅ Postinst script appended successfully"
+          else
+            echo "⚠  Warning: postinst-extras.sh not found in extras"
+          fi
+
+          echo
+          echo "============================="
+          echo "Extracted extras content:"
+          ls -lah pxe/.scout-extrast || echo "No extras directory"
+          echo "✅ Carbide extras setup complete"
 
       # Run build in container mode (for boot artifacts)
       - name: Run cargo make task (container mode)

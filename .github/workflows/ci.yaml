@@ -549,6 +549,7 @@ jobs:
       runner: linux-amd64-cpu8
       use_container: false
       sa_enablement: true
+      extras_image: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
     secrets: inherit
 
   build-boot-artifacts-ephemeral-image-arm-host:
@@ -566,6 +567,7 @@ jobs:
       runner: linux-arm64-cpu8
       use_container: false
       sa_enablement: true
+      extras_image: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
     secrets: inherit
 
   # ============================================================================
