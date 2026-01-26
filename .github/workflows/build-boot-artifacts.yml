@@ -38,7 +38,7 @@ on:
         required: false
         default: false
         type: boolean
-      extras_image:
+      extras_container:
         description: 'Location of additional artifacts to place into the built images'
         required: true
         default: false
@@ -205,10 +205,10 @@ jobs:
         if: inputs.build_type == 'ephermeral'
         run: |
           set -euo pipefail
-          CARBIDE_EXTRAS_IMAGE="${{ inputs.extras_container }}"
+          CARBIDE_EXTRAS_CONTAINER="${{ inputs.extras_container }}"
           PROFILE_DIR="pxe/mkosi.profiles/scout-oss-${{ inputs.arch }}"
 
-          container_id=$(docker create "${CARBIDE_EXTRAS_IMAGE}" /bin/true)
+          container_id=$(docker create "${CARBIDE_EXTRAS_CONTAINER}" /bin/true)
 
           echo "Extracting Sources from container..."
           mkdir -p pxe/.scout-extras
@@ -232,7 +232,7 @@ jobs:
           echo
           echo "============================="
           echo "Extracted extras content:"
-          ls -lah pxe/.scout-extrast || echo "No extras directory"
+          ls -lah pxe/.scout-extras || echo "No extras directory"
           echo "✅ Carbide extras setup complete"
 
       # Run build in container mode (for boot artifacts)
