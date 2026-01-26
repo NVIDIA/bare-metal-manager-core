@@ -669,12 +669,37 @@ impl EndpointExplorer for BmcEndpointExplorer {
         // Authenticate and set the BMC root account credentials
 
         // Case 1: Vault contains a path at "bmc/{bmc_mac_address}/root"
-        // This machine has its BMC set to the Forge sitewide BMC root password.
+        // This machine has its BMC set to the carbide sitewide BMC root password.
         // Create the redfish client and generate the report.
         let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
-                    .await?
+                match self
+                    .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .await
+                {
+                    Ok(report) => report,
+                    // If we get an Unauthorized error from an HPE BMC but credentials are already
+                    // set, this is likely an intermittent error. Convert to
+                    // IntermittentHPEUnauthorized so we retry instead of going into AvoidLockout.
+                    Err(EndpointExplorationError::Unauthorized {
+                        details,
+                        response_body,
+                        response_code,
+                    }) if vendor == RedfishVendor::Hpe => {
+                        tracing::warn!(
+                            %bmc_ip_address,
+                            %bmc_mac_address,
+                            %details,
+                            "Received unauthorized error from HPE BMC but site-wide credentials are already set - treating as intermittent"
+                        );
+                        return Err(EndpointExplorationError::IntermittentHPEUnauthorized {
+                            details,
+                            response_body,
+                            response_code,
+                        });
+                    }
+                    Err(e) => return Err(e),
+                }
             }
 
             Err(EndpointExplorationError::MissingCredentials { .. }) => {

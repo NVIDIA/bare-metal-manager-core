@@ -1127,6 +1127,17 @@ pub enum EndpointExplorationError {
         response_body: Option<String>,
         response_code: Option<u16>,
     },
+
+    /// An intermittent unauthorized error from HPE BMCs that occurrs even when
+    /// site-wide credentials are already set. This is a transient error that
+    /// should be retried rather than triggering AvoidLockout behavior.
+    #[error("Intermittent HPE unauthorized error: {details}")]
+    #[serde(rename_all = "PascalCase")]
+    IntermittentHPEUnauthorized {
+        details: String,
+        response_body: Option<String>,
+        response_code: Option<u16>,
+    },
 }
 
 impl EndpointExplorationError {
