@@ -40,18 +40,11 @@ struct IbPartitionRowDisplay {
 
 impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
     fn from(partition: forgerpc::IbPartition) -> Self {
+        let config = partition.config.unwrap_or_default();
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
-            tenant_organization_id: partition
-                .config
-                .as_ref()
-                .map(|config| config.tenant_organization_id.clone())
-                .unwrap_or_default(),
-            metadata: partition
-                .config
-                .as_ref()
-                .map(|config| config.metadata.clone().unwrap_or_default())
-                .unwrap_or_default(),
+            tenant_organization_id: config.tenant_organization_id,
+            metadata: config.metadata.unwrap_or_default(),
             state: partition
                 .status
                 .as_ref()
@@ -188,7 +181,7 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             config_version: partition.config_version,
             tenant_organization_id: config.tenant_organization_id,
-            metadata: config.metadata.clone().unwrap_or_default(),
+            metadata: config.metadata.unwrap_or_default(),
             state: partition
                 .status
                 .as_ref()
