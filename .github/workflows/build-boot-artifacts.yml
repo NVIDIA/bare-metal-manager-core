@@ -232,7 +232,7 @@ jobs:
 
           echo "Copying nvinit configs"
           mkdir -p "pxe/nvinit_setup"
-          cp -av pxe/.scout-extras/nvinit/config/. pxe/nvinit_setup
+          cp -av pxe/.scout-extras/nvinit_setup/. pxe/nvinit_setup
 
           echo "Appending postinstall extras script"
           if [ -f "pxe/.scout-extras/postinst-extras.sh" ]; then
