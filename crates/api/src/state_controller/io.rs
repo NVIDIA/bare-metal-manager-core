@@ -27,6 +27,9 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     type ObjectId: std::fmt::Display
         + std::fmt::Debug
         + std::str::FromStr
+        + PartialEq
+        + Eq
+        + std::hash::Hash
         + Send
         + Sync
         + 'static

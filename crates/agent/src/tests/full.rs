@@ -769,10 +769,6 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         config: Some(rpc::InstanceConfig {
             tenant: Some(rpc::TenantConfig {
                 tenant_organization_id: "Forge-simulation-tenant".to_string(),
-                user_data: Some("".to_string()),
-                custom_ipxe: " chain http://10.217.126.4/public/blobs/internal/x86_64/qcow-imager.efi loglevel=7 console=ttyS0,115200 console=tty0 pci=realloc=off image_url=https://pbss.s8k.io/v1/AUTH_team-forge/images.qcow2/carbide-dev-environment/carbide-dev-environment-latest.qcow2".to_string(),
-                always_boot_with_custom_ipxe: false,
-                phone_home_enabled: false,
                 hostname: None,
                 tenant_keyset_ids: vec![],
             }),

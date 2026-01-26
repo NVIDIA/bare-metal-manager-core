@@ -276,10 +276,6 @@ pub fn default_os_config() -> rpc::forge::OperatingSystem {
 
 pub fn default_tenant_config() -> rpc::TenantConfig {
     rpc::TenantConfig {
-        user_data: None,
-        custom_ipxe: "".to_string(),
-        phone_home_enabled: false,
-        always_boot_with_custom_ipxe: false,
         tenant_organization_id: "Tenant1".to_string(),
         tenant_keyset_ids: vec![],
         hostname: None,

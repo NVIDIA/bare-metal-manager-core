@@ -709,25 +709,13 @@ jobs:
           scan-type: 'fs'
           scan-ref: '.'
           vuln-type: 'os,library'
-          scanners: 'vuln,secret,misconfig'
+          scanners: 'vuln,secret,misconfig,license'
           severity: 'HIGH,CRITICAL'
           skip-dirs: 'crates/bmc-mock'
           ignore-unfixed: 'true'
           upload-sarif: 'false'  # Disable upload until GHAS is enabled, such as the repo be public
           post-pr-comment: 'true'
           fail-on-findings: 'false' # FIXME: Disabled until all issues are fixed
-
-  license-checks:
-    needs: prepare
-    runs-on: linux-amd64-cpu4
-    steps:
-      - name: Placeholder for license checks
-        run: |
-          echo "============================================"
-          echo "License Checks - Placeholder"
-          echo "============================================"
-          echo "TODO: Implement license compliance checking"
-          echo "Version: ${{ needs.prepare.outputs.version }}"
 
   # ============================================================================
   # BUILD STAGE - Machine Validation

@@ -20,17 +20,23 @@ This file contains a list of metrics exported by Carbide. The list is auto-gener
 <tr><td>carbide_db_pool_idle_conns</td><td>gauge</td><td>The amount of idle connections in the carbide database pool</td></tr>
 <tr><td>carbide_db_pool_total_conns</td><td>gauge</td><td>The amount of total (active + idle) connections in the carbide database pool</td></tr>
 <tr><td>carbide_nvlink_partition_monitor_nmxm_changes_applied_total</td><td>counter</td><td>Number of changes requested to Nmx-M</td></tr>
-<tr><td>carbide_power_shelves_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all carbide_power_shelves in the system</td></tr>
+<tr><td>carbide_power_shelves_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_power_shelves in the system</td></tr>
+<tr><td>carbide_power_shelves_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_power_shelves</td></tr>
 <tr><td>carbide_power_shelves_total</td><td>gauge</td><td>The total number of carbide_power_shelves in the system</td></tr>
+<tr><td>carbide_racks_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_racks in the system</td></tr>
 <tr><td>carbide_racks_handler_latency_in_state_milliseconds</td><td>histogram</td><td>The amount of time it took to invoke the state handler for objects of type carbide_racks in a certain state</td></tr>
 <tr><td>carbide_racks_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all carbide_racks in the system</td></tr>
+<tr><td>carbide_racks_object_tasks_completed_total</td><td>counter</td><td>The amount of object handling tasks that have been completed for objects of type carbide_racks</td></tr>
+<tr><td>carbide_racks_object_tasks_dispatched_total</td><td>counter</td><td>The amount of types that object handling tasks that have been dequeued and dispatched for processing for objects of type carbide_racks</td></tr>
+<tr><td>carbide_racks_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_racks</td></tr>
 <tr><td>carbide_racks_per_state</td><td>gauge</td><td>The number of carbide_racks in the system with a given state</td></tr>
 <tr><td>carbide_racks_per_state_above_sla</td><td>gauge</td><td>The number of carbide_racks in the system which had been longer in a state than allowed per SLA</td></tr>
 <tr><td>carbide_racks_total</td><td>gauge</td><td>The total number of carbide_racks in the system</td></tr>
 <tr><td>carbide_racks_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_racks in the system with a given state that failed state handling</td></tr>
 <tr><td>carbide_resourcepool_free_count</td><td>gauge</td><td>Count of values in the pool currently available for allocation</td></tr>
 <tr><td>carbide_resourcepool_used_count</td><td>gauge</td><td>Count of values in the pool currently allocated</td></tr>
-<tr><td>carbide_switches_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all carbide_switches in the system</td></tr>
+<tr><td>carbide_switches_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_switches in the system</td></tr>
+<tr><td>carbide_switches_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_switches</td></tr>
 <tr><td>carbide_switches_total</td><td>gauge</td><td>The total number of carbide_switches in the system</td></tr>
 <tr><td>forge_active_host_firmware_update_count</td><td>gauge</td><td>The number of host machines in the system currently working on updating their firmware.</td></tr>
 <tr><td>forge_available_ips_count</td><td>gauge</td><td>The total number of available ips in the Forge site</td></tr>
@@ -55,16 +61,21 @@ This file contains a list of metrics exported by Carbide. The list is auto-gener
 <tr><td>forge_hosts_in_use_count</td><td>gauge</td><td>The total number of hosts that are actively used by tenants as instances in the Forge site</td></tr>
 <tr><td>forge_hosts_usable_count</td><td>gauge</td><td>The remaining number of hosts in the Forge site which are available for immediate instance creation</td></tr>
 <tr><td>forge_hosts_with_bios_password_set</td><td>gauge</td><td>The total number of Hosts in the system that have their BIOS password set.</td></tr>
-<tr><td>forge_ib_partitions_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all forge_ib_partitions in the system</td></tr>
+<tr><td>forge_ib_partitions_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all forge_ib_partitions in the system</td></tr>
+<tr><td>forge_ib_partitions_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type forge_ib_partitions</td></tr>
 <tr><td>forge_ib_partitions_total</td><td>gauge</td><td>The total number of forge_ib_partitions in the system</td></tr>
 <tr><td>forge_machine_updates_started_count</td><td>gauge</td><td>The number of machines in the system that in the process of updating.</td></tr>
 <tr><td>forge_machine_validation_completed</td><td>gauge</td><td>Count of machine validation that have completed successfully</td></tr>
 <tr><td>forge_machine_validation_failed</td><td>gauge</td><td>Count of machine validation that have failed</td></tr>
 <tr><td>forge_machine_validation_in_progress</td><td>gauge</td><td>Count of machine validation that are in progress</td></tr>
 <tr><td>forge_machine_validation_tests</td><td>gauge</td><td>The details of machine validation tests</td></tr>
+<tr><td>forge_machines_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all forge_machines in the system</td></tr>
 <tr><td>forge_machines_handler_latency_in_state_milliseconds</td><td>histogram</td><td>The amount of time it took to invoke the state handler for objects of type forge_machines in a certain state</td></tr>
 <tr><td>forge_machines_in_maintenance_count</td><td>gauge</td><td>The total number of machines in the system that are in maintenance.</td></tr>
 <tr><td>forge_machines_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all forge_machines in the system</td></tr>
+<tr><td>forge_machines_object_tasks_completed_total</td><td>counter</td><td>The amount of object handling tasks that have been completed for objects of type forge_machines</td></tr>
+<tr><td>forge_machines_object_tasks_dispatched_total</td><td>counter</td><td>The amount of types that object handling tasks that have been dequeued and dispatched for processing for objects of type forge_machines</td></tr>
+<tr><td>forge_machines_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type forge_machines</td></tr>
 <tr><td>forge_machines_per_state</td><td>gauge</td><td>The number of forge_machines in the system with a given state</td></tr>
 <tr><td>forge_machines_per_state_above_sla</td><td>gauge</td><td>The number of forge_machines in the system which had been longer in a state than allowed per SLA</td></tr>
 <tr><td>forge_machines_state_entered_total</td><td>counter</td><td>The amount of types that objects of type forge_machines have entered a certain state</td></tr>
@@ -77,8 +88,12 @@ This file contains a list of metrics exported by Carbide. The list is auto-gener
 <tr><td>forge_measured_boot_machines_per_machine_state_total</td><td>gauge</td><td>The total number of machines per a given measured boot machine state.</td></tr>
 <tr><td>forge_measured_boot_machines_total</td><td>gauge</td><td>The total number of machines reporting measurements.</td></tr>
 <tr><td>forge_measured_boot_profiles_total</td><td>gauge</td><td>The total number of measured boot profiles.</td></tr>
+<tr><td>forge_network_segments_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all forge_network_segments in the system</td></tr>
 <tr><td>forge_network_segments_handler_latency_in_state_milliseconds</td><td>histogram</td><td>The amount of time it took to invoke the state handler for objects of type forge_network_segments in a certain state</td></tr>
 <tr><td>forge_network_segments_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to handle state for all forge_network_segments in the system</td></tr>
+<tr><td>forge_network_segments_object_tasks_completed_total</td><td>counter</td><td>The amount of object handling tasks that have been completed for objects of type forge_network_segments</td></tr>
+<tr><td>forge_network_segments_object_tasks_dispatched_total</td><td>counter</td><td>The amount of types that object handling tasks that have been dequeued and dispatched for processing for objects of type forge_network_segments</td></tr>
+<tr><td>forge_network_segments_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type forge_network_segments</td></tr>
 <tr><td>forge_network_segments_per_state</td><td>gauge</td><td>The number of forge_network_segments in the system with a given state</td></tr>
 <tr><td>forge_network_segments_per_state_above_sla</td><td>gauge</td><td>The number of forge_network_segments in the system which had been longer in a state than allowed per SLA</td></tr>
 <tr><td>forge_network_segments_state_entered_total</td><td>counter</td><td>The amount of types that objects of type forge_network_segments have entered a certain state</td></tr>

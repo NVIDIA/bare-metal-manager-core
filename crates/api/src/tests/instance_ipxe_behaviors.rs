@@ -38,8 +38,8 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
             .rpc_instance()
             .await
             .config()
-            .tenant()
-            .always_boot_with_custom_ipxe
+            .os()
+            .run_provisioning_instructions_on_every_boot
     );
 
     // First boot should return custom iPXE instructions
@@ -104,8 +104,8 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
             .rpc_instance()
             .await
             .config()
-            .tenant()
-            .always_boot_with_custom_ipxe
+            .os()
+            .run_provisioning_instructions_on_every_boot
     );
 
     // First boot should return custom iPXE instructions
