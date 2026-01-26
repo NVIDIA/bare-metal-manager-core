@@ -201,7 +201,7 @@ jobs:
         run: |
           set -euo pipefail
           CARBIDE_EXTRAS_IMAGE="${{ inputs.extras_container }}"
-          PROFILE_DIR="pxe/mkosi.profiles/scout-oss-${{ input.arch }}"
+          PROFILE_DIR="pxe/mkosi.profiles/scout-oss-${{ inputs.arch }}"
 
           container_id=$(docker create "${CARBIDE_EXTRAS_IMAGE}" /bin/true)
 
