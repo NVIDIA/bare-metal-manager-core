@@ -193,6 +193,7 @@ pub fn create_metrics() -> Result<Metrics, opentelemetry_sdk::metrics::MetricErr
         .with_resource(service_telemetry_attributes)
         .with_view(create_metric_view_for_retry_histograms("*_attempts_*")?)
         .with_view(create_metric_view_for_retry_histograms("*_retries_*")?)
+        .with_view(ApiMetrics::machine_restart_time_view()?)
         .build();
     // After this call `global::meter()` will be available
     opentelemetry::global::set_meter_provider(meter_provider.clone());
@@ -337,6 +338,7 @@ mod tests {
             .with_reader(metrics_exporter)
             .with_view(create_metric_view_for_retry_histograms("*_attempts_*").unwrap())
             .with_view(create_metric_view_for_retry_histograms("*_retries_*").unwrap())
+            .with_view(ApiMetrics::machine_restart_time_view().unwrap())
             .build();
 
         let state = KeyValue::new("state", "mystate");

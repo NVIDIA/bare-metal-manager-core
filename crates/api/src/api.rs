@@ -10,12 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod builder;
+mod metrics;
+
 use std::collections::HashMap;
 use std::panic::Location;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use opentelemetry::metrics::Meter;
+pub use self::builder::ApiBuilder;
+pub use self::metrics::ApiMetrics;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
 use ::rpc::protos::dns::{
@@ -33,6 +37,7 @@ use forge_secrets::credentials::CredentialProvider;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::resource_pool::common::CommonPools;
+use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, PgTransaction};
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
@@ -68,6 +73,7 @@ pub struct Api {
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
     pub(crate) meter: Meter,
+    pub(crate) metrics: ApiMetrics,
 }
 
 pub(crate) type ScoutStreamType =

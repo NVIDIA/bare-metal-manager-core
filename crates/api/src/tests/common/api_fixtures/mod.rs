@@ -70,7 +70,7 @@ use tokio::sync::Mutex;
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
 
-use crate::api::Api;
+use crate::api::{Api, ApiBuilder};
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
     DpuConfig as InitialDpuConfig, FirmwareGlobal, IBFabricConfig, IbFabricDefinition,
@@ -1305,24 +1305,25 @@ pub async fn create_test_env_with_overrides(
 
     let rms_sim = Arc::new(RmsSim);
 
-    let api = Arc::new(Api {
-        runtime_config: config.clone(),
-        credential_provider: credential_provider.clone(),
-        certificate_provider: certificate_provider.clone(),
-        database_connection: db_pool.clone(),
-        redfish_pool: redfish_sim.clone(),
-        eth_data: eth_virt_data.clone(),
-        common_pools: common_pools.clone(),
-        ib_fabric_manager: ib_fabric_manager.clone(),
-        dynamic_settings: dyn_settings,
-        endpoint_explorer: bmc_explorer,
-        dpu_health_log_limiter: LogLimiter::default(),
-        scout_stream_registry: scout_stream::ConnectionRegistry::new(),
-        rms_client: rms_sim.as_rms_client(),
-        nmxm_pool: nmxm_sim.clone(),
-        work_lock_manager_handle: work_lock_manager_handle.clone(),
-        meter: test_meter.meter(),
-    });
+    let api = Arc::new(
+        ApiBuilder::new(
+            db_pool.clone(),
+            credential_provider.clone(),
+            certificate_provider.clone(),
+            redfish_sim.clone(),
+            eth_virt_data.clone(),
+            common_pools.clone(),
+            ib_fabric_manager.clone(),
+            config.clone(),
+            dyn_settings,
+            bmc_explorer,
+            nmxm_sim.clone(),
+            work_lock_manager_handle.clone(),
+            test_meter.meter(),
+        )
+        .with_rms_client(rms_sim.as_rms_client())
+        .build(),
+    );
 
     let attestation_enabled = config.attestation_enabled;
     let ipmi_tool = Arc::new(IPMIToolTestImpl {});

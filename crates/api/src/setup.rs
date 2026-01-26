@@ -37,7 +37,7 @@ use tokio::sync::oneshot::{Receiver, Sender};
 use tokio::sync::{Semaphore, oneshot};
 use tracing_log::AsLog as _;
 
-use crate::api::Api;
+use crate::api::{Api, ApiBuilder};
 use crate::cfg::file::{CarbideConfig, ListenMode};
 use crate::dpa::DpaInfo;
 use crate::dynamic_settings::DynamicSettings;
@@ -362,24 +362,25 @@ pub async fn start_api(
 
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
 
-    let api_service = Arc::new(Api {
-        certificate_provider: vault_client.clone(),
-        common_pools,
-        credential_provider: vault_client,
-        database_connection: db_pool,
-        dpu_health_log_limiter: LogLimiter::default(),
-        dynamic_settings,
-        endpoint_explorer: bmc_explorer,
-        eth_data,
-        ib_fabric_manager,
-        redfish_pool: shared_redfish_pool,
-        runtime_config: carbide_config.clone(),
-        scout_stream_registry: ConnectionRegistry::new(),
-        rms_client: rms_client.clone(),
-        nmxm_pool: shared_nmxm_pool,
-        work_lock_manager_handle,
-        meter: meter.clone(),
-    });
+    let api_service = Arc::new(
+        ApiBuilder::new(
+            db_pool,
+            vault_client.clone(),
+            vault_client,
+            shared_redfish_pool,
+            eth_data,
+            common_pools,
+            ib_fabric_manager,
+            carbide_config.clone(),
+            dynamic_settings,
+            bmc_explorer,
+            shared_nmxm_pool,
+            work_lock_manager_handle,
+            meter.clone(),
+        )
+        .with_rms_client(rms_client.clone())
+        .build(),
+    );
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
     let controllers_handle = if carbide_config.listen_only {

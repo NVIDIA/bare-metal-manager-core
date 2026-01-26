@@ -298,6 +298,9 @@ pub(crate) async fn reboot_completed(
     let (machine, mut txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
+
+    api.metrics.record_restart_time_metric(&machine);
+
     db::machine::update_reboot_time(&machine, &mut txn).await?;
 
     txn.commit().await?;
