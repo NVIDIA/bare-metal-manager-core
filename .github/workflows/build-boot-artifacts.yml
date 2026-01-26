@@ -145,7 +145,7 @@ jobs:
 
       # Setup Docker for container-based builds
       - name: Setup Docker authentication
-        if: inputs.use_container == true
+        if: inputs.use_container == true || inputs.inject_extras == true
         uses: ./.github/actions/docker-auth
         with:
           username: ${{ secrets.NVCR_USERNAME }}
@@ -156,7 +156,6 @@ jobs:
         run: |
           echo "Pulling carbide-extras container ${{ inputs.extras_container }}"
           docker pull ${{ inputs.extras_container }}
-
 
       - name: Pull build container
         if: inputs.use_container == true && inputs.build_container != ''
