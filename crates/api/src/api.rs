@@ -37,7 +37,6 @@ use forge_secrets::credentials::CredentialProvider;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::resource_pool::common::CommonPools;
-use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, PgTransaction};
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
@@ -72,7 +71,6 @@ pub struct Api {
     pub(crate) rms_client: Option<Arc<Box<dyn RmsApi>>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
-    pub(crate) meter: Meter,
     pub(crate) metrics: ApiMetrics,
 }
 

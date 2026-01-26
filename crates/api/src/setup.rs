@@ -376,10 +376,9 @@ pub async fn start_api(
             bmc_explorer,
             shared_nmxm_pool,
             work_lock_manager_handle,
-            meter.clone(),
         )
         .with_rms_client(rms_client.clone())
-        .build(),
+        .build(&meter),
     );
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();

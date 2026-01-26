@@ -46,7 +46,6 @@ pub struct ApiBuilder {
     rms_client: Option<Arc<Box<dyn RmsApi>>>,
     nmxm_pool: Arc<dyn NmxmClientPool>,
     work_lock_manager_handle: WorkLockManagerHandle,
-    meter: Meter,
 }
 
 impl ApiBuilder {
@@ -65,7 +64,6 @@ impl ApiBuilder {
         endpoint_explorer: Arc<dyn EndpointExplorer>,
         nmxm_pool: Arc<dyn NmxmClientPool>,
         work_lock_manager_handle: WorkLockManagerHandle,
-        meter: Meter,
     ) -> Self {
         Self {
             database_connection,
@@ -81,7 +79,6 @@ impl ApiBuilder {
             rms_client: None,
             nmxm_pool,
             work_lock_manager_handle,
-            meter,
         }
     }
 
@@ -92,8 +89,8 @@ impl ApiBuilder {
     }
 
     /// Builds the Api instance with all metrics initialized
-    pub fn build(self) -> Api {
-        let metrics = ApiMetrics::new(&self.meter);
+    pub fn build(self, meter: &Meter) -> Api {
+        let metrics = ApiMetrics::new(meter);
 
         Api {
             database_connection: self.database_connection,
@@ -111,7 +108,6 @@ impl ApiBuilder {
             rms_client: self.rms_client,
             nmxm_pool: self.nmxm_pool,
             work_lock_manager_handle: self.work_lock_manager_handle,
-            meter: self.meter,
             metrics,
         }
     }
