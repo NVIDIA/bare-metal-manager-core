@@ -511,6 +511,7 @@ jobs:
       runner: linux-amd64-cpu4
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
+      extras_image: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
     secrets: inherit
 
   build-boot-artifacts-bfb:
@@ -527,6 +528,7 @@ jobs:
       runner: linux-arm64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
+      extras_image: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
     secrets: inherit
 
   # ============================================================================
