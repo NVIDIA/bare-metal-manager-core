@@ -40,7 +40,6 @@ impl StateControllerIO for SpdmStateControllerIO {
     type MetricsEmitter = SpdmMetricsEmitter;
     type ContextObjects = SpdmStateHandlerContextObjects;
 
-    const DB_WORK_KEY: &str = "attestation_state_controller_lock";
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "attestation_controller_iteration_ids";
     const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "attestation_controller_queued_objects";
 
