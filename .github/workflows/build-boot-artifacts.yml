@@ -230,6 +230,10 @@ jobs:
           mkdir -p "pxe/debs"
           cp -v pxe/.scout-extras/debs/{arm64,amd64}/*.deb pxe/debs
 
+          echo "Copying nvinit configs"
+          mkdir -p "pxe/nvinit_setup"
+          cp -av pxe/.scout-extras/nvinit/config/. pxe/nvinit_setup
+
           echo "Appending postinstall extras script"
           if [ -f "pxe/.scout-extras/postinst-extras.sh" ]; then
             cat pxe/.scout-extras/postinst-extras.sh >> "${PROFILE_DIR}/mkosi.postinst.chroot"
