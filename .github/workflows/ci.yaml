@@ -511,6 +511,8 @@ jobs:
       runner: linux-amd64-cpu4
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
+      inject_extras: true
+      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
     secrets: inherit
 
   build-boot-artifacts-bfb:
@@ -527,6 +529,8 @@ jobs:
       runner: linux-arm64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
+      inject_extras: true
+      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
     secrets: inherit
 
   # ============================================================================
@@ -549,6 +553,8 @@ jobs:
       runner: linux-amd64-cpu8
       use_container: false
       sa_enablement: true
+      inject_extras: true
+      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
     secrets: inherit
 
   build-boot-artifacts-ephemeral-image-arm-host:
@@ -566,6 +572,8 @@ jobs:
       runner: linux-arm64-cpu8
       use_container: false
       sa_enablement: true
+      inject_extras: true
+      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
     secrets: inherit
 
   # ============================================================================

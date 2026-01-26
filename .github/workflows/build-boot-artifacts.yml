@@ -38,6 +38,16 @@ on:
         required: false
         default: false
         type: boolean
+      inject_extras:
+        description: 'Whether or not to inject the extras during image build'
+        required: false
+        default: false
+        type: boolean
+      extras_container:
+        description: 'Location of additional artifacts to place into the built images'
+        required: false
+        default: false
+        type: string
     outputs:
       artifacts_json:
         description: 'Artifacts paths as JSON array'
@@ -135,11 +145,17 @@ jobs:
 
       # Setup Docker for container-based builds
       - name: Setup Docker authentication
-        if: inputs.use_container == true
+        if: inputs.use_container == true || inputs.inject_extras == true
         uses: ./.github/actions/docker-auth
         with:
           username: ${{ secrets.NVCR_USERNAME }}
           token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Pull carbide-extras container
+        if: inputs.inject_extras == true && inputs.extras_container != ''
+        run: |
+          echo "Pulling carbide-extras container ${{ inputs.extras_container }}"
+          docker pull ${{ inputs.extras_container }}
 
       - name: Pull build container
         if: inputs.use_container == true && inputs.build_container != ''
@@ -187,6 +203,49 @@ jobs:
           fi
           echo "Working directory: $(pwd)"
           echo "============================================"
+
+      # TODO(ajf): This is NVIDIA specific stuff and really needs to be genericized
+      - name: Inject carbide_extras content into build
+        if: inputs.inject_extras == true && inputs.extras_container != ''
+        run: |
+          set -euo pipefail
+          CARBIDE_EXTRAS_CONTAINER="${{ inputs.extras_container }}"
+          PROFILE_DIR="pxe/mkosi.profiles/scout-oss-${{ inputs.arch }}"
+
+          container_id=$(docker create "${CARBIDE_EXTRAS_CONTAINER}" /bin/true)
+
+          echo "Extracting Sources from container..."
+          mkdir -p pxe/.scout-extras
+          docker cp "${container_id}:/extras/." pxe/.scout-extras
+
+          echo "Removing temporary container..."
+          docker rm "${container_id}"
+
+          echo "Copying files into mkosi.profiles"
+          mkdir -p "${PROFILE_DIR}/mkosi.extra/build-output/extras"
+          cp -av pxe/.scout-extras "${PROFILE_DIR}/mkosi.extra/build-output/extras"
+
+          echo "Copying libnss debs"
+          mkdir -p "pxe/debs"
+          cp -v pxe/.scout-extras/debs/{arm64,amd64}/*.deb pxe/debs
+
+          echo "Copying nvinit configs"
+          mkdir -p "pxe/nvinit_setup"
+          cp -av pxe/.scout-extras/nvinit_setup/. pxe/nvinit_setup
+
+          echo "Appending postinstall extras script"
+          if [ -f "pxe/.scout-extras/postinst-extras.sh" ]; then
+            cat pxe/.scout-extras/postinst-extras.sh >> "${PROFILE_DIR}/mkosi.postinst.chroot"
+            echo "✅ Postinst script appended successfully"
+          else
+            echo "⚠  Warning: postinst-extras.sh not found in extras"
+          fi
+
+          echo
+          echo "============================="
+          echo "Extracted extras content:"
+          ls -lah pxe/.scout-extras || echo "No extras directory"
+          echo "✅ Carbide extras setup complete"
 
       # Run build in container mode (for boot artifacts)
       - name: Run cargo make task (container mode)
