@@ -1131,12 +1131,15 @@ pub enum EndpointExplorationError {
     /// An intermittent unauthorized error from HPE BMCs that occurrs even when
     /// site-wide credentials are already set. This is a transient error that
     /// should be retried rather than triggering AvoidLockout behavior.
-    #[error("Intermittent HPE unauthorized error: {details}")]
+    /// After `consecutive_count` reaches the threshold, escalates to regular Unauthorized.
+    #[error("Intermittent HPE unauthorized error (attempt {consecutive_count}): {details}")]
     #[serde(rename_all = "PascalCase")]
     IntermittentHPEUnauthorized {
         details: String,
         response_body: Option<String>,
         response_code: Option<u16>,
+        #[serde(default)]
+        consecutive_count: u32,
     },
 }
 
@@ -1159,6 +1162,16 @@ impl EndpointExplorationError {
             self,
             EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. }
         )
+    }
+
+    /// Returns the consecutive count if this is an IntermittentHPEUnauthorized error.
+    pub fn intermittent_hpe_unauthorized_count(&self) -> Option<u32> {
+        match self {
+            EndpointExplorationError::IntermittentHPEUnauthorized {
+                consecutive_count, ..
+            } => Some(*consecutive_count),
+            _ => None,
+        }
     }
 }
 
