@@ -38,6 +38,11 @@ on:
         required: false
         default: false
         type: boolean
+      extras_image:
+        description: 'Location of additional artifacts to place into the built images'
+        required: true
+        default: false
+        type: string
     outputs:
       artifacts_json:
         description: 'Artifacts paths as JSON array'
