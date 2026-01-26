@@ -29,6 +29,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{Layer, filter, reload};
 
 use super::level_filter::ActiveLevel;
+use crate::api::ApiMetrics;
 use crate::logging::level_filter::ReloadableFilter;
 use crate::logging::sqlx_query_tracing;
 
