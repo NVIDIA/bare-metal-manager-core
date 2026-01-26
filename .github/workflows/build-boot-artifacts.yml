@@ -228,7 +228,7 @@ jobs:
 
           echo "Copying libnss debs"
           mkdir -p "pxe/debs"
-          cp -av pxe/.scout-extras/debs/. pxe/debs
+          cp -v pxe/.scout-extras/debs/{arm64,amd64}/*.deb pxe/debs
 
           echo "Appending postinstall extras script"
           if [ -f "pxe/.scout-extras/postinst-extras.sh" ]; then
