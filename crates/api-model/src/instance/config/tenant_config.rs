@@ -64,11 +64,7 @@ impl TryFrom<TenantConfig> for rpc::forge::TenantConfig {
     fn try_from(config: TenantConfig) -> Result<rpc::forge::TenantConfig, Self::Error> {
         Ok(Self {
             tenant_organization_id: config.tenant_organization_id.to_string(),
-            custom_ipxe: String::new(),
-            user_data: None,
             tenant_keyset_ids: config.tenant_keyset_ids,
-            always_boot_with_custom_ipxe: false,
-            phone_home_enabled: false,
             hostname: config.hostname,
         })
     }
