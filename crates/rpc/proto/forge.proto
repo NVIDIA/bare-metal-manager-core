@@ -1806,6 +1806,8 @@ message MachineState {
 }
 
 message InstancePowerRequest {
+  // The Machine to perform power operation on.
+  // Deprecated: User `instance_id` field instead.
   common.MachineId machine_id = 1;
 
   enum Operation {
@@ -1829,6 +1831,9 @@ message InstancePowerRequest {
   // In case update is needed, and user wants to approve, they can inform via this flag.
   // If this flag is true, first update will be performed and then host will be rebooted.
   bool apply_updates_on_reboot = 4;
+
+  // The instance to perform power operation on.
+  common.InstanceId instance_id = 5;
 }
 
 message InstancePowerResult {

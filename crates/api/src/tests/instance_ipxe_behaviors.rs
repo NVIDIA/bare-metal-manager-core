@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::{TestEnv, TestManagedHost, create_test_env};
 use rpc::forge::forge_server::Forge;
@@ -58,7 +58,7 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     ));
 
     // A regular reboot attempt should still lead to returning "exit"
-    invoke_instance_power(&env, mh.id, false).await;
+    invoke_instance_power(&env, tinstance.id, false).await;
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(
         pxe.pxe_script.contains("Current state: Assigned/Ready"),
@@ -70,12 +70,12 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     ));
 
     // A reboot with flag `boot_with_custom_ipxe` should provide the custom iPXE
-    invoke_instance_power(&env, mh.id, true).await;
+    invoke_instance_power(&env, tinstance.id, true).await;
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // The next reboot should again lead to returning "exit"
-    invoke_instance_power(&env, mh.id, false).await;
+    invoke_instance_power(&env, tinstance.id, false).await;
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(
         pxe.pxe_script.contains("Current state: Assigned/Ready"),
@@ -85,6 +85,33 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     assert!(pxe.pxe_script.contains(
         "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
     ));
+
+    // A reboot should also be possible with just MachineId
+    // TODO: Remove these assertions after the `machine_id` based reboots are removed.
+    env.api
+        .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
+            instance_id: None,
+            machine_id: Some(mh.id),
+            operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
+            boot_with_custom_ipxe: false,
+            apply_updates_on_reboot: false,
+        }))
+        .await
+        .unwrap();
+
+    // A request with mismatching Machine and InstanceId should fail
+    let err = env
+        .api
+        .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
+            instance_id: Some(tinstance.id),
+            machine_id: Some(mh.dpu_ids[0]),
+            operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
+            boot_with_custom_ipxe: false,
+            apply_updates_on_reboot: false,
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
 }
 
 #[crate::sqlx_test]
@@ -117,24 +144,25 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // A regular reboot attempt should also return custom iPXE instructions
-    invoke_instance_power(&env, mh.id, false).await;
+    invoke_instance_power(&env, tinstance.id, false).await;
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // A reboot with flag `boot_with_custom_ipxe` should also return custom iPXE instructions
-    invoke_instance_power(&env, mh.id, true).await;
+    invoke_instance_power(&env, tinstance.id, true).await;
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 }
 
 async fn invoke_instance_power(
     env: &TestEnv,
-    host_machine_id: MachineId,
+    instance_id: InstanceId,
     boot_with_custom_ipxe: bool,
 ) {
     env.api
         .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id),
+            instance_id: Some(instance_id),
+            machine_id: None,
             operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
             boot_with_custom_ipxe,
             apply_updates_on_reboot: false,
