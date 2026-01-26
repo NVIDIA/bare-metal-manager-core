@@ -47,7 +47,7 @@ service:
                     - resource/metrics-{{ .Id }}
                     - telemetry_stats
                     - batch/metrics
-                exporters: [otlp/site, prometheus]
+                exporters: ${env:OTELCOL_METRICS_EXPORTERS_LIST}
             {{- end }}
             {{- range $obsvConfig.Logging}}
             logs/{{ .Id }}:
@@ -59,5 +59,5 @@ service:
                     - resource/logs-{{ .Id }}
                     - telemetry_stats
                     - batch/logs
-                exporters: [otlp/site]
+                exporters: ${env:OTELCOL_LOGS_EXPORTERS_LIST}
             {{- end }}

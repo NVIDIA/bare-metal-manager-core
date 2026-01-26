@@ -1,5 +1,9 @@
 #!/bin/bash -p
 
+# Set default exporter lists if not already set
+export OTELCOL_LOGS_EXPORTERS_LIST="${OTELCOL_LOGS_EXPORTERS_LIST:-[otlp/site]}"
+export OTELCOL_METRICS_EXPORTERS_LIST="${OTELCOL_METRICS_EXPORTERS_LIST:-[otlp/site, prometheus]}"
+
 source /etc/otelcol-contrib/otelcol-wrapper-imports
 
 /usr/bin/otelcol-contrib validate --config=/etc/otelcol-contrib/config.yaml ${ADDITIONAL_CONFIGS}

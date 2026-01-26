@@ -1,0 +1,18 @@
+exporters:
+  otlp/site:
+    endpoint: otel-receiver.forge:443
+    tls:
+      ca_file: /opt/forge/forge_root.pem
+      cert_file: /etc/ssl/certs/forge-dpu-otel-agent.pem
+      key_file: /etc/ssl/private/forge-dpu-otel-agent.key
+      reload_interval: 1h
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 1h
+  prometheus:
+    endpoint: "127.0.0.1:9999"
+    resource_to_telemetry_conversion:
+      enabled: true
+
