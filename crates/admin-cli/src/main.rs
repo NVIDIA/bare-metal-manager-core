@@ -156,22 +156,14 @@ async fn main() -> color_eyre::Result<()> {
 
     // RMS client configuration with optional CLI overrides
     let rms_url = get_rms_api_url(config.rms_api_url);
-
+    let rms_root_ca = rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref());
     let rms_client_cert = rms_client_cert_info(
         config.rms_client_cert_path.clone(),
         config.rms_client_key_path.clone(),
     );
-    // Only require RMS root CA when using HTTPS
-    let rms_root_ca = if rms_url.starts_with("https://") {
-        rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref())
-            .expect("RMS root CA path is required for HTTPS connections")
-    } else {
-        rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref())
-            .unwrap_or_default()
-    };
     let rms_client_config = ForgeClientConfig::new(rms_root_ca, rms_client_cert);
-    let rms_client_config = ApiConfig::new(&rms_url, &rms_client_config);
-    let rms_client = RmsApiClient(RackManagerApiClient::new(&rms_client_config));
+    let rms_api_config = ApiConfig::new(&rms_url, &rms_client_config);
+    let rms_client = RmsApiClient(RackManagerApiClient::new(&rms_api_config));
 
     let command = match config.commands {
         None => {
