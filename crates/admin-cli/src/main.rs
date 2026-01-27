@@ -161,7 +161,12 @@ async fn main() -> color_eyre::Result<()> {
         config.rms_client_cert_path.clone(),
         config.rms_client_key_path.clone(),
     );
-    let rms_root_ca = rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref());
+    // Only require RMS root CA when using HTTPS
+    let rms_root_ca = if rms_url.starts_with("https://") {
+        rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref())
+    } else {
+        String::new()
+    };
     let rms_client_config = ForgeClientConfig::new(rms_root_ca, rms_client_cert);
     let rms_client_config = ApiConfig::new(&rms_url, &rms_client_config);
     let rms_client = RmsApiClient(RackManagerApiClient::new(&rms_client_config));
