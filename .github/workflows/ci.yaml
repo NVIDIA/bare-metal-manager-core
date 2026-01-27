@@ -668,7 +668,7 @@ jobs:
         uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
         with:
           extra-args: '--results=verified,unknown --only-verified'
-          post-pr-comment: 'true'
+          post-pr-comment: 'false'
           fail-on-findings: 'true'
 
   security-codeql-scan:
@@ -693,7 +693,7 @@ jobs:
           build-mode: 'none'
           category: '/language:rust'
           upload-sarif: 'false'  # Disable upload until GHAS is enabled, such as the repo be public
-          post-pr-comment: 'true'
+          post-pr-comment: 'false'
           fail-on-findings: 'true'  # Enforce quality gate
           fail-on-severity: 'error' # Only fail on critical/high severity issues
 
@@ -722,7 +722,7 @@ jobs:
           skip-dirs: 'crates/bmc-mock'
           ignore-unfixed: 'true'
           upload-sarif: 'false'  # Disable upload until GHAS is enabled, such as the repo be public
-          post-pr-comment: 'true'
+          post-pr-comment: 'false'
           fail-on-findings: 'false' # FIXME: Disabled until all issues are fixed
 
   # ============================================================================

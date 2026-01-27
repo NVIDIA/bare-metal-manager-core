@@ -39,7 +39,7 @@ pub(crate) async fn create(
     resp.config.rate_limit = Some(fabric_config.rate_limit.clone());
     resp.config.service_level = Some(fabric_config.service_level.clone());
 
-    resp.config.pkey = allocate_pkey(api, &mut txn, &resp.config.metadata.name).await?;
+    resp.config.pkey = allocate_pkey(api, &mut txn, &resp.metadata.name).await?;
     let resp = db::ib_partition::create(resp, &mut txn, fabric_config.max_partition_per_tenant)
         .await
         .map_err(|e| {
