@@ -31,7 +31,6 @@ pub(super) struct PeriodicEnqueuer<IO: StateControllerIO> {
     /// A database connection pool that can be used for additional queries
     pub(super) pool: sqlx::PgPool,
     pub(super) work_lock_manager_handle: WorkLockManagerHandle,
-    pub(super) work_key: &'static str,
     pub(super) io: Arc<IO>,
     pub(super) metric_emitter: Option<EnqueuerMetricsEmitter>,
     pub(super) stop_token: CancellationToken,
@@ -164,26 +163,6 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         &mut self,
         iteration_metrics: &mut PeriodicEnqueuerMetrics,
     ) -> Result<ControllerIteration, IterationError> {
-        let _lock = match self
-            .work_lock_manager_handle
-            .try_acquire_lock(self.work_key.into())
-            .await
-        {
-            Ok(lock) => {
-                tracing::Span::current().record("skipped_iteration", false);
-                tracing::trace!(lock = IO::DB_WORK_KEY, "PeriodicEnqueuer acquired the lock");
-                lock
-            }
-            Err(e) => {
-                tracing::Span::current().record("skipped_iteration", true);
-                tracing::info!(
-                    lock = IO::DB_WORK_KEY,
-                    "PeriodicEnqueuer was not able to obtain the lock: {e}",
-                );
-                return Err(IterationError::LockError);
-            }
-        };
-
         let locked_controller_iteration = match db::lock_and_start_iteration(
             &self.pool,
             &self.work_lock_manager_handle,
@@ -193,6 +172,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         {
             Ok(locked_controller_iteration) => locked_controller_iteration,
             Err(e) => {
+                tracing::Span::current().record("skipped_iteration", true);
                 tracing::error!(
                     iteration_table_id = IO::DB_ITERATION_ID_TABLE_NAME,
                     error = %e,
