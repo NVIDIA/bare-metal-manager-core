@@ -27,7 +27,7 @@ use mac_address::MacAddress;
 use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
 use model::power_shelf::PowerShelfControllerState;
 use model::site_explorer::{
@@ -332,6 +332,75 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     let machine_snapshots =
         db::managed_host::load_all(&mut txn, LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 1);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_site_explorer_onboard_nic_creates_managed_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mut machines = vec![FakeMachine::new(
+        "6a:6b:6c:6d:6e:70",
+        "VendorOnboardNic",
+        &env.underlay_segment,
+    )];
+    machines.discover_dhcp(&env).await?;
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    let mock_host = machines[0].as_mock_host(vec![]);
+
+    endpoint_explorer.insert_endpoint_results(vec![(
+        machines[0].ip.parse().unwrap(),
+        Ok(mock_host.clone().into()),
+    )]);
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        allow_zero_dpu_hosts: false,
+        use_onboard_nic: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
+    );
+
+    explorer.run_single_iteration().await.unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let explored = db::explored_endpoints::find_all(&mut txn).await.unwrap();
+    assert_eq!(explored.len(), 1);
+    db::explored_endpoints::set_preingestion_complete(explored[0].address, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await?;
+
+    explorer.run_single_iteration().await.unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let managed_hosts =
+        db::managed_host::load_all(&mut txn, LoadSnapshotOptions::default()).await?;
+    assert_eq!(managed_hosts.len(), 1);
+    // check DPUs attached to the managed host
+    assert_eq!(managed_hosts[0].dpu_snapshots.len(), 0);
+    assert!(matches!(
+        managed_hosts[0].managed_state,
+        ManagedHostState::HostInit { .. }
+    ));
 
     Ok(())
 }
