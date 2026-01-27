@@ -103,3 +103,34 @@ instructions.
 ### Metrics and Logs
 
 Carbide collects metrics and logs from the managed hosts and the site controller. This information is in Prometheus format and can be scraped by a Prometheus server.
+
+## Development and Security
+
+### Code Quality and Security Scanning
+
+Carbide uses pre-commit hooks to enforce code quality and security standards. The following checks are automatically run before each commit:
+
+- **TruffleHog**: Scans for secrets and credentials accidentally committed to the repository. This helps prevent sensitive information from being exposed in version control.
+
+#### Setting Up Pre-commit Hooks
+
+To enable pre-commit hooks locally:
+
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install the git hooks
+pre-commit install
+
+# (Optional) Run against all files
+pre-commit run --all-files
+```
+
+#### Manual Secret Scanning
+
+To scan the entire repository for secrets:
+
+```bash
+trufflehog git file://. --only-verified
+```
