@@ -33,7 +33,7 @@ use crate::state_controller::metrics::{
 use crate::state_controller::state_change_emitter::{StateChangeEmitter, StateChangeEvent};
 use crate::state_controller::state_handler::{
     FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerContextObjects,
-    StateHandlerError, StateHandlerOutcome,
+    StateHandlerError, StateHandlerOutcome, StateHandlerOutcomeWithTransaction,
 };
 
 /// The `StateProcessor` is responsible for executing the state handler functions
@@ -647,15 +647,30 @@ async fn process_object<IO: StateControllerIO>(
             metrics: &mut metrics.specific,
         };
 
-        let handler_outcome = handler
-            .handle_object_state(
-                &object_id,
-                &mut snapshot,
-                &controller_state.value,
-                &mut txn,
-                &mut ctx,
-            )
+        // Commit the transaction now, since we don't want to leave a txn open
+        // throughout handle_object_state.
+        txn.commit().await?;
+
+        let handler_output = handler
+            .handle_object_state(&object_id, &mut snapshot, &controller_state.value, &mut ctx)
             .await;
+
+        // What transaction should we use for persisting the outcome? If the
+        // handler was successful and gave us back a transaction, use that,
+        // otherwise make our own.
+        let (handler_outcome, mut txn) = match handler_output {
+            Ok(StateHandlerOutcomeWithTransaction {
+                outcome,
+                transaction,
+            }) => {
+                if let Some(txn) = transaction {
+                    (Ok(outcome), txn)
+                } else {
+                    (Ok(outcome), pool.begin().await?)
+                }
+            }
+            Err(e) => (Err(e), pool.begin().await?),
+        };
 
         let mut next_state = None;
         if let Ok(StateHandlerOutcome::Transition {

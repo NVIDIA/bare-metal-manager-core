@@ -344,7 +344,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .map(|tenant| tenant.tenant_organization_id.clone())
             .unwrap_or_default();
 
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&instance.metadata);
+        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(instance.metadata.as_ref());
 
         let tenant_state = instance
             .status
@@ -531,6 +531,7 @@ pub async fn handle_reboot(args: RebootInstance, api_client: &ApiClient) -> Carb
     api_client
         .0
         .invoke_instance_power(InstancePowerRequest {
+            instance_id: Some(args.instance),
             machine_id: Some(machine_id),
             operation: forgerpc::instance_power_request::Operation::PowerReset as i32,
             boot_with_custom_ipxe: args.custom_pxe,

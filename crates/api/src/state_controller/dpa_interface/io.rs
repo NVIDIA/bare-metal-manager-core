@@ -36,7 +36,6 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
     type MetricsEmitter = DpaInterfaceMetricsEmitter;
     type ContextObjects = DpaInterfaceStateHandlerContextObjects;
 
-    const DB_WORK_KEY: &'static str = "dpa_interfaces_controller_lock";
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "dpa_interfaces_controller_iteration_ids";
     const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "dpa_interfaces_controller_queued_objects";
 

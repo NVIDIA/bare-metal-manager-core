@@ -693,23 +693,56 @@ pub(crate) async fn invoke_power(
     let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
-    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
-    )
-    .await?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
-    if snapshot.instance.is_none() {
-        return Err(Status::invalid_argument(format!(
-            "Supplied machine ID does not match an instance: {machine_id}"
-        )));
-    }
+    // Search by instance ID if provided, else by machine ID
+    let snapshot = if let Some(instance_id) = &request.instance_id {
+        let snapshot = db::managed_host::load_by_instance_ids(
+            &mut txn,
+            &[*instance_id],
+            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+        )
+        .await?
+        .pop()
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
+
+        if let Some(machine_id) = &request.machine_id
+            && *machine_id != snapshot.host_snapshot.id
+        {
+            return Err(Status::invalid_argument(format!(
+                "Instance {} is not hosted on machine {}",
+                instance_id, machine_id
+            )));
+        }
+
+        snapshot
+    } else if let Some(machine_id) = &request.machine_id {
+        log_machine_id(machine_id);
+
+        let snapshot = db::managed_host::load_snapshot(
+            &mut txn,
+            machine_id,
+            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+        )
+        .await?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
+        if snapshot.instance.is_none() {
+            return Err(Status::invalid_argument(format!(
+                "Supplied machine ID does not match an instance: {machine_id}"
+            )));
+        }
+
+        snapshot
+    } else {
+        return Err(CarbideError::MissingArgument("instance_id").into());
+    };
+    let machine_id = snapshot.host_snapshot.id;
+    log_machine_id(&machine_id);
 
     // Log tenant organization ID
     if let Some(ref instance) = snapshot.instance {

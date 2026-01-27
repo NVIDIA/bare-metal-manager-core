@@ -1378,10 +1378,11 @@ enum TenantState {
 
 // Describe the desired configuration of an IBPartition
 message IBPartitionConfig {
-  // The name of IBPartition.
+  // Deprecated: use Metadata instead  - the name of IBPartition.
   string name = 1;
   // The ID of tenant that IBPartition belong to
   string tenantOrganizationId = 2; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+
 }
 
 // Describe the status and applied configuration of an IBPartition
@@ -1415,6 +1416,8 @@ message IBPartition {
   string config_version = 3;
 
   IBPartitionStatus status = 4;
+
+  Metadata metadata = 5;
 }
 
 message IBPartitionList {
@@ -1427,6 +1430,8 @@ message IBPartitionCreationRequest {
   // a random ID.
   // The Partition ID must be unique within the Forge site.
   optional common.IBPartitionId id = 2;
+
+  Metadata metadata = 3;
 }
 
 message IBPartitionDeletionRequest {
@@ -1806,6 +1811,8 @@ message MachineState {
 }
 
 message InstancePowerRequest {
+  // The Machine to perform power operation on.
+  // Deprecated: User `instance_id` field instead.
   common.MachineId machine_id = 1;
 
   enum Operation {
@@ -1829,6 +1836,9 @@ message InstancePowerRequest {
   // In case update is needed, and user wants to approve, they can inform via this flag.
   // If this flag is true, first update will be performed and then host will be rebooted.
   bool apply_updates_on_reboot = 4;
+
+  // The instance to perform power operation on.
+  common.InstanceId instance_id = 5;
 }
 
 message InstancePowerResult {

@@ -173,7 +173,6 @@ impl<IO: StateControllerIO> Builder<IO> {
         let enqueuer = PeriodicEnqueuer::<IO> {
             pool: database.clone(),
             work_lock_manager_handle,
-            work_key: IO::DB_WORK_KEY,
             stop_token: stop_token.clone(),
             metric_emitter: period_enqueuer_metric_emitter,
             iteration_config: self.iteration_config,
