@@ -1975,6 +1975,12 @@ pub mod test_support {
         ) -> Result<(), RedfishError> {
             Ok(())
         }
+
+        async fn set_utc_timezone(
+            &self,
+        ) -> Result<(), RedfishError> {
+            Ok(())
+        }
     }
 
     #[async_trait]
