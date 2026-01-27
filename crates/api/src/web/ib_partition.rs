@@ -32,7 +32,7 @@ struct IbPartitionShow {
 struct IbPartitionRowDisplay {
     id: String,
     tenant_organization_id: String,
-    name: String,
+    metadata: rpc::forge::Metadata,
     state: String,
     time_in_state_above_sla: bool,
     pkey: String,
@@ -40,18 +40,11 @@ struct IbPartitionRowDisplay {
 
 impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
     fn from(partition: forgerpc::IbPartition) -> Self {
+        let config = partition.config.unwrap_or_default();
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
-            tenant_organization_id: partition
-                .config
-                .as_ref()
-                .map(|config| config.tenant_organization_id.clone())
-                .unwrap_or_default(),
-            name: partition
-                .config
-                .as_ref()
-                .map(|config| config.name.clone())
-                .unwrap_or_default(),
+            tenant_organization_id: config.tenant_organization_id,
+            metadata: config.metadata.unwrap_or_default(),
             state: partition
                 .status
                 .as_ref()
@@ -145,7 +138,11 @@ async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>
             if ord.is_ne() {
                 return ord;
             }
-            let ord = p1.name.cmp(&p2.name);
+            let ord = p1
+                .metadata
+                .as_ref()
+                .map(|m| &m.name)
+                .cmp(&p2.metadata.as_ref().map(|m| &m.name));
             if ord.is_ne() {
                 return ord;
             }
@@ -165,7 +162,7 @@ struct IbPartitionDetail {
     id: String,
     config_version: String,
     tenant_organization_id: String,
-    name: String,
+    metadata: rpc::forge::Metadata,
     state: String,
     state_sla: String,
     time_in_state_above_sla: bool,
@@ -179,19 +176,12 @@ struct IbPartitionDetail {
 
 impl From<forgerpc::IbPartition> for IbPartitionDetail {
     fn from(partition: forgerpc::IbPartition) -> Self {
+        let config = partition.config.unwrap_or_default();
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             config_version: partition.config_version,
-            tenant_organization_id: partition
-                .config
-                .as_ref()
-                .map(|config| config.tenant_organization_id.clone())
-                .unwrap_or_default(),
-            name: partition
-                .config
-                .as_ref()
-                .map(|config| config.name.clone())
-                .unwrap_or_default(),
+            tenant_organization_id: config.tenant_organization_id,
+            metadata: config.metadata.unwrap_or_default(),
             state: partition
                 .status
                 .as_ref()

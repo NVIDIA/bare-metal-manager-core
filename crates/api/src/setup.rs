@@ -602,7 +602,7 @@ pub async fn initialize_and_start_controllers(
     };
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: db_pool.clone().into(),
+        db_pool: db_pool.clone(),
         redfish_client_pool: shared_redfish_pool.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),
@@ -611,6 +611,15 @@ pub async fn initialize_and_start_controllers(
         dpa_info,
         rms_client: rms_client.clone(),
     });
+
+    // Use the hostname as cluster-wide state controller ID
+    // The expectation here is that either the host only runs a single
+    // carbide instance natively, or - if the multiple instances run as containers
+    // - every container gets its own hostname (k8s pod name)
+    let state_controller_id = hostname::get()
+        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string().into())
+        .to_string_lossy()
+        .to_string();
 
     // Create DPF CRDs if enabled
     if carbide_config.dpf.enabled {
@@ -642,6 +651,7 @@ pub async fn initialize_and_start_controllers(
     let _machine_state_controller_handle = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_machines", meter.clone())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
         .state_handler(Arc::new(
@@ -700,6 +710,7 @@ pub async fn initialize_and_start_controllers(
     let ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("forge_network_segments", meter.clone())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone());
     let _network_segment_controller_handle = ns_builder
         .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
@@ -725,6 +736,7 @@ pub async fn initialize_and_start_controllers(
             StateController::<DpaInterfaceStateControllerIO>::builder()
                 .database(db_pool.clone(), work_lock_manager_handle.clone())
                 .meter("forge_dpa_interfaces", meter.clone())
+                .processor_id(state_controller_id.clone())
                 .services(handler_services.clone())
                 .iteration_config(
                     (&carbide_config.dpa_interface_state_controller.controller).into(),
@@ -747,6 +759,7 @@ pub async fn initialize_and_start_controllers(
         let _spdm_state_controller_handle = StateController::<SpdmStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
             .meter("spdm_attestation", meter.clone())
+            .processor_id(state_controller_id.clone())
             .services(handler_services.clone())
             .iteration_config((&carbide_config.spdm_state_controller.controller).into())
             .state_handler(Arc::new(SpdmAttestationStateHandler::new(
@@ -761,6 +774,7 @@ pub async fn initialize_and_start_controllers(
         StateController::<IBPartitionStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
             .meter("forge_ib_partitions", meter.clone())
+            .processor_id(state_controller_id.clone())
             .services(handler_services.clone())
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
             .state_handler(Arc::new(IBPartitionStateHandler::default()))
@@ -770,6 +784,7 @@ pub async fn initialize_and_start_controllers(
     let _power_shelf_controller_handle = StateController::<PowerShelfStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", meter.clone())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.power_shelf_state_controller.controller).into())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
@@ -779,6 +794,7 @@ pub async fn initialize_and_start_controllers(
     let _rack_controller_handle = StateController::<RackStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_racks", meter.clone())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(RackStateHandler::default()))
         .build_and_spawn()
@@ -787,6 +803,7 @@ pub async fn initialize_and_start_controllers(
     let _switch_controller_handle = StateController::<SwitchStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_switches", meter.clone())
+        .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.switch_state_controller.controller).into())
         .state_handler(Arc::new(SwitchStateHandler::default()))

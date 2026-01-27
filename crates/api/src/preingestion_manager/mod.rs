@@ -16,9 +16,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use db::DatabaseError;
-use db::safe_pg_pool::SafePgPool;
 use db::work_lock_manager::WorkLockManagerHandle;
+use db::{DatabaseError, WithTransaction};
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
@@ -153,7 +152,7 @@ impl PreingestionManager {
     /// Returns true if we stopped early due to a timeout.
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = PreingestionMetrics::new();
-        let mut db = SafePgPool::from(self.database_connection.clone());
+        let db = self.database_connection.clone();
 
         let _work_lock = match self
             .static_info
@@ -202,13 +201,13 @@ impl PreingestionManager {
         for endpoint in items.into_iter() {
             let permit = limit_sem.clone().acquire_owned().await.unwrap();
             let static_info = self.static_info.clone();
-            let mut db = db.clone();
+            let db = db.clone();
             let _abort_handle = task_set
                 .build_task()
                 .name(&format!("preingestion {}", endpoint.address))
                 .spawn(async move {
                     let _permit = permit; // retain semaphore until we're done
-                    one_endpoint(&mut db, &endpoint, static_info).await
+                    one_endpoint(&db, &endpoint, static_info).await
                 });
         }
 
@@ -230,7 +229,7 @@ impl PreingestionManager {
             }
         }
 
-        let mut conn = db.acquire().await?;
+        let mut conn = db.acquire().await.map_err(DatabaseError::acquire)?;
 
         metrics.machines_in_preingestion =
             db::explored_endpoints::find_preingest_not_waiting_not_error(&mut conn)
@@ -258,7 +257,7 @@ struct EndpointResult {
 }
 
 async fn one_endpoint(
-    db: &mut SafePgPool,
+    db: &PgPool,
     endpoint: &ExploredEndpoint,
     static_info: Arc<PreingestionManagerStatic>,
 ) -> CarbideResult<EndpointResult> {
@@ -415,7 +414,7 @@ impl PreingestionManagerStatic {
     /// ingestion can happen, and either kick them off if so otherwise move on.
     async fn check_firmware_versions_below_preingestion(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
@@ -483,7 +482,7 @@ impl PreingestionManagerStatic {
     /// would make a significant difference, as we're limited by our own upload bandwidth.
     async fn start_firmware_uploads_or_continue(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
         repeat: bool,
     ) -> CarbideResult<bool> {
@@ -558,7 +557,7 @@ impl PreingestionManagerStatic {
     /// First bool is true if started an upgrade, or for some other reason shouldn't check for updating other firmwares.  Second is if we delayed the update.
     async fn start_upgrade_if_needed(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
         fw_info: &Firmware,
         fw_type: FirmwareComponentType,
@@ -620,7 +619,7 @@ impl PreingestionManagerStatic {
     /// in_upgrade_firmware_wait triggers when we are waiting for installation of firmware after an upload.
     async fn in_upgrade_firmware_wait(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         args: &InUpgradeFirmwareWaitArgs<'_>,
     ) -> CarbideResult<()> {
         let (endpoint, task_id, final_version, upgrade_type, power_drains_needed, firmware_number) = (
@@ -814,7 +813,7 @@ impl PreingestionManagerStatic {
 
     async fn in_reset_for_new_firmware(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
         state: &PreingestionState,
     ) -> CarbideResult<()> {
@@ -1085,7 +1084,7 @@ impl PreingestionManagerStatic {
 
     async fn in_new_firmware_reported_wait(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
@@ -1251,7 +1250,7 @@ impl PreingestionManagerStatic {
 
     async fn pre_update_resets(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
         phase: Option<&InitialResetPhase>,
         last_time: Option<&DateTime<Utc>>,
@@ -1328,7 +1327,7 @@ impl PreingestionManagerStatic {
 
     async fn time_sync_resets(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
         phase: &TimeSyncResetPhase,
         last_time: Option<&DateTime<Utc>>,
@@ -1455,7 +1454,7 @@ impl PreingestionManagerStatic {
 
     async fn by_script(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint_address: std::net::IpAddr,
         to_install: &FirmwareEntry,
     ) -> Result<(), DatabaseError> {
@@ -1577,7 +1576,7 @@ impl PreingestionManagerStatic {
 
     async fn waiting_for_script(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
     ) -> Result<(), DatabaseError> {
         db.with_txn(|txn| async move {
@@ -1608,7 +1607,7 @@ impl PreingestionManagerStatic {
     /// false otherwise.
     async fn check_bmc_time_sync(
         &self,
-        db: &mut SafePgPool,
+        db: &PgPool,
         endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         tracing::debug!("Checking BMC time sync for {:?}", endpoint);
@@ -1744,7 +1743,7 @@ async fn initiate_update(
     firmware_type: &FirmwareComponentType,
     downloader: &FirmwareDownloader,
     firmware_number: u32,
-    db_pool: &mut SafePgPool,
+    db_pool: &PgPool,
 ) -> Result<(), DatabaseError> {
     if !to_install.get_filename(firmware_number).ends_with("bfb")
         && !downloader.available(

@@ -18,11 +18,12 @@ use model::rack::{
     Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackPowerState, RackReadyState,
     RackState, RackValidationState,
 };
-use sqlx::PgConnection;
+use sqlx::PgTransaction;
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandlerOutcomeWithTransaction,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -40,10 +41,10 @@ impl StateHandler for RackStateHandler {
         id: &Self::ObjectId,
         state: &mut Rack,
         controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<RackState>, StateHandlerError> {
         let mut config = state.config.clone();
+        let pending_txn: Option<PgTransaction>;
         tracing::info!("Rack {} is in state {}", id, controller_state.to_string());
         match controller_state {
             RackState::Expected => {
@@ -55,14 +56,15 @@ impl StateHandler for RackStateHandler {
                 {
                     Ordering::Greater => {
                         // walk through each expected mac addr and check if they have been linked
+                        let mut txn = ctx.services.db_pool.begin().await?;
                         for macaddr in config.expected_compute_trays.clone().as_slice() {
-                            match db_expected_machine::find_one_linked(txn, *macaddr).await {
+                            match db_expected_machine::find_one_linked(&mut txn, *macaddr).await {
                                 Ok(machine) => {
                                     if let Some(machine_id) = machine.machine_id
                                         && !config.compute_trays.contains(&machine_id)
                                     {
                                         config.compute_trays.push(machine_id);
-                                        db_rack::update(txn, id, &config).await?;
+                                        db_rack::update(&mut txn, id, &config).await?;
                                     }
                                 }
                                 Err(_) => {
@@ -70,6 +72,7 @@ impl StateHandler for RackStateHandler {
                                 }
                             }
                         }
+                        pending_txn = Some(txn);
                         false
                     }
                     Ordering::Less => {
@@ -82,10 +85,12 @@ impl StateHandler for RackStateHandler {
                         // todo: walk through the list and check which compute tray got removed from expected list
                         // this will disassociate the compute tray from the rack.
                         // ideally the expected machine update api handler takes care of this.
+                        pending_txn = None;
                         true
                     }
                     Ordering::Equal => {
                         // expected == explored
+                        pending_txn = None;
                         true
                     }
                 };
@@ -116,17 +121,19 @@ impl StateHandler for RackStateHandler {
                 // todo: check if all expected nvswitches showed up
                 //match config.expected_nvlink_switches.len().cmp(&config.nvlink_switches.len()) {}
                 if compute_done && ps_done {
-                    Ok(StateHandlerOutcome::transition(RackState::Discovering))
+                    Ok(StateHandlerOutcome::transition(RackState::Discovering)
+                        .with_txn(pending_txn))
                 } else {
-                    Ok(StateHandlerOutcome::do_nothing())
+                    Ok(StateHandlerOutcome::do_nothing().with_txn(pending_txn))
                 }
             }
             RackState::Discovering => {
                 // check if each compute machine has reached ManagedHostState::Ready
                 // we can then move all of them to firmware upgrade
+                let mut txn = ctx.services.db_pool.begin().await?;
                 for machine_id in config.compute_trays.iter() {
                     let mh_snapshot = db::managed_host::load_snapshot(
-                        txn,
+                        &mut txn,
                         machine_id,
                         LoadSnapshotOptions {
                             include_history: false,
@@ -146,7 +153,7 @@ impl StateHandler for RackStateHandler {
                             machine_id,
                             mh_snapshot.managed_state
                         );
-                        return Ok(StateHandlerOutcome::do_nothing());
+                        return Ok(StateHandlerOutcome::do_nothing().with_txn(Some(txn)));
                     }
                 }
                 // todo: check nvlink switches
@@ -157,7 +164,8 @@ impl StateHandler for RackStateHandler {
                     rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
                         rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
                     },
-                }))
+                })
+                .with_txn(Some(txn)))
             }
             RackState::Maintenance {
                 rack_maintenance: maintenance,
@@ -173,7 +181,8 @@ impl StateHandler for RackStateHandler {
                                     RackState::Maintenance {
                                         rack_maintenance: RackMaintenanceState::Completed,
                                     },
-                                ));
+                                )
+                                .with_txn(None));
                             }
                             RackFirmwareUpgradeState::Switch => {}
                             RackFirmwareUpgradeState::PowerShelf => {}
@@ -199,10 +208,11 @@ impl StateHandler for RackStateHandler {
                     RackMaintenanceState::Completed => {
                         return Ok(StateHandlerOutcome::transition(RackState::Ready {
                             rack_ready: RackReadyState::Full,
-                        }));
+                        })
+                        .with_txn(None));
                     }
                 }
-                Ok(StateHandlerOutcome::do_nothing())
+                Ok(StateHandlerOutcome::do_nothing().with_txn(None))
             }
             RackState::Ready {
                 rack_ready: ready_state,
@@ -216,18 +226,19 @@ impl StateHandler for RackStateHandler {
                             rack_maintenance: RackMaintenanceState::RackValidation {
                                 rack_validation: RackValidationState::Topology,
                             },
-                        }));
+                        })
+                        .with_txn(None));
                     }
                 }
-                Ok(StateHandlerOutcome::do_nothing())
+                Ok(StateHandlerOutcome::do_nothing().with_txn(None))
             }
-            RackState::Deleting => Ok(StateHandlerOutcome::do_nothing()),
+            RackState::Deleting => Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
             RackState::Error { cause: log } => {
                 // try to recover / auto-remediate
                 tracing::error!("Rack {} is in error state {}", id, log);
-                Ok(StateHandlerOutcome::do_nothing())
+                Ok(StateHandlerOutcome::do_nothing().with_txn(None))
             }
-            RackState::Unknown => Ok(StateHandlerOutcome::do_nothing()),
+            RackState::Unknown => Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
         }
     }
 }

@@ -19,15 +19,13 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
-use crate::logging::sqlx_query_tracing;
-use crate::state_controller::controller::ControllerIterationId;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::state_handler::StateHandlerError;
 
 #[derive(Debug, Hash, PartialEq, Eq, serde::Serialize, Clone)]
 pub(crate) struct FullState {
-    state: &'static str,
-    substate: &'static str,
+    pub(crate) state: &'static str,
+    pub(crate) substate: &'static str,
 }
 
 // This attributes defines whether we captured the metrics recently,
@@ -89,31 +87,11 @@ impl<IO: StateControllerIO> Default for ObjectHandlerMetrics<IO> {
 }
 
 /// Metrics that are produced by a state controller iteration
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CommonIterationMetrics {
-    /// When we started recording these metrics
-    pub recording_started_at: std::time::Instant,
-    /// When we finished recording the metrics
-    pub recording_finished_at: std::time::Instant,
-    /// The iteration ID
-    pub iteration_id: Option<ControllerIterationId>,
-    /// The amount of objects which have been enqueued in this run
-    pub num_enqueued_objects: usize,
     /// Aggregated metrics per state, with optional next state information
     /// Key: FullState containing current_state, current_substate before the transition
     pub state_metrics: HashMap<FullState, StateMetrics>,
-}
-
-impl Default for CommonIterationMetrics {
-    fn default() -> Self {
-        Self {
-            recording_started_at: std::time::Instant::now(),
-            recording_finished_at: std::time::Instant::now(),
-            iteration_id: None,
-            num_enqueued_objects: 0,
-            state_metrics: Default::default(),
-        }
-    }
 }
 
 impl CommonIterationMetrics {
@@ -300,7 +278,6 @@ impl MetricsEmitter for NoopMetricsEmitter {
 /// state handling related metrics that are used within all state controllers.
 #[derive(Debug)]
 pub struct CommonMetricsEmitter<IO> {
-    controller_iteration_latency: Histogram<f64>,
     state_entered_counter: Counter<u64>,
     state_exited_counter: Counter<u64>,
     time_in_state_histogram: Histogram<f64>,
@@ -317,13 +294,6 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         meter: &Meter,
         shared_metrics_holder: SharedMetricsHolder<Self::IterationMetrics>,
     ) -> Self {
-        let controller_iteration_latency = meter
-            .f64_histogram(format!("{object_type}_iteration_latency"))
-            .with_description(format!(
-                "The overall time it took to handle state for all {object_type} in the system"
-            ))
-            .with_unit("ms")
-            .build();
         {
             // The code below is what creates counters like forge_network_segments_total
             let metrics = shared_metrics_holder.clone();
@@ -472,7 +442,6 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             .build();
 
         Self {
-            controller_iteration_latency,
             state_entered_counter,
             state_exited_counter,
             handler_latency_in_state_histogram,
@@ -542,101 +511,15 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
     }
 }
 
-impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
-    /// Emits iteration related counters and histograms
-    fn emit_iteration_counters_and_histograms(&self, iteration_metrics: &IterationMetrics<IO>) {
-        self.controller_iteration_latency.record(
-            1000.0
-                * iteration_metrics
-                    .common
-                    .recording_started_at
-                    .elapsed()
-                    .as_secs_f64(),
-            &[],
-        );
-    }
-
-    /// Emits the metrics that had been collected during a state controller iteration
-    /// as attributes on the tracing/OpenTelemetry span.
-    ///
-    /// This is different from the metrics being emitted as gauges since the span
-    /// will be emitted immediately after the iteration finishes. It will provide
-    /// exact information for the single run. However the information can not
-    /// be retrieved at any later time. The values for gauges are however cached
-    /// and can be consumed until the next iteration.
-    pub fn set_iteration_span_attributes(
-        &self,
-        span: &tracing::Span,
-        iteration_metrics: &IterationMetrics<IO>,
-    ) {
-        let mut total_objects = 0;
-        let mut total_errors = 0;
-        let mut states: HashMap<String, usize> = HashMap::new();
-        let mut states_above_sla: HashMap<String, usize> = HashMap::new();
-        let mut error_types: HashMap<String, HashMap<String, usize>> = HashMap::new();
-
-        span.record(
-            "num_enqueued_objects",
-            iteration_metrics.common.num_enqueued_objects,
-        );
-        if let Some(iteration_id) = iteration_metrics.common.iteration_id.as_ref() {
-            span.record("iteration_id", iteration_id.0);
-        }
-
-        for (full_state, state_metrics) in iteration_metrics.common.state_metrics.iter() {
-            total_objects += state_metrics.num_objects;
-
-            let full_state_name = if !full_state.substate.is_empty() {
-                format!("{}.{}", full_state.state, full_state.substate)
-            } else {
-                full_state.state.to_string()
-            };
-
-            for (error, &count) in state_metrics.handling_errors_per_type.iter() {
-                total_errors += count;
-                *error_types
-                    .entry(full_state_name.clone())
-                    .or_default()
-                    .entry(error.to_string())
-                    .or_default() += count;
-            }
-
-            states.insert(full_state_name.clone(), state_metrics.num_objects);
-            if state_metrics.num_objects_above_sla > 0 {
-                states_above_sla
-                    .insert(full_state_name.clone(), state_metrics.num_objects_above_sla);
-            }
-        }
-
-        span.record("objects_total", total_objects);
-        span.record("errors_total", total_errors);
-        span.record(
-            "states",
-            serde_json::to_string(&states).unwrap_or_else(|_| "{}".to_string()),
-        );
-        span.record(
-            "states_above_sla",
-            serde_json::to_string(&states_above_sla).unwrap_or_else(|_| "{}".to_string()),
-        );
-        if !error_types.is_empty() {
-            span.record(
-                "error_types",
-                serde_json::to_string(&error_types).unwrap_or_else(|_| "{}".to_string()),
-            );
-        }
-    }
-}
-
 /// Holds the OpenTelemetry data structures that are used to submit
 /// state handling related metrics
-pub struct StateControllerMetricEmitter<IO: StateControllerIO> {
+pub struct StateProcessorMetricEmitter<IO: StateControllerIO> {
     _meter: Meter,
     common: CommonMetricsEmitter<IO>,
-    db: sqlx_query_tracing::DatabaseMetricEmitters,
     specific: IO::MetricsEmitter,
 }
 
-impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
+impl<IO: StateControllerIO> StateProcessorMetricEmitter<IO> {
     pub fn new(
         object_type: &str,
         meter: Meter,
@@ -646,12 +529,10 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
         >,
     ) -> Self {
         let common = CommonMetricsEmitter::new(object_type, &meter, common_iteration_metrics);
-        let db = sqlx_query_tracing::DatabaseMetricEmitters::new(&meter);
         let specific = IO::MetricsEmitter::new(object_type, &meter, specific_iteration_metrics);
 
         Self {
             common,
-            db,
             specific,
             _meter: meter,
         }
@@ -665,46 +546,11 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
         self.specific
             .emit_object_counters_and_histograms(&object_metrics.specific);
     }
-
-    /// Emits counters and histogram metrics that are captured during a single state handler
-    /// iteration. Those are emitted immediately, whereas the values of gauges
-    /// is cached and emitted when queried.
-    pub fn emit_iteration_counters_and_histograms(
-        &self,
-        log_span_name: &str,
-        iteration_metrics: &IterationMetrics<IO>,
-        db_metrics: &sqlx_query_tracing::SqlxQueryDataAggregation,
-    ) {
-        self.common
-            .emit_iteration_counters_and_histograms(iteration_metrics);
-
-        // We use an attribute to distinguish the query counter from the
-        // ones that are used for other state controller and for gRPC requests
-        let attrs = &[KeyValue::new("operation", log_span_name.to_string())];
-        self.db.emit(db_metrics, attrs);
-    }
-
-    /// Emits the metrics that had been collected during a state controller iteration
-    /// as attributes on the tracing/OpenTelemetry span.
-    ///
-    /// This is different from the metrics being emitted as gauges since the span
-    /// will be emitted immediately after the iteration finishes. It will provide
-    /// exact information for the single run. However the information can not
-    /// be retrieved at any later time. The values for gauges are however cached
-    /// and can be consumed until the next iteration.
-    pub fn set_iteration_span_attributes(
-        &self,
-        span: &tracing::Span,
-        iteration_metrics: &IterationMetrics<IO>,
-    ) {
-        self.common
-            .set_iteration_span_attributes(span, iteration_metrics)
-    }
 }
 
 /// Stores Metric data shared between the Controller and the OpenTelemetry background task
 pub struct MetricHolder<IO: StateControllerIO> {
-    pub emitter: Option<Arc<StateControllerMetricEmitter<IO>>>,
+    pub emitter: Option<Arc<StateProcessorMetricEmitter<IO>>>,
     pub last_iteration_common_metrics: SharedMetricsHolder<CommonIterationMetrics>,
     pub last_iteration_specific_metrics:
         SharedMetricsHolder<<IO::MetricsEmitter as MetricsEmitter>::IterationMetrics>,
@@ -719,7 +565,7 @@ impl<IO: StateControllerIO> MetricHolder<IO> {
         >::with_fresh_period(MAX_FRESH_DURATION);
 
         let emitter = meter.as_ref().map(|meter| {
-            Arc::new(StateControllerMetricEmitter::new(
+            Arc::new(StateProcessorMetricEmitter::new(
                 object_type_for_metrics,
                 meter.clone(),
                 last_iteration_common_metrics.clone(),

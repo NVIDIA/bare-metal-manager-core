@@ -5,7 +5,7 @@
 # Rules are evaluated from top to bottom, with later rules taking precedence.
 
 # Default owners for everything in the repo
-* @NVIDIA/carbide-sw-maintainers
+* @NVIDIA/carbide-sw-contributors
 
 # CODEOWNERS file itself - requires admin approval
 /.github/CODEOWNERS @NVIDIA/carbide-sw-admins
@@ -15,4 +15,3 @@
 
 # Network IP module
 /common/network/src/ip/ @DrewBloechl
-
