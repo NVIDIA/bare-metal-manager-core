@@ -107,10 +107,7 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
     ]);
 
     for ib_partition in ib_partitions.ib_partitions {
-        let metadata = ib_partition
-            .config
-            .as_ref()
-            .and_then(|c| c.metadata.as_ref());
+        let metadata = ib_partition.metadata.as_ref();
         let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata);
 
         table.add_row(row![
@@ -157,7 +154,7 @@ fn convert_ib_partition_to_nice_format(
 
     let default_config = forgerpc::IbPartitionConfig::default();
     let config = ib_partition.config.as_ref().unwrap_or(&default_config);
-    let metadata = config.metadata.as_ref();
+    let metadata = ib_partition.metadata.as_ref();
     let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata);
 
     let default_status = forgerpc::IbPartitionStatus::default();
