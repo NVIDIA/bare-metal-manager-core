@@ -678,27 +678,25 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     .await
                 {
                     Ok(report) => report,
-                    // If we get an Unauthorized error from an HPE BMC but credentials are already
-                    // set, this is likely an intermittent error. Convert to
-                    // IntermittentHPEUnauthorized so we retry instead of going into AvoidLockout.
-                    // Allow up to MAX_HPE_AUTH_RETRIES before escalating to regular Unauthorized.
+                    // BMCs (HPEs currently) can return intermittent 401 errors even with valid credentials.
+                    // Allow up to MAX_AUTH_RETRIES before escalating to regular Unauthorized.
                     Err(EndpointExplorationError::Unauthorized {
                         details,
                         response_body,
                         response_code,
                     }) if vendor == RedfishVendor::Hpe => {
-                        const MAX_HPE_AUTH_RETRIES: u32 = 3;
+                        const MAX_AUTH_RETRIES: u32 = 3;
 
                         let previous_count = last_report
                             .and_then(|r| r.last_exploration_error.as_ref())
-                            .and_then(|e| e.intermittent_hpe_unauthorized_count())
+                            .and_then(|e| e.intermittent_unauthorized_count())
                             .unwrap_or(0);
                         let consecutive_count = previous_count + 1;
 
-                        if consecutive_count > MAX_HPE_AUTH_RETRIES {
+                        if consecutive_count > MAX_AUTH_RETRIES {
                             tracing::warn!(
                                 %bmc_ip_address, %bmc_mac_address, %details, consecutive_count,
-                                "HPE BMC unauthorized error persisted - escalating to Unauthorized"
+                                "BMC unauthorized error persisted - escalating to Unauthorized"
                             );
                             return Err(EndpointExplorationError::Unauthorized {
                                 details,
@@ -709,9 +707,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
 
                         tracing::warn!(
                             %bmc_ip_address, %bmc_mac_address, %details, consecutive_count,
-                            "HPE BMC unauthorized error - treating as intermittent"
+                            "BMC unauthorized error - treating as intermittent"
                         );
-                        return Err(EndpointExplorationError::IntermittentHPEUnauthorized {
+                        return Err(EndpointExplorationError::IntermittentUnauthorized {
                             details,
                             response_body,
                             response_code,

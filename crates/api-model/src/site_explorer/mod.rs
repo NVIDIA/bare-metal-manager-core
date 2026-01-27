@@ -1128,13 +1128,13 @@ pub enum EndpointExplorationError {
         response_code: Option<u16>,
     },
 
-    /// An intermittent unauthorized error from HPE BMCs that occurrs even when
-    /// site-wide credentials are already set. This is a transient error that
-    /// should be retried rather than triggering AvoidLockout behavior.
+    /// An intermittent unauthorized error that occurred even when site-wide
+    /// credentials are already set. This is a transient error that should be
+    /// retried rather than triggering AvoidLockout behavior.
     /// After `consecutive_count` reaches the threshold, escalates to regular Unauthorized.
-    #[error("Intermittent HPE unauthorized error (attempt {consecutive_count}): {details}")]
+    #[error("Intermittent unauthorized error (attempt {consecutive_count}): {details}")]
     #[serde(rename_all = "PascalCase")]
-    IntermittentHPEUnauthorized {
+    IntermittentUnauthorized {
         details: String,
         response_body: Option<String>,
         response_code: Option<u16>,
@@ -1164,10 +1164,10 @@ impl EndpointExplorationError {
         )
     }
 
-    /// Returns the consecutive count if this is an IntermittentHPEUnauthorized error.
-    pub fn intermittent_hpe_unauthorized_count(&self) -> Option<u32> {
+    /// Returns the consecutive count if this is an IntermittentUnauthorized error.
+    pub fn intermittent_unauthorized_count(&self) -> Option<u32> {
         match self {
-            EndpointExplorationError::IntermittentHPEUnauthorized {
+            EndpointExplorationError::IntermittentUnauthorized {
                 consecutive_count, ..
             } => Some(*consecutive_count),
             _ => None,
