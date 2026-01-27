@@ -90,6 +90,7 @@ use crate::state_controller::machine::{
 };
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandlerOutcomeWithTransaction,
 };
 
 mod helpers;
@@ -712,13 +713,13 @@ impl MachineStateHandler {
             }
             ManagedHostState::DPUInit { .. } => {
                 self.dpu_handler
-                    .handle_object_state(host_machine_id, mh_snapshot, &mh_state, txn, ctx)
+                    .handle_object_state_inner(mh_snapshot, txn, ctx)
                     .await
             }
 
             ManagedHostState::HostInit { .. } => {
                 self.host_handler
-                    .handle_object_state(host_machine_id, mh_snapshot, &mh_state, txn, ctx)
+                    .handle_object_state_inner(host_machine_id, mh_snapshot, txn, ctx)
                     .await
             }
 
@@ -887,7 +888,7 @@ impl MachineStateHandler {
             ManagedHostState::Assigned { instance_state: _ } => {
                 // Process changes needed for instance.
                 self.instance_handler
-                    .handle_object_state(host_machine_id, mh_snapshot, &mh_state, txn, ctx)
+                    .handle_object_state_inner(host_machine_id, mh_snapshot, txn, ctx)
                     .await
             }
 
@@ -1981,16 +1982,15 @@ impl StateHandler for MachineStateHandler {
     // Note: extra_logfmt_logging_fields function to add additional
     // parameters that should be logged for each event inside span
     // crated by tracing instrumentation of handle_object_state.
-    #[allow(txn_held_across_await)]
     #[instrument(skip_all, fields(object_id=%host_machine_id, state=%_mh_state))]
     async fn handle_object_state(
         &self,
         host_machine_id: &MachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
         _mh_state: &Self::ControllerState, // mh_snapshot above already contains it
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<ManagedHostState>, StateHandlerError> {
+        let mut txn = ctx.services.db_pool.begin().await?;
         if !mh_snapshot
             .host_snapshot
             .associated_dpu_machine_ids()
@@ -2002,7 +2002,7 @@ impl StateHandler for MachineStateHandler {
             )));
         }
         self.record_metrics(mh_snapshot, ctx);
-        self.record_health_history(mh_snapshot, txn).await?;
+        self.record_health_history(mh_snapshot, &mut txn).await?;
 
         // Handles power options based on the host's state and configuration settings.
         let PowerHandlingOutcome {
@@ -2018,7 +2018,8 @@ impl StateHandler for MachineStateHandler {
             }
             _ => {
                 if self.power_options_config.enabled {
-                    power::handle_power(mh_snapshot, txn, ctx, &self.power_options_config).await?
+                    power::handle_power(mh_snapshot, &mut txn, ctx, &self.power_options_config)
+                        .await?
                 } else {
                     PowerHandlingOutcome::new(None, true, None)
                 }
@@ -2026,13 +2027,15 @@ impl StateHandler for MachineStateHandler {
         };
 
         let result = if continue_state_machine {
-            self.attempt_state_transition(host_machine_id, mh_snapshot, txn, ctx)
+            self.attempt_state_transition(host_machine_id, mh_snapshot, &mut txn, ctx)
                 .await
+                .map(|o| o.with_txn(Some(txn)))
         } else {
             Ok(StateHandlerOutcome::wait(format!(
                 "State machine can't proceed due to power manager. {}",
                 msg.unwrap_or_default()
-            )))
+            ))
+            .with_txn(Some(txn)))
         };
 
         // Persist power options before returning
@@ -2041,7 +2044,7 @@ impl StateHandler for MachineStateHandler {
         if let Some(power_options) = power_options {
             let mut txn = ctx.services.db_pool.begin().await?;
             db::power_options::persist(&power_options, &mut txn).await?;
-            txn.commit().await.map_err(StateHandlerError::DBError)?;
+            txn.commit().await?;
         }
 
         result
@@ -3888,8 +3891,21 @@ impl StateHandler for DpuMachineStateHandler {
         _host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcomeWithTransaction<ManagedHostState>, StateHandlerError> {
+        // TODO: Fix txn_held_across_await in handle_object_state_inner, then move it back inline
+        let mut txn = ctx.services.db_pool.begin().await?;
+        let outcome = self.handle_object_state_inner(state, &mut txn, ctx).await?;
+        Ok(outcome.with_txn(Some(txn)))
+    }
+}
+
+impl DpuMachineStateHandler {
+    async fn handle_object_state_inner(
+        &self,
+        state: &mut ManagedHostStateSnapshot,
+        txn: &mut PgConnection,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let mut state_handler_outcome = StateHandlerOutcome::do_nothing();
 
@@ -4500,14 +4516,30 @@ impl StateHandler for HostMachineStateHandler {
     type ObjectId = MachineId;
     type ContextObjects = MachineStateHandlerContextObjects;
 
-    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         host_machine_id: &MachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcomeWithTransaction<ManagedHostState>, StateHandlerError> {
+        // TODO: Fix txn_held_across_await in handle_object_state_inner, then move it back inline
+        let mut txn = ctx.services.db_pool.begin().await?;
+        let outcome = self
+            .handle_object_state_inner(host_machine_id, mh_snapshot, &mut txn, ctx)
+            .await?;
+        Ok(outcome.with_txn(Some(txn)))
+    }
+}
+
+impl HostMachineStateHandler {
+    #[allow(txn_held_across_await)]
+    async fn handle_object_state_inner(
+        &self,
+        host_machine_id: &MachineId,
+        mh_snapshot: &mut ManagedHostStateSnapshot,
+        txn: &mut PgConnection,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         if let ManagedHostState::HostInit { machine_state } = &mh_snapshot.managed_state {
             match machine_state {
@@ -4698,20 +4730,20 @@ impl StateHandler for HostMachineStateHandler {
                     .await
                     {
                         Ok(measuring_outcome) => {
-                            return map_host_init_measuring_outcome_to_state_handler_outcome(
+                            map_host_init_measuring_outcome_to_state_handler_outcome(
                                 &measuring_outcome,
                                 measuring_state,
-                            );
+                            )
                         }
                         Err(StateHandlerError::MissingData {
                             object_id: _,
                             missing: "ek_cert_verification_status",
                         }) => {
-                            return Ok(StateHandlerOutcome::wait(
+                            Ok(StateHandlerOutcome::wait(
                                 "Waiting for Scout to start and send registration info (in discover_machine)".to_string()
-                            ));
+                            ))
                         }
-                        Err(e) => return Err(e),
+                        Err(e) => Err(e),
                     }
                 }
                 MachineState::WaitingForDiscovery => {
@@ -5017,14 +5049,30 @@ impl StateHandler for InstanceStateHandler {
     type ObjectId = MachineId;
     type ContextObjects = MachineStateHandlerContextObjects;
 
-    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         host_machine_id: &MachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcomeWithTransaction<ManagedHostState>, StateHandlerError> {
+        // TODO: Fix txn_held_across_await in handle_object_state_inner, then move it back inline
+        let mut txn = ctx.services.db_pool.begin().await?;
+        let outcome = self
+            .handle_object_state_inner(host_machine_id, mh_snapshot, &mut txn, ctx)
+            .await?;
+        Ok(outcome.with_txn(Some(txn)))
+    }
+}
+
+impl InstanceStateHandler {
+    #[allow(txn_held_across_await)]
+    async fn handle_object_state_inner(
+        &self,
+        host_machine_id: &MachineId,
+        mh_snapshot: &mut ManagedHostStateSnapshot,
+        txn: &mut PgConnection,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let Some(ref instance) = mh_snapshot.instance else {
             return Err(StateHandlerError::GenericError(eyre!(
@@ -5752,7 +5800,7 @@ impl StateHandler for InstanceStateHandler {
                         details,
                         machine_id
                     );
-                    return Ok(StateHandlerOutcome::do_nothing());
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
                 InstanceState::HostReprovision { .. } => {
                     if let Some(next_state) = self

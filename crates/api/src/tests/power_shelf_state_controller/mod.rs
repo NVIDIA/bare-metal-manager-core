@@ -19,7 +19,6 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 use rpc::forge::forge_server::Forge;
-use sqlx::PgConnection;
 
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::StateController;
@@ -27,6 +26,7 @@ use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContext
 use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandlerOutcomeWithTransaction,
 };
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
@@ -56,9 +56,8 @@ impl StateHandler for TestPowerShelfStateHandler {
         power_shelf_id: &PowerShelfId,
         state: &mut PowerShelf,
         _controller_state: &Self::ControllerState,
-        _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *power_shelf_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
@@ -66,7 +65,7 @@ impl StateHandler for TestPowerShelfStateHandler {
             *guard.entry(power_shelf_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(StateHandlerOutcome::do_nothing())
+        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
     }
 }
 
@@ -102,7 +101,7 @@ async fn test_power_shelf_state_transitions(
     const TEST_TIME: Duration = Duration::from_secs(5);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -174,7 +173,7 @@ async fn test_power_shelf_deletion_flow(
     const TEST_TIME: Duration = Duration::from_secs(2);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -268,7 +267,7 @@ async fn test_power_shelf_error_state_handling(
     const TEST_TIME: Duration = Duration::from_secs(5);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -395,7 +394,7 @@ async fn test_power_shelf_deletion_with_state_controller(
     const TEST_TIME: Duration = Duration::from_secs(2);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),

@@ -35,7 +35,7 @@ use crate::state_controller::state_change_emitter::{
 };
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerContextObjects, StateHandlerError,
-    StateHandlerOutcome,
+    StateHandlerOutcome, StateHandlerOutcomeWithTransaction,
 };
 
 #[crate::sqlx_test]
@@ -665,9 +665,8 @@ impl StateHandler for TestConcurrencyStateHandler {
         object_id: &String,
         state: &mut TestObject,
         _controller_state: &Self::ControllerState,
-        _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *object_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
@@ -675,7 +674,7 @@ impl StateHandler for TestConcurrencyStateHandler {
             *guard.entry(object_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        Ok(StateHandlerOutcome::do_nothing())
+        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
     }
 }
 
@@ -765,17 +764,16 @@ impl StateHandler for TestTransitionStateHandler {
         _object_id: &String,
         _state: &mut TestObject,
         controller_state: &Self::ControllerState,
-        _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
         match controller_state {
-            TestObjectControllerState::A => Ok(StateHandlerOutcome::transition(
-                TestObjectControllerState::B,
-            )),
-            TestObjectControllerState::B => Ok(StateHandlerOutcome::transition(
-                TestObjectControllerState::C,
-            )),
-            TestObjectControllerState::C => Ok(StateHandlerOutcome::do_nothing()),
+            TestObjectControllerState::A => {
+                Ok(StateHandlerOutcome::transition(TestObjectControllerState::B).with_txn(None))
+            }
+            TestObjectControllerState::B => {
+                Ok(StateHandlerOutcome::transition(TestObjectControllerState::C).with_txn(None))
+            }
+            TestObjectControllerState::C => Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
         }
     }
 }
