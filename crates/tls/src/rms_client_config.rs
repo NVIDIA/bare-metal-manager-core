@@ -85,7 +85,7 @@ pub fn rms_root_ca_path(rms_root_ca_path: Option<String>) -> String {
 
     panic!(
         r###"Unknown RMS Root CA path. Set (will be read in same sequence.)
-           1. Pass as argument to rms_root_ca_path() or
+           1. Use --rms-root-ca-path CLI option or RMS_ROOT_CA_PATH env var, or
            2. a file existing at "/var/run/secrets/spiffe.io/ca.crt" or
            3. a file existing at "{}" or
            4. a file existing at "$REPO_ROOT/dev/certs/localhost/ca.crt"."###,

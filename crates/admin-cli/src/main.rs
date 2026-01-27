@@ -154,12 +154,15 @@ async fn main() -> color_eyre::Result<()> {
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
 
-    // No cli config file for rms client for now
-    let rms_url = get_rms_api_url(None);
+    // RMS client configuration with optional CLI overrides
+    let rms_url = get_rms_api_url(config.rms_api_url);
 
-    let rms_client_cert = rms_client_cert_info(None, None);
-    let rms_root_ca_path = rms_root_ca_path(None);
-    let rms_client_config = ForgeClientConfig::new(rms_root_ca_path, rms_client_cert);
+    let rms_client_cert = rms_client_cert_info(
+        config.rms_client_cert_path.clone(),
+        config.rms_client_key_path.clone(),
+    );
+    let rms_root_ca = rms_root_ca_path(config.rms_root_ca_path.clone());
+    let rms_client_config = ForgeClientConfig::new(rms_root_ca, rms_client_cert);
     let rms_client_config = ApiConfig::new(&rms_url, &rms_client_config);
     let rms_client = RmsApiClient(RackManagerApiClient::new(&rms_client_config));
 
