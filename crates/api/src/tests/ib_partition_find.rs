@@ -144,7 +144,10 @@ async fn test_find_ib_partitions_by_ids(pool: sqlx::PgPool) {
 
     let partition3config = partition3.config.unwrap();
     let clone3config = partition_list.ib_partitions[0].clone().config.unwrap();
-    assert_eq!(partition3config.name, clone3config.name);
+    assert_eq!(
+        partition3config.metadata.unwrap().name,
+        clone3config.metadata.unwrap().name
+    );
     assert_eq!(
         partition3config.tenant_organization_id,
         clone3config.tenant_organization_id

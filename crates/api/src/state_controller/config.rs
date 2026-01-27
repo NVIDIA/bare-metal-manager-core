@@ -32,6 +32,12 @@ pub struct IterationConfig {
     /// The controller will attempt to advance the state of this amount of instances
     /// in parallel.
     pub max_concurrency: usize,
+
+    /// Configures how long the state processor will wait between dispatching new tasks
+    pub processor_dispatch_interval: Duration,
+
+    /// Configures how often the state handling processor will emit periodic log messages
+    pub processor_log_interval: Duration,
 }
 
 impl Default for IterationConfig {
@@ -44,6 +50,8 @@ impl Default for IterationConfig {
             // and missing sqlx timeouts
             max_object_handling_time: Duration::from_secs(3 * 60),
             max_concurrency: 10,
+            processor_log_interval: Duration::from_secs(60),
+            processor_dispatch_interval: Duration::from_secs(2),
         }
     }
 }

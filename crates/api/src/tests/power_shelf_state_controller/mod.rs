@@ -115,9 +115,11 @@ async fn test_power_shelf_state_transitions(
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
+            processor_dispatch_interval: Duration::from_millis(10),
             ..Default::default()
         })
         .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(power_shelf_handler.clone())
         .build_and_spawn()
@@ -185,9 +187,11 @@ async fn test_power_shelf_deletion_flow(
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
+            processor_dispatch_interval: Duration::from_millis(10),
             ..Default::default()
         })
         .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(power_shelf_handler.clone())
         .build_and_spawn()
@@ -277,9 +281,11 @@ async fn test_power_shelf_error_state_handling(
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
+            processor_dispatch_interval: Duration::from_millis(10),
             ..Default::default()
         })
         .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(power_shelf_handler.clone())
         .build_and_spawn()
@@ -402,9 +408,11 @@ async fn test_power_shelf_deletion_with_state_controller(
     let handle = StateController::<PowerShelfStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
+            processor_dispatch_interval: Duration::from_millis(10),
             ..Default::default()
         })
         .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(power_shelf_handler.clone())
         .build_and_spawn()

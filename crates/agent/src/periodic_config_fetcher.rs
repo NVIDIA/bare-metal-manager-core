@@ -277,8 +277,8 @@ pub fn instance_metadata_from_instance(
     let user_data = instance
         .config
         .as_ref()
-        .and_then(|config| config.tenant.as_ref())
-        .and_then(|tenant_config| tenant_config.user_data.clone())
+        .and_then(|config| config.os.as_ref())
+        .and_then(|os_config| os_config.user_data.clone())
         .unwrap_or_default();
 
     let devices = match extract_instance_ib_config(&instance) {

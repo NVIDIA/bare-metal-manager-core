@@ -96,12 +96,26 @@ async fn show_ib_partition_details(
 fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList) -> Box<Table> {
     let mut table = Table::new();
 
-    table.set_titles(row!["Id", "Name", "TenantOrg", "State", "Pkey",]);
+    table.set_titles(row![
+        "Id",
+        "Name",
+        "TenantOrg",
+        "State",
+        "Pkey",
+        "Labels",
+        "Description",
+    ]);
 
     for ib_partition in ib_partitions.ib_partitions {
+        let metadata = ib_partition.config.clone().unwrap_or_default().metadata;
+        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&metadata);
+
         table.add_row(row![
             ib_partition.id.unwrap_or_default(),
-            ib_partition.config.clone().unwrap_or_default().name,
+            metadata
+                .as_ref()
+                .map(|m| m.name.clone())
+                .unwrap_or_default(),
             ib_partition
                 .config
                 .unwrap_or_default()
@@ -116,6 +130,11 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
                 .unwrap_or_default()
                 .pkey
                 .unwrap_or_default(),
+            labels.join(", "),
+            metadata
+                .as_ref()
+                .map(|m| m.description.clone())
+                .unwrap_or_default(),
         ]);
     }
 
@@ -129,6 +148,9 @@ fn convert_ib_partition_to_nice_format(
     let mut lines = String::new();
 
     let config = ib_partition.config.clone().unwrap_or_default();
+    let metadata = config.metadata;
+    let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&metadata);
+
     let status = ib_partition.status.clone().unwrap_or_default();
     let state_reason = status.state_reason.unwrap_or_default();
     let data = vec![
@@ -136,7 +158,13 @@ fn convert_ib_partition_to_nice_format(
             "ID",
             ib_partition.id.map(|id| id.to_string()).unwrap_or_default(),
         ),
-        ("NAME", config.name),
+        (
+            "NAME",
+            metadata
+                .as_ref()
+                .map(|m| m.name.clone())
+                .unwrap_or_default(),
+        ),
         ("TENANT ORG", config.tenant_organization_id),
         (
             "STATE",
@@ -174,6 +202,14 @@ fn convert_ib_partition_to_nice_format(
             } else {
                 "NO".to_string()
             },
+        ),
+        ("LABELS", labels.join(", ")),
+        (
+            "DESCRIPTION",
+            metadata
+                .as_ref()
+                .map(|m| m.description.clone())
+                .unwrap_or_default(),
         ),
     ];
 

@@ -993,7 +993,7 @@ message RuntimeConfig {
 
   // BOM Validation Configuration
   bool bom_validation_enabled = 35;
-  bool bom_validation_ignore_unassigned_machines = 36;  // TODO: Remove after all consumers updated
+  bool bom_validation_ignore_unassigned_machines = 36; // TODO: Remove after all consumers updated
 
   repeated string dpu_nic_firmware_update_versions=37;
 
@@ -1378,10 +1378,12 @@ enum TenantState {
 
 // Describe the desired configuration of an IBPartition
 message IBPartitionConfig {
-  // The name of IBPartition.
+  // Deprecated: use Metadata instead  - the name of IBPartition.
   string name = 1;
   // The ID of tenant that IBPartition belong to
   string tenantOrganizationId = 2; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  // Metadata associated with this IB Partition
+  Metadata metadata = 3;
 }
 
 // Describe the status and applied configuration of an IBPartition
@@ -1806,6 +1808,8 @@ message MachineState {
 }
 
 message InstancePowerRequest {
+  // The Machine to perform power operation on.
+  // Deprecated: User `instance_id` field instead.
   common.MachineId machine_id = 1;
 
   enum Operation {
@@ -1829,6 +1833,9 @@ message InstancePowerRequest {
   // In case update is needed, and user wants to approve, they can inform via this flag.
   // If this flag is true, first update will be performed and then host will be rebooted.
   bool apply_updates_on_reboot = 4;
+
+  // The instance to perform power operation on.
+  common.InstanceId instance_id = 5;
 }
 
 message InstancePowerResult {
@@ -1911,30 +1918,9 @@ message TenantConfig {
   // Identifies the tenant that uses this instance
   string tenant_organization_id = 1;
 
-  // These fields are deprecated. If no `os` or `os_reference` object is defined
-  // in `InstanceConfig`, the fields would still be utilized. Otherwise
-  // the `os` configurations would take precedence.
-  optional string user_data = 11;
-  string custom_ipxe = 12;
-
-  // If this flag is set to `true`, the instance will receive the `custom_ipxe` instructions
-  // on every reboot attempts. Depending on the type of iPXE instructions, this might
-  // lead the instance to reinstall itself on every reboot.
-  //
-  // If the flag is set to `false` or not specified, Forge will only provide the
-  // `custom_ipxe` script on the first boot attempt. For every subsequent boot,
-  // the instance will use the default boot action - which is usually to boot from
-  // the hard drive.
-  //
-  // If the `custom_ipxe` instructions should only be used for specific reboots
-  // in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
-  // API to reboot instances with the `boot_with_custom_ipxe` parameter set to
-  // `true`.
-  bool always_boot_with_custom_ipxe = 13;
-
-  // If this flag is set to `true` the instance will not transition to a Ready state until
-  // InstancePhoneHomeLastContact is updated
-  bool phone_home_enabled = 14;
+  // These fields have been used for OS configuration in the past.
+  // They are now replaced with the OperatingSystem message.
+  reserved 11, 12, 13, 14;
 
   optional string hostname = 15;
 
@@ -2445,9 +2431,9 @@ enum IssueCategory {
 
 // Message containing details about an issue reported during instance release
 message Issue {
-  IssueCategory category = 1;    // Category of issue
-  string summary = 2;    // User-friendly summary of the issue
-  string details = 3;    // Additional context about the issue
+  IssueCategory category = 1; // Category of issue
+  string summary = 2; // User-friendly summary of the issue
+  string details = 3; // Additional context about the issue
 }
 
 message InstanceReleaseRequest {
@@ -2922,7 +2908,7 @@ message SSHKeyValidationResponse {
 }
 
 message CredentialRequest {
-  string host_id = 1;  // UUID, IP address, host name or MAC address
+  string host_id = 1; // UUID, IP address, host name or MAC address
 }
 
 message CredentialResponse {
@@ -3593,14 +3579,14 @@ message ForgeAgentControlRequest {
 
 message ForgeAgentControlResponse {
   enum Action {
-    NOOP = 0;       // No operation. Do nothing
-    RESET = 1;      // Wipe the machine, prepare for next tenant
-    DISCOVERY = 2;  // Run full discovery
-    REBUILD = 3;    // Future thingy
-    RETRY = 4;      // Machine needs more time to come in proper state. Retry again.
-    MEASURE = 5;    // Machine needs to send measurements for attestation.
-    LOGERROR = 6;   // Log error.
-    MACHINE_VALIDATION = 7;   // Machine validation.
+    NOOP = 0; // No operation. Do nothing
+    RESET = 1; // Wipe the machine, prepare for next tenant
+    DISCOVERY = 2; // Run full discovery
+    REBUILD = 3; // Future thingy
+    RETRY = 4; // Machine needs more time to come in proper state. Retry again.
+    MEASURE = 5; // Machine needs to send measurements for attestation.
+    LOGERROR = 6; // Log error.
+    MACHINE_VALIDATION = 7; // Machine validation.
     MLX_ACTION = 8; // MlxAction for DPA NICs
   }
   Action action = 1;
@@ -4213,13 +4199,13 @@ message DpuReprovisioningListRequest {
 
 message DpuReprovisioningListResponse {
   message DpuReprovisioningListItem {
-    common.MachineId id = 1;  // Dpu Machine ID
-    string state = 2;  // ManagedHost state
-    string initiator = 3;  // Who requested this reprovisioning.
-    google.protobuf.Timestamp requested_at = 4;  // When reprovisioning was requested.
+    common.MachineId id = 1; // Dpu Machine ID
+    string state = 2; // ManagedHost state
+    string initiator = 3; // Who requested this reprovisioning.
+    google.protobuf.Timestamp requested_at = 4; // When reprovisioning was requested.
     bool update_firmware = 5;
     optional google.protobuf.Timestamp initiated_at = 6;  // When reprovisioning is started.
-    bool user_approval_received = 7;  // User approval received or not if needed
+    bool user_approval_received = 7; // User approval received or not if needed
   }
   repeated DpuReprovisioningListItem dpus = 1;
 }
@@ -4240,11 +4226,11 @@ message HostReprovisioningListRequest {
 message HostReprovisioningListResponse {
   message HostReprovisioningListItem {
     common.MachineId id = 1; // Machine ID
-    string state = 2;  // ManagedHost state
-    string initiator = 3;  // Who requested this reprovisioning.
-    google.protobuf.Timestamp requested_at = 4;  // When reprovisioning was requested.
+    string state = 2; // ManagedHost state
+    string initiator = 3; // Who requested this reprovisioning.
+    google.protobuf.Timestamp requested_at = 4; // When reprovisioning was requested.
     optional google.protobuf.Timestamp initiated_at = 5;  // When reprovisioning is started.
-    bool user_approval_received = 6;  // User approval received or not if needed
+    bool user_approval_received = 6; // User approval received or not if needed
   }
   repeated HostReprovisioningListItem hosts = 1;
 }
