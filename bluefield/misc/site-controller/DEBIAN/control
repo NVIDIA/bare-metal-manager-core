@@ -1,0 +1,7 @@
+Package: otel-dpu
+Version: SED__DPU_AGENT_PKG_VERSION
+Section: base
+Priority: optional
+Architecture: arm64
+Maintainer: Forge team <swngc-forge-dev@nvidia.com>
+Description: OpenTelemetry for site controller DPUs, minus other Forge specific customizations.
