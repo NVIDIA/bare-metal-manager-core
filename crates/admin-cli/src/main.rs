@@ -164,8 +164,10 @@ async fn main() -> color_eyre::Result<()> {
     // Only require RMS root CA when using HTTPS
     let rms_root_ca = if rms_url.starts_with("https://") {
         rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref())
+            .expect("RMS root CA path is required for HTTPS connections")
     } else {
-        String::new()
+        rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref())
+            .unwrap_or_default()
     };
     let rms_client_config = ForgeClientConfig::new(rms_root_ca, rms_client_cert);
     let rms_client_config = ApiConfig::new(&rms_url, &rms_client_config);

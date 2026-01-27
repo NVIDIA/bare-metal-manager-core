@@ -62,44 +62,37 @@ pub fn rms_client_cert_info(
 pub fn rms_root_ca_path(
     rms_root_ca_path: Option<String>,
     file_config: Option<&FileConfig>,
-) -> String {
+) -> Option<String> {
     // First from command line, second env var.
     if let Some(rms_root_ca_path) = rms_root_ca_path {
-        return rms_root_ca_path;
+        return Some(rms_root_ca_path);
     }
 
     // Third config file
     if let Some(file_config) = file_config
         && let Some(rms_root_ca_path) = file_config.rms_root_ca_path.as_ref()
     {
-        return rms_root_ca_path.clone();
+        return Some(rms_root_ca_path.clone());
     }
 
     // this is the location for most k8s pods
     if Path::new("/var/run/secrets/spiffe.io/ca.crt").exists() {
-        return "/var/run/secrets/spiffe.io/ca.crt".to_string();
+        return Some("/var/run/secrets/spiffe.io/ca.crt".to_string());
     }
 
     // this is the location for most compiled clients executing on x86 hosts or DPUs
     if Path::new(tls_default::ROOT_CA).exists() {
-        return tls_default::ROOT_CA.to_string();
+        return Some(tls_default::ROOT_CA.to_string());
     }
 
     // and this is the location for developers executing from within carbide's repo
     if let Ok(project_root) = env::var("REPO_ROOT") {
         let path = format!("{}/dev/certs/localhost/ca.crt", project_root);
         if Path::new(path.as_str()).exists() {
-            return path;
+            return Some(path);
         }
     }
 
-    panic!(
-        r###"Unknown RMS Root CA path. Set (will be read in same sequence.)
-           1. Use --rms-root-ca-path CLI option or RMS_ROOT_CA_PATH env var, or
-           2. add rms_root_ca_path in $HOME/.config/carbide_api_cli.json, or
-           3. a file existing at "/var/run/secrets/spiffe.io/ca.crt" or
-           4. a file existing at "{}" or
-           5. a file existing at "$REPO_ROOT/dev/certs/localhost/ca.crt"."###,
-        tls_default::ROOT_CA
-    )
+    // RMS root CA is optional - if not found, return None instead of panicking
+    None
 }

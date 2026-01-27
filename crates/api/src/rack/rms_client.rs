@@ -98,7 +98,13 @@ impl RackManagerApi {
         api_url: &str,
     ) -> Self {
         let client_certs = rms_client_cert_info(client_cert, client_key);
-        let root_ca = rms_root_ca_path(root_ca_path, None);
+        // Only require RMS root CA when using HTTPS
+        let root_ca = if api_url.starts_with("https://") {
+            rms_root_ca_path(root_ca_path, None)
+                .expect("RMS root CA path is required for HTTPS connections")
+        } else {
+            rms_root_ca_path(root_ca_path, None).unwrap_or_default()
+        };
         let config = ForgeClientConfig::new(root_ca, client_certs);
         let api_config = ApiConfig::new(api_url, &config);
 
