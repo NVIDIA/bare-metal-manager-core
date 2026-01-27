@@ -283,7 +283,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             vendor = dmi.sys_vendor.clone();
         }
 
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&machine.metadata);
+        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(machine.metadata.as_ref());
 
         let is_unhealthy = machine
             .health

@@ -344,7 +344,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .map(|tenant| tenant.tenant_organization_id.clone())
             .unwrap_or_default();
 
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&instance.metadata);
+        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(instance.metadata.as_ref());
 
         let tenant_state = instance
             .status
