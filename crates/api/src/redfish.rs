@@ -1976,9 +1976,7 @@ pub mod test_support {
             Ok(())
         }
 
-        async fn set_utc_timezone(
-            &self,
-        ) -> Result<(), RedfishError> {
+        async fn set_utc_timezone(&self) -> Result<(), RedfishError> {
             Ok(())
         }
     }
