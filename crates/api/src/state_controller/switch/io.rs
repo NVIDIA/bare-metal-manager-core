@@ -37,7 +37,6 @@ impl StateControllerIO for SwitchStateControllerIO {
     type MetricsEmitter = NoopMetricsEmitter;
     type ContextObjects = SwitchStateHandlerContextObjects;
 
-    const DB_WORK_KEY: &'static str = "switch_controller_lock";
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "switch_controller_iteration_ids";
     const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "switch_controller_queued_objects";
 

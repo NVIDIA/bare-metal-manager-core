@@ -50,6 +50,49 @@ use crate::instance::{
 use crate::redfish::RedfishAuth;
 use crate::{CarbideError, CarbideResult};
 
+/// Represents the repair status label value set by RepairSystem
+///
+/// This enum is used to parse the `repair_status` label from machine metadata.
+/// All string comparisons are case-insensitive to provide a more robust API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RepairStatus {
+    /// Repair was completed successfully
+    Completed,
+    /// Repair failed or encountered errors
+    Failed,
+    /// Repair is currently in progress
+    InProgress,
+    /// Any other status value not explicitly handled
+    Unknown,
+}
+
+impl RepairStatus {
+    /// Parse a repair status string with case-insensitive matching
+    ///
+    /// Supports multiple formats for flexibility:
+    /// - `"completed"`, `"COMPLETED"`, etc.
+    /// - `"failed"`, `"FAILED"`, etc.
+    /// - `"inprogress"`, `"in_progress"`, `"in-progress"` (case-insensitive)
+    ///
+    /// Returns `RepairStatus::Unknown` for unrecognized values.
+    fn parse(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "completed" => Self::Completed,
+            "failed" => Self::Failed,
+            "inprogress" | "in_progress" | "in-progress" => Self::InProgress,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl FromStr for RepairStatus {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::parse(s))
+    }
+}
+
 pub(crate) async fn allocate(
     api: &Api,
     request: Request<rpc::InstanceAllocationRequest>,
@@ -392,15 +435,17 @@ async fn handle_instance_release_from_repair_tenant(
     }
 
     // Machine has RequestRepair override - check repair status
-    let repair_status = machine.metadata.labels.get("repair_status").cloned();
+    let repair_status_str = machine.metadata.labels.get("repair_status");
+    let repair_status = repair_status_str.map(|s| RepairStatus::parse(s.as_str()));
 
     tracing::info!(
         machine_id = %machine_id,
         repair_status = ?repair_status,
+        repair_status_raw = ?repair_status_str,
         "Processing repair tenant release with repair status"
     );
 
-    if repair_status.as_deref() == Some("Completed") {
+    if repair_status == Some(RepairStatus::Completed) {
         // Repair completed successfully - Good to remove the RequestRepair override.
         remove_health_override(
             txn,
@@ -469,8 +514,8 @@ async fn handle_instance_release_from_repair_tenant(
                 category: rpc::IssueCategory::Other as i32,
                 summary: "RepairSystem processing incomplete".to_string(),
                 details: format!(
-                    "Machine released by repair tenant but repair status is: {:?}",
-                    repair_status.as_deref().unwrap_or("Unknown")
+                    "Machine released by repair tenant but repair status is: {}",
+                    repair_status_str.map_or("Unknown", |s| s.as_str())
                 ),
             }
         };
