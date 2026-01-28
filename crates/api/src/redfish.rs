@@ -796,6 +796,7 @@ pub mod test_support {
     pub enum RedfishSimAction {
         Power(libredfish::SystemPowerControl),
         BmcReset,
+        SetUtcTimezone,
     }
 
     pub struct RedfishSimActions {
@@ -1977,6 +1978,14 @@ pub mod test_support {
         }
 
         async fn set_utc_timezone(&self) -> Result<(), RedfishError> {
+            self.state
+                .lock()
+                .unwrap()
+                .hosts
+                .get_mut(&self._host)
+                .unwrap()
+                .actions
+                .push(RedfishSimAction::SetUtcTimezone);
             Ok(())
         }
     }

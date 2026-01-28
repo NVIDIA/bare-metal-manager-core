@@ -2185,8 +2185,19 @@ async fn test_preingestion_time_sync_reset_flow(
     .await?;
     txn.commit().await?;
 
+    // Capture timepoint before running iteration
+    let timepoint = env.redfish_sim.timepoint();
+
     // Run iteration - should initiate BMC reset and move to BMCWasReset
     mgr.run_single_iteration().await?;
+
+    // Verify that SetUtcTimezone was called during the Start phase
+    let actions = env.redfish_sim.actions_since(&timepoint);
+    let all_actions = actions.all_hosts();
+    assert!(
+        all_actions.contains(&crate::redfish::RedfishSimAction::SetUtcTimezone),
+        "Expected SetUtcTimezone action to be called during TimeSyncReset Start phase"
+    );
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
